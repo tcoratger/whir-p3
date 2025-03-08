@@ -1,0 +1,39 @@
+[package]
+name = "whir-p3"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.unreachable_pub = "warn"
+rust.unused_must_use = "deny"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rustdoc.all = "warn"
+rust.dead_code = "allow"
+
+[lints.clippy]
+# all lints that are on by default (correctness, suspicious, style, complexity, perf)
+all = { level = "warn", priority = -1 }
+
+# new lints that are still under development
+nursery = { level = "warn", priority = -1 }
+# avoid lints that are too pedantic
+doc_markdown = "allow"
+
+# lints which are rather strict or have occasional false positives
+pedantic = { level = "warn", priority = -1 }
+# avoid lints that are too pedantic
+must_use_candidate = "allow"
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+default_trait_access = "allow"
+module_name_repetitions = "allow"
+missing_safety_doc = "allow"
+many_single_char_names = "allow"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a" }
