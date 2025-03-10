@@ -3,6 +3,7 @@ use crate::{ntt::utils::workload_size, utils::is_power_of_two};
 use rayon::join;
 use std::mem::swap;
 
+/// Transpose and swap two square size matrices (parallel version). The size must be a power of two.
 fn transpose_square_swap_parallel<F: Sized + Send>(
     mut a: MatrixMut<'_, F>,
     mut b: MatrixMut<'_, F>,
@@ -43,11 +44,46 @@ fn transpose_square_swap_parallel<F: Sized + Send>(
     }
 }
 
+/// Transpose a square matrix in-place. Asserts that the size of the matrix is a power of two.
+/// This is the parallel version.
+fn transpose_square_parallel<F: Sized + Send>(mut m: MatrixMut<'_, F>) {
+    debug_assert!(m.is_square());
+    debug_assert!(m.rows().is_power_of_two());
+    let size = m.rows();
+    if size * size > workload_size::<F>() {
+        // Recurse into quadrants.
+        // This results in a cache-oblivious algorithm.
+        let n = size / 2;
+        let (a, b, c, d) = m.split_quadrants(n, n);
+
+        join(
+            || transpose_square_swap_parallel(b, c),
+            || join(|| transpose_square_parallel(a), || transpose_square_parallel(d)),
+        );
+    } else {
+        for i in 0..size {
+            for j in (i + 1)..size {
+                // unsafe needed due to lack of bounds-check by swap. We are guaranteed that (i,j)
+                // and (j,i) are within the bounds.
+                unsafe {
+                    m.swap((i, j), (j, i));
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    type Pair = (usize, usize);
     type Triple = (usize, usize, usize);
+
+    /// Creates an `NxN` matrix with elements `(row, col)`, useful for testing purposes.
+    fn create_debug_matrix(rows: usize) -> Vec<Pair> {
+        (0..rows).flat_map(|i| (0..rows).map(move |j| (i, j))).collect()
+    }
 
     /// Creates `N x N` matrices where each element is `(index, row, col)`.
     ///
@@ -135,6 +171,57 @@ mod tests {
             for j in 0..size {
                 assert_eq!(view_a[(i, j)], (1, j, i), "Matrix A incorrect");
                 assert_eq!(view_b[(i, j)], (0, j, i), "Matrix B incorrect");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_square_parallel_small() {
+        for size in [2, 4] {
+            let mut matrix = create_debug_matrix(size);
+            let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
+
+            transpose_square_parallel(view);
+
+            let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
+            for i in 0..size {
+                for j in 0..size {
+                    assert_eq!(view[(i, j)], (j, i), "Matrix incorrect");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_square_parallel_medium() {
+        let size = 8;
+        let mut matrix = create_debug_matrix(size);
+        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
+
+        transpose_square_parallel(view);
+
+        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
+        for i in 0..size {
+            for j in 0..size {
+                assert_eq!(view[(i, j)], (j, i), "Matrix incorrect");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_square_parallel_large() {
+        let size = 1024;
+        assert!(size * size > 2 * workload_size::<Triple>());
+
+        let mut matrix = create_debug_matrix(size);
+        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
+
+        transpose_square_parallel(view);
+
+        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
+        for i in 0..size {
+            for j in 0..size {
+                assert_eq!(view[(i, j)], (j, i), "Matrix incorrect");
             }
         }
     }
