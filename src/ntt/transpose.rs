@@ -3,6 +3,32 @@ use crate::{ntt::utils::workload_size, utils::is_power_of_two};
 use rayon::join;
 use std::mem::swap;
 
+/// Transpose a matrix in-place.
+/// Will batch transpose multiple matrices if the length of the slice is a multiple of rows * cols.
+/// This algorithm assumes that both rows and cols are powers of two.
+pub fn transpose<F: Sized + Copy + Send>(matrix: &mut [F], rows: usize, cols: usize) {
+    debug_assert_eq!(matrix.len() % (rows * cols), 0);
+    debug_assert!(is_power_of_two(rows));
+    debug_assert!(is_power_of_two(cols));
+
+    if rows == cols {
+        for matrix in matrix.chunks_exact_mut(rows * cols) {
+            let matrix = MatrixMut::from_mut_slice(matrix, rows, cols);
+            transpose_square_parallel(matrix);
+        }
+    } else {
+        // TODO: Special case for rows = 2 * cols and cols = 2 * rows.
+        // TODO: Special case for very wide matrices (e.g. n x 16).
+        let mut scratch = vec![matrix[0]; rows * cols];
+        for matrix in matrix.chunks_exact_mut(rows * cols) {
+            scratch.copy_from_slice(matrix);
+            let src = MatrixMut::from_mut_slice(scratch.as_mut_slice(), rows, cols);
+            let dst = MatrixMut::from_mut_slice(matrix, cols, rows);
+            transpose_copy_parallel(src, dst);
+        }
+    }
+}
+
 /// Transpose and swap two square size matrices (parallel version).
 ///
 /// The size must be a power of two.
@@ -135,6 +161,8 @@ pub fn transpose_copy_parallel<F: Copy + Send>(src: MatrixMut<'_, F>, mut dst: M
 
 #[cfg(test)]
 mod tests {
+    use rayon::ThreadPoolBuilder;
+
     use super::*;
 
     type Pair = (usize, usize);
@@ -142,7 +170,7 @@ mod tests {
 
     /// Creates a rectangular `rows x cols` matrix stored as a flat vector.
     /// Each element `(i, j)` represents its row and column position.
-    fn create_debug_matrix(rows: usize, cols: usize) -> Vec<Pair> {
+    fn create_matrix(rows: usize, cols: usize) -> Vec<Pair> {
         (0..rows).flat_map(|i| (0..cols).map(move |j| (i, j))).collect()
     }
 
@@ -165,6 +193,18 @@ mod tests {
             matrices.push(matrix);
         }
 
+        matrices
+    }
+
+    fn create_multiple_matrices(rows: usize, cols: usize, instances: usize) -> Vec<Triple> {
+        let mut matrices = Vec::with_capacity(rows * cols * instances);
+        for index in 0..instances {
+            for row in 0..rows {
+                for col in 0..cols {
+                    matrices.push((index, row, col));
+                }
+            }
+        }
         matrices
     }
 
@@ -239,7 +279,7 @@ mod tests {
     #[test]
     fn test_transpose_square_parallel_small() {
         for size in [2, 4] {
-            let mut matrix = create_debug_matrix(size, size);
+            let mut matrix = create_matrix(size, size);
             let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
 
             transpose_square_parallel(view);
@@ -256,7 +296,7 @@ mod tests {
     #[test]
     fn test_transpose_square_parallel_medium() {
         let size = 8;
-        let mut matrix = create_debug_matrix(size, size);
+        let mut matrix = create_matrix(size, size);
         let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
 
         transpose_square_parallel(view);
@@ -274,7 +314,7 @@ mod tests {
         let size = 1024;
         assert!(size * size > 2 * workload_size::<Triple>());
 
-        let mut matrix = create_debug_matrix(size, size);
+        let mut matrix = create_matrix(size, size);
         let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
 
         transpose_square_parallel(view);
@@ -292,7 +332,7 @@ mod tests {
         let rows = 2;
         let cols = 4;
 
-        let mut src = create_debug_matrix(rows, cols);
+        let mut src = create_matrix(rows, cols);
         let mut dst = vec![(0, 0); cols * rows];
 
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
@@ -314,7 +354,7 @@ mod tests {
         let rows = 8;
         let cols = 16;
 
-        let mut src = create_debug_matrix(rows, cols);
+        let mut src = create_matrix(rows, cols);
         let mut dst = vec![(0, 0); cols * rows];
 
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
@@ -335,7 +375,7 @@ mod tests {
         let rows = 64;
         let cols = 128;
 
-        let mut src = create_debug_matrix(rows, cols);
+        let mut src = create_matrix(rows, cols);
         let mut dst = vec![(0, 0); cols * rows];
 
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
@@ -356,7 +396,7 @@ mod tests {
         let rows = 32;
         let cols = 4;
 
-        let mut src = create_debug_matrix(rows, cols);
+        let mut src = create_matrix(rows, cols);
         let mut dst = vec![(0, 0); cols * rows];
 
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
@@ -377,7 +417,7 @@ mod tests {
         let rows = 4;
         let cols = 32;
 
-        let mut src = create_debug_matrix(rows, cols);
+        let mut src = create_matrix(rows, cols);
         let mut dst = vec![(0, 0); cols * rows];
 
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
@@ -398,7 +438,7 @@ mod tests {
         let rows = 16;
         let cols = 8;
 
-        let mut src = create_debug_matrix(rows, cols);
+        let mut src = create_matrix(rows, cols);
         let mut dst = vec![(0, 0); cols * rows];
 
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
@@ -419,7 +459,7 @@ mod tests {
         let rows = 8;
         let cols = 16;
 
-        let mut src = create_debug_matrix(rows, cols);
+        let mut src = create_matrix(rows, cols);
         let mut dst = vec![(0, 0); cols * rows];
 
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
@@ -431,6 +471,189 @@ mod tests {
         for i in 0..rows {
             for j in 0..cols {
                 assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_square_small() {
+        let size = 4;
+        let mut matrix = create_matrix(size, size);
+        transpose(&mut matrix, size, size);
+        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
+
+        for i in 0..size {
+            for j in 0..size {
+                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_square_large() {
+        let size = 1024;
+        assert!(size * size > 2 * workload_size::<Pair>());
+
+        let mut matrix = create_matrix(size, size);
+        transpose(&mut matrix, size, size);
+        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
+
+        for i in 0..size {
+            for j in 0..size {
+                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_rectangular_tall() {
+        let rows = 32;
+        let cols = 4;
+        let mut matrix = create_matrix(rows, cols);
+
+        transpose(&mut matrix, rows, cols);
+        let view = MatrixMut::from_mut_slice(&mut matrix, cols, rows);
+
+        for i in 0..cols {
+            for j in 0..rows {
+                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_rectangular_wide() {
+        let rows = 4;
+        let cols = 32;
+        let mut matrix = create_matrix(rows, cols);
+
+        transpose(&mut matrix, rows, cols);
+        let view = MatrixMut::from_mut_slice(&mut matrix, cols, rows);
+
+        for i in 0..cols {
+            for j in 0..rows {
+                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_multiple_matrices() {
+        let num_matrices = 10;
+        let rows = 8;
+        let cols = 16;
+        let mut matrices = create_multiple_matrices(rows, cols, num_matrices);
+
+        transpose(&mut matrices, rows, cols);
+        for index in 0..num_matrices {
+            let view = MatrixMut::from_mut_slice(
+                &mut matrices[index * rows * cols..(index + 1) * rows * cols],
+                cols,
+                rows,
+            );
+            for i in 0..cols {
+                for j in 0..rows {
+                    assert_eq!(
+                        view[(i, j)],
+                        (index, j, i),
+                        "Mismatch at ({i}, {j}) in matrix {index}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_square_parallel() {
+        let size = 512;
+        assert!(size * size > 2 * workload_size::<Pair>());
+
+        let mut matrix = create_matrix(size, size);
+
+        // Ensure parallel execution
+        let pool = ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+        pool.install(|| transpose(&mut matrix, size, size));
+
+        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
+        for i in 0..size {
+            for j in 0..size {
+                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_rectangular_parallel() {
+        let rows = 256;
+        let cols = 64;
+        let mut matrix = create_matrix(rows, cols);
+
+        // Ensure parallel execution
+        let pool = ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+        pool.install(|| transpose(&mut matrix, rows, cols));
+
+        let view = MatrixMut::from_mut_slice(&mut matrix, cols, rows);
+        for i in 0..cols {
+            for j in 0..rows {
+                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_edge_case_double_rows() {
+        let rows = 16;
+        let cols = 8;
+        let mut matrix = create_matrix(rows, cols);
+
+        transpose(&mut matrix, rows, cols);
+        let view = MatrixMut::from_mut_slice(&mut matrix, cols, rows);
+
+        for i in 0..cols {
+            for j in 0..rows {
+                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_edge_case_double_cols() {
+        let rows = 8;
+        let cols = 16;
+        let mut matrix = create_matrix(rows, cols);
+
+        transpose(&mut matrix, rows, cols);
+        let view = MatrixMut::from_mut_slice(&mut matrix, cols, rows);
+
+        for i in 0..cols {
+            for j in 0..rows {
+                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpose_square_multiple_matrices() {
+        let num_matrices = 5;
+        let size = 64;
+        let mut matrices = create_multiple_matrices(size, size, num_matrices);
+
+        transpose(&mut matrices, size, size);
+
+        for index in 0..num_matrices {
+            let view = MatrixMut::from_mut_slice(
+                &mut matrices[index * size * size..(index + 1) * size * size],
+                size,
+                size,
+            );
+            for i in 0..size {
+                for j in 0..size {
+                    assert_eq!(
+                        view[(i, j)],
+                        (index, j, i),
+                        "Mismatch at ({i}, {j}) in matrix {index}"
+                    );
+                }
             }
         }
     }
