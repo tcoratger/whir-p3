@@ -43,6 +43,10 @@ p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a" }
 rand = "0.9"
 criterion = "0.5"
 
+# [[bench]]
+# name = "transpose_square_swap"
+# harness = false
+
 [[bench]]
-name = "transpose_square_swap"
+name = "transpose_copy"
 harness = false

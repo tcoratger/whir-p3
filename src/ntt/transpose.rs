@@ -96,32 +96,41 @@ fn transpose_square_parallel<F: Sized + Send>(mut m: MatrixMut<'_, F>) {
     }
 }
 
-/// Sets `dst` to the transpose of `src`. This will panic if the sizes of `src` and `dst` are not
-/// compatible.
-fn transpose_copy_parallel<F: Sized + Copy + Send>(
-    src: MatrixMut<'_, F>,
-    mut dst: MatrixMut<'_, F>,
-) {
+/// Efficient parallel matrix transposition.
+///
+/// Uses cache-friendly recursive decomposition and direct pointer manipulation for maximum
+/// performance.
+pub fn transpose_copy_parallel<F: Copy + Send>(src: MatrixMut<'_, F>, mut dst: MatrixMut<'_, F>) {
     assert_eq!(src.rows(), dst.cols());
     assert_eq!(src.cols(), dst.rows());
-    if src.rows() * src.cols() > workload_size::<F>() {
-        // Split along longest axis and recurse.
-        // This results in a cache-oblivious algorithm.
-        let ((a, b), (x, y)) = if src.rows() > src.cols() {
-            let n = src.rows() / 2;
-            (src.split_vertical(n), dst.split_horizontal(n))
-        } else {
-            let n = src.cols() / 2;
-            (src.split_horizontal(n), dst.split_vertical(n))
-        };
-        join(|| transpose_copy_parallel(a, x), || transpose_copy_parallel(b, y));
-    } else {
-        for i in 0..src.rows() {
-            for j in 0..src.cols() {
-                dst[(j, i)] = src[(i, j)];
+
+    let (rows, cols) = (src.rows(), src.cols());
+
+    // Direct element-wise transposition for small matrices (avoids recursion overhead)
+    if rows * cols <= 64 {
+        unsafe {
+            for i in 0..rows {
+                for j in 0..cols {
+                    *dst.ptr_at_mut(j, i) = *src.ptr_at(i, j);
+                }
             }
         }
+        return;
     }
+
+    // Determine optimal split axis
+    let (split_size, split_vertical) =
+        if rows > cols { (rows / 2, true) } else { (cols / 2, false) };
+
+    // Split source and destination matrices accordingly
+    let ((src_a, src_b), (dst_a, dst_b)) = if split_vertical {
+        (src.split_vertical(split_size), dst.split_horizontal(split_size))
+    } else {
+        (src.split_horizontal(split_size), dst.split_vertical(split_size))
+    };
+
+    // Execute recursive transposition in parallel
+    join(|| transpose_copy_parallel(src_a, dst_a), || transpose_copy_parallel(src_b, dst_b));
 }
 
 #[cfg(test)]
@@ -295,7 +304,7 @@ mod tests {
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
         for i in 0..rows {
             for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({}, {})", j, i);
+                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
             }
         }
     }
@@ -316,7 +325,7 @@ mod tests {
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
         for i in 0..rows {
             for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({}, {})", j, i);
+                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
             }
         }
     }
@@ -337,7 +346,7 @@ mod tests {
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
         for i in 0..rows {
             for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({}, {})", j, i);
+                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
             }
         }
     }
@@ -358,7 +367,7 @@ mod tests {
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
         for i in 0..rows {
             for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({}, {})", j, i);
+                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
             }
         }
     }
@@ -379,7 +388,7 @@ mod tests {
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
         for i in 0..rows {
             for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({}, {})", j, i);
+                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
             }
         }
     }
@@ -400,7 +409,7 @@ mod tests {
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
         for i in 0..rows {
             for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({}, {})", j, i);
+                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
             }
         }
     }
@@ -421,7 +430,7 @@ mod tests {
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
         for i in 0..rows {
             for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({}, {})", j, i);
+                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
             }
         }
     }
