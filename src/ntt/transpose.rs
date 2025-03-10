@@ -174,44 +174,35 @@ mod tests {
         (0..rows).flat_map(|i| (0..cols).map(move |j| (i, j))).collect()
     }
 
-    /// Creates `N x N` matrices where each element is `(index, row, col)`.
+    /// Creates multiple matrices where each element is `(index, row, col)`.
     ///
-    /// - `rows`: The number of rows (and columns, since it's a square matrix).
+    /// - `rows`: The number of rows.
+    /// - `cols`: The number of columns (`None` means a square matrix where `cols = rows`).
     /// - `instances`: The number of matrices to generate.
     ///
     /// Each matrix has an identifier `index` and its elements store `(index, row, col)`.
-    fn create_example_matrices(rows: usize, instances: usize) -> Vec<Vec<Triple>> {
-        let mut matrices = Vec::new();
-
-        for index in 0..instances {
-            let mut matrix = Vec::new();
-            for row in 0..rows {
-                for col in 0..rows {
-                    matrix.push((index, row, col));
-                }
-            }
-            matrices.push(matrix);
-        }
-
-        matrices
+    fn create_matrices(rows: usize, cols: usize, instances: usize) -> Vec<Vec<Triple>> {
+        (0..instances)
+            .map(|index| {
+                (0..rows).flat_map(|row| (0..cols).map(move |col| (index, row, col))).collect()
+            })
+            .collect()
     }
 
-    fn create_multiple_matrices(rows: usize, cols: usize, instances: usize) -> Vec<Triple> {
-        let mut matrices = Vec::with_capacity(rows * cols * instances);
-        for index in 0..instances {
-            for row in 0..rows {
-                for col in 0..cols {
-                    matrices.push((index, row, col));
-                }
+    /// Asserts that `matrix` is correctly transposed.
+    fn assert_transposed(matrix: &mut [Pair], rows: usize, cols: usize) {
+        let view = MatrixMut::from_mut_slice(matrix, cols, rows);
+        for i in 0..cols {
+            for j in 0..rows {
+                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
             }
         }
-        matrices
     }
 
     #[test]
     fn test_transpose_square_swap_small() {
         for size in [2, 4] {
-            let mut matrices = create_example_matrices(size, 2);
+            let mut matrices = create_matrices(size, size, 2);
             let (matrix_a, matrix_b) = matrices.split_at_mut(1);
 
             let view_a = MatrixMut::from_mut_slice(&mut matrix_a[0], size, size);
@@ -235,7 +226,7 @@ mod tests {
     #[test]
     fn test_transpose_square_swap_medium() {
         let size = 8;
-        let mut matrices = create_example_matrices(size, 2);
+        let mut matrices = create_matrices(size, size, 2);
         let (matrix_a, matrix_b) = matrices.split_at_mut(1);
 
         let view_a = MatrixMut::from_mut_slice(&mut matrix_a[0], size, size);
@@ -258,7 +249,7 @@ mod tests {
         let size = 1024;
         assert!(size * size > 2 * workload_size::<Triple>());
 
-        let mut matrices = create_example_matrices(size, 2);
+        let mut matrices = create_matrices(size, size, 2);
         let (matrix_a, matrix_b) = matrices.split_at_mut(1);
 
         let view_a = MatrixMut::from_mut_slice(&mut matrix_a[0], size, size);
@@ -284,12 +275,7 @@ mod tests {
 
             transpose_square_parallel(view);
 
-            let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
-            for i in 0..size {
-                for j in 0..size {
-                    assert_eq!(view[(i, j)], (j, i), "Matrix incorrect");
-                }
-            }
+            assert_transposed(&mut matrix, size, size);
         }
     }
 
@@ -301,12 +287,7 @@ mod tests {
 
         transpose_square_parallel(view);
 
-        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
-        for i in 0..size {
-            for j in 0..size {
-                assert_eq!(view[(i, j)], (j, i), "Matrix incorrect");
-            }
-        }
+        assert_transposed(&mut matrix, size, size);
     }
 
     #[test]
@@ -319,12 +300,7 @@ mod tests {
 
         transpose_square_parallel(view);
 
-        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
-        for i in 0..size {
-            for j in 0..size {
-                assert_eq!(view[(i, j)], (j, i), "Matrix incorrect");
-            }
-        }
+        assert_transposed(&mut matrix, size, size);
     }
 
     #[test]
@@ -340,13 +316,7 @@ mod tests {
 
         transpose_copy_parallel(src_view, dst_view);
 
-        // Check the transposed output
-        let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
-        for i in 0..rows {
-            for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
-            }
-        }
+        assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
@@ -362,12 +332,7 @@ mod tests {
 
         transpose_copy_parallel(src_view, dst_view);
 
-        let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
-        for i in 0..rows {
-            for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
-            }
-        }
+        assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
@@ -383,12 +348,7 @@ mod tests {
 
         transpose_copy_parallel(src_view, dst_view);
 
-        let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
-        for i in 0..rows {
-            for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
-            }
-        }
+        assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
@@ -404,12 +364,7 @@ mod tests {
 
         transpose_copy_parallel(src_view, dst_view);
 
-        let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
-        for i in 0..rows {
-            for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
-            }
-        }
+        assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
@@ -425,12 +380,7 @@ mod tests {
 
         transpose_copy_parallel(src_view, dst_view);
 
-        let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
-        for i in 0..rows {
-            for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
-            }
-        }
+        assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
@@ -446,12 +396,7 @@ mod tests {
 
         transpose_copy_parallel(src_view, dst_view);
 
-        let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
-        for i in 0..rows {
-            for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
-            }
-        }
+        assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
@@ -467,12 +412,7 @@ mod tests {
 
         transpose_copy_parallel(src_view, dst_view);
 
-        let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
-        for i in 0..rows {
-            for j in 0..cols {
-                assert_eq!(dst_view[(j, i)], (i, j), "Mismatch at ({j}, {i})");
-            }
-        }
+        assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
@@ -480,13 +420,7 @@ mod tests {
         let size = 4;
         let mut matrix = create_matrix(size, size);
         transpose(&mut matrix, size, size);
-        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
-
-        for i in 0..size {
-            for j in 0..size {
-                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
-            }
-        }
+        assert_transposed(&mut matrix, size, size);
     }
 
     #[test]
@@ -496,13 +430,7 @@ mod tests {
 
         let mut matrix = create_matrix(size, size);
         transpose(&mut matrix, size, size);
-        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
-
-        for i in 0..size {
-            for j in 0..size {
-                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
-            }
-        }
+        assert_transposed(&mut matrix, size, size);
     }
 
     #[test]
@@ -512,13 +440,7 @@ mod tests {
         let mut matrix = create_matrix(rows, cols);
 
         transpose(&mut matrix, rows, cols);
-        let view = MatrixMut::from_mut_slice(&mut matrix, cols, rows);
-
-        for i in 0..cols {
-            for j in 0..rows {
-                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
-            }
-        }
+        assert_transposed(&mut matrix, rows, cols);
     }
 
     #[test]
@@ -528,13 +450,7 @@ mod tests {
         let mut matrix = create_matrix(rows, cols);
 
         transpose(&mut matrix, rows, cols);
-        let view = MatrixMut::from_mut_slice(&mut matrix, cols, rows);
-
-        for i in 0..cols {
-            for j in 0..rows {
-                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
-            }
-        }
+        assert_transposed(&mut matrix, rows, cols);
     }
 
     #[test]
@@ -542,9 +458,13 @@ mod tests {
         let num_matrices = 10;
         let rows = 8;
         let cols = 16;
-        let mut matrices = create_multiple_matrices(rows, cols, num_matrices);
+
+        // Create matrices and flatten them into a single vector
+        let mut matrices: Vec<Triple> =
+            create_matrices(rows, cols, num_matrices).into_iter().flatten().collect();
 
         transpose(&mut matrices, rows, cols);
+
         for index in 0..num_matrices {
             let view = MatrixMut::from_mut_slice(
                 &mut matrices[index * rows * cols..(index + 1) * rows * cols],
@@ -574,12 +494,7 @@ mod tests {
         let pool = ThreadPoolBuilder::new().num_threads(4).build().unwrap();
         pool.install(|| transpose(&mut matrix, size, size));
 
-        let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
-        for i in 0..size {
-            for j in 0..size {
-                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
-            }
-        }
+        assert_transposed(&mut matrix, size, size);
     }
 
     #[test]
@@ -592,12 +507,7 @@ mod tests {
         let pool = ThreadPoolBuilder::new().num_threads(4).build().unwrap();
         pool.install(|| transpose(&mut matrix, rows, cols));
 
-        let view = MatrixMut::from_mut_slice(&mut matrix, cols, rows);
-        for i in 0..cols {
-            for j in 0..rows {
-                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
-            }
-        }
+        assert_transposed(&mut matrix, rows, cols);
     }
 
     #[test]
@@ -607,13 +517,8 @@ mod tests {
         let mut matrix = create_matrix(rows, cols);
 
         transpose(&mut matrix, rows, cols);
-        let view = MatrixMut::from_mut_slice(&mut matrix, cols, rows);
 
-        for i in 0..cols {
-            for j in 0..rows {
-                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
-            }
-        }
+        assert_transposed(&mut matrix, rows, cols);
     }
 
     #[test]
@@ -623,20 +528,17 @@ mod tests {
         let mut matrix = create_matrix(rows, cols);
 
         transpose(&mut matrix, rows, cols);
-        let view = MatrixMut::from_mut_slice(&mut matrix, cols, rows);
-
-        for i in 0..cols {
-            for j in 0..rows {
-                assert_eq!(view[(i, j)], (j, i), "Mismatch at ({i}, {j})");
-            }
-        }
+        assert_transposed(&mut matrix, rows, cols);
     }
 
     #[test]
     fn test_transpose_square_multiple_matrices() {
         let num_matrices = 5;
         let size = 64;
-        let mut matrices = create_multiple_matrices(size, size, num_matrices);
+
+        // Create matrices and flatten them into a single vector
+        let mut matrices: Vec<Triple> =
+            create_matrices(size, size, num_matrices).into_iter().flatten().collect();
 
         transpose(&mut matrices, size, size);
 
