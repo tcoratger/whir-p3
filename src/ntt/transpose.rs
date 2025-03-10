@@ -3,8 +3,10 @@ use crate::{ntt::utils::workload_size, utils::is_power_of_two};
 use rayon::join;
 use std::mem::swap;
 
-/// Transpose and swap two square size matrices (parallel version). The size must be a power of two.
-fn transpose_square_swap_parallel<F: Sized + Send>(
+/// Transpose and swap two square size matrices (parallel version).
+///
+/// The size must be a power of two.
+pub fn transpose_square_swap_parallel<F: Sized + Send>(
     mut a: MatrixMut<'_, F>,
     mut b: MatrixMut<'_, F>,
 ) {
@@ -12,11 +14,26 @@ fn transpose_square_swap_parallel<F: Sized + Send>(
     debug_assert_eq!(a.rows(), b.cols());
     debug_assert_eq!(a.cols(), b.rows());
     debug_assert!(is_power_of_two(a.rows()));
-    debug_assert!(workload_size::<F>() >= 2); // otherwise, we would recurse even if size == 1.
+    debug_assert!(workload_size::<F>() >= 2);
+
     let size = a.rows();
+
+    // Direct swaps for small matrices (≤8x8)
+    // - Avoids recursion overhead
+    // - Uses basic element-wise swaps
+    if size <= 8 {
+        for i in 0..size {
+            for j in 0..size {
+                swap(&mut a[(i, j)], &mut b[(j, i)]);
+            }
+        }
+        return;
+    }
+
+    // If the matrix is large, use recursive subdivision:
+    // - Improves cache efficiency by working on smaller blocks
+    // - Enables parallel execution
     if 2 * size * size > workload_size::<F>() {
-        // Recurse into quadrants.
-        // This results in a cache-oblivious algorithm.
         let n = size / 2;
         let (aa, ab, ac, ad) = a.split_quadrants(n, n);
         let (ba, bb, bc, bd) = b.split_quadrants(n, n);
@@ -36,9 +53,15 @@ fn transpose_square_swap_parallel<F: Sized + Send>(
             },
         );
     } else {
-        for i in 0..size {
-            for j in 0..size {
+        // Optimized 2×2 loop unrolling for larger blocks
+        // - Reduces loop overhead
+        // - Increases memory access efficiency
+        for i in (0..size).step_by(2) {
+            for j in (0..size).step_by(2) {
                 swap(&mut a[(i, j)], &mut b[(j, i)]);
+                swap(&mut a[(i + 1, j)], &mut b[(j, i + 1)]);
+                swap(&mut a[(i, j + 1)], &mut b[(j + 1, i)]);
+                swap(&mut a[(i + 1, j + 1)], &mut b[(j + 1, i + 1)]);
             }
         }
     }
