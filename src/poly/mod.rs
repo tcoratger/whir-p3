@@ -1,3 +1,4 @@
+pub mod coeffs;
 pub mod evals;
 pub mod hypercube;
 pub mod multilinear;
