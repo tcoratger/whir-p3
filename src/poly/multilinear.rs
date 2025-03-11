@@ -137,7 +137,7 @@ where
     /// ```
     /// Uses precomputed values to reduce redundant operations.
     pub fn eq_poly3(&self, mut point: usize) -> F {
-        let two = F::ONE + F::ONE;
+        let two = F::TWO;
         let two_inv = two.inverse();
 
         let n_variables = self.n_variables();
