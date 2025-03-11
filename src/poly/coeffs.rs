@@ -75,6 +75,7 @@ where
     ///
     /// - The number of variables decreases: `m = n - k`
     /// - Uses multivariate evaluation over chunks of coefficients.
+    #[must_use]
     pub fn fold(&self, folding_randomness: &MultilinearPoint<F>) -> Self {
         let folding_factor = folding_randomness.n_variables();
         let coeffs = self
@@ -97,6 +98,7 @@ where
 /// ```
 ///
 /// where `P_0` and `P_1` are the even-indexed and odd-indexed coefficient subsets.
+#[allow(clippy::similar_names)]
 fn eval_multivariate<F: Field>(coeffs: &[F], point: &[F]) -> F {
     debug_assert_eq!(coeffs.len(), 1 << point.len());
     match point {
@@ -163,6 +165,7 @@ impl<F> CoefficientList<F> {
     }
 
     /// Returns a reference to the stored coefficients.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn coeffs(&self) -> &[F] {
         &self.coeffs
     }
@@ -192,6 +195,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::should_panic_without_expect, clippy::similar_names)]
 mod tests {
     use super::*;
     use crate::poly::evals::EvaluationsList;
@@ -324,7 +328,7 @@ mod tests {
         let coeff3 = BabyBear::from_u64(2);
 
         let coeffs = vec![coeff0, coeff1, coeff2, coeff3];
-        let coeff_list = CoefficientList::new(coeffs.clone());
+        let coeff_list = CoefficientList::new(coeffs);
 
         let evaluations = EvaluationsList::from(coeff_list);
 

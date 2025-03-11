@@ -2,12 +2,24 @@ use crate::ntt::{
     transpose::transpose,
     utils::{lcm, sqrt_factor, workload_size},
 };
-use p3_field::Field;
+use p3_field::{Field, TwoAdicField};
 use rayon::prelude::*;
 use std::{
+    any::{Any, TypeId},
     cmp::max,
-    sync::{RwLock, RwLockReadGuard},
+    collections::HashMap,
+    sync::{Arc, LazyLock, Mutex, RwLock, RwLockReadGuard},
 };
+
+/// Global cache for NTT engines, indexed by field.
+static ENGINE_CACHE: LazyLock<Mutex<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Compute the inverse NTT of multiple slice of field elements, each of size `size`, without the
+/// 1/n scaling factor and using a cached engine.
+pub fn intt_batch<F: Field + TwoAdicField>(values: &mut [F], size: usize) {
+    NttEngine::<F>::new_from_cache().intt_batch(values, size);
+}
 
 /// Number-Theoretic Transform (NTT) engine for computing forward and inverse transforms.
 ///
@@ -102,6 +114,17 @@ impl<F: Field> NttEngine<F> {
     pub fn intt(&self, values: &mut [F]) {
         values[1..].reverse();
         self.ntt(values);
+    }
+
+    /// Inverse batch NTT. Does not apply 1/n scaling factor.
+    pub fn intt_batch(&self, values: &mut [F], size: usize) {
+        assert!(values.len() % size == 0);
+
+        values.par_chunks_exact_mut(size).for_each(|values| {
+            values[1..].reverse();
+        });
+
+        self.ntt_batch(values, size);
     }
 
     /// Computes the `order`-th root of unity by exponentiating `omega_order`.
@@ -265,6 +288,36 @@ impl<F: Field> NttEngine<F> {
                 }
             }
             size => self.ntt_recurse(values, roots, size),
+        }
+    }
+}
+
+impl<F: Field + TwoAdicField> NttEngine<F> {
+    /// Get or create a cached engine for the field `F`.
+    pub fn new_from_cache() -> Arc<Self> {
+        let mut cache = ENGINE_CACHE.lock().unwrap();
+        let type_id = TypeId::of::<F>();
+        #[allow(clippy::option_if_let_else)]
+        if let Some(engine) = cache.get(&type_id) {
+            engine.clone().downcast::<Self>().unwrap()
+        } else {
+            let engine = Arc::new(Self::new_from_fftfield());
+            cache.insert(type_id, engine.clone());
+            engine
+        }
+    }
+
+    /// Construct a new engine from the field's `FftField` trait.
+    fn new_from_fftfield() -> Self {
+        // TODO: Support SMALL_SUBGROUP
+        if F::TWO_ADICITY <= 63 {
+            Self::new(1 << F::TWO_ADICITY, F::two_adic_generator(F::TWO_ADICITY))
+        } else {
+            let mut generator = F::two_adic_generator(F::TWO_ADICITY);
+            for _ in 0..(F::TWO_ADICITY - 63) {
+                generator = generator.square();
+            }
+            Self::new(1 << 63, generator)
         }
     }
 }
@@ -616,6 +669,80 @@ mod tests {
                 assert_eq!(values[index], expected, "Mismatch at row={row}, col={col}");
                 idx += 2 * row;
             }
+        }
+    }
+
+    #[test]
+    fn test_new_from_fftfield_basic() {
+        // Ensure that an engine is created correctly from FFT field properties
+        let engine = NttEngine::<BabyBear>::new_from_fftfield();
+
+        // Verify that the order of the engine is correctly set
+        assert!(engine.order.is_power_of_two());
+
+        // Verify that the root of unity is correctly initialized
+        let expected_root = BabyBear::two_adic_generator(BabyBear::TWO_ADICITY);
+        let computed_root = engine.root(engine.order);
+        assert_eq!(computed_root.exp_u64(engine.order as u64), BabyBear::ONE);
+        assert_eq!(computed_root, expected_root);
+    }
+
+    #[test]
+    fn test_new_from_cache_singleton() {
+        // Retrieve two instances of the engine
+        let engine1 = NttEngine::<BabyBear>::new_from_cache();
+        let engine2 = NttEngine::<BabyBear>::new_from_cache();
+
+        // Both instances should point to the same object in memory
+        assert!(Arc::ptr_eq(&engine1, &engine2));
+
+        // Verify that the cached instance has the expected properties
+        assert!(engine1.order.is_power_of_two());
+
+        let expected_root = BabyBear::two_adic_generator(BabyBear::TWO_ADICITY);
+        assert_eq!(engine1.root(engine1.order), expected_root);
+    }
+
+    #[test]
+    fn test_new_from_cache_thread_safety() {
+        use std::thread;
+
+        let handles: Vec<_> = (0..10)
+            .map(|_| {
+                thread::spawn(|| {
+                    let engine = NttEngine::<BabyBear>::new_from_cache();
+                    assert!(engine.order.is_power_of_two());
+                    assert_eq!(
+                        engine.root(engine.order).exp_u64(engine.order as u64),
+                        BabyBear::ONE
+                    );
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().expect("Thread failed");
+        }
+    }
+
+    #[test]
+    fn test_engine_cache_persistence() {
+        // Verify that a newly created engine is cached and retrievable
+        let type_id = TypeId::of::<BabyBear>();
+        {
+            let cache = ENGINE_CACHE.lock().unwrap();
+            assert!(!cache.contains_key(&type_id), "Cache should be empty before initialization.");
+        }
+
+        // Create an engine
+        let _engine = NttEngine::<BabyBear>::new_from_cache();
+
+        {
+            let cache = ENGINE_CACHE.lock().unwrap();
+            assert!(
+                cache.contains_key(&type_id),
+                "Cache should contain an entry after initialization."
+            );
         }
     }
 }

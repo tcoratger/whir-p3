@@ -1,3 +1,7 @@
+use p3_field::Field;
+
+use crate::ntt::transpose::transpose;
+
 /// Returns true if `n`:
 /// - is a power of two
 /// - is greater than zero
@@ -5,24 +9,24 @@ pub const fn is_power_of_two(n: usize) -> bool {
     n != 0 && n.is_power_of_two()
 }
 
-/// performs big-endian binary decomposition of `value` and returns the result.
-///
-/// `n_bits` must be at must usize::BITS. If it is strictly smaller, the most significant bits of
-/// `value` are ignored. The returned vector v ends with the least significant bit of `value` and
-/// always has exactly `n_bits` many elements.
-pub fn to_binary(value: usize, n_bits: usize) -> Vec<bool> {
-    // Ensure that n is within the bounds of the input integer type
-    assert!(n_bits <= usize::BITS as usize);
-    let mut result = vec![false; n_bits];
-    for i in 0..n_bits {
-        result[n_bits - 1 - i] = (value & (1 << i)) != 0;
-    }
-    result
+/// Takes the vector of evaluations (assume that evals[i] = f(omega^i))
+/// and folds them into a vector of such that folded_evals[i] = [f(omega^(i + k * j)) for j in
+/// 0..folding_factor]
+pub fn stack_evaluations<F: Field>(mut evals: Vec<F>, folding_factor: usize) -> Vec<F> {
+    let folding_factor_exp = 1 << folding_factor;
+    assert!(evals.len() % folding_factor_exp == 0);
+    let size_of_new_domain = evals.len() / folding_factor_exp;
+
+    // interpret evals as (folding_factor_exp x size_of_new_domain)-matrix and transpose in-place
+    transpose(&mut evals, folding_factor_exp, size_of_new_domain);
+    evals
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use p3_baby_bear::BabyBear;
+    use p3_field::PrimeCharacteristicRing;
 
     #[test]
     fn test_is_power_of_two() {
@@ -34,11 +38,21 @@ mod tests {
     }
 
     #[test]
-    fn test_to_binary() {
-        assert_eq!(to_binary(0b10111, 5), vec![true, false, true, true, true]);
-        assert_eq!(to_binary(0b11001, 2), vec![false, true]); // truncate
-        let empty_vec: Vec<bool> = vec![]; // just for the explicit bool type.
-        assert_eq!(to_binary(1, 0), empty_vec);
-        assert_eq!(to_binary(0, 0), empty_vec);
+    fn test_evaluations_stack() {
+        let num = 256;
+        let folding_factor = 3;
+        let fold_size = 1 << folding_factor;
+        assert_eq!(num % fold_size, 0);
+        let evals: Vec<_> = (0..num as u64).map(BabyBear::from_u64).collect();
+
+        let stacked = stack_evaluations(evals, folding_factor);
+        assert_eq!(stacked.len(), num);
+
+        for (i, fold) in stacked.chunks_exact(fold_size).enumerate() {
+            assert_eq!(fold.len(), fold_size);
+            for (j, &f) in fold.iter().enumerate().take(fold_size) {
+                assert_eq!(f, BabyBear::from_u64((i + j * num / fold_size) as u64));
+            }
+        }
     }
 }
