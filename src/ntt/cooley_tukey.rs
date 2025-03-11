@@ -1,7 +1,13 @@
-use crate::ntt::utils::lcm;
+use crate::ntt::{
+    transpose::transpose,
+    utils::{lcm, sqrt_factor, workload_size},
+};
 use p3_field::Field;
 use rayon::prelude::*;
-use std::sync::{RwLock, RwLockReadGuard};
+use std::{
+    cmp::max,
+    sync::{RwLock, RwLockReadGuard},
+};
 
 /// Number-Theoretic Transform (NTT) engine for computing forward and inverse transforms.
 ///
@@ -120,6 +126,179 @@ impl<F: Field> NttEngine<F> {
             self.roots.read().unwrap()
         } else {
             roots
+        }
+    }
+
+    /// Compute NTTs in place by splititng into two factors.
+    /// Recurses using the sqrt(N) Cooley-Tukey Six step NTT algorithm.
+    fn ntt_recurse(&self, values: &mut [F], roots: &[F], size: usize) {
+        debug_assert_eq!(values.len() % size, 0);
+        let n1 = sqrt_factor(size);
+        let n2 = size / n1;
+
+        transpose(values, n1, n2);
+        self.ntt_dispatch(values, roots, n1);
+        transpose(values, n2, n1);
+        // TODO: When (n1, n2) are coprime we can use the
+        // Good-Thomas NTT algorithm and avoid the twiddle loop.
+        apply_twiddles(values, roots, n1, n2);
+        self.ntt_dispatch(values, roots, n2);
+        transpose(values, n1, n2);
+    }
+
+    fn ntt_dispatch(&self, values: &mut [F], roots: &[F], size: usize) {
+        debug_assert_eq!(values.len() % size, 0);
+        debug_assert_eq!(roots.len() % size, 0);
+        if values.len() > workload_size::<F>() && values.len() != size {
+            // Multiple NTTs, compute in parallel.
+            // Work size is largest multiple of `size` smaller than `WORKLOAD_SIZE`.
+            let workload_size = size * max(1, workload_size::<F>() / size);
+            return values.par_chunks_mut(workload_size).for_each(|values| {
+                self.ntt_dispatch(values, roots, size);
+            });
+        }
+        match size {
+            0 | 1 => {}
+            2 => {
+                for v in values.chunks_exact_mut(2) {
+                    (v[0], v[1]) = (v[0] + v[1], v[0] - v[1]);
+                }
+            }
+            3 => {
+                for v in values.chunks_exact_mut(3) {
+                    // Rader NTT to reduce 3 to 2.
+                    let v0 = v[0];
+                    (v[1], v[2]) = (v[1] + v[2], v[1] - v[2]);
+                    v[0] += v[1];
+                    v[1] *= self.half_omega_3_1_plus_2; // ½(ω₃ + ω₃²)
+                    v[2] *= self.half_omega_3_1_min_2; // ½(ω₃ - ω₃²)
+                    v[1] += v0;
+                    (v[1], v[2]) = (v[1] + v[2], v[1] - v[2]);
+                }
+            }
+            4 => {
+                for v in values.chunks_exact_mut(4) {
+                    (v[0], v[2]) = (v[0] + v[2], v[0] - v[2]);
+                    (v[1], v[3]) = (v[1] + v[3], v[1] - v[3]);
+                    v[3] *= self.omega_4_1;
+                    (v[0], v[1]) = (v[0] + v[1], v[0] - v[1]);
+                    (v[2], v[3]) = (v[2] + v[3], v[2] - v[3]);
+                    (v[1], v[2]) = (v[2], v[1]);
+                }
+            }
+            8 => {
+                for v in values.chunks_exact_mut(8) {
+                    // Cooley-Tukey with v as 2x4 matrix.
+                    (v[0], v[4]) = (v[0] + v[4], v[0] - v[4]);
+                    (v[1], v[5]) = (v[1] + v[5], v[1] - v[5]);
+                    (v[2], v[6]) = (v[2] + v[6], v[2] - v[6]);
+                    (v[3], v[7]) = (v[3] + v[7], v[3] - v[7]);
+                    v[5] *= self.omega_8_1;
+                    v[6] *= self.omega_4_1; // == omega_8_2
+                    v[7] *= self.omega_8_3;
+                    (v[0], v[2]) = (v[0] + v[2], v[0] - v[2]);
+                    (v[1], v[3]) = (v[1] + v[3], v[1] - v[3]);
+                    v[3] *= self.omega_4_1;
+                    (v[0], v[1]) = (v[0] + v[1], v[0] - v[1]);
+                    (v[2], v[3]) = (v[2] + v[3], v[2] - v[3]);
+                    (v[4], v[6]) = (v[4] + v[6], v[4] - v[6]);
+                    (v[5], v[7]) = (v[5] + v[7], v[5] - v[7]);
+                    v[7] *= self.omega_4_1;
+                    (v[4], v[5]) = (v[4] + v[5], v[4] - v[5]);
+                    (v[6], v[7]) = (v[6] + v[7], v[6] - v[7]);
+                    (v[1], v[4]) = (v[4], v[1]);
+                    (v[3], v[6]) = (v[6], v[3]);
+                }
+            }
+            16 => {
+                for v in values.chunks_exact_mut(16) {
+                    // Cooley-Tukey with v as 4x4 matrix.
+                    for i in 0..4 {
+                        let v = &mut v[i..];
+                        (v[0], v[8]) = (v[0] + v[8], v[0] - v[8]);
+                        (v[4], v[12]) = (v[4] + v[12], v[4] - v[12]);
+                        v[12] *= self.omega_4_1;
+                        (v[0], v[4]) = (v[0] + v[4], v[0] - v[4]);
+                        (v[8], v[12]) = (v[8] + v[12], v[8] - v[12]);
+                        (v[4], v[8]) = (v[8], v[4]);
+                    }
+                    v[5] *= self.omega_16_1;
+                    v[6] *= self.omega_8_1;
+                    v[7] *= self.omega_16_3;
+                    v[9] *= self.omega_8_1;
+                    v[10] *= self.omega_4_1;
+                    v[11] *= self.omega_8_3;
+                    v[13] *= self.omega_16_3;
+                    v[14] *= self.omega_8_3;
+                    v[15] *= self.omega_16_9;
+                    for i in 0..4 {
+                        let v = &mut v[i * 4..];
+                        (v[0], v[2]) = (v[0] + v[2], v[0] - v[2]);
+                        (v[1], v[3]) = (v[1] + v[3], v[1] - v[3]);
+                        v[3] *= self.omega_4_1;
+                        (v[0], v[1]) = (v[0] + v[1], v[0] - v[1]);
+                        (v[2], v[3]) = (v[2] + v[3], v[2] - v[3]);
+                        (v[1], v[2]) = (v[2], v[1]);
+                    }
+                    (v[1], v[4]) = (v[4], v[1]);
+                    (v[2], v[8]) = (v[8], v[2]);
+                    (v[3], v[12]) = (v[12], v[3]);
+                    (v[6], v[9]) = (v[9], v[6]);
+                    (v[7], v[13]) = (v[13], v[7]);
+                    (v[11], v[14]) = (v[14], v[11]);
+                }
+            }
+            size => self.ntt_recurse(values, roots, size),
+        }
+    }
+}
+
+/// Applies precomputed twiddle factors to the given values matrix.
+///
+/// This function modifies `values` in-place by multiplying specific elements with
+/// corresponding twiddle factors from `roots`. The twiddle factors are applied to all
+/// rows except the first one, and only to columns beyond the first column.
+fn apply_twiddles<F: Field>(values: &mut [F], roots: &[F], rows: usize, cols: usize) {
+    let size = rows * cols;
+    debug_assert_eq!(values.len() % size, 0);
+    let step = roots.len() / size;
+
+    // Optimize for large workloads by processing in parallel
+    if values.len() > workload_size::<F>() {
+        if values.len() == size {
+            values.par_chunks_exact_mut(cols).enumerate().skip(1).for_each(|(i, row)| {
+                let step = (i * step) % roots.len();
+                let mut index = step;
+                for value in row.iter_mut().skip(1) {
+                    index %= roots.len();
+                    unsafe {
+                        *value *= *roots.get_unchecked(index);
+                    }
+                    index += step;
+                }
+            });
+        } else {
+            let workload_size = size * max(1, workload_size::<F>() / size);
+            values.par_chunks_mut(workload_size).for_each(|values| {
+                apply_twiddles(values, roots, rows, cols);
+            });
+        }
+
+        return;
+    }
+
+    // Sequential processing for smaller workloads
+    for values in values.chunks_exact_mut(size) {
+        for (i, row) in values.chunks_exact_mut(cols).enumerate().skip(1) {
+            let step = (i * step) % roots.len();
+            let mut index = step;
+            for value in row.iter_mut().skip(1) {
+                index %= roots.len();
+                unsafe {
+                    *value *= *roots.get_unchecked(index);
+                }
+                index += step;
+            }
         }
     }
 }
@@ -297,19 +476,130 @@ mod tests {
     }
 
     #[test]
-    fn test_roots_table_standard_sizes() {
-        let omega = BabyBear::two_adic_generator(2); // Using order 2 for faster computation
-        let engine = NttEngine::new(4, omega); // Smaller NTT size
+    fn test_apply_twiddles_basic() {
+        let omega = BabyBear::two_adic_generator(2);
+        let engine = NttEngine::new(4, omega);
 
-        let roots_2 = engine.roots_table(2);
-        let roots_4 = engine.roots_table(4);
+        let mut values = vec![
+            BabyBear::from_u64(1),
+            BabyBear::from_u64(2),
+            BabyBear::from_u64(3),
+            BabyBear::from_u64(4),
+            BabyBear::from_u64(5),
+            BabyBear::from_u64(6),
+            BabyBear::from_u64(7),
+            BabyBear::from_u64(8),
+        ];
 
-        // Check that the first element is always 1 (ω^0 = 1)
-        assert_eq!(roots_2[0], BabyBear::ONE);
-        assert_eq!(roots_4[0], BabyBear::ONE);
+        // Mock roots
+        let r1 = BabyBear::from_u64(33);
+        let roots = vec![r1];
 
-        // Check that ω^1 is correct for different orders
-        assert_eq!(roots_2[1], engine.root(2));
-        assert_eq!(roots_4[1], engine.root(4));
+        // Ensure the root of unity is correct
+        assert_eq!(engine.root(4).exp_u64(4), BabyBear::ONE);
+
+        apply_twiddles(&mut values, &roots, 2, 4);
+
+        // The first row should remain unchanged
+        assert_eq!(values[0], BabyBear::from_u64(1));
+        assert_eq!(values[1], BabyBear::from_u64(2));
+        assert_eq!(values[2], BabyBear::from_u64(3));
+        assert_eq!(values[3], BabyBear::from_u64(4));
+
+        // The second row should be multiplied by the correct twiddle factors
+        assert_eq!(values[4], BabyBear::from_u64(5)); // No change for first column
+        assert_eq!(values[5], BabyBear::from_u64(6) * r1);
+        assert_eq!(values[6], BabyBear::from_u64(7) * r1);
+        assert_eq!(values[7], BabyBear::from_u64(8) * r1);
+    }
+
+    #[test]
+    fn test_apply_twiddles_single_row() {
+        let mut values = vec![BabyBear::from_u64(1), BabyBear::from_u64(2)];
+
+        // Mock roots
+        let r1 = BabyBear::from_u64(12);
+        let roots = vec![r1];
+
+        apply_twiddles(&mut values, &roots, 1, 2);
+
+        // Everything should remain unchanged
+        assert_eq!(values[0], BabyBear::from_u64(1));
+        assert_eq!(values[1], BabyBear::from_u64(2));
+    }
+
+    #[test]
+    fn test_apply_twiddles_varying_rows() {
+        let mut values = vec![
+            BabyBear::from_u64(1),
+            BabyBear::from_u64(2),
+            BabyBear::from_u64(3),
+            BabyBear::from_u64(4),
+            BabyBear::from_u64(5),
+            BabyBear::from_u64(6),
+            BabyBear::from_u64(7),
+            BabyBear::from_u64(8),
+            BabyBear::from_u64(9),
+        ];
+
+        // Mock roots
+        let roots = (2..100).map(BabyBear::from_u64).collect::<Vec<_>>();
+
+        apply_twiddles(&mut values, &roots, 3, 3);
+
+        // First row remains unchanged
+        assert_eq!(values[0], BabyBear::from_u64(1));
+        assert_eq!(values[1], BabyBear::from_u64(2));
+        assert_eq!(values[2], BabyBear::from_u64(3));
+
+        // Second row multiplied by twiddle factors
+        assert_eq!(values[3], BabyBear::from_u64(4));
+        assert_eq!(values[4], BabyBear::from_u64(5) * roots[10]);
+        assert_eq!(values[5], BabyBear::from_u64(6) * roots[20]);
+
+        // Third row multiplied by twiddle factors
+        assert_eq!(values[6], BabyBear::from_u64(7));
+        assert_eq!(values[7], BabyBear::from_u64(8) * roots[20]);
+        assert_eq!(values[8], BabyBear::from_u64(9) * roots[40]);
+    }
+
+    #[test]
+    fn test_apply_twiddles_large_table() {
+        let rows = 320;
+        let cols = 320;
+        let size = rows * cols;
+
+        let mut values: Vec<BabyBear> = (0..size as u64).map(BabyBear::from_u64).collect();
+
+        // Generate a large set of twiddle factors
+        let roots: Vec<BabyBear> = (0..(size * 2) as u64).map(BabyBear::from_u64).collect();
+
+        apply_twiddles(&mut values, &roots, rows, cols);
+
+        // Verify the first row remains unchanged
+        for (i, &col) in values.iter().enumerate().take(cols) {
+            assert_eq!(col, BabyBear::from_u64(i as u64));
+        }
+
+        // Verify the first column remains unchanged
+        for row in 1..rows {
+            let index = row * cols;
+            assert_eq!(
+                values[index],
+                BabyBear::from_u64(index as u64),
+                "Mismatch in first column at row={row}"
+            );
+        }
+
+        // Verify that other rows have been modified using the twiddle factors
+        for row in 1..rows {
+            let mut idx = row * 2;
+            for col in 1..cols {
+                let index = row * cols + col;
+                let expected = BabyBear::from_u64(index as u64) * roots[idx];
+                assert_eq!(values[index], expected, "Mismatch at row={row}, col={col}");
+                idx += 2 * row;
+            }
+        }
     }
 }
