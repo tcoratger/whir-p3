@@ -1,9 +1,25 @@
+use std::ops::{Deref, DerefMut};
+
 /// Represents a point on the binary hypercube `{0,1}^n` for some `n`.
 ///
 /// The point is encoded via the `n` least significant bits of a `usize` in **big-endian** order.
 /// The struct does **not** store `n`, meaning interpretation relies on the context of usage.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BinaryHypercubePoint(pub usize);
+
+impl Deref for BinaryHypercubePoint {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for BinaryHypercubePoint {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 /// An iterator over all points of the binary hypercube `{0,1}^n`.
 ///
