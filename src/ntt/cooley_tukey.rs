@@ -88,6 +88,22 @@ impl<F: Field> NttEngine<F> {
         res
     }
 
+    pub fn ntt(&self, values: &mut [F]) {
+        self.ntt_batch(values, values.len());
+    }
+
+    pub fn ntt_batch(&self, values: &mut [F], size: usize) {
+        assert!(values.len() % size == 0);
+        let roots = self.roots_table(size);
+        self.ntt_dispatch(values, &roots, size);
+    }
+
+    /// Inverse NTT. Does not aply 1/n scaling factor.
+    pub fn intt(&self, values: &mut [F]) {
+        values[1..].reverse();
+        self.ntt(values);
+    }
+
     /// Computes the `order`-th root of unity by exponentiating `omega_order`.
     pub fn root(&self, order: usize) -> F {
         assert!(self.order % order == 0, "Subgroup of requested order does not exist.");
