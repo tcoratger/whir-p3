@@ -774,4 +774,71 @@ mod tests {
 
         ml_point.eq_poly3(ternary_point);
     }
+
+    #[test]
+    fn test_equality() {
+        let point = MultilinearPoint(vec![BabyBear::from_u64(0), BabyBear::from_u64(0)]);
+        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b00)), BabyBear::from_u64(1));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b01)), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b10)), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b11)), BabyBear::from_u64(0));
+
+        let point = MultilinearPoint(vec![BabyBear::from_u64(1), BabyBear::from_u64(0)]);
+        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b00)), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b01)), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b10)), BabyBear::from_u64(1));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b11)), BabyBear::from_u64(0));
+    }
+
+    #[test]
+    #[allow(clippy::cognitive_complexity)]
+    fn test_equality3() {
+        let point = MultilinearPoint(vec![BabyBear::from_u64(0), BabyBear::from_u64(0)]);
+
+        assert_eq!(point.eq_poly3(0), BabyBear::from_u64(1));
+        assert_eq!(point.eq_poly3(1), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(2), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(3), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(4), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(5), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(6), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(7), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(8), BabyBear::from_u64(0));
+
+        let point = MultilinearPoint(vec![BabyBear::from_u64(1), BabyBear::from_u64(0)]);
+
+        assert_eq!(point.eq_poly3(0), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(1), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(2), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(3), BabyBear::from_u64(1)); // 3 corresponds to ternary (1,0)
+        assert_eq!(point.eq_poly3(4), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(5), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(6), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(7), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(8), BabyBear::from_u64(0));
+
+        let point = MultilinearPoint(vec![BabyBear::from_u64(0), BabyBear::from_u64(2)]);
+
+        assert_eq!(point.eq_poly3(0), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(1), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(2), BabyBear::from_u64(1)); // 2 corresponds to ternary (0,2)
+        assert_eq!(point.eq_poly3(3), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(4), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(5), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(6), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(7), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(8), BabyBear::from_u64(0));
+
+        let point = MultilinearPoint(vec![BabyBear::from_u64(2), BabyBear::from_u64(2)]);
+
+        assert_eq!(point.eq_poly3(0), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(1), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(2), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(3), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(4), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(5), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(6), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(7), BabyBear::from_u64(0));
+        assert_eq!(point.eq_poly3(8), BabyBear::from_u64(1)); // 8 corresponds to ternary (2,2)
+    }
 }
