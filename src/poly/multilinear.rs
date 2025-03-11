@@ -1,8 +1,9 @@
 use super::hypercube::BinaryHypercubePoint;
 use p3_field::Field;
 
-/// Point (x_1,..., x_n) in F^n for some n. Often, the x_i are binary.
-/// For the latter case, we also have `BinaryHypercubePoint`.
+/// A point `(x_1, ..., x_n)` in `F^n` for some field `F`.
+///
+/// Often, `x_i` are binary. If strictly binary, `BinaryHypercubePoint` is used.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultilinearPoint<F>(pub Vec<F>);
 
@@ -10,13 +11,20 @@ impl<F> MultilinearPoint<F>
 where
     F: Field,
 {
-    /// returns the number of variables.
+    /// Returns the number of variables (dimension `n`).
+    #[inline]
     pub fn n_variables(&self) -> usize {
         self.0.len()
     }
 
-    /// Creates a MultilinearPoint from a BinaryHypercubePoint; the latter models the same thing,
-    /// but is restricted to binary entries.
+    /// Converts a `BinaryHypercubePoint` (bit representation) into a `MultilinearPoint`.
+    ///
+    /// This maps each bit in the binary integer to `F::ONE` (1) or `F::ZERO` (0) in the field.
+    ///
+    /// Given `point = b_{n-1} ... b_1 b_0` (big-endian), it produces:
+    /// ```
+    /// [b_{n-1}, b_{n-2}, ..., b_1, b_0]
+    /// ```
     pub fn from_binary_hypercube_point(point: BinaryHypercubePoint, num_variables: usize) -> Self {
         Self(
             (0..num_variables)
@@ -26,7 +34,13 @@ where
         )
     }
 
-    /// Converts to a BinaryHypercubePoint, provided the MultilinearPoint is actually in {0,1}^n.
+    /// Converts `MultilinearPoint` to a `BinaryHypercubePoint`, assuming values are binary.
+    ///
+    /// The point is interpreted as a binary number:
+    /// ```
+    /// b_{n-1} * 2^{n-1} + b_{n-2} * 2^{n-2} + ... + b_1 * 2^1 + b_0 * 2^0
+    /// ```
+    /// Returns `None` if any coordinate is non-binary.
     pub fn to_hypercube(&self) -> Option<BinaryHypercubePoint> {
         self.0
             .iter()
@@ -42,40 +56,44 @@ where
             .map(BinaryHypercubePoint)
     }
 
-    /// converts a univariate evaluation point into a multilinear one.
+    /// Converts a univariate evaluation point into a multilinear one.
     ///
-    /// Notably, consider the usual bijection
-    /// {multilinear polys in n variables} <-> {univariate polys of deg < 2^n}
-    /// f(x_1,...x_n)  <-> g(y) := f(y^(2^(n-1), ..., y^4, y^2, y).
-    /// x_1^i_1 * ... *x_n^i_n <-> y^i, where (i_1,...,i_n) is the (big-endian) binary decomposition
-    /// of i.
+    /// Uses the bijection:
+    /// ```
+    /// f(x_1, ..., x_n) <-> g(y) := f(y^(2^(n-1)), ..., y^4, y^2, y)
+    /// ```
+    /// Meaning:
+    /// ```
+    /// x_1^i_1 * ... * x_n^i_n <-> y^i
+    /// ```
+    /// where `(i_1, ..., i_n)` is the **big-endian** binary decomposition of `i`.
     ///
-    /// expand_from_univariate maps the evaluation points to the multivariate domain, i.e.
-    /// f(expand_from_univariate(y)) == g(y).
-    /// in a way that is compatible with our endianness choices.
+    /// Reversing the order ensures the **big-endian** convention.
     pub fn expand_from_univariate(point: F, num_variables: usize) -> Self {
         let mut res = Vec::with_capacity(num_variables);
         let mut cur = point;
+
         for _ in 0..num_variables {
             res.push(cur);
-            cur = cur * cur;
+            cur = cur * cur; // Compute y^(2^k) at each step
         }
 
-        // Reverse so higher power is first
         res.reverse();
-
         Self(res)
     }
 
-    /// Compute eq(coords,point), where eq is the equality polynomial, where point is binary.
+    /// Computes the equality polynomial `eq(c, p)`, where `p` is binary.
     ///
-    /// Recall that the equality polynomial eq(c, p) is defined as eq(c,p) == \prod_i c_i * p_i +
-    /// (1-c_i)*(1-p_i). Note that for fixed p, viewed as a polynomial in c, it is the
-    /// interpolation polynomial associated to the evaluation point p in the evaluation set {0,1}^n.
+    /// The **equality polynomial** is defined as:
+    /// ```
+    /// eq(c, p) = ∏ (c_i * p_i + (1 - c_i) * (1 - p_i))
+    /// ```
+    /// which evaluates to `1` if `c == p`, and `0` otherwise.
+    ///
+    /// `p` is interpreted as a **big-endian** binary number.
     pub fn eq_poly(&self, mut point: BinaryHypercubePoint) -> F {
         let n_variables = self.n_variables();
-        // check that the lengths of coords and point match.
-        assert!(*point < (1 << n_variables));
+        assert!(*point < (1 << n_variables)); // Ensure correct length
 
         let mut acc = F::ONE;
 
@@ -88,12 +106,13 @@ where
         acc
     }
 
-    /// Compute eq(coords,point), where eq is the equality polynomial and where point is not
-    /// neccessarily binary.
+    /// Computes `eq(c, p)`, where `p` is a general `MultilinearPoint` (not necessarily binary).
     ///
-    /// Recall that the equality polynomial eq(c, p) is defined as eq(c,p) == \prod_i c_i * p_i +
-    /// (1-c_i)*(1-p_i). Note that for fixed p, viewed as a polynomial in c, it is the
-    /// interpolation polynomial associated to the evaluation point p in the evaluation set {0,1}^n.
+    /// The **equality polynomial** for two `MultilinearPoint`s `c` and `p` is:
+    /// ```
+    /// eq(c, p) = ∏ (c_i * p_i + (1 - c_i) * (1 - p_i))
+    /// ```
+    /// which evaluates to `1` if `c == p`, and `0` otherwise.
     pub fn eq_poly_outside(&self, point: &Self) -> F {
         assert_eq!(self.n_variables(), point.n_variables());
 
@@ -106,27 +125,35 @@ where
         acc
     }
 
-    /// Compute eq3(coords,point), where eq3 is the equality polynomial for {0,1,2}^n and point is
-    /// interpreted as an element from {0,1,2}^n via (big Endian) ternary decomposition.
+    /// Computes `eq3(c, p)`, the **equality polynomial** for `{0,1,2}^n`.
     ///
-    /// eq3(coords, point) is the unique polynomial of degree <=2 in each variable, s.t.
-    /// for coords, point in {0,1,2}^n, we have:
-    /// eq3(coords,point) = 1 if coords == point and 0 otherwise.
+    /// `p` is interpreted as a **big-endian** ternary number.
+    ///
+    /// `eq3(c, p)` is the unique polynomial of **degree ≤ 2** in each variable,
+    /// such that:
+    /// ```
+    /// eq3(c, p) = 1  if c == p
+    ///           = 0  otherwise
+    /// ```
+    /// Uses precomputed values to reduce redundant operations.
     pub fn eq_poly3(&self, mut point: usize) -> F {
-        let two_inv = F::TWO.inverse();
+        let two = F::ONE + F::ONE;
+        let two_inv = two.inverse();
 
         let n_variables = self.n_variables();
         assert!(point < 3usize.pow(n_variables as u32));
 
         let mut acc = F::ONE;
 
-        // Note: This iterates over the ternary decomposition least-significant trit(?) first.
-        // Since our convention is big endian, we reverse the order of coords to account for this.
+        // Iterate in **little-endian** order and adjust using big-endian convention.
         for &val in self.0.iter().rev() {
+            let val_minus_one = val - F::ONE;
+            let val_minus_two = val - two;
+
             acc *= match point % 3 {
-                0 => (val - F::ONE) * (val - F::TWO) * two_inv,
-                1 => val * (val - F::TWO) * (-F::ONE),
-                2 => val * (val - F::ONE) * two_inv,
+                0 => val_minus_one * val_minus_two * two_inv, // (val - 1)(val - 2) / 2
+                1 => val * val_minus_two * (-F::ONE),         // val (val - 2)(-1)
+                2 => val * val_minus_one * two_inv,           // val (val - 1) / 2
                 _ => unreachable!(),
             };
             point /= 3;
