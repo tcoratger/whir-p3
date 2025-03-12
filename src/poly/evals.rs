@@ -89,6 +89,19 @@ where
     pub const fn num_variables(&self) -> usize {
         self.num_variables
     }
+
+    /// Evaluates the multilinear polynomial at `point ∈ [0,1]^n`.
+    ///
+    /// - If `point ∈ {0,1}^n`, returns the precomputed evaluation `f(point)`.
+    /// - Otherwise, computes `f(point) = ∑_{x ∈ {0,1}^n} eq(x, point) * f(x)`, where `eq(x, point)
+    ///   = ∏_{i=1}^{n} (1 - p_i + 2 p_i x_i)`.
+    /// - Uses fast multilinear interpolation for efficiency.
+    pub fn eval_extension(&self, point: &MultilinearPoint<F>) -> F {
+        if let Some(point) = point.to_hypercube() {
+            return self.evals[point.0];
+        }
+        eval_multilinear(&self.evals, &point.0)
+    }
 }
 
 impl<F> Index<usize> for EvaluationsList<F> {
@@ -96,6 +109,64 @@ impl<F> Index<usize> for EvaluationsList<F> {
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.evals[index]
+    }
+}
+
+/// Evaluates a multilinear polynomial at `point ∈ [0,1]^n` using fast interpolation.
+///
+/// - Given evaluations `evals` over `{0,1}^n`, computes `f(point)` via iterative interpolation.
+/// - Uses the recurrence: `f(x_1, ..., x_n) = (1 - x_1) f_0 + x_1 f_1`, reducing dimension at each
+///   step.
+/// - Ensures `evals.len() = 2^n` to match the number of variables.
+#[allow(clippy::similar_names)]
+fn eval_multilinear<F: Field>(evals: &[F], point: &[F]) -> F {
+    debug_assert_eq!(evals.len(), 1 << point.len());
+    match point {
+        [] => evals[0],
+        [x] => evals[0] + (evals[1] - evals[0]) * *x,
+        [x0, x1] => {
+            let a0 = evals[0] + (evals[1] - evals[0]) * *x1;
+            let a1 = evals[2] + (evals[3] - evals[2]) * *x1;
+            a0 + (a1 - a0) * *x0
+        }
+        [x0, x1, x2] => {
+            let a00 = evals[0] + (evals[1] - evals[0]) * *x2;
+            let a01 = evals[2] + (evals[3] - evals[2]) * *x2;
+            let a10 = evals[4] + (evals[5] - evals[4]) * *x2;
+            let a11 = evals[6] + (evals[7] - evals[6]) * *x2;
+            let a0 = a00 + (a01 - a00) * *x1;
+            let a1 = a10 + (a11 - a10) * *x1;
+            a0 + (a1 - a0) * *x0
+        }
+        [x0, x1, x2, x3] => {
+            let a000 = evals[0] + (evals[1] - evals[0]) * *x3;
+            let a001 = evals[2] + (evals[3] - evals[2]) * *x3;
+            let a010 = evals[4] + (evals[5] - evals[4]) * *x3;
+            let a011 = evals[6] + (evals[7] - evals[6]) * *x3;
+            let a100 = evals[8] + (evals[9] - evals[8]) * *x3;
+            let a101 = evals[10] + (evals[11] - evals[10]) * *x3;
+            let a110 = evals[12] + (evals[13] - evals[12]) * *x3;
+            let a111 = evals[14] + (evals[15] - evals[14]) * *x3;
+            let a00 = a000 + (a001 - a000) * *x2;
+            let a01 = a010 + (a011 - a010) * *x2;
+            let a10 = a100 + (a101 - a100) * *x2;
+            let a11 = a110 + (a111 - a110) * *x2;
+            let a0 = a00 + (a01 - a00) * *x1;
+            let a1 = a10 + (a11 - a10) * *x1;
+            a0 + (a1 - a0) * *x0
+        }
+        [x, tail @ ..] => {
+            let (f0, f1) = evals.split_at(evals.len() / 2);
+            let (f0, f1) = {
+                let work_size: usize = (1 << 15) / std::mem::size_of::<F>();
+                if evals.len() > work_size {
+                    rayon::join(|| eval_multilinear(f0, tail), || eval_multilinear(f1, tail))
+                } else {
+                    (eval_multilinear(f0, tail), eval_multilinear(f1, tail))
+                }
+            };
+            f0 + (f1 - f0) * *x
+        }
     }
 }
 
@@ -234,5 +305,166 @@ mod tests {
             BabyBear::ZERO,
         ]);
         assert_eq!(evals.num_variables(), 2);
+    }
+
+    #[test]
+    fn test_eval_extension_on_hypercube_points() {
+        let evals = vec![
+            BabyBear::from_u64(1),
+            BabyBear::from_u64(2),
+            BabyBear::from_u64(3),
+            BabyBear::from_u64(4),
+        ];
+        let eval_list = EvaluationsList::new(evals.clone());
+
+        for i in BinaryHypercube::new(2) {
+            assert_eq!(
+                eval_list.eval_extension(&MultilinearPoint::from_binary_hypercube_point(i, 2)),
+                evals[i.0]
+            );
+        }
+    }
+
+    #[test]
+    fn test_eval_extension_on_non_hypercube_points() {
+        let evals = EvaluationsList::new(vec![
+            BabyBear::from_u64(1),
+            BabyBear::from_u64(2),
+            BabyBear::from_u64(3),
+            BabyBear::from_u64(4),
+        ]);
+
+        let point = MultilinearPoint(vec![BabyBear::from_u64(2), BabyBear::from_u64(3)]);
+
+        let result = evals.eval_extension(&point);
+
+        // Expected result using `eval_multilinear`
+        let expected = eval_multilinear(evals.evals(), &point.0);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_multilinear_1d() {
+        let a = BabyBear::from_u64(5);
+        let b = BabyBear::from_u64(10);
+        let evals = vec![a, b];
+
+        // Evaluate at midpoint `x = 1/2`
+        let x = BabyBear::from_u64(1) / BabyBear::from_u64(2);
+        let expected = a + (b - a) * x;
+
+        assert_eq!(eval_multilinear(&evals, &[x]), expected);
+    }
+
+    #[test]
+    fn test_eval_multilinear_2d() {
+        let a = BabyBear::from_u64(1);
+        let b = BabyBear::from_u64(2);
+        let c = BabyBear::from_u64(3);
+        let d = BabyBear::from_u64(4);
+
+        // The evaluations are stored in lexicographic order for (x, y)
+        // f(0,0) = a, f(0,1) = c, f(1,0) = b, f(1,1) = d
+        let evals = vec![a, b, c, d];
+
+        // Evaluate at `(x, y) = (1/2, 1/2)`
+        let x = BabyBear::from_u64(1) / BabyBear::from_u64(2);
+        let y = BabyBear::from_u64(1) / BabyBear::from_u64(2);
+
+        // Interpolation formula:
+        // f(x, y) = (1-x)(1-y) * f(0,0) + (1-x)y * f(0,1) + x(1-y) * f(1,0) + xy * f(1,1)
+        let expected = (BabyBear::ONE - x) * (BabyBear::ONE - y) * a +
+            (BabyBear::ONE - x) * y * c +
+            x * (BabyBear::ONE - y) * b +
+            x * y * d;
+
+        assert_eq!(eval_multilinear(&evals, &[x, y]), expected);
+    }
+
+    #[test]
+    fn test_eval_multilinear_3d() {
+        let a = BabyBear::from_u64(1);
+        let b = BabyBear::from_u64(2);
+        let c = BabyBear::from_u64(3);
+        let d = BabyBear::from_u64(4);
+        let e = BabyBear::from_u64(5);
+        let f = BabyBear::from_u64(6);
+        let g = BabyBear::from_u64(7);
+        let h = BabyBear::from_u64(8);
+
+        // The evaluations are stored in lexicographic order for (x, y, z)
+        // f(0,0,0) = a, f(0,0,1) = c, f(0,1,0) = b, f(0,1,1) = e
+        // f(1,0,0) = d, f(1,0,1) = f, f(1,1,0) = g, f(1,1,1) = h
+        let evals = vec![a, b, c, e, d, f, g, h];
+
+        let x = BabyBear::from_u64(1) / BabyBear::from_u64(3);
+        let y = BabyBear::from_u64(1) / BabyBear::from_u64(3);
+        let z = BabyBear::from_u64(1) / BabyBear::from_u64(3);
+
+        // Using trilinear interpolation formula:
+        let expected = (BabyBear::ONE - x) * (BabyBear::ONE - y) * (BabyBear::ONE - z) * a +
+            (BabyBear::ONE - x) * (BabyBear::ONE - y) * z * c +
+            (BabyBear::ONE - x) * y * (BabyBear::ONE - z) * b +
+            (BabyBear::ONE - x) * y * z * e +
+            x * (BabyBear::ONE - y) * (BabyBear::ONE - z) * d +
+            x * (BabyBear::ONE - y) * z * f +
+            x * y * (BabyBear::ONE - z) * g +
+            x * y * z * h;
+
+        assert_eq!(eval_multilinear(&evals, &[x, y, z]), expected);
+    }
+
+    #[test]
+    fn test_eval_multilinear_4d() {
+        let a = BabyBear::from_u64(1);
+        let b = BabyBear::from_u64(2);
+        let c = BabyBear::from_u64(3);
+        let d = BabyBear::from_u64(4);
+        let e = BabyBear::from_u64(5);
+        let f = BabyBear::from_u64(6);
+        let g = BabyBear::from_u64(7);
+        let h = BabyBear::from_u64(8);
+        let i = BabyBear::from_u64(9);
+        let j = BabyBear::from_u64(10);
+        let k = BabyBear::from_u64(11);
+        let l = BabyBear::from_u64(12);
+        let m = BabyBear::from_u64(13);
+        let n = BabyBear::from_u64(14);
+        let o = BabyBear::from_u64(15);
+        let p = BabyBear::from_u64(16);
+
+        // Evaluations stored in lexicographic order for (x, y, z, w)
+        let evals = vec![a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p];
+
+        let x = BabyBear::from_u64(1) / BabyBear::from_u64(2);
+        let y = BabyBear::from_u64(2) / BabyBear::from_u64(3);
+        let z = BabyBear::from_u64(1) / BabyBear::from_u64(4);
+        let w = BabyBear::from_u64(3) / BabyBear::from_u64(5);
+
+        // Quadlinear interpolation formula
+        let expected = (BabyBear::ONE - x) *
+            (BabyBear::ONE - y) *
+            (BabyBear::ONE - z) *
+            (BabyBear::ONE - w) *
+            a +
+            (BabyBear::ONE - x) * (BabyBear::ONE - y) * (BabyBear::ONE - z) * w * b +
+            (BabyBear::ONE - x) * (BabyBear::ONE - y) * z * (BabyBear::ONE - w) * c +
+            (BabyBear::ONE - x) * (BabyBear::ONE - y) * z * w * d +
+            (BabyBear::ONE - x) * y * (BabyBear::ONE - z) * (BabyBear::ONE - w) * e +
+            (BabyBear::ONE - x) * y * (BabyBear::ONE - z) * w * f +
+            (BabyBear::ONE - x) * y * z * (BabyBear::ONE - w) * g +
+            (BabyBear::ONE - x) * y * z * w * h +
+            x * (BabyBear::ONE - y) * (BabyBear::ONE - z) * (BabyBear::ONE - w) * i +
+            x * (BabyBear::ONE - y) * (BabyBear::ONE - z) * w * j +
+            x * (BabyBear::ONE - y) * z * (BabyBear::ONE - w) * k +
+            x * (BabyBear::ONE - y) * z * w * l +
+            x * y * (BabyBear::ONE - z) * (BabyBear::ONE - w) * m +
+            x * y * (BabyBear::ONE - z) * w * n +
+            x * y * z * (BabyBear::ONE - w) * o +
+            x * y * z * w * p;
+
+        // Validate against the function output
+        assert_eq!(eval_multilinear(&evals, &[x, y, z, w]), expected);
     }
 }
