@@ -1,20 +1,12 @@
-use p3_field::Field;
-
 use crate::ntt::transpose::transpose;
-
-/// Returns true if `n`:
-/// - is a power of two
-/// - is greater than zero
-pub const fn is_power_of_two(n: usize) -> bool {
-    n != 0 && n.is_power_of_two()
-}
+use p3_field::Field;
 
 /// Stacks evaluations by grouping them into cosets and transposing in-place.
 ///
 /// Given `evals[i] = f(ω^i)`, reorganizes values into `2^folding_factor` cosets.
 /// The transformation follows:
 ///
-/// ```
+/// ```ignore
 /// stacked[i, j] = f(ω^(i + j * (N / 2^folding_factor)))
 /// ```
 ///
@@ -35,15 +27,6 @@ mod tests {
     use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
-
-    #[test]
-    fn test_is_power_of_two() {
-        assert!(!is_power_of_two(0));
-        assert!(is_power_of_two(1));
-        assert!(is_power_of_two(2));
-        assert!(!is_power_of_two(3));
-        assert!(!is_power_of_two(usize::MAX));
-    }
 
     #[test]
     fn test_evaluations_stack() {
