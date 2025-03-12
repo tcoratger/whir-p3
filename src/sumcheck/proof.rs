@@ -107,7 +107,7 @@ where
     /// # Constraints:
     /// - The input `point` must have `n_variables` dimensions.
     pub fn evaluate_at_point(&self, point: &MultilinearPoint<F>) -> F {
-        assert_eq!(point.n_variables(), self.n_variables);
+        assert_eq!(point.num_variables(), self.n_variables);
         self.evaluations.iter().enumerate().map(|(i, &eval)| eval * point.eq_poly3(i)).sum()
     }
 }
