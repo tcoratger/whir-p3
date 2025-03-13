@@ -171,7 +171,6 @@ fn eval_multilinear<F: Field>(evals: &[F], point: &[F]) -> F {
 }
 
 #[cfg(test)]
-#[allow(clippy::should_panic_without_expect)]
 mod tests {
     use super::*;
     use crate::poly::hypercube::BinaryHypercube;

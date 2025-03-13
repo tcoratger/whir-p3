@@ -195,7 +195,7 @@ where
 }
 
 #[cfg(test)]
-#[allow(clippy::should_panic_without_expect, clippy::similar_names)]
+#[allow(clippy::similar_names)]
 mod tests {
     use super::*;
     use crate::poly::evals::EvaluationsList;

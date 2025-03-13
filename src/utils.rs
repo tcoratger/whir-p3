@@ -90,7 +90,6 @@ pub(crate) fn eval_eq<F: Field>(eval: &[F], out: &mut [F], scalar: F) {
 }
 
 #[cfg(test)]
-#[allow(clippy::should_panic_without_expect)]
 mod tests {
     use super::*;
     use p3_baby_bear::BabyBear;

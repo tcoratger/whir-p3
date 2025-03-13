@@ -170,12 +170,7 @@ impl<F> From<F> for MultilinearPoint<F> {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::identity_op,
-    clippy::cast_sign_loss,
-    clippy::erasing_op,
-    clippy::should_panic_without_expect
-)]
+#[allow(clippy::identity_op, clippy::cast_sign_loss, clippy::erasing_op)]
 mod tests {
     use super::*;
     use p3_baby_bear::BabyBear;

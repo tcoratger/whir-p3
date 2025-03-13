@@ -33,6 +33,7 @@ default_trait_access = "allow"
 module_name_repetitions = "allow"
 missing_safety_doc = "allow"
 many_single_char_names = "allow"
+should_panic_without_expect = "allow"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

@@ -650,6 +650,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::redundant_clone)]
     fn test_compute_evaluation_weight_identity() {
         // Define an evaluation weight at a specific point
         let point = MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO]);
