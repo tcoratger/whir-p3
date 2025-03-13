@@ -1,5 +1,6 @@
 use crate::ntt::transpose::transpose;
 use p3_field::Field;
+use rayon::join;
 
 /// Stacks evaluations by grouping them into cosets and transposing in-place.
 ///
@@ -40,6 +41,52 @@ pub fn base_decomposition(mut value: usize, base: u8, n_bits: usize) -> Vec<u8> 
     }
 
     result
+}
+
+/// Computes the equality polynomial evaluations efficiently.
+///
+/// Given an evaluation point vector `eval`, the function computes
+/// the equality polynomial recursively using the formula:
+///
+/// ```text
+/// eq(X) = ∏ (1 - X_i + 2X_i z_i)
+/// ```
+///
+/// where `z_i` are the constraint points.
+pub(crate) fn eval_eq<F: Field>(eval: &[F], out: &mut [F], scalar: F) {
+    const PARALLEL_THRESHOLD: usize = 10;
+
+    // Ensure that the output buffer size is correct:
+    // It should be of size `2^n`, where `n` is the number of variables.
+    debug_assert_eq!(out.len(), 1 << eval.len());
+
+    // Base case: When there are no more variables to process, update the final value.
+    if let Some((&x, tail)) = eval.split_first() {
+        // Divide the output buffer into two halves: one for `X_i = 0` and one for `X_i = 1`
+        let (low, high) = out.split_at_mut(out.len() / 2);
+
+        // Compute weight updates for the two branches:
+        // - `s0` corresponds to the case when `X_i = 0`
+        // - `s1` corresponds to the case when `X_i = 1`
+        //
+        // Mathematically, this follows the recurrence:
+        // ```text
+        // eq_{X1, ..., Xn}(X) = (1 - X_1) * eq_{X2, ..., Xn}(X) + X_1 * eq_{X2, ..., Xn}(X)
+        // ```
+        let s1 = scalar * x; // Contribution when `X_i = 1`
+        let s0 = scalar - s1; // Contribution when `X_i = 0`
+
+        // Use parallel execution if the number of remaining variables is large.
+        if tail.len() > PARALLEL_THRESHOLD {
+            join(|| eval_eq(tail, low, s0), || eval_eq(tail, high, s1));
+        } else {
+            eval_eq(tail, low, s0);
+            eval_eq(tail, high, s1);
+        }
+    } else {
+        // Leaf case: Add the accumulated scalar to the final output slot.
+        out[0] += scalar;
+    }
 }
 
 #[cfg(test)]
@@ -295,5 +342,20 @@ mod tests {
     fn test_base_decomposition_invalid_base() {
         // Base cannot be 0 or 1 (should panic)
         base_decomposition(10, 0, 5);
+    }
+
+    #[test]
+    fn test_eval_eq_functionality() {
+        let mut output = vec![BabyBear::ZERO; 4]; // n=2 → 2^2 = 4 elements
+        let eval = vec![BabyBear::from_u64(1), BabyBear::from_u64(0)]; // (X1, X2) = (1,0)
+        let scalar = BabyBear::from_u64(2);
+
+        eval_eq(&eval, &mut output, scalar);
+
+        // Expected results for (X1, X2) = (1,0)
+        let expected_output =
+            vec![BabyBear::ZERO, BabyBear::ZERO, BabyBear::from_u64(2), BabyBear::ZERO];
+
+        assert_eq!(output, expected_output);
     }
 }

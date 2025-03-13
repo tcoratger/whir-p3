@@ -6,7 +6,7 @@ use std::ops::Index;
 /// over the hypercube `{0,1}^{num_variables}`.
 ///
 /// The vector `evals` contains function evaluations at **lexicographically ordered** points.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EvaluationsList<F> {
     /// Stores evaluations in **lexicographic order**.
     evals: Vec<F>,
