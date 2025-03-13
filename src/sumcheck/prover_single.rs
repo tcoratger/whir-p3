@@ -116,8 +116,6 @@ where
     pub fn compute_sumcheck_polynomial(&self) -> SumcheckPolynomial<F> {
         assert!(self.num_variables() >= 1);
 
-        println!("weights: {:?}", self.weights.evals());
-
         // Compute the quadratic coefficients using parallel reduction
         let (c0, c2) = self
             .evaluation_of_p
