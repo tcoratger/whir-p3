@@ -98,7 +98,6 @@ where
 /// ```
 ///
 /// where `P_0` and `P_1` are the even-indexed and odd-indexed coefficient subsets.
-#[allow(clippy::similar_names)]
 fn eval_multivariate<F: Field>(coeffs: &[F], point: &[F]) -> F {
     debug_assert_eq!(coeffs.len(), 1 << point.len());
     match point {
@@ -195,7 +194,6 @@ where
 }
 
 #[cfg(test)]
-#[allow(clippy::similar_names)]
 mod tests {
     use super::*;
     use crate::poly::evals::EvaluationsList;

@@ -118,7 +118,6 @@ impl<F> Index<usize> for EvaluationsList<F> {
 /// - Uses the recurrence: `f(x_1, ..., x_n) = (1 - x_1) f_0 + x_1 f_1`, reducing dimension at each
 ///   step.
 /// - Ensures `evals.len() = 2^n` to match the number of variables.
-#[allow(clippy::similar_names)]
 fn eval_multilinear<F: Field>(evals: &[F], point: &[F]) -> F {
     debug_assert_eq!(evals.len(), 1 << point.len());
     match point {

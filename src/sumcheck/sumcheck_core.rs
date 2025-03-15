@@ -5,7 +5,7 @@ use crate::{
         coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint,
         sequential_lag_poly::LagrangePolynomialIterator,
     },
-    sumcheck::proof::SumcheckPolynomial,
+    sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     utils::base_decomposition,
 };
 

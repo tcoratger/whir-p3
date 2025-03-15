@@ -1,6 +1,5 @@
-use std::{fmt::Display, marker::PhantomData, str::FromStr};
-
 use serde::Serialize;
+use std::{fmt::Display, marker::PhantomData, str::FromStr};
 
 pub const fn default_max_pow(num_variables: usize, log_inv_rate: usize) -> usize {
     num_variables + log_inv_rate - 3

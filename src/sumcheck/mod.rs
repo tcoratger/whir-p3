@@ -1,3 +1,3 @@
-pub mod proof;
-pub mod prover_core;
-pub mod prover_single;
+pub mod sumcheck_core;
+pub mod sumcheck_polynomial;
+pub mod sumcheck_single;

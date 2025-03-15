@@ -1,4 +1,4 @@
-use super::proof::SumcheckPolynomial;
+use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::eval_eq,
@@ -20,13 +20,13 @@ use rayon::{
 /// Given a multilinear polynomial `p(X1, ..., Xn)`, the sumcheck polynomial is computed as:
 ///
 /// \begin{equation}
-/// S(X) = \sum p(\beta) \cdot w(\beta) \cdot X
+/// h(X) = \sum_b p(b, X) \cdot w(b, X)
 /// \end{equation}
 ///
 /// where:
-/// - `\beta` ranges over evaluation points in `{0,1,2}^k` (with `k=1` in this implementation).
-/// - `w(\beta)` represents generic weights applied to `p(\beta)`.
-/// - The result `S(X)` is a quadratic polynomial in `X`.
+/// - `b` ranges over evaluation points in `{0,1,2}^k` (with `k=1` in this implementation).
+/// - `w(b, X)` represents generic weights applied to `p(b, X)`.
+/// - The result `h(X)` is a quadratic polynomial in `X`.
 ///
 /// The sumcheck protocol ensures that the claimed sum is correct.
 #[derive(Debug)]
@@ -85,34 +85,42 @@ where
     pub fn add_new_equality(
         &mut self,
         points: &[MultilinearPoint<F>],
-        combination_randomness: &[F],
         evaluations: &[F],
+        combination_randomness: &[F],
     ) {
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(combination_randomness.len(), evaluations.len());
-        for (point, rand) in points.iter().zip(combination_randomness) {
-            // TODO: We might want to do all points simultaneously so we
-            // do only a single pass over the data.
-            eval_eq(&point.0, self.weights.evals_mut(), *rand);
-        }
-        // Update the sum
-        for (rand, eval) in combination_randomness.iter().zip(evaluations.iter()) {
-            self.sum += *rand * *eval;
-        }
+        // for (point, rand) in points.iter().zip(combination_randomness) {
+        //     // TODO: We might want to do all points simultaneously so we
+        //     // do only a single pass over the data.
+        //     eval_eq(&point.0, self.weights.evals_mut(), *rand);
+        // }
+        // // Update the sum
+        // for (rand, eval) in combination_randomness.iter().zip(evaluations.iter()) {
+        //     self.sum += *rand * *eval;
+        // }
+
+        // Accumulate the sum while applying all constraints simultaneously
+        points.iter().zip(combination_randomness.iter().zip(evaluations.iter())).for_each(
+            |(point, (&rand, &eval))| {
+                eval_eq(&point.0, self.weights.evals_mut(), rand);
+                self.sum += rand * eval;
+            },
+        );
     }
 
-    /// Computes the sumcheck polynomial `S(X)`, which is quadratic.
+    /// Computes the sumcheck polynomial `h(X)`, which is quadratic.
     ///
     /// The sumcheck polynomial is given by:
     ///
     /// \begin{equation}
-    /// S(X) = \sum p(\beta) \cdot w(\beta) \cdot X
+    /// h(X) = \sum_b p(b, X) \cdot w(b, X)
     /// \end{equation}
     ///
     /// where:
-    /// - `\beta` represents points in `{0,1,2}^1`.
-    /// - `w(\beta)` are the generic weights applied to `p(\beta)`.
-    /// - `S(X)` is a quadratic polynomial.
+    /// - `b` represents points in `{0,1,2}^1`.
+    /// - `w(b, X)` are the generic weights applied to `p(b, X)`.
+    /// - `h(X)` is a quadratic polynomial.
     pub fn compute_sumcheck_polynomial(&self) -> SumcheckPolynomial<F> {
         assert!(self.num_variables() >= 1);
 
@@ -465,5 +473,148 @@ mod tests {
 
         // Assert that computed sumcheck polynomial matches expectations
         assert_eq!(sumcheck_poly.evaluations(), &expected_evaluations);
+    }
+
+    #[test]
+    fn test_add_new_equality_single_constraint() {
+        // Polynomial with 2 variables:
+        // f(X1, X2) = c1 + c2*X1 + c3*X2 + c4*X1*X2
+        let c1 = BabyBear::from_u64(1);
+        let c2 = BabyBear::from_u64(2);
+        let c3 = BabyBear::from_u64(3);
+        let c4 = BabyBear::from_u64(4);
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
+
+        // Create an empty statement (no constraints initially)
+        let statement = Statement::new(2);
+
+        // Instantiate the Sumcheck prover
+        let mut prover = SumcheckSingle::new(coeffs, &statement, BabyBear::ONE);
+
+        // Add a single constraint at (X1, X2) = (1,0) with weight 2
+        let point = MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO]);
+        let weight = BabyBear::from_u64(2);
+
+        // Compute f(1,0) **without simplifications**
+        //
+        // f(1,0) = c1 + c2*X1 + c3*X2 + c4*X1*X2
+        //        = c1 + c2*(1) + c3*(0) + c4*(1)*(0)
+        let eval =
+            c1 + c2 * BabyBear::ONE + c3 * BabyBear::ZERO + c4 * BabyBear::ONE * BabyBear::ZERO;
+
+        prover.add_new_equality(&[point.clone()], &[eval], &[weight]);
+
+        // Compute expected sum explicitly:
+        //
+        // sum = weight * eval
+        //     = (2 * (c1 + c2*(1) + c3*(0) + c4*(1)*(0)))
+        //
+        let expected_sum = weight * eval;
+        assert_eq!(prover.sum, expected_sum);
+
+        // Compute the expected weight updates:
+        // The equality function at point (X1, X2) = (1,0) updates the weights.
+        let mut expected_weights = vec![BabyBear::ZERO; 4];
+        eval_eq(&point.0, &mut expected_weights, weight);
+
+        assert_eq!(prover.weights.evals(), &expected_weights);
+    }
+
+    #[test]
+    fn test_add_new_equality_multiple_constraints() {
+        // Polynomial with 3 variables:
+        // f(X1, X2, X3) = c1 + c2*X1 + c3*X2 + c4*X1*X2 + c5*X3 + c6*X1*X3 + c7*X2*X3 + c8*X1*X2*X3
+        let c1 = BabyBear::from_u64(1);
+        let c2 = BabyBear::from_u64(2);
+        let c3 = BabyBear::from_u64(3);
+        let c4 = BabyBear::from_u64(4);
+        let c5 = BabyBear::from_u64(5);
+        let c6 = BabyBear::from_u64(6);
+        let c7 = BabyBear::from_u64(7);
+        let c8 = BabyBear::from_u64(8);
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+
+        // Create an empty statement (no constraints initially)
+        let statement = Statement::new(3);
+
+        // Instantiate the Sumcheck prover
+        let mut prover = SumcheckSingle::new(coeffs, &statement, BabyBear::ONE);
+
+        // Add constraints at (X1, X2, X3) = (1,0,1) with weight 2 and (0,1,0) with weight 3
+        let point1 = MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO, BabyBear::ONE]);
+        let point2 = MultilinearPoint(vec![BabyBear::ZERO, BabyBear::ONE, BabyBear::ZERO]);
+
+        let weight1 = BabyBear::from_u64(2);
+        let weight2 = BabyBear::from_u64(3);
+
+        // Compute f(1,0,1) using the polynomial definition:
+        //
+        // f(1,0,1) = c1 + c2*X1 + c3*X2 + c4*X1*X2 + c5*X3 + c6*X1*X3 + c7*X2*X3 + c8*X1*X2*X3
+        //          = c1 + c2*(1) + c3*(0) + c4*(1)*(0) + c5*(1) + c6*(1)*(1) + c7*(0)*(1) +
+        // c8*(1)*(0)*(1)
+        let eval1 = c1 +
+            c2 * BabyBear::ONE +
+            c3 * BabyBear::ZERO +
+            c4 * BabyBear::ONE * BabyBear::ZERO +
+            c5 * BabyBear::ONE +
+            c6 * BabyBear::ONE * BabyBear::ONE +
+            c7 * BabyBear::ZERO * BabyBear::ONE +
+            c8 * BabyBear::ONE * BabyBear::ZERO * BabyBear::ONE;
+
+        // Compute f(0,1,0) using the polynomial definition:
+        //
+        // f(0,1,0) = c1 + c2*X1 + c3*X2 + c4*X1*X2 + c5*X3 + c6*X1*X3 + c7*X2*X3 + c8*X1*X2*X3
+        //          = c1 + c2*(0) + c3*(1) + c4*(0)*(1) + c5*(0) + c6*(0)*(0) + c7*(1)*(0) +
+        // c8*(0)*(1)*(0)
+        let eval2 = c1 +
+            c2 * BabyBear::ZERO +
+            c3 * BabyBear::ONE +
+            c4 * BabyBear::ZERO * BabyBear::ONE +
+            c5 * BabyBear::ZERO +
+            c6 * BabyBear::ZERO * BabyBear::ZERO +
+            c7 * BabyBear::ONE * BabyBear::ZERO +
+            c8 * BabyBear::ZERO * BabyBear::ONE * BabyBear::ZERO;
+
+        prover.add_new_equality(
+            &[point1.clone(), point2.clone()],
+            &[eval1, eval2],
+            &[weight1, weight2],
+        );
+
+        // Compute the expected sum manually:
+        //
+        // sum = (weight1 * eval1) + (weight2 * eval2)
+        let expected_sum = weight1 * eval1 + weight2 * eval2;
+        assert_eq!(prover.sum, expected_sum);
+
+        // Expected weight updates
+        let mut expected_weights = vec![BabyBear::ZERO; 8];
+        eval_eq(&point1.0, &mut expected_weights, weight1);
+        eval_eq(&point2.0, &mut expected_weights, weight2);
+
+        assert_eq!(prover.weights.evals(), &expected_weights);
+    }
+
+    #[test]
+    fn test_add_new_equality_with_zero_weight() {
+        let c1 = BabyBear::from_u64(1);
+        let c2 = BabyBear::from_u64(2);
+        let coeffs = CoefficientList::new(vec![c1, c2]);
+
+        let statement = Statement::new(1);
+        let mut prover = SumcheckSingle::new(coeffs, &statement, BabyBear::ONE);
+
+        let point = MultilinearPoint(vec![BabyBear::ONE]);
+        let weight = BabyBear::ZERO;
+        let eval = BabyBear::from_u64(5);
+
+        prover.add_new_equality(&[point], &[eval], &[weight]);
+
+        // The sum should remain unchanged since the weight is zero
+        assert_eq!(prover.sum, BabyBear::ZERO);
+
+        // The weights should remain unchanged
+        let expected_weights = vec![BabyBear::ZERO; 2];
+        assert_eq!(prover.weights.evals(), &expected_weights);
     }
 }

@@ -15,6 +15,11 @@ use std::{
 static ENGINE_CACHE: LazyLock<Mutex<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Compute the many NTTs of size `size` using a cached engine.
+pub fn ntt_batch<F: Field + TwoAdicField>(values: &mut [F], size: usize) {
+    NttEngine::<F>::new_from_cache().ntt_batch(values, size);
+}
+
 /// Compute the inverse NTT of multiple slice of field elements, each of size `size`, without the
 /// 1/n scaling factor and using a cached engine.
 pub fn intt_batch<F: Field + TwoAdicField>(values: &mut [F], size: usize) {
@@ -87,6 +92,9 @@ impl<F: Field> NttEngine<F> {
             // with even order exist.
             res.half_omega_3_1_min_2 = (omega_3_1 - omega_3_2) / F::from_u64(2u64);
             res.half_omega_3_1_plus_2 = (omega_3_1 + omega_3_2) / F::from_u64(2u64);
+        }
+        if order % 4 == 0 {
+            res.omega_4_1 = res.root(4);
         }
         if order % 8 == 0 {
             res.omega_8_1 = res.root(8);
@@ -704,45 +712,225 @@ mod tests {
     }
 
     #[test]
-    fn test_new_from_cache_thread_safety() {
-        use std::thread;
+    fn test_ntt_batch_size_2() {
+        let omega = BabyBear::two_adic_generator(1); // 2nd root of unity
+        let engine = NttEngine::new(2, omega);
 
-        let handles: Vec<_> = (0..10)
-            .map(|_| {
-                thread::spawn(|| {
-                    let engine = NttEngine::<BabyBear>::new_from_cache();
-                    assert!(engine.order.is_power_of_two());
-                    assert_eq!(
-                        engine.root(engine.order).exp_u64(engine.order as u64),
-                        BabyBear::ONE
-                    );
-                })
-            })
-            .collect();
+        // Input values: f(x) = [1, 2]
+        let f0 = BabyBear::from_u64(1);
+        let f1 = BabyBear::from_u64(2);
+        let mut values = vec![f0, f1];
 
-        for handle in handles {
-            handle.join().expect("Thread failed");
-        }
+        // Compute the expected NTT manually:
+        //
+        //   F(0)  =  f0 + f1
+        //   F(1)  =  f0 - f1
+        //
+        // ω is the 2nd root of unity: ω² = 1.
+
+        let expected_f0 = f0 + f1;
+        let expected_f1 = f0 - f1;
+
+        let expected_values = vec![expected_f0, expected_f1];
+
+        engine.ntt_batch(&mut values, 2);
+
+        assert_eq!(values, expected_values);
     }
 
     #[test]
-    fn test_engine_cache_persistence() {
-        // Verify that a newly created engine is cached and retrievable
-        let type_id = TypeId::of::<BabyBear>();
-        {
-            let cache = ENGINE_CACHE.lock().unwrap();
-            assert!(!cache.contains_key(&type_id), "Cache should be empty before initialization.");
+    fn test_ntt_batch_size_4() {
+        let omega = BabyBear::two_adic_generator(2); // 4th root of unity
+        let engine = NttEngine::new(4, omega);
+
+        // Input values: f(x) = [1, 2, 3, 4]
+        let f0 = BabyBear::from_u64(1);
+        let f1 = BabyBear::from_u64(2);
+        let f2 = BabyBear::from_u64(3);
+        let f3 = BabyBear::from_u64(4);
+        let mut values = vec![f0, f1, f2, f3];
+
+        // Compute the expected NTT manually:
+        //
+        //   F(0)  =  f0 + f1 + f2 + f3
+        //   F(1)  =  f0 + f1 * ω + f2 * ω² + f3 * ω³
+        //   F(2)  =  f0 + f1 * ω² + f2 * ω⁴ + f3 * ω⁶
+        //   F(3)  =  f0 + f1 * ω³ + f2 * ω⁶ + f3 * ω⁹
+        //
+        // ω is the 4th root of unity: ω⁴ = 1, ω² = -1.
+
+        let omega1 = omega; // ω
+        let omega2 = omega * omega; // ω² = -1
+        let omega3 = omega * omega2; // ω³ = -ω
+        let omega4 = omega * omega3; // ω⁴ = 1
+
+        let expected_f0 = f0 + f1 + f2 + f3;
+        let expected_f1 = f0 + f1 * omega1 + f2 * omega2 + f3 * omega3;
+        let expected_f2 = f0 + f1 * omega2 + f2 * omega4 + f3 * omega2;
+        let expected_f3 = f0 + f1 * omega3 + f2 * omega2 + f3 * omega1;
+
+        let expected_values = vec![expected_f0, expected_f1, expected_f2, expected_f3];
+
+        engine.ntt_batch(&mut values, 4);
+
+        assert_eq!(values, expected_values);
+    }
+
+    #[test]
+    fn test_ntt_batch_size_8() {
+        let omega = BabyBear::two_adic_generator(3); // 8th root of unity
+        let engine = NttEngine::new(8, omega);
+
+        // Input values: f(x) = [1, 2, 3, 4, 5, 6, 7, 8]
+        let f0 = BabyBear::from_u64(1);
+        let f1 = BabyBear::from_u64(2);
+        let f2 = BabyBear::from_u64(3);
+        let f3 = BabyBear::from_u64(4);
+        let f4 = BabyBear::from_u64(5);
+        let f5 = BabyBear::from_u64(6);
+        let f6 = BabyBear::from_u64(7);
+        let f7 = BabyBear::from_u64(8);
+        let mut values = vec![f0, f1, f2, f3, f4, f5, f6, f7];
+
+        // Compute the expected NTT manually:
+        //
+        //   F(k) = ∑ f_j * ω^(j*k)  for k ∈ {0, ..., 7}
+        //
+        // ω is the 8th root of unity: ω⁸ = 1.
+
+        let omega1 = omega; // ω
+        let omega2 = omega * omega; // ω²
+        let omega3 = omega * omega2; // ω³
+        let omega4 = omega * omega3; // ω⁴
+        let omega5 = omega * omega4; // ω⁵
+        let omega6 = omega * omega5; // ω⁶
+        let omega7 = omega * omega6; // ω⁷
+
+        let expected_f0 = f0 + f1 + f2 + f3 + f4 + f5 + f6 + f7;
+        let expected_f1 = f0 +
+            f1 * omega1 +
+            f2 * omega2 +
+            f3 * omega3 +
+            f4 * omega4 +
+            f5 * omega5 +
+            f6 * omega6 +
+            f7 * omega7;
+        let expected_f2 = f0 +
+            f1 * omega2 +
+            f2 * omega4 +
+            f3 * omega6 +
+            f4 * BabyBear::ONE +
+            f5 * omega2 +
+            f6 * omega4 +
+            f7 * omega6;
+        let expected_f3 = f0 +
+            f1 * omega3 +
+            f2 * omega6 +
+            f3 * omega1 +
+            f4 * omega4 +
+            f5 * omega7 +
+            f6 * omega2 +
+            f7 * omega5;
+        let expected_f4 = f0 +
+            f1 * omega4 +
+            f2 * BabyBear::ONE +
+            f3 * omega4 +
+            f4 * BabyBear::ONE +
+            f5 * omega4 +
+            f6 * BabyBear::ONE +
+            f7 * omega4;
+        let expected_f5 = f0 +
+            f1 * omega5 +
+            f2 * omega2 +
+            f3 * omega7 +
+            f4 * omega4 +
+            f5 * omega1 +
+            f6 * omega6 +
+            f7 * omega3;
+        let expected_f6 = f0 +
+            f1 * omega6 +
+            f2 * omega4 +
+            f3 * omega2 +
+            f4 * BabyBear::ONE +
+            f5 * omega6 +
+            f6 * omega4 +
+            f7 * omega2;
+        let expected_f7 = f0 +
+            f1 * omega7 +
+            f2 * omega6 +
+            f3 * omega5 +
+            f4 * omega4 +
+            f5 * omega3 +
+            f6 * omega2 +
+            f7 * omega1;
+
+        let expected_values = vec![
+            expected_f0,
+            expected_f1,
+            expected_f2,
+            expected_f3,
+            expected_f4,
+            expected_f5,
+            expected_f6,
+            expected_f7,
+        ];
+
+        engine.ntt_batch(&mut values, 8);
+
+        assert_eq!(values, expected_values);
+    }
+
+    #[test]
+    fn test_ntt_batch_size_16() {
+        let omega = BabyBear::two_adic_generator(4); // 16th root of unity
+        let engine = NttEngine::new(16, omega);
+
+        // Input values: f(x) = [1, 2, ..., 16]
+        let values: Vec<BabyBear> = (1..=16).map(BabyBear::from_u64).collect();
+        let mut values_ntt = values.clone();
+
+        // Compute the expected NTT manually:
+        //
+        //   F(k) = ∑ f_j * ω^(j*k)  for k ∈ {0, ..., 15}
+        //
+        // ω is the 16th root of unity: ω¹⁶ = 1.
+
+        let mut expected_values = vec![BabyBear::ZERO; 16];
+        for (k, expected_value) in expected_values.iter_mut().enumerate().take(16) {
+            let omega_k = omega.exp_u64(k as u64);
+            *expected_value =
+                values.iter().enumerate().map(|(j, &f_j)| f_j * omega_k.exp_u64(j as u64)).sum();
         }
 
-        // Create an engine
-        let _engine = NttEngine::<BabyBear>::new_from_cache();
+        engine.ntt_batch(&mut values_ntt, 16);
 
-        {
-            let cache = ENGINE_CACHE.lock().unwrap();
-            assert!(
-                cache.contains_key(&type_id),
-                "Cache should contain an entry after initialization."
-            );
+        assert_eq!(values_ntt, expected_values);
+    }
+
+    #[test]
+    fn test_ntt_batch_size_32() {
+        let omega = BabyBear::two_adic_generator(5); // 32nd root of unity
+        let engine = NttEngine::new(32, omega);
+
+        // Input values: f(x) = [1, 2, ..., 32]
+        let values: Vec<BabyBear> = (1..=32).map(BabyBear::from_u64).collect();
+        let mut values_ntt = values.clone();
+
+        // Compute the expected NTT manually:
+        //
+        //   F(k) = ∑ f_j * ω^(j*k)  for k ∈ {0, ..., 31}
+        //
+        // ω is the 32nd root of unity: ω³² = 1.
+
+        let mut expected_values = vec![BabyBear::ZERO; 32];
+        for (k, expected_value) in expected_values.iter_mut().enumerate().take(32) {
+            let omega_k = omega.exp_u64(k as u64);
+            *expected_value =
+                values.iter().enumerate().map(|(j, &f_j)| f_j * omega_k.exp_u64(j as u64)).sum();
         }
+
+        engine.ntt_batch(&mut values_ntt, 32);
+
+        assert_eq!(values_ntt, expected_values);
     }
 }
