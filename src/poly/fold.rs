@@ -1,4 +1,7 @@
-use crate::{ntt::cooley_tukey::intt_batch, parameters::FoldType};
+use crate::{
+    ntt::{cooley_tukey::intt_batch, transpose::transpose},
+    parameters::FoldType,
+};
 use p3_field::{Field, TwoAdicField};
 use rayon::{
     iter::{IndexedParallelIterator, ParallelIterator},
@@ -69,31 +72,35 @@ pub fn compute_fold<F: Field>(
     answers[0]
 }
 
-pub fn restructure_evaluations<F: Field + TwoAdicField>(
-    mut stacked_evaluations: Vec<F>,
+pub fn transform_evaluations<F: Field + TwoAdicField>(
+    evals: &mut [F],
     fold_type: FoldType,
     _domain_gen: F,
     domain_gen_inv: F,
     folding_factor: usize,
-) -> Vec<F> {
-    let folding_size = 1_u64 << folding_factor;
-    assert_eq!(stacked_evaluations.len() % (folding_size as usize), 0);
+) {
+    let folding_factor_exp = 1 << folding_factor;
+    assert!(evals.len() % folding_factor_exp == 0);
+    let size_of_new_domain = evals.len() / folding_factor_exp;
+
     match fold_type {
-        FoldType::Naive => stacked_evaluations,
+        FoldType::Naive => {
+            // Perform only the stacking step (transpose)
+            transpose(evals, folding_factor_exp, size_of_new_domain);
+        }
         FoldType::ProverHelps => {
-            // TODO: This partially undoes the NTT transform from tne encoding.
-            // Maybe there is a way to not do the full transform in the first place.
+            // Perform stacking (transpose)
+            transpose(evals, folding_factor_exp, size_of_new_domain);
 
             // Batch inverse NTTs
-            intt_batch(&mut stacked_evaluations, folding_size as usize);
+            intt_batch(evals, folding_factor_exp);
 
             // Apply coset and size correction.
             // Stacked evaluation at i is f(B_l) where B_l = w^i * <w^n/k>
-            let size_inv = F::from_u64(folding_size).inverse();
-            stacked_evaluations
-                .par_chunks_exact_mut(folding_size as usize)
-                .enumerate()
-                .for_each_with(F::ZERO, |offset, (i, answers)| {
+            let size_inv = F::from_u64(folding_factor_exp as u64).inverse();
+            evals.par_chunks_exact_mut(folding_factor_exp).enumerate().for_each_with(
+                F::ZERO,
+                |offset, (i, answers)| {
                     if *offset == F::ZERO {
                         *offset = domain_gen_inv.exp_u64(i as u64);
                     } else {
@@ -104,9 +111,8 @@ pub fn restructure_evaluations<F: Field + TwoAdicField>(
                         *v *= scale;
                         scale *= *offset;
                     }
-                });
-
-            stacked_evaluations
+                },
+            );
         }
     }
 }
@@ -114,10 +120,7 @@ pub fn restructure_evaluations<F: Field + TwoAdicField>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
-        utils::stack_evaluations,
-    };
+    use crate::poly::{coeffs::CoefficientList, multilinear::MultilinearPoint};
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
 
@@ -218,7 +221,7 @@ mod tests {
 
         // Step 1: Evaluate the polynomial on the entire domain of size 256
         // We evaluate at points: {ω^w} for w in {0, 1, ..., 255}
-        let domain_evaluations: Vec<_> = (0..domain_size)
+        let mut domain_evaluations: Vec<_> = (0..domain_size)
             .map(|w| root_of_unity.exp_u64(w))
             .map(|point| {
                 poly.evaluate(&MultilinearPoint::expand_from_univariate(point, num_variables))
@@ -227,11 +230,16 @@ mod tests {
 
         // Step 2: Stack evaluations into groups of size 2^folding_factor = 8
         // This groups evaluations for efficient folding
-        let unprocessed = stack_evaluations(domain_evaluations, folding_factor);
+        let mut unprocessed = domain_evaluations.clone();
+        transpose(
+            &mut unprocessed,
+            folding_factor_exp as usize,
+            domain_evaluations.len() / folding_factor_exp as usize,
+        );
 
         // Step 3: Restructure evaluations using the `ProverHelps` folding strategy
-        let processed = restructure_evaluations(
-            unprocessed.clone(), // Clone unprocessed evaluations to compare later
+        transform_evaluations(
+            &mut domain_evaluations,
             crate::parameters::FoldType::ProverHelps,
             root_of_unity,
             root_of_unity_inv,
@@ -261,7 +269,7 @@ mod tests {
             );
 
             // Compute the expected folded value using the processed evaluations
-            let answer_processed = CoefficientList::new(processed[span].to_vec())
+            let answer_processed = CoefficientList::new(domain_evaluations[span].to_vec())
                 .evaluate(&MultilinearPoint(folding_randomness.clone()));
 
             // Ensure computed and expected values match

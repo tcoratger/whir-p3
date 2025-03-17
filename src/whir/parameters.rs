@@ -1,4 +1,9 @@
-use crate::parameters::{FoldType, FoldingFactor, MultivariateParameters, SoundnessType};
+use crate::{
+    domain::Domain,
+    merkle_tree::{Poseidon2Compression, Poseidon2Sponge},
+    parameters::{FoldType, FoldingFactor, MultivariateParameters, SoundnessType},
+};
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 use std::marker::PhantomData;
 
 #[derive(Debug, Clone)]
@@ -11,7 +16,11 @@ pub struct RoundConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct WhirConfig<F, PowStrategy> {
+pub struct WhirConfig<F, PowStrategy, Perm16, Perm24>
+where
+    F: Field + TwoAdicField,
+    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+{
     pub mv_parameters: MultivariateParameters<F>,
     pub soundness_type: SoundnessType,
     pub security_level: usize,
@@ -24,7 +33,7 @@ pub struct WhirConfig<F, PowStrategy> {
     // 2. The commitment is a valid folded polynomial, and an additional polynomial evaluation
     //    statement. In that case, the initial statement is set to true.
     pub initial_statement: bool,
-    // pub starting_domain: Domain<F>,
+    pub starting_domain: Domain<F>,
     pub starting_log_inv_rate: usize,
     pub starting_folding_pow_bits: f64,
 
@@ -40,4 +49,8 @@ pub struct WhirConfig<F, PowStrategy> {
 
     // PoW parameters
     pub pow_strategy: PhantomData<PowStrategy>,
+
+    // Merkle tree parameters
+    pub merkle_hash: Poseidon2Sponge<Perm24>,
+    pub merkle_compress: Poseidon2Compression<Perm16>,
 }

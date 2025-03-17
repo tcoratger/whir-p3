@@ -86,6 +86,18 @@ where
 
         Self { coeffs, num_variables: self.num_variables() - folding_factor }
     }
+
+    /// Evaluate self at `point`, where `point` is from a field extension extending the field over
+    /// which the polynomial `self` is defined.
+    ///
+    /// Note that we only support the case where F is a prime field.
+    pub fn evaluate_at_extension<E: Field<PrimeSubfield = F>>(
+        &self,
+        point: &MultilinearPoint<E>,
+    ) -> E {
+        assert_eq!(self.num_variables, point.num_variables());
+        eval_extension(&self.coeffs, &point.0, E::ONE)
+    }
 }
 
 /// Multivariate Horner’s method for evaluating a polynomial at a general point.
@@ -180,6 +192,14 @@ impl<F> CoefficientList<F> {
     pub fn num_coeffs(&self) -> usize {
         self.coeffs.len()
     }
+
+    /// Map the polynomial `self` from F[X_1,...,X_n] to E[X_1,...,X_n], where E is a field
+    /// extension of F.
+    ///
+    /// Note that this is currently restricted to the case where F is a prime field.
+    pub fn to_extension<E: Field<PrimeSubfield = F>>(self) -> CoefficientList<E> {
+        CoefficientList::new(self.coeffs.into_iter().map(E::from_prime_subfield).collect())
+    }
 }
 
 impl<F> From<CoefficientList<F>> for EvaluationsList<F>
@@ -190,6 +210,45 @@ where
         let mut evals = value.coeffs;
         wavelet_transform(&mut evals);
         Self::new(evals)
+    }
+}
+
+/// Recursively evaluates a multilinear polynomial at an extension field point.
+///
+/// Given `coeffs` in lexicographic order, this computes:
+/// ```ignore
+/// eval_poly(X_0, ..., X_n) = sum(coeffs[i] * product(X_j for j in S(i)))
+/// ```
+/// where `S(i)` is the set of variables active in term `i` (based on its binary representation).
+///
+/// - Uses divide-and-conquer recursion:
+///   - Splits `coeffs` into two halves for `X_0 = 0` and `X_0 = 1`.
+///   - Recursively evaluates each half.
+fn eval_extension<F, E>(coeff: &[F], eval: &[E], scalar: E) -> E
+where
+    F: Field,
+    E: Field<PrimeSubfield = F>,
+{
+    debug_assert_eq!(coeff.len(), 1 << eval.len());
+
+    if let Some((&x, tail)) = eval.split_first() {
+        let (low, high) = coeff.split_at(coeff.len() / 2);
+
+        {
+            const PARALLEL_THRESHOLD: usize = 10;
+            if tail.len() > PARALLEL_THRESHOLD {
+                let (a, b) = rayon::join(
+                    || eval_extension(low, tail, scalar),
+                    || eval_extension(high, tail, scalar * x),
+                );
+                return a + b;
+            }
+        }
+
+        // Default non-parallel execution
+        eval_extension(low, tail, scalar) + eval_extension(high, tail, scalar * x)
+    } else {
+        scalar * E::from_prime_subfield(coeff[0])
     }
 }
 
@@ -381,5 +440,104 @@ mod tests {
                 coeffs_list.evaluate(&eval_point)
             );
         }
+    }
+
+    #[test]
+    fn test_evaluate_at_extension_single_variable() {
+        type F = BabyBear;
+        type E = BabyBear;
+
+        // Polynomial f(X) = 3 + 7X in base field
+        let coeff0 = F::from_u64(3);
+        let coeff1 = F::from_u64(7);
+        let coeffs = vec![coeff0, coeff1];
+        let coeff_list = CoefficientList::new(coeffs);
+
+        // Convert to extension field
+        let coeff_list_ext = coeff_list.to_extension::<E>();
+
+        let x = E::from_u64(2); // Evaluation at x = 2 in extension field
+        let expected_value = E::from_u64(3) + E::from_u64(7) * x; // f(2) = 3 + 7 * 2
+        let eval_result = coeff_list_ext.evaluate_at_extension(&MultilinearPoint(vec![x]));
+
+        assert_eq!(eval_result, expected_value);
+    }
+
+    #[test]
+    fn test_evaluate_at_extension_two_variables() {
+        type F = BabyBear;
+        type E = BabyBear;
+
+        // Polynomial f(X₀, X₁) = 2 + 5X₀ + 3X₁ + 7X₀X₁
+        let coeffs = vec![
+            F::from_u64(2), // Constant term
+            F::from_u64(5), // X₁ term
+            F::from_u64(3), // X₀ term
+            F::from_u64(7), // X₀X₁ term
+        ];
+        let coeff_list = CoefficientList::new(coeffs);
+        let coeff_list_ext = coeff_list.to_extension::<E>();
+
+        let x0 = E::from_u64(2);
+        let x1 = E::from_u64(3);
+        let expected_value =
+            E::from_u64(2) + E::from_u64(5) * x1 + E::from_u64(3) * x0 + E::from_u64(7) * x0 * x1;
+        let eval_result = coeff_list_ext.evaluate_at_extension(&MultilinearPoint(vec![x0, x1]));
+
+        assert_eq!(eval_result, expected_value);
+    }
+
+    #[test]
+    fn test_evaluate_at_extension_three_variables() {
+        type F = BabyBear;
+        type E = BabyBear;
+
+        // Polynomial: f(X₀, X₁, X₂) = 1 + 2X₂ + 3X₁ + 5X₁X₂ + 4X₀ + 6X₀X₂ + 7X₀X₁ + 8X₀X₁X₂
+        let coeffs = vec![
+            F::from_u64(1), // Constant term (000)
+            F::from_u64(2), // X₂ (001)
+            F::from_u64(3), // X₁ (010)
+            F::from_u64(5), // X₁X₂ (011)
+            F::from_u64(4), // X₀ (100)
+            F::from_u64(6), // X₀X₂ (101)
+            F::from_u64(7), // X₀X₁ (110)
+            F::from_u64(8), // X₀X₁X₂ (111)
+        ];
+        let coeff_list = CoefficientList::new(coeffs);
+        let coeff_list_ext = coeff_list.to_extension::<E>();
+
+        let x0 = E::from_u64(2);
+        let x1 = E::from_u64(3);
+        let x2 = E::from_u64(4);
+
+        // Correct expected value based on the coefficient order
+        let expected_value = E::from_u64(1) +
+            E::from_u64(2) * x2 +
+            E::from_u64(3) * x1 +
+            E::from_u64(5) * x1 * x2 +
+            E::from_u64(4) * x0 +
+            E::from_u64(6) * x0 * x2 +
+            E::from_u64(7) * x0 * x1 +
+            E::from_u64(8) * x0 * x1 * x2;
+
+        let eval_result = coeff_list_ext.evaluate_at_extension(&MultilinearPoint(vec![x0, x1, x2]));
+
+        assert_eq!(eval_result, expected_value);
+    }
+
+    #[test]
+    fn test_evaluate_at_extension_zero_polynomial() {
+        type F = BabyBear;
+        type E = BabyBear;
+
+        // Zero polynomial f(X) = 0
+        let coeff_list = CoefficientList::new(vec![F::ZERO; 4]); // f(X₀, X₁) = 0
+        let coeff_list_ext = coeff_list.to_extension::<E>();
+
+        let x0 = E::from_u64(5);
+        let x1 = E::from_u64(7);
+        let eval_result = coeff_list_ext.evaluate_at_extension(&MultilinearPoint(vec![x0, x1]));
+
+        assert_eq!(eval_result, E::ZERO);
     }
 }
