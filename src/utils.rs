@@ -68,6 +68,20 @@ pub(crate) fn eval_eq<F: Field>(eval: &[F], out: &mut [F], scalar: F) {
     }
 }
 
+/// Generates a sequence of powers of `base`, starting from `1`.
+///
+/// This function returns a vector containing the sequence:
+/// `[1, base, base^2, base^3, ..., base^(len-1)]`
+pub fn expand_randomness<F: Field>(base: F, len: usize) -> Vec<F> {
+    let mut res = Vec::with_capacity(len);
+    let mut acc = F::ONE;
+    for _ in 0..len {
+        res.push(acc);
+        acc *= base;
+    }
+    res
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +209,91 @@ mod tests {
             vec![BabyBear::ZERO, BabyBear::ZERO, BabyBear::from_u64(2), BabyBear::ZERO];
 
         assert_eq!(output, expected_output);
+    }
+
+    #[test]
+    fn test_expand_randomness_basic() {
+        // Test with base = 2 and length = 5
+        let base = BabyBear::from_u64(2);
+        let len = 5;
+
+        let expected = vec![
+            BabyBear::ONE,
+            BabyBear::from_u64(2),
+            BabyBear::from_u64(4),
+            BabyBear::from_u64(8),
+            BabyBear::from_u64(16),
+        ];
+
+        assert_eq!(expand_randomness(base, len), expected);
+    }
+
+    #[test]
+    fn test_expand_randomness_zero_length() {
+        // If len = 0, should return an empty vector
+        let base = BabyBear::from_u64(3);
+        assert!(expand_randomness(base, 0).is_empty());
+    }
+
+    #[test]
+    fn test_expand_randomness_one_length() {
+        // If len = 1, should return [1]
+        let base = BabyBear::from_u64(5);
+        assert_eq!(expand_randomness(base, 1), vec![BabyBear::ONE]);
+    }
+
+    #[test]
+    fn test_expand_randomness_large_base() {
+        // Test with a large base value
+        let base = BabyBear::from_u64(10);
+        let len = 4;
+
+        let expected = vec![
+            BabyBear::ONE,
+            BabyBear::from_u64(10),
+            BabyBear::from_u64(100),
+            BabyBear::from_u64(1000),
+        ];
+
+        assert_eq!(expand_randomness(base, len), expected);
+    }
+
+    #[test]
+    fn test_expand_randomness_identity_case() {
+        // If base = 1, all values should be 1
+        let base = BabyBear::ONE;
+        let len = 6;
+
+        let expected = vec![BabyBear::ONE; len];
+        assert_eq!(expand_randomness(base, len), expected);
+    }
+
+    #[test]
+    fn test_expand_randomness_zero_base() {
+        // If base = 0, all values after the first should be 0
+        let base = BabyBear::ZERO;
+        let len = 5;
+
+        let expected =
+            vec![BabyBear::ONE, BabyBear::ZERO, BabyBear::ZERO, BabyBear::ZERO, BabyBear::ZERO];
+        assert_eq!(expand_randomness(base, len), expected);
+    }
+
+    #[test]
+    fn test_expand_randomness_negative_base() {
+        // Test with base = -1, which should alternate between 1 and -1
+        let base = -BabyBear::ONE;
+        let len = 6;
+
+        let expected = vec![
+            BabyBear::ONE,
+            -BabyBear::ONE,
+            BabyBear::ONE,
+            -BabyBear::ONE,
+            BabyBear::ONE,
+            -BabyBear::ONE,
+        ];
+
+        assert_eq!(expand_randomness(base, len), expected);
     }
 }
