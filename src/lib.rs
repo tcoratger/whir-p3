@@ -1,3 +1,4 @@
+pub mod domain;
 pub mod merkle_tree;
 pub mod ntt;
 pub mod parameters;
