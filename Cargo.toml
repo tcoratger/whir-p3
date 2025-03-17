@@ -50,6 +50,7 @@ p3-commit = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a" }
 p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a" }
 nimue = { git = "https://github.com/arkworks-rs/nimue", features = ["ark"] }
 itertools = "0.14"
+thiserror = "2.0"
 
 [dev-dependencies]
 rand = "0.9"
