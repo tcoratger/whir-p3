@@ -20,7 +20,7 @@ use std::mem::size_of;
 /// - `coeffs[1]` → Coefficient of `X₂`
 /// - `coeffs[2]` → Coefficient of `X₁`
 /// - `coeffs[4]` → Coefficient of `X₀`
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct CoefficientList<F> {
     /// List of coefficients, stored in **lexicographic order**.
     /// For `n` variables, `coeffs.len() == 2^n`.
