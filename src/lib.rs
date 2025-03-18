@@ -1,4 +1,5 @@
 pub mod domain;
+pub mod fs_utils;
 pub mod merkle_tree;
 pub mod ntt;
 pub mod parameters;

@@ -235,7 +235,9 @@ pub struct WhirParameters<PowStrategy, Perm16, Perm24> {
     pub fold_optimisation: FoldType,
     /// Phantom type for PoW parameters.
     pub _pow_parameters: PhantomData<PowStrategy>,
+    /// Hash used in the Merkle tree.
     pub merkle_hash: Poseidon2Sponge<Perm24>,
+    /// Compression method used in the Merkle tree.
     pub merkle_compress: Poseidon2Compression<Perm16>,
 }
 
