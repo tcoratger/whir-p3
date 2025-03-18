@@ -2,6 +2,8 @@ use serde::Serialize;
 use std::{fmt::Display, marker::PhantomData, str::FromStr};
 use thiserror::Error;
 
+use crate::merkle_tree::{Poseidon2Compression, Poseidon2Sponge};
+
 /// Computes the default maximum proof-of-work (PoW) bits.
 ///
 /// This function determines the PoW security level based on the number of variables
@@ -216,7 +218,7 @@ impl FoldingFactor {
 
 /// Configuration parameters for WHIR proofs.
 #[derive(Clone, Debug)]
-pub struct WhirParameters<PowStrategy> {
+pub struct WhirParameters<PowStrategy, Perm16, Perm24> {
     /// Whether the initial statement is included in the proof.
     pub initial_statement: bool,
     /// The logarithmic inverse rate for sampling.
@@ -233,9 +235,11 @@ pub struct WhirParameters<PowStrategy> {
     pub fold_optimisation: FoldType,
     /// Phantom type for PoW parameters.
     pub _pow_parameters: PhantomData<PowStrategy>,
+    pub merkle_hash: Poseidon2Sponge<Perm24>,
+    pub merkle_compress: Poseidon2Compression<Perm16>,
 }
 
-impl<PowStrategy> Display for WhirParameters<PowStrategy> {
+impl<PowStrategy, Perm16, Perm24> Display for WhirParameters<PowStrategy, Perm16, Perm24> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
