@@ -82,4 +82,14 @@ impl<F: Field + TwoAdicField> GeneralEvaluationDomain<F> {
             Self::Radix2(domain) => domain.coset_offset_pow_size(),
         }
     }
+
+    #[inline]
+    /// Returns the `i`-th element of the domain.
+    pub fn element(&self, i: usize) -> F {
+        let mut result = self.group_gen().exp_u64(i as u64);
+        if !self.coset_offset().is_one() {
+            result *= self.coset_offset()
+        }
+        result
+    }
 }

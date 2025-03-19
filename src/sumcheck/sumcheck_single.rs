@@ -4,6 +4,7 @@ use crate::{
     utils::eval_eq,
     whir::statement::Statement,
 };
+use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
 use p3_field::Field;
 use rayon::{
     iter::{IndexedParallelIterator, ParallelIterator},
@@ -91,15 +92,6 @@ where
     ) {
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(combination_randomness.len(), evaluations.len());
-        // for (point, rand) in points.iter().zip(combination_randomness) {
-        //     // TODO: We might want to do all points simultaneously so we
-        //     // do only a single pass over the data.
-        //     eval_eq(&point.0, self.weights.evals_mut(), *rand);
-        // }
-        // // Update the sum
-        // for (rand, eval) in combination_randomness.iter().zip(evaluations.iter()) {
-        //     self.sum += *rand * *eval;
-        // }
 
         // Accumulate the sum while applying all constraints simultaneously
         points.iter().zip(combination_randomness.iter().zip(evaluations.iter())).for_each(
@@ -150,6 +142,65 @@ where
         let eval_2 = eval_1 + c1 + c2 + c2.double();
 
         SumcheckPolynomial::new(vec![eval_0, eval_1, eval_2], 1)
+    }
+
+    /// Implements `folding_factor` rounds of the sumcheck protocol.
+    ///
+    /// The sumcheck protocol progressively reduces the number of variables in a multilinear
+    /// polynomial. At each step, a quadratic polynomial is derived and verified.
+    ///
+    /// Given a polynomial \( p(X_1, \dots, X_n) \), this function iteratively applies the
+    /// transformation:
+    ///
+    /// \begin{equation}
+    /// h(X) = \sum_b p(b, X) \cdot w(b, X)
+    /// \end{equation}
+    ///
+    /// where:
+    /// - \( b \) are points in \{0,1,2\}.
+    /// - \( w(b, X) \) represents generic weights applied to \( p(b, X) \).
+    /// - \( h(X) \) is a quadratic polynomial in \( X \).
+    ///
+    /// This function:
+    /// - Samples random values to progressively reduce the polynomial.
+    /// - Applies proof-of-work grinding if required.
+    /// - Returns the sampled folding randomness values used in each reduction step.
+    pub fn compute_sumcheck_polynomials<C>(
+        &mut self,
+        challenger: &mut C,
+        folding_factor: usize,
+        pow_bits: usize,
+    ) -> MultilinearPoint<F>
+    where
+        C: CanObserve<F> + CanSample<F> + GrindingChallenger,
+    {
+        // Preallocate space to avoid repeated allocations during iterations.
+        let mut res: Vec<F> = (0..folding_factor)
+            .map(|_| {
+                // Compute the current sumcheck polynomial.
+                let sumcheck_poly = self.compute_sumcheck_polynomial();
+
+                // Observe the polynomial evaluations to ensure consistency.
+                challenger.observe_slice(sumcheck_poly.evaluations());
+
+                // Sample a random folding factor.
+                let folding_randomness = challenger.sample();
+
+                // Perform proof-of-work (grinding) if required.
+                if pow_bits > 0 {
+                    challenger.grind(pow_bits);
+                }
+
+                // Compress the polynomial to reduce the number of variables.
+                self.compress(F::ONE, &folding_randomness.into(), &sumcheck_poly);
+
+                folding_randomness
+            })
+            .collect();
+
+        // Reverse the order to match expected output format.
+        res.reverse();
+        MultilinearPoint(res)
     }
 
     /// Compresses the polynomial and weight evaluations by reducing the number of variables.
@@ -215,7 +266,9 @@ mod tests {
         whir::statement::Weights,
     };
     use p3_baby_bear::BabyBear;
+    use p3_challenger::{HashChallenger, SerializingChallenger32};
     use p3_field::PrimeCharacteristicRing;
+    use p3_keccak::Keccak256Hash;
 
     #[test]
     fn test_sumcheck_single_initialization() {
@@ -888,5 +941,119 @@ mod tests {
         let expected_compressed_weights = vec![weight_0, weight_1];
 
         assert_eq!(prover.weights.evals(), &expected_compressed_weights);
+    }
+
+    #[test]
+    fn test_compute_sumcheck_polynomials_basic_case() {
+        // Polynomial with 1 variable: f(X1) = 1 + 2*X1
+        let c1 = BabyBear::from_u64(1);
+        let c2 = BabyBear::from_u64(2);
+        let coeffs = CoefficientList::new(vec![c1, c2]);
+
+        // Create a statement with no equality constraints
+        let statement = Statement::new(1);
+
+        // Instantiate the Sumcheck prover
+        let mut prover = SumcheckSingle::new(coeffs, &statement, BabyBear::ONE);
+
+        // Challenger used for sampling randomness
+        let hasher = Keccak256Hash {};
+        let mut challenger = SerializingChallenger32::<
+            BabyBear,
+            HashChallenger<u8, Keccak256Hash, 32>,
+        >::from_hasher(vec![], hasher);
+
+        let folding_factor = 1; // Minimum folding factor
+        let pow_bits = 0; // No grinding
+
+        // Compute sumcheck polynomials
+        let result = prover.compute_sumcheck_polynomials(&mut challenger, folding_factor, pow_bits);
+
+        // The result should contain `folding_factor` elements
+        assert_eq!(result.0.len(), folding_factor);
+    }
+
+    #[test]
+    fn test_compute_sumcheck_polynomials_with_multiple_folding_factors() {
+        // Polynomial with 2 variables: f(X1, X2) = 1 + 2*X1 + 3*X2 + 4*X1*X2
+        let c1 = BabyBear::from_u64(1);
+        let c2 = BabyBear::from_u64(2);
+        let c3 = BabyBear::from_u64(3);
+        let c4 = BabyBear::from_u64(3);
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
+
+        let statement = Statement::new(2);
+        let mut prover = SumcheckSingle::new(coeffs, &statement, BabyBear::ONE);
+        let hasher = Keccak256Hash {};
+        let mut challenger = SerializingChallenger32::<
+            BabyBear,
+            HashChallenger<u8, Keccak256Hash, 32>,
+        >::from_hasher(vec![], hasher);
+
+        let folding_factor = 2; // Increase folding factor
+        let pow_bits = 1; // Minimal grinding
+
+        let result = prover.compute_sumcheck_polynomials(&mut challenger, folding_factor, pow_bits);
+
+        // Ensure we get `folding_factor` sampled randomness values
+        assert_eq!(result.0.len(), folding_factor);
+    }
+
+    #[test]
+    fn test_compute_sumcheck_polynomials_with_three_variables() {
+        // Multilinear polynomial with 3 variables:
+        // f(X1, X2, X3) = 1 + 2*X1 + 3*X2 + 4*X3 + 5*X1*X2 + 6*X1*X3 + 7*X2*X3 + 8*X1*X2*X3
+        let c1 = BabyBear::from_u64(1);
+        let c2 = BabyBear::from_u64(2);
+        let c3 = BabyBear::from_u64(3);
+        let c4 = BabyBear::from_u64(4);
+        let c5 = BabyBear::from_u64(5);
+        let c6 = BabyBear::from_u64(6);
+        let c7 = BabyBear::from_u64(7);
+        let c8 = BabyBear::from_u64(8);
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+
+        let statement = Statement::new(3);
+        let mut prover = SumcheckSingle::new(coeffs, &statement, BabyBear::ONE);
+
+        let hasher = Keccak256Hash {};
+        let mut challenger = SerializingChallenger32::<
+            BabyBear,
+            HashChallenger<u8, Keccak256Hash, 32>,
+        >::from_hasher(vec![], hasher);
+
+        let folding_factor = 3;
+        let pow_bits = 2;
+
+        let result = prover.compute_sumcheck_polynomials(&mut challenger, folding_factor, pow_bits);
+
+        assert_eq!(result.0.len(), folding_factor);
+    }
+
+    #[test]
+    fn test_compute_sumcheck_polynomials_edge_case_zero_folding() {
+        // Multilinear polynomial with 2 variables:
+        // f(X1, X2) = 1 + 2*X1 + 3*X2 + 4*X1*X2
+        let c1 = BabyBear::from_u64(1);
+        let c2 = BabyBear::from_u64(2);
+        let c3 = BabyBear::from_u64(3);
+        let c4 = BabyBear::from_u64(4);
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
+
+        let statement = Statement::new(2);
+        let mut prover = SumcheckSingle::new(coeffs, &statement, BabyBear::ONE);
+
+        let hasher = Keccak256Hash {};
+        let mut challenger = SerializingChallenger32::<
+            BabyBear,
+            HashChallenger<u8, Keccak256Hash, 32>,
+        >::from_hasher(vec![], hasher);
+
+        let folding_factor = 0; // Edge case: No folding
+        let pow_bits = 1;
+
+        let result = prover.compute_sumcheck_polynomials(&mut challenger, folding_factor, pow_bits);
+
+        assert_eq!(result.0.len(), 0);
     }
 }

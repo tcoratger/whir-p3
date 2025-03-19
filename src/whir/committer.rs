@@ -2,19 +2,22 @@ use super::parameters::WhirConfig;
 use crate::{
     merkle_tree::{Poseidon2MerkleMmcs, WhirChallenger},
     ntt::expand_from_coeff,
-    poly::{coeffs::CoefficientList, fold::transform_evaluations, multilinear::MultilinearPoint},
+    poly::{coeffs::CoefficientList, fold::transform_evaluations},
+    utils::sample_ood_points,
 };
 use p3_baby_bear::BabyBear;
-use p3_challenger::{CanObserve, CanSample};
+use p3_challenger::CanObserve;
 use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
-use p3_matrix::dense::RowMajorMatrix;
+use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
+use p3_merkle_tree::MerkleTree;
 use p3_symmetric::CryptographicPermutation;
 
 #[derive(Debug)]
 pub struct Witness<F: Field, Perm16, Perm24> {
     pub(crate) polynomial: CoefficientList<F>,
     pub(crate) merkle_tree: Poseidon2MerkleMmcs<F, Perm16, Perm24>,
+    pub(crate) prover_data: MerkleTree<F, F, DenseMatrix<F>, 8>,
     pub(crate) merkle_leaves: Vec<F>,
     pub(crate) ood_points: Vec<F>,
     pub(crate) ood_answers: Vec<F>,
@@ -71,32 +74,23 @@ where
             self.0.merkle_hash.clone(),
             self.0.merkle_compress.clone(),
         );
-        let (root, _) = merkle_tree.commit(vec![folded_matrix]);
+        let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger
         challenger.observe_slice(root.as_ref());
 
-        // Sample OOD points
-        let ood_points: Vec<_> =
-            (0..self.0.committment_ood_samples).map(|_| challenger.sample()).collect();
-
-        // Compute OOD evaluations
-        let ood_answers: Vec<_> = ood_points
-            .iter()
-            .map(|&ood_point| {
-                polynomial.evaluate_at_extension(&MultilinearPoint::expand_from_univariate(
-                    ood_point,
-                    self.0.mv_parameters.num_variables,
-                ))
-            })
-            .collect();
-
-        //  Observe OOD evaluations in challenger
-        challenger.observe_slice(&ood_answers);
+        // Handle OOD (Out-Of-Domain) samples
+        let (ood_points, ood_answers) = sample_ood_points(
+            challenger,
+            self.0.committment_ood_samples,
+            self.0.mv_parameters.num_variables,
+            |point| polynomial.evaluate_at_extension(point),
+        );
 
         Witness {
             polynomial: polynomial.to_extension(),
             merkle_tree,
+            prover_data,
             merkle_leaves: folded_evals,
             ood_points,
             ood_answers,
@@ -112,6 +106,7 @@ mod tests {
         parameters::{
             FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters,
         },
+        poly::multilinear::MultilinearPoint,
     };
     use p3_baby_bear::{
         Poseidon2BabyBear, default_babybear_poseidon2_16, default_babybear_poseidon2_24,
