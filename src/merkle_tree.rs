@@ -34,3 +34,8 @@ pub(crate) type Poseidon2MerkleMmcs<F, Perm16, Perm24> = MerkleTreeMmcs<
     Poseidon2Compression<Perm16>,
     8,
 >;
+
+pub(crate) type InnerDigest<F> = <<F as Field>::Packing as PackedValue>::Value;
+
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct KeccakDigest<F>(pub [F; 32]);

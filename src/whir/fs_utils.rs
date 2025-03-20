@@ -38,11 +38,11 @@ where
 }
 
 pub trait DigestWriter<MerkleInnerDigest> {
-    fn add_digest(&mut self, digest: MerkleInnerDigest) -> ProofResult<()>;
+    fn add_digest(&mut self, digest: MerkleInnerDigest);
 }
 
 pub trait DigestReader<MerkleInnerDigest> {
-    fn read_digest(&mut self) -> ProofResult<MerkleInnerDigest>;
+    fn read_digest(&mut self) -> MerkleInnerDigest;
 }
 
 #[cfg(test)]

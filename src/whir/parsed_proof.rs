@@ -6,36 +6,36 @@ use crate::{
 };
 
 #[derive(Default, Debug, Clone)]
-struct ParsedRound<F> {
-    folding_randomness: MultilinearPoint<F>,
-    ood_points: Vec<F>,
-    ood_answers: Vec<F>,
-    stir_challenges_indexes: Vec<usize>,
-    stir_challenges_points: Vec<F>,
-    stir_challenges_answers: Vec<Vec<F>>,
-    combination_randomness: Vec<F>,
-    sumcheck_rounds: Vec<(SumcheckPolynomial<F>, F)>,
-    domain_gen_inv: F,
+pub(crate) struct ParsedRound<F> {
+    pub(crate) folding_randomness: MultilinearPoint<F>,
+    pub(crate) ood_points: Vec<F>,
+    pub(crate) ood_answers: Vec<F>,
+    pub(crate) stir_challenges_indexes: Vec<usize>,
+    pub(crate) stir_challenges_points: Vec<F>,
+    pub(crate) stir_challenges_answers: Vec<Vec<F>>,
+    pub(crate) combination_randomness: Vec<F>,
+    pub(crate) sumcheck_rounds: Vec<(SumcheckPolynomial<F>, F)>,
+    pub(crate) domain_gen_inv: F,
 }
 
 #[derive(Default, Clone)]
-struct ParsedProof<F> {
-    initial_combination_randomness: Vec<F>,
-    initial_sumcheck_rounds: Vec<(SumcheckPolynomial<F>, F)>,
-    rounds: Vec<ParsedRound<F>>,
-    final_domain_gen_inv: F,
-    final_randomness_indexes: Vec<usize>,
-    final_randomness_points: Vec<F>,
-    final_randomness_answers: Vec<Vec<F>>,
-    final_folding_randomness: MultilinearPoint<F>,
-    final_sumcheck_rounds: Vec<(SumcheckPolynomial<F>, F)>,
-    final_sumcheck_randomness: MultilinearPoint<F>,
-    final_coefficients: CoefficientList<F>,
-    statement_values_at_random_point: Vec<F>,
+pub(crate) struct ParsedProof<F> {
+    pub(crate) initial_combination_randomness: Vec<F>,
+    pub(crate) initial_sumcheck_rounds: Vec<(SumcheckPolynomial<F>, F)>,
+    pub(crate) rounds: Vec<ParsedRound<F>>,
+    pub(crate) final_domain_gen_inv: F,
+    pub(crate) final_randomness_indexes: Vec<usize>,
+    pub(crate) final_randomness_points: Vec<F>,
+    pub(crate) final_randomness_answers: Vec<Vec<F>>,
+    pub(crate) final_folding_randomness: MultilinearPoint<F>,
+    pub(crate) final_sumcheck_rounds: Vec<(SumcheckPolynomial<F>, F)>,
+    pub(crate) final_sumcheck_randomness: MultilinearPoint<F>,
+    pub(crate) final_coefficients: CoefficientList<F>,
+    pub(crate) statement_values_at_random_point: Vec<F>,
 }
 
 impl<F: Field + TwoAdicField> ParsedProof<F> {
-    fn compute_folds_helped(&self) -> Vec<Vec<F>> {
+    pub(crate) fn compute_folds_helped(&self) -> Vec<Vec<F>> {
         let mut result: Vec<_> = self
             .rounds
             .iter()
