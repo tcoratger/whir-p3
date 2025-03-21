@@ -1,4 +1,9 @@
-use super::ProofResult;
+use super::{
+    ProofError, ProofResult, WhirProof,
+    fs_utils::get_challenge_stir_queries,
+    parsed_proof::ParsedRound,
+    statement::{StatementVerifier, VerifierWeights},
+};
 use crate::{
     merkle_tree::{KeccakDigest, WhirChallenger},
     parameters::FoldType,
@@ -10,13 +15,6 @@ use crate::{
 use p3_challenger::{CanSample, GrindingChallenger};
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 use std::iter;
-
-use super::{
-    ProofError, WhirProof,
-    fs_utils::get_challenge_stir_queries,
-    parsed_proof::ParsedRound,
-    statement::{StatementVerifier, VerifierWeights},
-};
 
 #[derive(Clone)]
 struct ParsedCommitment<F, D> {
@@ -60,12 +58,12 @@ where
         ParsedCommitment { root, ood_points, ood_answers }
     }
 
-    fn parse_proof(
+    fn parse_proof<const DIGEST_ELEMS: usize>(
         &self,
         challenger: &mut WhirChallenger<F>,
         parsed_commitment: &ParsedCommitment<F, KeccakDigest<F>>,
         statement_points_len: usize,
-        whir_proof: &WhirProof<F>,
+        whir_proof: &WhirProof<F, DIGEST_ELEMS>,
     ) -> ParsedProof<F> {
         let mut sumcheck_rounds = Vec::new();
         let mut folding_randomness: MultilinearPoint<F>;
@@ -426,11 +424,11 @@ where
         result
     }
 
-    pub fn verify(
+    pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
         challenger: &mut WhirChallenger<F>,
         statement: &StatementVerifier<F>,
-        whir_proof: &WhirProof<F>,
+        whir_proof: &WhirProof<F, DIGEST_ELEMS>,
     ) -> ProofResult<()> {
         // First, derive all Fiat-Shamir challenges
         let parsed_commitment = self.parse_commitment(challenger);

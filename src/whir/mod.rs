@@ -10,8 +10,8 @@ pub mod verifier;
 
 // Only includes the authentication paths
 #[derive(Debug, Default, Clone)]
-pub struct WhirProof<F> {
-    // pub merkle_paths: Vec<(MultiPath<MerkleConfig>, Vec<Vec<F>>)>,
+pub struct WhirProof<F, const DIGEST_ELEMS: usize> {
+    pub merkle_paths: Vec<(Vec<[F; DIGEST_ELEMS]>, Vec<Vec<F>>)>,
     pub statement_values_at_random_point: Vec<F>,
 }
 
