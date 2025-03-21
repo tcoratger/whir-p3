@@ -193,7 +193,7 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
 
             folding_randomness = new_folding_randomness;
 
-            prev_root = new_root.clone();
+            prev_root = new_root;
             domain_gen = domain_gen * domain_gen;
             exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(r + 1));
             domain_gen_inv = domain_gen_inv * domain_gen_inv;

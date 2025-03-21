@@ -7,7 +7,7 @@ use crate::{
 };
 use p3_challenger::CanObserve;
 use p3_commit::Mmcs;
-use p3_field::{Field, PackedValue, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};

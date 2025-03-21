@@ -88,7 +88,7 @@ impl<F: Field + TwoAdicField> GeneralEvaluationDomain<F> {
     pub fn element(&self, i: usize) -> F {
         let mut result = self.group_gen().exp_u64(i as u64);
         if !self.coset_offset().is_one() {
-            result *= self.coset_offset()
+            result *= self.coset_offset();
         }
         result
     }
