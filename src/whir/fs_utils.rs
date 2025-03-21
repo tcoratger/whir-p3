@@ -1,5 +1,4 @@
 use itertools::Itertools;
-use nimue::ProofResult;
 use p3_challenger::CanSample;
 use p3_field::{Field, PrimeField32};
 
