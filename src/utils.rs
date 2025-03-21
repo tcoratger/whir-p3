@@ -99,7 +99,7 @@ where
     E: Fn(&MultilinearPoint<F>) -> F,
 {
     // Sample OOD points
-    let ood_points: Vec<_> = (0..num_samples).map(|_| challenger.sample()).collect();
+    let ood_points = challenger.sample_vec(num_samples);
 
     // Compute OOD evaluations
     let ood_answers: Vec<_> = ood_points

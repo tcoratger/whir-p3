@@ -5,10 +5,9 @@ use crate::{
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
     utils::sample_ood_points,
 };
-use p3_baby_bear::BabyBear;
 use p3_challenger::CanObserve;
 use p3_commit::Mmcs;
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::MerkleTree;
 use p3_symmetric::CryptographicPermutation;
@@ -27,26 +26,29 @@ pub struct Witness<F: Field, Perm16, Perm24> {
 pub struct Committer<F, PowStrategy, Perm16, Perm24>(WhirConfig<F, PowStrategy, Perm16, Perm24>)
 where
     F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
-    Perm16: CryptographicPermutation<[F; 16]> + CryptographicPermutation<[F::Packing; 16]>,
-    Perm24: CryptographicPermutation<[F; 24]> + CryptographicPermutation<[F::Packing; 24]>;
+    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField;
 
-impl<PowStrategy, Perm16, Perm24> Committer<BabyBear, PowStrategy, Perm16, Perm24>
+impl<F, PowStrategy, Perm16, Perm24> Committer<F, PowStrategy, Perm16, Perm24>
 where
-    Perm16: CryptographicPermutation<[BabyBear; 16]>
-        + CryptographicPermutation<[<BabyBear as Field>::Packing; 16]>,
-    Perm24: CryptographicPermutation<[BabyBear; 24]>
-        + CryptographicPermutation<[<BabyBear as Field>::Packing; 24]>,
+    F: Field + TwoAdicField,
+    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    Perm16:
+        CryptographicPermutation<[F; 16]> + CryptographicPermutation<[<F as Field>::Packing; 16]>,
+    Perm24:
+        CryptographicPermutation<[F; 24]> + CryptographicPermutation<[<F as Field>::Packing; 24]>,
 {
-    pub const fn new(config: WhirConfig<BabyBear, PowStrategy, Perm16, Perm24>) -> Self {
+    pub const fn new(config: WhirConfig<F, PowStrategy, Perm16, Perm24>) -> Self {
         Self(config)
     }
 
     pub fn commit(
         &self,
-        challenger: &mut WhirChallenger<BabyBear>,
-        polynomial: CoefficientList<<BabyBear as PrimeCharacteristicRing>::PrimeSubfield>,
-    ) -> Witness<BabyBear, Perm16, Perm24> {
+        challenger: &mut WhirChallenger<F>,
+        polynomial: CoefficientList<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+    ) -> Witness<F, Perm16, Perm24>
+    where
+        F: PrimeField32,
+    {
         // Compute domain expansion factor
         let base_domain = self.0.starting_domain.base_domain.unwrap();
         let expansion = base_domain.size() / polynomial.num_coeffs();
@@ -64,13 +66,13 @@ where
         );
 
         // Convert to extension field (for future rounds)
-        let folded_evals: Vec<_> = evals.into_iter().map(BabyBear::from_prime_subfield).collect();
+        let folded_evals: Vec<_> = evals.into_iter().map(F::from_prime_subfield).collect();
 
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
         let folded_matrix = RowMajorMatrix::new(folded_evals.clone(), 1); // 1 row
 
         // Commit to the Merkle tree
-        let merkle_tree = Poseidon2MerkleMmcs::<BabyBear, _, _>::new(
+        let merkle_tree = Poseidon2MerkleMmcs::<F, _, _>::new(
             self.0.merkle_hash.clone(),
             self.0.merkle_compress.clone(),
         );
@@ -109,7 +111,7 @@ mod tests {
         poly::multilinear::MultilinearPoint,
     };
     use p3_baby_bear::{
-        Poseidon2BabyBear, default_babybear_poseidon2_16, default_babybear_poseidon2_24,
+        BabyBear, Poseidon2BabyBear, default_babybear_poseidon2_16, default_babybear_poseidon2_24,
     };
     use p3_challenger::{HashChallenger, SerializingChallenger32};
     use p3_keccak::Keccak256Hash;
