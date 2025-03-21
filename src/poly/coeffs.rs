@@ -1,4 +1,4 @@
-use super::{dense::DensePolynomial, evals::EvaluationsList, hypercube::BinaryHypercubePoint};
+use super::{dense::WhirDensePolynomial, evals::EvaluationsList, hypercube::BinaryHypercubePoint};
 use crate::{ntt::wavelet::wavelet_transform, poly::multilinear::MultilinearPoint};
 use p3_field::Field;
 use rayon::join;
@@ -71,9 +71,9 @@ where
     /// single point) self.evaluate_at_univariate(x) == self.evaluate([x^(2^n), x^(2^{n-1}),
     /// ..., x^2, x])
     pub fn evaluate_at_univariate(&self, points: &[F]) -> Vec<F> {
-        // DensePolynomial::from_coefficients_slice converts to a dense univariate polynomial.
+        // WhirDensePolynomial::from_coefficients_slice converts to a dense univariate polynomial.
         // The coefficient order is "coefficient of 1 first".
-        let univariate = DensePolynomial::from_coefficients_slice(&self.coeffs);
+        let univariate = WhirDensePolynomial::from_coefficients_slice(&self.coeffs);
         points.iter().map(|point| univariate.evaluate(point)).collect()
     }
 
