@@ -1,4 +1,4 @@
-use super::{evals::EvaluationsList, hypercube::BinaryHypercubePoint};
+use super::{dense::DensePolynomial, evals::EvaluationsList, hypercube::BinaryHypercubePoint};
 use crate::{ntt::wavelet::wavelet_transform, poly::multilinear::MultilinearPoint};
 use p3_field::Field;
 use rayon::join;
@@ -61,6 +61,20 @@ where
     pub fn evaluate(&self, point: &MultilinearPoint<F>) -> F {
         assert_eq!(self.num_variables, point.num_variables());
         eval_multivariate(&self.coeffs, &point.0)
+    }
+
+    /// Interprets self as a univariate polynomial (with coefficients of X^i in order of ascending
+    /// i) and evaluates it at each point in `points`. We return the vector of evaluations.
+    ///
+    /// NOTE: For the `usual` mapping between univariate and multilinear polynomials, the
+    /// coefficient ordering is such that for a single point x, we have (extending notation to a
+    /// single point) self.evaluate_at_univariate(x) == self.evaluate([x^(2^n), x^(2^{n-1}),
+    /// ..., x^2, x])
+    pub fn evaluate_at_univariate(&self, points: &[F]) -> Vec<F> {
+        // DensePolynomial::from_coefficients_slice converts to a dense univariate polynomial.
+        // The coefficient order is "coefficient of 1 first".
+        let univariate = DensePolynomial::from_coefficients_slice(&self.coeffs);
+        points.iter().map(|point| univariate.evaluate(point)).collect()
     }
 
     /// Folds the polynomial along high-indexed variables, reducing its dimensionality.
@@ -539,5 +553,81 @@ mod tests {
         let eval_result = coeff_list_ext.evaluate_at_extension(&MultilinearPoint(vec![x0, x1]));
 
         assert_eq!(eval_result, E::ZERO);
+    }
+
+    #[test]
+    fn test_evaluate_at_univariate_degree_one() {
+        // Polynomial: f(x) = 3 + 4x
+        let c0 = BabyBear::from_u64(3);
+        let c1 = BabyBear::from_u64(4);
+        let coeffs = vec![c0, c1];
+        let poly = CoefficientList::new(coeffs);
+
+        let p0 = BabyBear::from_u64(0);
+        let p1 = BabyBear::from_u64(1);
+        let p2 = BabyBear::from_u64(2);
+        let p3 = BabyBear::from_u64(5);
+        let points = vec![p0, p1, p2, p3];
+
+        // Manually compute expected values from coeffs
+        // f(x) = coeffs[0] + coeffs[1] * x
+        let expected = vec![
+            c0 + c1 * p0, // 3 + 4 * 0
+            c0 + c1 * p1, // 3 + 4 * 1
+            c0 + c1 * p2, // 3 + 4 * 2
+            c0 + c1 * p3, // 3 + 4 * 5
+        ];
+
+        let result = poly.evaluate_at_univariate(&points);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_evaluate_at_univariate_degree_three_multiple_points() {
+        // Polynomial: f(x) = 1 + 2x + 3x² + 4x³
+        let c0 = BabyBear::from_u64(1);
+        let c1 = BabyBear::from_u64(2);
+        let c2 = BabyBear::from_u64(3);
+        let c3 = BabyBear::from_u64(4);
+        let coeffs = vec![c0, c1, c2, c3];
+        let poly = CoefficientList::new(coeffs);
+
+        let p0 = BabyBear::from_u64(0);
+        let p1 = BabyBear::from_u64(1);
+        let p2 = BabyBear::from_u64(2);
+        let points = vec![p0, p1, p2];
+
+        // f(x) = c0 + c1*x + c2*x² + c3*x³
+        let expected = vec![
+            c0 + c1 * p0 + c2 * p0.square() + c3 * p0.square() * p0,
+            c0 + c1 * p1 + c2 * p1.square() + c3 * p1.square() * p1,
+            c0 + c1 * p2 + c2 * p2.square() + c3 * p2.square() * p2,
+        ];
+
+        let result = poly.evaluate_at_univariate(&points);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_evaluate_at_univariate_equivalence_to_multilinear() {
+        // Polynomial: f(x) = 5 + 6x + 7x² + 8x³
+        let c0 = BabyBear::from_u64(5);
+        let c1 = BabyBear::from_u64(6);
+        let c2 = BabyBear::from_u64(7);
+        let c3 = BabyBear::from_u64(8);
+        let coeffs = vec![c0, c1, c2, c3];
+        let poly = CoefficientList::new(coeffs);
+
+        let x = BabyBear::from_u64(2);
+
+        let expected = c0 + c1 * x + c2 * x.square() + c3 * x.square() * x;
+
+        let result_univariate = poly.evaluate_at_univariate(&[x])[0];
+
+        let ml_point = MultilinearPoint::expand_from_univariate(x, 2);
+        let result_multilinear = poly.evaluate(&ml_point);
+
+        assert_eq!(result_univariate, expected);
+        assert_eq!(result_multilinear, expected);
     }
 }

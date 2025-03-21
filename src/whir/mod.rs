@@ -13,3 +13,24 @@ pub struct WhirProof<F> {
     // pub merkle_paths: Vec<(MultiPath<MerkleConfig>, Vec<Vec<F>>)>,
     pub statement_values_at_random_point: Vec<F>,
 }
+
+/// Signals an invalid IO pattern.
+///
+/// This error indicates a wrong IO Pattern declared
+/// upon instantiation of the SAFE sponge.
+#[derive(Debug, Clone)]
+pub struct IOPatternError(String);
+
+/// An error happened when creating or verifying a proof.
+#[derive(Debug, Clone)]
+pub enum ProofError {
+    /// Signals the verification equation has failed.
+    InvalidProof,
+    /// The IO pattern specified mismatches the IO pattern used during the protocol execution.
+    InvalidIO(IOPatternError),
+    /// Serialization/Deserialization led to errors.
+    SerializationError,
+}
+
+/// The result type when trying to prove or verify a proof using Fiat-Shamir.
+pub type ProofResult<T> = Result<T, ProofError>;
