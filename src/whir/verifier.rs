@@ -7,7 +7,6 @@ use crate::{
     utils::expand_randomness,
     whir::{parameters::WhirConfig, parsed_proof::ParsedProof},
 };
-use p3_baby_bear::BabyBear;
 use p3_challenger::{CanSample, GrindingChallenger};
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 use std::iter;
@@ -53,14 +52,10 @@ where
         let root = KeccakDigest(challenger.sample_array());
 
         // Sample OOD points if required
-        let ood_points = if self.params.committment_ood_samples > 0 {
-            (0..self.params.committment_ood_samples).map(|_| challenger.sample()).collect()
-        } else {
-            vec![]
-        };
+        let ood_points = challenger.sample_vec(self.params.committment_ood_samples);
 
         // Sample OOD answers corresponding to the OOD points
-        let ood_answers = ood_points.iter().map(|_| challenger.sample()).collect();
+        let ood_answers = challenger.sample_vec(ood_points.len());
 
         ParsedCommitment { root, ood_points, ood_answers }
     }
@@ -78,7 +73,7 @@ where
 
         if self.params.initial_statement {
             // Sample combination randomness and first sumcheck polynomial
-            let combination_randomness_gen: F = challenger.sample();
+            let combination_randomness_gen = challenger.sample();
             initial_combination_randomness = expand_randomness(
                 combination_randomness_gen,
                 parsed_commitment.ood_points.len() + statement_points_len,
@@ -105,7 +100,7 @@ where
 
             initial_combination_randomness = vec![F::ONE];
 
-            let folding_randomness_vec: Vec<F> =
+            let folding_randomness_vec =
                 challenger.sample_vec(self.params.folding_factor.at_round(0));
             folding_randomness = MultilinearPoint(folding_randomness_vec);
 
@@ -115,7 +110,7 @@ where
             }
         }
 
-        let mut prev_root = parsed_commitment.root.clone();
+        let mut prev_root = parsed_commitment.root;
         let mut domain_gen = self.params.starting_domain.backing_domain.group_gen();
         let mut exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(0));
         let mut domain_gen_inv = self.params.starting_domain.backing_domain.group_gen_inv();
@@ -128,8 +123,8 @@ where
 
             let new_root = KeccakDigest::<F>(challenger.sample_array());
 
-            let ood_points: Vec<F> = challenger.sample_vec(round_params.ood_samples);
-            let ood_answers: Vec<F> = challenger.sample_vec(round_params.ood_samples);
+            let ood_points = challenger.sample_vec(round_params.ood_samples);
+            let ood_answers = challenger.sample_vec(round_params.ood_samples);
 
             let stir_challenges_indexes = get_challenge_stir_queries::<F, _>(
                 domain_size,
@@ -160,7 +155,7 @@ where
                 challenger.grind(round_params.pow_bits as usize);
             }
 
-            let combination_randomness_gen: F = challenger.sample();
+            let combination_randomness_gen = challenger.sample();
             let combination_randomness = expand_randomness(
                 combination_randomness_gen,
                 stir_challenges_indexes.len() + round_params.ood_samples,
@@ -172,7 +167,7 @@ where
             for _ in 0..self.params.folding_factor.at_round(r + 1) {
                 let sumcheck_poly_evals: [F; 3] = challenger.sample_array();
                 let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-                let folding_randomness_single: F = challenger.sample();
+                let folding_randomness_single = challenger.sample();
                 sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
 
                 if round_params.folding_pow_bits > 0. {
@@ -241,7 +236,7 @@ where
         for _ in 0..self.params.final_sumcheck_rounds {
             let sumcheck_poly_evals: [F; 3] = challenger.sample_array();
             let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-            let folding_randomness_single: F = challenger.sample();
+            let folding_randomness_single = challenger.sample();
             final_sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
 
             if self.params.final_folding_pow_bits > 0. {

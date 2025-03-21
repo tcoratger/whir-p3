@@ -30,7 +30,7 @@ impl<F: Field> WhirDensePolynomial<F> {
     }
 
     fn truncate_leading_zeros(&mut self) {
-        while self.coeffs.last().is_some_and(|c| c.is_zero()) {
+        while self.coeffs.last().is_some_and(Field::is_zero) {
             self.coeffs.pop();
         }
     }

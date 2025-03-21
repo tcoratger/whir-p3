@@ -1,8 +1,5 @@
-use p3_challenger::{CanObserve, CanSample};
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::Field;
 use rayon::join;
-
-use crate::poly::multilinear::MultilinearPoint;
 
 /// Decomposes `value` into its base-`base` representation with `n_bits` digits.
 /// The result follows big-endian order:

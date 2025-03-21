@@ -1,6 +1,5 @@
 use crate::{
     domain::Domain,
-    merkle_tree::{Poseidon2Compression, Poseidon2Sponge},
     parameters::{FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters},
 };
 use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
@@ -416,6 +415,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::merkle_tree::{Poseidon2Compression, Poseidon2Sponge};
+
     use super::*;
     use p3_baby_bear::BabyBear;
 
