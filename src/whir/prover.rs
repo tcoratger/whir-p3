@@ -135,8 +135,7 @@ where
         } else {
             // If there is no initial statement, obtain the initial folding randomness from the
             // challenger
-            let folding_randomness: Vec<_> =
-                (0..self.0.folding_factor.at_round(0)).map(|_| challenger.sample()).collect();
+            let folding_randomness = challenger.sample_vec(self.0.folding_factor.at_round(0));
 
             // Perform proof-of-work (if required)
             if self.0.starting_folding_pow_bits > 0. {
