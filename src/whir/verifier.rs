@@ -9,7 +9,7 @@ use crate::{
 };
 use p3_baby_bear::BabyBear;
 use p3_challenger::{CanSample, GrindingChallenger};
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 use std::iter;
 
 use super::{
@@ -27,24 +27,28 @@ struct ParsedCommitment<F, D> {
 }
 
 #[derive(Debug)]
-pub struct Verifier<F, PowStrategy, Perm16, Perm24>
+pub struct Verifier<F, PowStrategy, H, C>
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
-    params: WhirConfig<F, PowStrategy, Perm16, Perm24>,
+    params: WhirConfig<F, PowStrategy, H, C>,
     two_inv: F,
 }
 
-impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24> {
-    pub fn new(params: WhirConfig<BabyBear, PowStrategy, Perm16, Perm24>) -> Self {
-        Self { params, two_inv: BabyBear::TWO.inverse() }
+impl<F, PowStrategy, H, C> Verifier<F, PowStrategy, H, C>
+where
+    F: Field + TwoAdicField + PrimeField32,
+    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+{
+    pub fn new(params: WhirConfig<F, PowStrategy, H, C>) -> Self {
+        Self { params, two_inv: F::TWO.inverse() }
     }
 
     fn parse_commitment(
         &self,
-        challenger: &mut WhirChallenger<BabyBear>,
-    ) -> ParsedCommitment<BabyBear, KeccakDigest<BabyBear>> {
+        challenger: &mut WhirChallenger<F>,
+    ) -> ParsedCommitment<F, KeccakDigest<F>> {
         // Read the Merkle root from the challenger
         let root = KeccakDigest(challenger.sample_array());
 
@@ -63,18 +67,18 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
 
     fn parse_proof(
         &self,
-        challenger: &mut WhirChallenger<BabyBear>,
-        parsed_commitment: &ParsedCommitment<BabyBear, KeccakDigest<BabyBear>>,
+        challenger: &mut WhirChallenger<F>,
+        parsed_commitment: &ParsedCommitment<F, KeccakDigest<F>>,
         statement_points_len: usize,
-        whir_proof: &WhirProof<BabyBear>,
-    ) -> ParsedProof<BabyBear> {
+        whir_proof: &WhirProof<F>,
+    ) -> ParsedProof<F> {
         let mut sumcheck_rounds = Vec::new();
-        let mut folding_randomness: MultilinearPoint<BabyBear>;
+        let mut folding_randomness: MultilinearPoint<F>;
         let initial_combination_randomness;
 
         if self.params.initial_statement {
             // Sample combination randomness and first sumcheck polynomial
-            let combination_randomness_gen: BabyBear = challenger.sample();
+            let combination_randomness_gen: F = challenger.sample();
             initial_combination_randomness = expand_randomness(
                 combination_randomness_gen,
                 parsed_commitment.ood_points.len() + statement_points_len,
@@ -83,7 +87,7 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
             // Initial sumcheck
             sumcheck_rounds.reserve_exact(self.params.folding_factor.at_round(0));
             for _ in 0..self.params.folding_factor.at_round(0) {
-                let sumcheck_poly_evals: [BabyBear; 3] = challenger.sample_array();
+                let sumcheck_poly_evals: [F; 3] = challenger.sample_array();
                 let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
                 let folding_randomness_single = challenger.sample();
                 sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
@@ -99,9 +103,9 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
             assert_eq!(parsed_commitment.ood_points.len(), 0);
             assert_eq!(statement_points_len, 0);
 
-            initial_combination_randomness = vec![BabyBear::ONE];
+            initial_combination_randomness = vec![F::ONE];
 
-            let folding_randomness_vec: Vec<BabyBear> =
+            let folding_randomness_vec: Vec<F> =
                 challenger.sample_vec(self.params.folding_factor.at_round(0));
             folding_randomness = MultilinearPoint(folding_randomness_vec);
 
@@ -122,12 +126,12 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
             // let (merkle_proof, answers) = &whir_proof.merkle_paths[r];
             let round_params = &self.params.round_parameters[r];
 
-            let new_root = KeccakDigest::<BabyBear>(challenger.sample_array());
+            let new_root = KeccakDigest::<F>(challenger.sample_array());
 
-            let ood_points: Vec<BabyBear> = challenger.sample_vec(round_params.ood_samples);
-            let ood_answers: Vec<BabyBear> = challenger.sample_vec(round_params.ood_samples);
+            let ood_points: Vec<F> = challenger.sample_vec(round_params.ood_samples);
+            let ood_answers: Vec<F> = challenger.sample_vec(round_params.ood_samples);
 
-            let stir_challenges_indexes = get_challenge_stir_queries::<BabyBear, _>(
+            let stir_challenges_indexes = get_challenge_stir_queries::<F, _>(
                 domain_size,
                 self.params.folding_factor.at_round(r),
                 round_params.num_queries,
@@ -156,7 +160,7 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
                 challenger.grind(round_params.pow_bits as usize);
             }
 
-            let combination_randomness_gen: BabyBear = challenger.sample();
+            let combination_randomness_gen: F = challenger.sample();
             let combination_randomness = expand_randomness(
                 combination_randomness_gen,
                 stir_challenges_indexes.len() + round_params.ood_samples,
@@ -166,9 +170,9 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
                 Vec::with_capacity(self.params.folding_factor.at_round(r + 1));
 
             for _ in 0..self.params.folding_factor.at_round(r + 1) {
-                let sumcheck_poly_evals: [BabyBear; 3] = challenger.sample_array();
+                let sumcheck_poly_evals: [F; 3] = challenger.sample_array();
                 let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-                let folding_randomness_single: BabyBear = challenger.sample();
+                let folding_randomness_single: F = challenger.sample();
                 sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
 
                 if round_params.folding_pow_bits > 0. {
@@ -200,11 +204,10 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
             domain_size /= 2;
         }
 
-        let final_coefficients: Vec<BabyBear> =
-            challenger.sample_vec(self.params.final_sumcheck_rounds);
+        let final_coefficients = challenger.sample_vec(self.params.final_sumcheck_rounds);
         let final_coefficients = CoefficientList::new(final_coefficients);
 
-        let final_randomness_indexes = get_challenge_stir_queries::<BabyBear, _>(
+        let final_randomness_indexes = get_challenge_stir_queries::<F, _>(
             domain_size,
             self.params.folding_factor.at_round(self.params.n_rounds()),
             self.params.final_queries,
@@ -236,9 +239,9 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
 
         let mut final_sumcheck_rounds = Vec::with_capacity(self.params.final_sumcheck_rounds);
         for _ in 0..self.params.final_sumcheck_rounds {
-            let sumcheck_poly_evals: [BabyBear; 3] = challenger.sample_array();
+            let sumcheck_poly_evals: [F; 3] = challenger.sample_array();
             let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-            let folding_randomness_single: BabyBear = challenger.sample();
+            let folding_randomness_single: F = challenger.sample();
             final_sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
 
             if self.params.final_folding_pow_bits > 0. {
@@ -267,10 +270,10 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
 
     fn compute_w_poly(
         &self,
-        parsed_commitment: &ParsedCommitment<BabyBear, KeccakDigest<BabyBear>>,
-        statement: &StatementVerifier<BabyBear>,
-        proof: &ParsedProof<BabyBear>,
-    ) -> BabyBear {
+        parsed_commitment: &ParsedCommitment<F, KeccakDigest<F>>,
+        statement: &StatementVerifier<F>,
+        proof: &ParsedProof<F>,
+    ) -> F {
         let mut num_variables = self.params.mv_parameters.num_variables;
 
         let mut folding_randomness = MultilinearPoint(
@@ -343,14 +346,14 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
         value
     }
 
-    fn compute_folds(&self, parsed: &ParsedProof<BabyBear>) -> Vec<Vec<BabyBear>> {
+    fn compute_folds(&self, parsed: &ParsedProof<F>) -> Vec<Vec<F>> {
         match self.params.fold_optimisation {
             FoldType::Naive => self.compute_folds_full(parsed),
             FoldType::ProverHelps => parsed.compute_folds_helped(),
         }
     }
 
-    fn compute_folds_full(&self, parsed: &ParsedProof<BabyBear>) -> Vec<Vec<BabyBear>> {
+    fn compute_folds_full(&self, parsed: &ParsedProof<F>) -> Vec<Vec<F>> {
         let mut domain_size = self.params.starting_domain.backing_domain.size();
 
         let mut result = Vec::new();
@@ -416,9 +419,9 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
 
     pub fn verify(
         &self,
-        challenger: &mut WhirChallenger<BabyBear>,
-        statement: &StatementVerifier<BabyBear>,
-        whir_proof: &WhirProof<BabyBear>,
+        challenger: &mut WhirChallenger<F>,
+        statement: &StatementVerifier<F>,
+        whir_proof: &WhirProof<F>,
     ) -> ProofResult<()> {
         // First, derive all Fiat-Shamir challenges
         let parsed_commitment = self.parse_commitment(challenger);
@@ -432,11 +435,12 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
         );
 
         let computed_folds = self.compute_folds(&parsed);
-        let mut prev = None;
-        if let Some(round) = parsed.initial_sumcheck_rounds.first() {
-            // Check the first polynomial
-            let (mut prev_poly, mut randomness) = round.clone();
-            if prev_poly.sum_over_boolean_hypercube() !=
+
+        let mut prev_sumcheck = None;
+
+        // Initial sumcheck verification
+        if let Some((poly, randomness)) = parsed.initial_sumcheck_rounds.first().cloned() {
+            if poly.sum_over_boolean_hypercube() !=
                 parsed_commitment
                     .ood_answers
                     .iter()
@@ -450,56 +454,56 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
                 return Err(ProofError::InvalidProof);
             }
 
+            let mut current = (poly, randomness);
+
             // Check the rest of the rounds
-            for (sumcheck_poly, new_randomness) in &parsed.initial_sumcheck_rounds[1..] {
-                if sumcheck_poly.sum_over_boolean_hypercube() !=
-                    prev_poly.evaluate_at_point(&randomness.into())
+            for (next_poly, next_rand) in &parsed.initial_sumcheck_rounds[1..] {
+                if next_poly.sum_over_boolean_hypercube() !=
+                    current.0.evaluate_at_point(&current.1.into())
                 {
                     return Err(ProofError::InvalidProof);
                 }
-                prev_poly = sumcheck_poly.clone();
-                randomness = *new_randomness;
+                current = (next_poly.clone(), *next_rand);
             }
 
-            prev = Some((prev_poly, randomness));
+            prev_sumcheck = Some(current);
         }
 
+        // Sumcheck rounds
         for (round, folds) in parsed.rounds.iter().zip(&computed_folds) {
-            let (sumcheck_poly, new_randomness) = &round.sumcheck_rounds[0].clone();
+            let (sumcheck_poly, new_randomness) = &round.sumcheck_rounds[0];
 
-            let values = round.ood_answers.iter().copied().chain(folds.clone());
+            let values = round.ood_answers.iter().copied().chain(folds.iter().copied());
 
-            let prev_eval = if let Some((prev_poly, randomness)) = prev {
-                prev_poly.evaluate_at_point(&randomness.into())
-            } else {
-                BabyBear::ZERO
-            };
+            let prev_eval =
+                prev_sumcheck.as_ref().map_or(F::ZERO, |(p, r)| p.evaluate_at_point(&(*r).into()));
+
             let claimed_sum = prev_eval +
                 values
                     .zip(&round.combination_randomness)
                     .map(|(val, &rand)| val * rand)
-                    .sum::<BabyBear>();
+                    .sum::<F>();
 
             if sumcheck_poly.sum_over_boolean_hypercube() != claimed_sum {
                 return Err(ProofError::InvalidProof);
             }
 
-            prev = Some((sumcheck_poly.clone(), *new_randomness));
+            prev_sumcheck = Some((sumcheck_poly.clone(), *new_randomness));
 
             // Check the rest of the round
             for (sumcheck_poly, new_randomness) in &round.sumcheck_rounds[1..] {
-                let (prev_poly, randomness) = prev.unwrap();
+                let (prev_poly, randomness) = prev_sumcheck.unwrap();
                 if sumcheck_poly.sum_over_boolean_hypercube() !=
                     prev_poly.evaluate_at_point(&randomness.into())
                 {
                     return Err(ProofError::InvalidProof);
                 }
-                prev = Some((sumcheck_poly.clone(), *new_randomness));
+                prev_sumcheck = Some((sumcheck_poly.clone(), *new_randomness));
             }
         }
 
         // Check the foldings computed from the proof match the evaluations of the polynomial
-        let final_folds = &computed_folds[computed_folds.len() - 1];
+        let final_folds = &computed_folds.last().expect("final folds missing");
         let final_evaluations =
             parsed.final_coefficients.evaluate_at_univariate(&parsed.final_randomness_points);
         if !final_folds.iter().zip(final_evaluations).all(|(&fold, eval)| fold == eval) {
@@ -508,37 +512,32 @@ impl<PowStrategy, Perm16, Perm24> Verifier<BabyBear, PowStrategy, Perm16, Perm24
 
         // Check the final sumchecks
         if self.params.final_sumcheck_rounds > 0 {
-            let prev_sumcheck_poly_eval = if let Some((prev_poly, randomness)) = prev {
-                prev_poly.evaluate_at_point(&randomness.into())
-            } else {
-                BabyBear::ZERO
-            };
-            let (sumcheck_poly, new_randomness) = &parsed.final_sumcheck_rounds[0].clone();
-            let claimed_sum = prev_sumcheck_poly_eval;
+            let claimed_sum =
+                prev_sumcheck.as_ref().map_or(F::ZERO, |(p, r)| p.evaluate_at_point(&(*r).into()));
+
+            let (sumcheck_poly, new_randomness) = &parsed.final_sumcheck_rounds[0];
 
             if sumcheck_poly.sum_over_boolean_hypercube() != claimed_sum {
                 return Err(ProofError::InvalidProof);
             }
 
-            prev = Some((sumcheck_poly.clone(), *new_randomness));
+            prev_sumcheck = Some((sumcheck_poly.clone(), *new_randomness));
 
             // Check the rest of the round
             for (sumcheck_poly, new_randomness) in &parsed.final_sumcheck_rounds[1..] {
-                let (prev_poly, randomness) = prev.unwrap();
+                let (prev_poly, randomness) = prev_sumcheck.unwrap();
                 if sumcheck_poly.sum_over_boolean_hypercube() !=
                     prev_poly.evaluate_at_point(&randomness.into())
                 {
                     return Err(ProofError::InvalidProof);
                 }
-                prev = Some((sumcheck_poly.clone(), *new_randomness));
+                prev_sumcheck = Some((sumcheck_poly.clone(), *new_randomness));
             }
         }
 
-        let prev_sumcheck_poly_eval = if let Some((prev_poly, randomness)) = prev {
-            prev_poly.evaluate_at_point(&randomness.into())
-        } else {
-            BabyBear::ZERO
-        };
+        // Final v · w Check
+        let prev_sumcheck_poly_eval =
+            prev_sumcheck.map_or(F::ZERO, |(poly, rand)| poly.evaluate_at_point(&rand.into()));
 
         // Check the final sumcheck evaluation
         let evaluation_of_v_poly = self.compute_w_poly(&parsed_commitment, statement, &parsed);
