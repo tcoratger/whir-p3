@@ -1,6 +1,6 @@
 use super::ProofResult;
 use crate::{
-    merkle_tree::{InnerDigest, KeccakDigest, WhirChallenger},
+    merkle_tree::{KeccakDigest, WhirChallenger},
     parameters::FoldType,
     poly::{coeffs::CoefficientList, fold::compute_fold, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
@@ -9,7 +9,7 @@ use crate::{
 };
 use p3_baby_bear::BabyBear;
 use p3_challenger::{CanSample, GrindingChallenger};
-use p3_field::{Field, PackedValue, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 use std::iter;
 
 use super::{

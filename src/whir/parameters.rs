@@ -16,7 +16,7 @@ pub struct RoundConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct WhirConfig<F, PowStrategy, Perm16, Perm24>
+pub struct WhirConfig<F, PowStrategy, H, C>
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
@@ -51,11 +51,11 @@ where
     pub pow_strategy: PhantomData<PowStrategy>,
 
     // Merkle tree parameters
-    pub merkle_hash: Poseidon2Sponge<Perm24>,
-    pub merkle_compress: Poseidon2Compression<Perm16>,
+    pub merkle_hash: H,
+    pub merkle_compress: C,
 }
 
-impl<F, PowStrategy, Perm16, Perm24> WhirConfig<F, PowStrategy, Perm16, Perm24>
+impl<F, PowStrategy, H, C> WhirConfig<F, PowStrategy, H, C>
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
@@ -63,7 +63,7 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn new(
         mv_parameters: MultivariateParameters<F>,
-        whir_parameters: WhirParameters<PowStrategy, Perm16, Perm24>,
+        whir_parameters: WhirParameters<PowStrategy, H, C>,
     ) -> Self {
         whir_parameters.folding_factor.check_validity(mv_parameters.num_variables).unwrap();
 
@@ -420,7 +420,7 @@ mod tests {
     use p3_baby_bear::BabyBear;
 
     /// Generates default WHIR parameters
-    fn default_whir_params() -> WhirParameters<u8, u8, u8> {
+    fn default_whir_params() -> WhirParameters<u8, Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
         WhirParameters {
             initial_statement: true,
             security_level: 100,
@@ -440,7 +440,9 @@ mod tests {
         let params = default_whir_params();
 
         let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let config = WhirConfig::<BabyBear, u8, u8, u8>::new(mv_params, params);
+        let config = WhirConfig::<BabyBear, u8, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(
+            mv_params, params,
+        );
 
         assert_eq!(config.security_level, 100);
         assert_eq!(config.max_pow_bits, 20);
@@ -452,7 +454,9 @@ mod tests {
     fn test_n_rounds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let config = WhirConfig::<BabyBear, u8, u8, u8>::new(mv_params, params);
+        let config = WhirConfig::<BabyBear, u8, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(
+            mv_params, params,
+        );
 
         assert_eq!(config.n_rounds(), config.round_parameters.len());
     }
@@ -563,7 +567,10 @@ mod tests {
     fn test_check_pow_bits_within_limits() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<BabyBear, u8, u8, u8>::new(mv_params, params);
+        let mut config =
+            WhirConfig::<BabyBear, u8, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(
+                mv_params, params,
+            );
 
         // Set all values within limits
         config.max_pow_bits = 20;
@@ -599,7 +606,10 @@ mod tests {
     fn test_check_pow_bits_starting_folding_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<BabyBear, u8, u8, u8>::new(mv_params, params);
+        let mut config =
+            WhirConfig::<BabyBear, u8, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 21.0; // Exceeds max_pow_bits
@@ -616,7 +626,10 @@ mod tests {
     fn test_check_pow_bits_final_pow_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<BabyBear, u8, u8, u8>::new(mv_params, params);
+        let mut config =
+            WhirConfig::<BabyBear, u8, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15.0;
@@ -633,7 +646,10 @@ mod tests {
     fn test_check_pow_bits_round_pow_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<BabyBear, u8, u8, u8>::new(mv_params, params);
+        let mut config =
+            WhirConfig::<BabyBear, u8, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15.0;
@@ -659,7 +675,10 @@ mod tests {
     fn test_check_pow_bits_round_folding_pow_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<BabyBear, u8, u8, u8>::new(mv_params, params);
+        let mut config =
+            WhirConfig::<BabyBear, u8, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15.0;
@@ -685,7 +704,10 @@ mod tests {
     fn test_check_pow_bits_exactly_at_limit() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<BabyBear, u8, u8, u8>::new(mv_params, params);
+        let mut config =
+            WhirConfig::<BabyBear, u8, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 20.0;
@@ -710,7 +732,10 @@ mod tests {
     fn test_check_pow_bits_all_exceed() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<BabyBear, u8, u8, u8>::new(mv_params, params);
+        let mut config =
+            WhirConfig::<BabyBear, u8, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 22.0;

@@ -1,26 +1,22 @@
 use super::{WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     domain::Domain,
-    merkle_tree::{Poseidon2MerkleMmcs, WhirChallenger},
+    merkle_tree::WhirChallenger,
     ntt::expand_from_coeff,
-    parameters::FoldType,
-    poly::{
-        coeffs::CoefficientList,
-        fold::{compute_fold, transform_evaluations},
-        multilinear::MultilinearPoint,
-    },
+    poly::{coeffs::CoefficientList, fold::transform_evaluations, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     utils::expand_randomness,
     whir::{fs_utils::get_challenge_stir_queries, statement::Weights},
 };
-use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
 use p3_commit::Mmcs;
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
-use p3_merkle_tree::MerkleTree;
+use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
+use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use serde::{Deserialize, Serialize};
 
-pub(crate) struct RoundState<F, Perm16, Perm24>
+pub(crate) struct RoundState<F, H, C, const DIGEST_ELEMS: usize>
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
@@ -30,26 +26,31 @@ where
     pub(crate) sumcheck_prover: Option<SumcheckSingle<F>>,
     pub(crate) folding_randomness: MultilinearPoint<F>,
     pub(crate) coefficients: CoefficientList<F>,
-    pub(crate) prev_merkle: Poseidon2MerkleMmcs<F, Perm16, Perm24>,
-    pub(crate) prev_merkle_prover_data: MerkleTree<F, F, DenseMatrix<F>, 8>,
+    pub(crate) prev_merkle:
+        MerkleTreeMmcs<<F as Field>::Packing, <F as Field>::Packing, H, C, DIGEST_ELEMS>,
+    pub(crate) prev_merkle_prover_data: MerkleTree<F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     pub(crate) prev_merkle_answers: Vec<F>,
     pub(crate) randomness_vec: Vec<F>,
     pub(crate) statement: Statement<F>,
 }
 
 #[derive(Debug)]
-pub struct Prover<F, PowStrategy, Perm16, Perm24>(pub WhirConfig<F, PowStrategy, Perm16, Perm24>)
+pub struct Prover<F, PowStrategy, H, C>(pub WhirConfig<F, PowStrategy, H, C>)
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField;
 
-impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2BabyBear<24>> {
+impl<F, PowStrategy, H, C> Prover<F, PowStrategy, H, C>
+where
+    F: Field + TwoAdicField,
+    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+{
     fn validate_parameters(&self) -> bool {
         self.0.mv_parameters.num_variables ==
             self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
     }
 
-    fn validate_statement(&self, statement: &Statement<BabyBear>) -> bool {
+    fn validate_statement(&self, statement: &Statement<F>) -> bool {
         if !statement.num_variables() == self.0.mv_parameters.num_variables {
             return false;
         }
@@ -59,9 +60,9 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
         true
     }
 
-    fn validate_witness(
+    fn validate_witness<const DIGEST_ELEMS: usize>(
         &self,
-        witness: &Witness<BabyBear, Poseidon2BabyBear<16>, Poseidon2BabyBear<24>>,
+        witness: &Witness<F, H, C, DIGEST_ELEMS>,
     ) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
         if !self.0.initial_statement {
@@ -70,12 +71,23 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
         witness.polynomial.num_variables() == self.0.mv_parameters.num_variables
     }
 
-    pub fn prove<Merlin>(
+    pub fn prove<const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut WhirChallenger<BabyBear>,
-        mut statement: Statement<BabyBear>,
-        witness: Witness<BabyBear, Poseidon2BabyBear<16>, Poseidon2BabyBear<24>>,
-    ) -> WhirProof<BabyBear> {
+        challenger: &mut WhirChallenger<F>,
+        mut statement: Statement<F>,
+        witness: Witness<F, H, C, DIGEST_ELEMS>,
+    ) -> WhirProof<F>
+    where
+        C: CanSample<F>,
+        F: PrimeField32,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+            + Sync,
+        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+    {
         // Validate parameters
         assert!(
             self.validate_parameters() &&
@@ -134,7 +146,7 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
             MultilinearPoint(folding_randomness)
         };
 
-        let mut randomness_vec = vec![BabyBear::ZERO; self.0.mv_parameters.num_variables];
+        let mut randomness_vec = vec![F::ZERO; self.0.mv_parameters.num_variables];
         let mut arr = folding_randomness.clone().0;
         arr.reverse();
 
@@ -156,11 +168,22 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
         self.round(challenger, round_state)
     }
 
-    fn round(
+    fn round<const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut WhirChallenger<BabyBear>,
-        mut round_state: RoundState<BabyBear, Poseidon2BabyBear<16>, Poseidon2BabyBear<24>>,
-    ) -> WhirProof<BabyBear> {
+        challenger: &mut WhirChallenger<F>,
+        mut round_state: RoundState<F, H, C, DIGEST_ELEMS>,
+    ) -> WhirProof<F>
+    where
+        C: CanSample<F>,
+        F: PrimeField32,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+            + Sync,
+        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+    {
         // Fold the coefficients
         let folded_coefficients = round_state.coefficients.fold(&round_state.folding_randomness);
 
@@ -188,16 +211,11 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
             self.0.folding_factor.at_round(round_state.round + 1),
         );
 
-        // Convert to extension field (for future rounds)
-        let folded_evals: Vec<_> = evals.into_iter().map(BabyBear::from_prime_subfield).collect();
-
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
-        let folded_matrix = RowMajorMatrix::new(folded_evals.clone(), 1); // 1 row
+        let folded_matrix = RowMajorMatrix::new(evals.clone(), 1); // 1 row
 
-        let merkle_tree = Poseidon2MerkleMmcs::<BabyBear, _, _>::new(
-            self.0.merkle_hash.clone(),
-            self.0.merkle_compress.clone(),
-        );
+        let merkle_tree =
+            MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
         let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger
@@ -220,7 +238,7 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
         challenger.observe_slice(&ood_answers);
 
         // STIR queries
-        let stir_challenges_indexes = get_challenge_stir_queries::<BabyBear, _>(
+        let stir_challenges_indexes = get_challenge_stir_queries::<F, _>(
             round_state.domain.size(), // Current domain size *before* folding
             self.0.folding_factor.at_round(round_state.round), // Current fold factor
             round_params.num_queries,
@@ -264,7 +282,7 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
         }
 
         // Randomness for combination
-        let combination_randomness_gen: BabyBear = challenger.sample();
+        let combination_randomness_gen: F = challenger.sample();
         let combination_randomness =
             expand_randomness(combination_randomness_gen, stir_challenges.len());
 
@@ -281,7 +299,7 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
                 sumcheck_prover
             })
             .unwrap_or_else(|| {
-                let mut statement = Statement::<BabyBear>::new(folded_coefficients.num_variables());
+                let mut statement = Statement::<F>::new(folded_coefficients.num_variables());
 
                 for (point, eval) in stir_challenges.into_iter().zip(stir_evaluations) {
                     let weights = Weights::evaluation(point.clone());
@@ -314,26 +332,38 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
             folding_randomness,
             coefficients: folded_coefficients,
             prev_merkle: merkle_tree,
-            prev_merkle_answers: folded_evals,
+            prev_merkle_answers: evals,
             randomness_vec: round_state.randomness_vec.clone(),
             statement: round_state.statement,
-            prev_merkle_prover_data: round_state.prev_merkle_prover_data, /* TODO: update this!!!
-                                                                           * wrong */
+            prev_merkle_prover_data: round_state.prev_merkle_prover_data, /* TODO: update
+                                                                          this!!!
+                                                                                                                                                     * wrong */
         };
 
         self.round(challenger, round_state)
     }
 
-    fn final_round(
+    fn final_round<const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut WhirChallenger<BabyBear>,
-        mut round_state: RoundState<BabyBear, Poseidon2BabyBear<16>, Poseidon2BabyBear<24>>,
-        folded_coefficients: &CoefficientList<BabyBear>,
-    ) -> WhirProof<BabyBear> {
+        challenger: &mut WhirChallenger<F>,
+        mut round_state: RoundState<F, H, C, DIGEST_ELEMS>,
+        folded_coefficients: &CoefficientList<F>,
+    ) -> WhirProof<F>
+    where
+        C: CanSample<F>,
+        F: PrimeField32,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+            + Sync,
+        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+    {
         challenger.observe_slice(folded_coefficients.coeffs());
 
         // Final verifier queries and answers. The indices are over the folded domain.
-        let final_challenge_indexes = get_challenge_stir_queries::<BabyBear, _>(
+        let final_challenge_indexes = get_challenge_stir_queries::<F, _>(
             // The size of the original domain before folding
             round_state.domain.size(),
             // The folding factor we used to fold the previous polynomial
@@ -346,7 +376,8 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
         let final_merkle_proofs: Vec<_> = final_challenge_indexes
             .iter()
             .map(|&index| {
-                round_state.prev_merkle.open_batch(index, &round_state.prev_merkle_prover_data) // Pass index and Merkle tree
+                // Pass index and Merkle tree
+                round_state.prev_merkle.open_batch(index, &round_state.prev_merkle_prover_data)
             })
             .collect();
 
@@ -355,9 +386,8 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
         // let answers = final_challenge_indexes
         //     .into_iter()
         //     .map(|i| {
-        //         round_state.prev_merkle_answers[i * fold_size..(i + 1) * fold_size].to_vec()
-        //     })
-        //     .collect();
+        //         round_state.prev_merkle_answers[i * fold_size..(i + 1) *  fold_size].to_vec()
+        // //     })     .collect();
         // round_state.merkle_proofs.push((merkle_proof, answers));
 
         // TODO: complete this part, not sure how to do it
@@ -372,11 +402,7 @@ impl<PowStrategy> Prover<BabyBear, PowStrategy, Poseidon2BabyBear<16>, Poseidon2
             let final_folding_randomness = round_state
                 .sumcheck_prover
                 .unwrap_or_else(|| {
-                    SumcheckSingle::new(
-                        folded_coefficients.clone(),
-                        &round_state.statement,
-                        BabyBear::ONE,
-                    )
+                    SumcheckSingle::new(folded_coefficients.clone(), &round_state.statement, F::ONE)
                 })
                 .compute_sumcheck_polynomials(
                     challenger,

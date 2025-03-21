@@ -1,14 +1,11 @@
-use p3_baby_bear::BabyBear;
-use p3_field::{Field, PrimeCharacteristicRing};
-use serde::Serialize;
-use std::{fmt::Display, marker::PhantomData, str::FromStr};
-use thiserror::Error;
-
 use crate::{
-    merkle_tree::{Poseidon2Compression, Poseidon2Sponge},
     poly::{coeffs::CoefficientList, fold::compute_fold},
     whir::prover::RoundState,
 };
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use serde::Serialize;
+use std::{fmt::Display, marker::PhantomData, str::FromStr};
+use thiserror::Error;
 
 /// Computes the default maximum proof-of-work (PoW) bits.
 ///
@@ -83,14 +80,17 @@ pub enum FoldType {
 }
 
 impl FoldType {
-    pub(crate) fn compute_stir_evaluations<Perm16, Perm24>(
+    pub(crate) fn compute_stir_evaluations<F, H, C, const DIGEST_ELEMS: usize>(
         self,
-        round_state: &RoundState<BabyBear, Perm16, Perm24>,
+        round_state: &RoundState<F, H, C, DIGEST_ELEMS>,
         stir_challenges_indexes: &[usize],
-        answers: &[Vec<BabyBear>],
+        answers: &[Vec<F>],
         folding_factor: FoldingFactor,
-        stir_evaluations: &mut Vec<BabyBear>,
-    ) {
+        stir_evaluations: &mut Vec<F>,
+    ) where
+        F: Field + TwoAdicField,
+        <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    {
         match self {
             Self::Naive => {
                 // See `Verifier::compute_folds_full`
@@ -129,7 +129,7 @@ impl FoldType {
                             &round_state.folding_randomness.0,
                             coset_offset_inv,
                             coset_generator_inv,
-                            BabyBear::TWO.inverse(),
+                            F::TWO.inverse(),
                             folding_factor.at_round(round_state.round),
                         )
                     },
@@ -288,7 +288,7 @@ impl FoldingFactor {
 
 /// Configuration parameters for WHIR proofs.
 #[derive(Clone, Debug)]
-pub struct WhirParameters<PowStrategy, Perm16, Perm24> {
+pub struct WhirParameters<PowStrategy, H, C> {
     /// Whether the initial statement is included in the proof.
     pub initial_statement: bool,
     /// The logarithmic inverse rate for sampling.
@@ -306,12 +306,12 @@ pub struct WhirParameters<PowStrategy, Perm16, Perm24> {
     /// Phantom type for PoW parameters.
     pub _pow_parameters: PhantomData<PowStrategy>,
     /// Hash used in the Merkle tree.
-    pub merkle_hash: Poseidon2Sponge<Perm24>,
+    pub merkle_hash: H,
     /// Compression method used in the Merkle tree.
-    pub merkle_compress: Poseidon2Compression<Perm16>,
+    pub merkle_compress: C,
 }
 
-impl<PowStrategy, Perm16, Perm24> Display for WhirParameters<PowStrategy, Perm16, Perm24> {
+impl<PowStrategy, H, C> Display for WhirParameters<PowStrategy, H, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,

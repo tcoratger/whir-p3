@@ -1,53 +1,57 @@
 use super::parameters::WhirConfig;
 use crate::{
-    merkle_tree::{Poseidon2MerkleMmcs, WhirChallenger},
+    merkle_tree::WhirChallenger,
     ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
     utils::sample_ood_points,
 };
 use p3_challenger::CanObserve;
 use p3_commit::Mmcs;
-use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+use p3_field::{Field, PackedValue, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
-use p3_merkle_tree::MerkleTree;
-use p3_symmetric::CryptographicPermutation;
+use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
+use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
-pub struct Witness<F: Field, Perm16, Perm24> {
+pub struct Witness<F: Field, H, C, const DIGEST_ELEMS: usize> {
     pub(crate) polynomial: CoefficientList<F>,
-    pub(crate) merkle_tree: Poseidon2MerkleMmcs<F, Perm16, Perm24>,
-    pub(crate) prover_data: MerkleTree<F, F, DenseMatrix<F>, 8>,
+    pub(crate) merkle_tree:
+        MerkleTreeMmcs<<F as Field>::Packing, <F as Field>::Packing, H, C, DIGEST_ELEMS>,
+    pub(crate) prover_data: MerkleTree<F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     pub(crate) merkle_leaves: Vec<F>,
     pub(crate) ood_points: Vec<F>,
     pub(crate) ood_answers: Vec<F>,
 }
 
 #[derive(Debug)]
-pub struct Committer<F, PowStrategy, Perm16, Perm24>(WhirConfig<F, PowStrategy, Perm16, Perm24>)
+pub struct Committer<F, PowStrategy, H, C>(WhirConfig<F, PowStrategy, H, C>)
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField;
 
-impl<F, PowStrategy, Perm16, Perm24> Committer<F, PowStrategy, Perm16, Perm24>
+impl<F, PowStrategy, H, C> Committer<F, PowStrategy, H, C>
 where
-    F: Field + TwoAdicField,
+    F: Field + TwoAdicField + PrimeField32 + Eq,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
-    Perm16:
-        CryptographicPermutation<[F; 16]> + CryptographicPermutation<[<F as Field>::Packing; 16]>,
-    Perm24:
-        CryptographicPermutation<[F; 24]> + CryptographicPermutation<[<F as Field>::Packing; 24]>,
 {
-    pub const fn new(config: WhirConfig<F, PowStrategy, Perm16, Perm24>) -> Self {
+    pub const fn new(config: WhirConfig<F, PowStrategy, H, C>) -> Self {
         Self(config)
     }
 
-    pub fn commit(
+    pub fn commit<const DIGEST_ELEMS: usize>(
         &self,
         challenger: &mut WhirChallenger<F>,
         polynomial: CoefficientList<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-    ) -> Witness<F, Perm16, Perm24>
+    ) -> Witness<F, H, C, DIGEST_ELEMS>
     where
-        F: PrimeField32,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+            + Sync,
+        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Compute domain expansion factor
         let base_domain = self.0.starting_domain.base_domain.unwrap();
@@ -72,10 +76,8 @@ where
         let folded_matrix = RowMajorMatrix::new(folded_evals.clone(), 1); // 1 row
 
         // Commit to the Merkle tree
-        let merkle_tree = Poseidon2MerkleMmcs::<F, _, _>::new(
-            self.0.merkle_hash.clone(),
-            self.0.merkle_compress.clone(),
-        );
+        let merkle_tree =
+            MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
         let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger
@@ -154,7 +156,7 @@ mod tests {
 
         // Define multivariate parameters for the polynomial.
         let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let params = WhirConfig::<F, u8, Perm16, Perm24>::new(mv_params, whir_params);
+        let params = WhirConfig::new(mv_params, whir_params);
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = rand::rng();
@@ -234,7 +236,7 @@ mod tests {
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let params = WhirConfig::<F, u8, Perm16, Perm24>::new(mv_params, whir_params);
+        let params = WhirConfig::new(mv_params, whir_params);
 
         let mut rng = rand::rng();
         let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 1024]);
@@ -288,7 +290,7 @@ mod tests {
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let mut params = WhirConfig::<F, u8, Perm16, Perm24>::new(mv_params, whir_params);
+        let mut params = WhirConfig::new(mv_params, whir_params);
 
         // Explicitly set OOD samples to 0
         params.committment_ood_samples = 0;
