@@ -1,9 +1,8 @@
-use super::parameters::WhirConfig;
+use super::{parameters::WhirConfig, utils::sample_ood_points};
 use crate::{
     merkle_tree::WhirChallenger,
     ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
-    utils::sample_ood_points,
 };
 use p3_challenger::CanObserve;
 use p3_commit::Mmcs;
