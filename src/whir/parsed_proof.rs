@@ -1,9 +1,9 @@
-use p3_field::{Field, TwoAdicField};
-
+use super::stir_evaluations::StirEvalContext;
 use crate::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
 };
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 
 #[derive(Default, Debug, Clone)]
 pub(crate) struct ParsedRound<F> {
@@ -34,32 +34,31 @@ pub(crate) struct ParsedProof<F> {
     pub(crate) statement_values_at_random_point: Vec<F>,
 }
 
-impl<F: Field + TwoAdicField> ParsedProof<F> {
+impl<F> ParsedProof<F>
+where
+    F: Field + TwoAdicField,
+    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+{
     pub(crate) fn compute_folds_helped(&self) -> Vec<Vec<F>> {
-        let mut result: Vec<_> = self
-            .rounds
-            .iter()
-            .map(|round| {
-                round
-                    .stir_challenges_answers
-                    .iter()
-                    .map(|answers| {
-                        CoefficientList::new(answers.clone()).evaluate(&round.folding_randomness)
-                    })
-                    .collect()
-            })
-            .collect();
+        let mut result = Vec::with_capacity(self.rounds.len() + 1);
 
-        // Add final round if needed
-        result.push(
-            self.final_randomness_answers
-                .iter()
-                .map(|answers| {
-                    CoefficientList::new(answers.clone()).evaluate(&self.final_folding_randomness)
-                })
-                .collect(),
-        );
+        for round in &self.rounds {
+            let mut evals = Vec::with_capacity(round.stir_challenges_answers.len());
 
+            let stir_evals_context =
+                StirEvalContext::ProverHelps { folding_randomness: &round.folding_randomness };
+
+            stir_evals_context.evaluate(&round.stir_challenges_answers, &mut evals);
+            result.push(evals);
+        }
+
+        // Add final round
+        let mut final_evals = Vec::with_capacity(self.final_randomness_answers.len());
+
+        let stir_evals_context =
+            StirEvalContext::ProverHelps { folding_randomness: &self.final_folding_randomness };
+        stir_evals_context.evaluate(&self.final_randomness_answers, &mut final_evals);
+        result.push(final_evals);
         result
     }
 }
