@@ -5,14 +5,19 @@ use super::{
     statement::{StatementVerifier, VerifierWeights},
 };
 use crate::{
-    merkle_tree::{KeccakDigest, WhirChallenger},
+    merkle_tree::WhirChallenger,
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     utils::expand_randomness,
     whir::{parameters::WhirConfig, parsed_proof::ParsedProof},
 };
 use p3_challenger::{CanSample, GrindingChallenger};
+use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+use p3_matrix::Dimensions;
+use p3_merkle_tree::MerkleTreeMmcs;
+use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
+use serde::{Deserialize, Serialize};
 use std::iter;
 
 #[derive(Clone)]
@@ -40,12 +45,12 @@ where
         Self { params }
     }
 
-    fn parse_commitment(
+    fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
         challenger: &mut WhirChallenger<F>,
-    ) -> ParsedCommitment<F, KeccakDigest<F>> {
+    ) -> ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>> {
         // Read the Merkle root from the challenger
-        let root = KeccakDigest(challenger.sample_array());
+        let root = challenger.sample_array();
 
         // Sample OOD points if required
         let ood_points = challenger.sample_vec(self.params.committment_ood_samples);
@@ -53,16 +58,33 @@ where
         // Sample OOD answers corresponding to the OOD points
         let ood_answers = challenger.sample_vec(ood_points.len());
 
-        ParsedCommitment { root, ood_points, ood_answers }
+        ParsedCommitment { root: root.into(), ood_points, ood_answers }
     }
 
     fn parse_proof<const DIGEST_ELEMS: usize>(
         &self,
         challenger: &mut WhirChallenger<F>,
-        parsed_commitment: &ParsedCommitment<F, KeccakDigest<F>>,
+        parsed_commitment: &ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>>,
         statement_points_len: usize,
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
-    ) -> ParsedProof<F> {
+    ) -> ProofResult<ParsedProof<F>>
+    where
+        F: PrimeField32,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: CanSample<F>
+            + PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+            + Sync,
+        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+    {
+        let mmcs =
+            MerkleTreeMmcs::<<F as Field>::Packing, <F as Field>::Packing, H, C, DIGEST_ELEMS>::new(
+                self.params.merkle_hash.clone(),
+                self.params.merkle_compress.clone(),
+            );
+
         let mut sumcheck_rounds = Vec::new();
         let mut folding_randomness: MultilinearPoint<F>;
         let initial_combination_randomness;
@@ -78,7 +100,7 @@ where
             // Initial sumcheck
             sumcheck_rounds.reserve_exact(self.params.folding_factor.at_round(0));
             for _ in 0..self.params.folding_factor.at_round(0) {
-                let sumcheck_poly_evals: [F; 3] = challenger.sample_array();
+                let sumcheck_poly_evals: [_; 3] = challenger.sample_array();
                 let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
                 let folding_randomness_single = challenger.sample();
                 sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
@@ -114,10 +136,10 @@ where
         let mut rounds = vec![];
 
         for r in 0..self.params.n_rounds() {
-            // let (merkle_proof, answers) = &whir_proof.merkle_paths[r];
+            let (answers, merkle_proof) = &whir_proof.merkle_paths[r];
             let round_params = &self.params.round_parameters[r];
 
-            let new_root = KeccakDigest::<F>(challenger.sample_array());
+            let new_root = challenger.sample_array();
 
             let ood_points = challenger.sample_vec(round_params.ood_samples);
             let ood_answers = challenger.sample_vec(round_params.ood_samples);
@@ -129,11 +151,28 @@ where
                 challenger,
             );
 
-            let stir_challenges_points: Vec<_> = stir_challenges_indexes
+            let stir_challenges_points = stir_challenges_indexes
                 .iter()
                 .map(|index| exp_domain_gen.exp_u64(*index as u64))
                 .collect();
 
+            // Verify Merkle openings using `verify_batch`
+            let dimensions = answers
+                .iter()
+                .map(|row| Dimensions { height: domain_size, width: row.len() })
+                .collect::<Vec<_>>();
+
+            mmcs.verify_batch(
+                &prev_root,
+                &dimensions,
+                stir_challenges_indexes[0],
+                answers,
+                merkle_proof,
+            )
+            .map_err(|_| ProofError::InvalidProof)?;
+
+            // Old WHIR version:
+            //
             // if !merkle_proof
             //     .verify(
             //         &self.params.leaf_hash_params,
@@ -188,7 +227,7 @@ where
 
             folding_randomness = new_folding_randomness;
 
-            prev_root = new_root;
+            prev_root = new_root.into();
             domain_gen = domain_gen * domain_gen;
             exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(r + 1));
             domain_gen_inv = domain_gen_inv * domain_gen_inv;
@@ -209,6 +248,26 @@ where
             .map(|index| exp_domain_gen.exp_u64(*index as u64))
             .collect();
 
+        // Final Merkle verification
+        let (final_answers, final_proof) =
+            &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
+
+        let dimensions = final_answers
+            .iter()
+            .map(|row| p3_matrix::Dimensions { height: domain_size, width: row.len() })
+            .collect::<Vec<_>>();
+
+        mmcs.verify_batch(
+            &prev_root,
+            &dimensions,
+            final_randomness_indexes[0],
+            final_answers,
+            final_proof,
+        )
+        .map_err(|_| ProofError::InvalidProof)?;
+
+        // Old WHIR version:
+        //
         // let (final_merkle_proof, final_randomness_answers) =
         //     &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
         // if !final_merkle_proof
@@ -243,7 +302,7 @@ where
         let final_sumcheck_randomness =
             MultilinearPoint(final_sumcheck_rounds.iter().map(|&(_, r)| r).rev().collect());
 
-        ParsedProof {
+        Ok(ParsedProof {
             initial_combination_randomness,
             initial_sumcheck_rounds: sumcheck_rounds,
             rounds,
@@ -256,12 +315,12 @@ where
             final_sumcheck_randomness,
             final_coefficients,
             statement_values_at_random_point: whir_proof.statement_values_at_random_point.clone(),
-        }
+        })
     }
 
-    fn compute_w_poly(
+    fn compute_w_poly<const DIGEST_ELEMS: usize>(
         &self,
-        parsed_commitment: &ParsedCommitment<F, KeccakDigest<F>>,
+        parsed_commitment: &ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>>,
         statement: &StatementVerifier<F>,
         proof: &ParsedProof<F>,
     ) -> F {
@@ -342,7 +401,18 @@ where
         challenger: &mut WhirChallenger<F>,
         statement: &StatementVerifier<F>,
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
-    ) -> ProofResult<()> {
+    ) -> ProofResult<()>
+    where
+        F: PrimeField32,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: CanSample<F>
+            + PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+            + Sync,
+        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+    {
         // First, derive all Fiat-Shamir challenges
         let parsed_commitment = self.parse_commitment(challenger);
         let evaluations: Vec<_> = statement.constraints.iter().map(|(_, eval)| *eval).collect();
@@ -352,7 +422,7 @@ where
             &parsed_commitment,
             statement.constraints.len(),
             whir_proof,
-        );
+        )?;
 
         let computed_folds =
             self.params.fold_optimisation.stir_evaluations_verifier(&parsed, &self.params);

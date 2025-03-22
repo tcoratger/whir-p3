@@ -1,3 +1,6 @@
+use crate::whir::prover::Proof;
+use prover::Leafs;
+
 pub mod committer;
 pub mod fs_utils;
 pub mod iopattern;
@@ -12,7 +15,7 @@ pub mod verifier;
 // Only includes the authentication paths
 #[derive(Debug, Default, Clone)]
 pub struct WhirProof<F, const DIGEST_ELEMS: usize> {
-    pub merkle_paths: Vec<(Vec<[F; DIGEST_ELEMS]>, Vec<Vec<F>>)>,
+    pub merkle_paths: Vec<(Leafs<F>, Proof<F, DIGEST_ELEMS>)>,
     pub statement_values_at_random_point: Vec<F>,
 }
 

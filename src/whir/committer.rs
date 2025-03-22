@@ -71,8 +71,11 @@ where
         // Convert to extension field (for future rounds)
         let folded_evals: Vec<_> = evals.into_iter().map(F::from_prime_subfield).collect();
 
+        // Determine leaf size based on folding factor.
+        let fold_size = 1 << self.0.folding_factor.at_round(0);
+
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
-        let folded_matrix = RowMajorMatrix::new(folded_evals.clone(), 1); // 1 row
+        let folded_matrix = RowMajorMatrix::new(folded_evals.clone(), fold_size);
 
         // Commit to the Merkle tree
         let merkle_tree =

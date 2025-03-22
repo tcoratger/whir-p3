@@ -16,6 +16,9 @@ use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
+pub type Proof<F, const DIGEST_ELEMS: usize> = Vec<[F; DIGEST_ELEMS]>;
+pub type Leafs<F> = Vec<Vec<F>>;
+
 pub(crate) struct RoundState<F, H, C, const DIGEST_ELEMS: usize>
 where
     F: Field + TwoAdicField,
@@ -30,9 +33,9 @@ where
         MerkleTreeMmcs<<F as Field>::Packing, <F as Field>::Packing, H, C, DIGEST_ELEMS>,
     pub(crate) prev_merkle_prover_data: MerkleTree<F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     pub(crate) prev_merkle_answers: Vec<F>,
-    /// - The first element is the Merkle proof (siblings)
-    /// - The second is the opened leaf values
-    pub(crate) merkle_proofs: Vec<(Vec<[F; DIGEST_ELEMS]>, Vec<Vec<F>>)>,
+    /// - The first element is the opened leaf values
+    /// - The second element is the Merkle proof (siblings)
+    pub(crate) merkle_proofs: Vec<(Leafs<F>, Proof<F, DIGEST_ELEMS>)>,
     pub(crate) randomness_vec: Vec<F>,
     pub(crate) statement: Statement<F>,
 }
@@ -215,7 +218,10 @@ where
         );
 
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
-        let folded_matrix = RowMajorMatrix::new(evals.clone(), 1); // 1 row
+        let folded_matrix = RowMajorMatrix::new(
+            evals.clone(),
+            1 << self.0.folding_factor.at_round(round_state.round + 1),
+        );
 
         let merkle_tree =
             MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
@@ -250,27 +256,17 @@ where
             .collect();
 
         // Collect Merkle proofs for stir queries
-        let fold_size = 1 << self.0.folding_factor.at_round(round_state.round);
         let merkle_proofs: Vec<_> = stir_challenges_indexes
             .iter()
             .map(|&index| {
-                let auth_path =
-                    round_state.prev_merkle.open_batch(index, &round_state.prev_merkle_prover_data);
-                let leaf_values = round_state.prev_merkle_answers
-                    [index * fold_size..(index + 1) * fold_size]
-                    .to_vec();
-                (auth_path.1, vec![leaf_values])
+                round_state.prev_merkle.open_batch(index, &round_state.prev_merkle_prover_data)
             })
-            .collect();
-
-        // TODO: try to avoid this duplication: very bad
-        let answers: Vec<_> = stir_challenges_indexes
-            .iter()
-            .map(|i| round_state.prev_merkle_answers[i * fold_size..(i + 1) * fold_size].to_vec())
             .collect();
 
         // Evaluate answers in the folding randomness.
         let mut stir_evaluations = ood_answers;
+        let answers: Vec<_> =
+            merkle_proofs.iter().map(|(openings, _)| openings[0].clone()).collect();
         self.0.fold_optimisation.stir_evaluations_prover(
             &round_state,
             &stir_challenges_indexes,
@@ -286,7 +282,7 @@ where
         }
 
         // Randomness for combination
-        let combination_randomness_gen: F = challenger.sample();
+        let combination_randomness_gen = challenger.sample();
         let combination_randomness =
             expand_randomness(combination_randomness_gen, stir_challenges.len());
 
@@ -375,19 +371,13 @@ where
         );
 
         // Every query requires opening these many in the previous Merkle tree
-        let fold_size = 1 << self.0.folding_factor.at_round(round_state.round);
-        let final_merkle_proofs_and_values: Vec<_> = final_challenge_indexes
+        let merkle_proof: Vec<_> = final_challenge_indexes
             .iter()
             .map(|&index| {
-                let auth_path =
-                    round_state.prev_merkle.open_batch(index, &round_state.prev_merkle_prover_data);
-                let leaf_values = round_state.prev_merkle_answers
-                    [index * fold_size..(index + 1) * fold_size]
-                    .to_vec();
-                (auth_path.1, vec![leaf_values])
+                round_state.prev_merkle.open_batch(index, &round_state.prev_merkle_prover_data)
             })
             .collect();
-        round_state.merkle_proofs.extend(final_merkle_proofs_and_values);
+        round_state.merkle_proofs.extend(merkle_proof);
 
         // Perform proof-of-work if required
         if self.0.final_pow_bits > 0. {
@@ -415,16 +405,21 @@ where
                 .copy_from_slice(&arr);
         }
 
-        let mut randomness_vec_rev = round_state.randomness_vec.clone();
+        let mut randomness_vec_rev = round_state.randomness_vec;
         randomness_vec_rev.reverse();
 
-        let mut statement_values_at_random_point = vec![];
-        for (weights, _) in &round_state.statement.constraints {
-            if let Weights::Linear { weight } = weights {
-                statement_values_at_random_point
-                    .push(weight.eval_extension(&MultilinearPoint(randomness_vec_rev.clone())));
-            }
-        }
+        let statement_values_at_random_point = round_state
+            .statement
+            .constraints
+            .iter()
+            .filter_map(|(weights, _)| {
+                if let Weights::Linear { weight } = weights {
+                    Some(weight.eval_extension(&MultilinearPoint(randomness_vec_rev.clone())))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         WhirProof { merkle_paths: round_state.merkle_proofs, statement_values_at_random_point }
     }
