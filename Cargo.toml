@@ -59,6 +59,11 @@ rand = "0.9"
 criterion = "0.5"
 proptest = "1.0"
 
+[features]
+default = ["parallel"]
+parallel = ["dep:rayon"]
+rayon = ["dep:rayon"]
+
 [[bench]]
 name = "transpose_square_swap"
 harness = false
