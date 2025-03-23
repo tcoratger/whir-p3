@@ -1,10 +1,9 @@
 use super::{parameters::WhirConfig, utils::sample_ood_points};
 use crate::{
-    merkle_tree::WhirChallenger,
     ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
 };
-use p3_challenger::CanObserve;
+use p3_challenger::{CanObserve, CanSample};
 use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
@@ -38,9 +37,9 @@ where
         Self(config)
     }
 
-    pub fn commit<const DIGEST_ELEMS: usize>(
+    pub fn commit<CH, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut WhirChallenger<F>,
+        challenger: &mut CH,
         polynomial: CoefficientList<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     ) -> Witness<F, H, C, DIGEST_ELEMS>
     where
@@ -51,6 +50,7 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        CH: CanObserve<F> + CanSample<F>,
     {
         // Compute domain expansion factor
         let base_domain = self.0.starting_domain.base_domain.unwrap();

@@ -1,7 +1,6 @@
 use super::{WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     domain::Domain,
-    merkle_tree::WhirChallenger,
     ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
@@ -75,9 +74,9 @@ where
         witness.polynomial.num_variables() == self.0.mv_parameters.num_variables
     }
 
-    pub fn prove<const DIGEST_ELEMS: usize>(
+    pub fn prove<CH, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut WhirChallenger<F>,
+        challenger: &mut CH,
         mut statement: Statement<F>,
         witness: Witness<F, H, C, DIGEST_ELEMS>,
     ) -> WhirProof<F, DIGEST_ELEMS>
@@ -91,6 +90,7 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        CH: GrindingChallenger + CanObserve<F> + CanSample<F>,
     {
         // Validate parameters
         assert!(
@@ -170,9 +170,9 @@ where
     }
 
     #[allow(clippy::too_many_lines)]
-    fn round<const DIGEST_ELEMS: usize>(
+    fn round<CH, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut WhirChallenger<F>,
+        challenger: &mut CH,
         mut round_state: RoundState<F, H, C, DIGEST_ELEMS>,
     ) -> WhirProof<F, DIGEST_ELEMS>
     where
@@ -185,6 +185,7 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        CH: GrindingChallenger + CanObserve<F> + CanSample<F>,
     {
         // Fold the coefficients
         let folded_coefficients = round_state.coefficients.fold(&round_state.folding_randomness);
@@ -327,9 +328,9 @@ where
         self.round(challenger, round_state)
     }
 
-    fn final_round<const DIGEST_ELEMS: usize>(
+    fn final_round<CH, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut WhirChallenger<F>,
+        challenger: &mut CH,
         mut round_state: RoundState<F, H, C, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<F>,
     ) -> WhirProof<F, DIGEST_ELEMS>
@@ -343,6 +344,7 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        CH: GrindingChallenger + CanObserve<F> + CanSample<F>,
     {
         challenger.observe_slice(folded_coefficients.coeffs());
 
@@ -410,9 +412,9 @@ where
         WhirProof { merkle_paths: round_state.merkle_proofs, statement_values_at_random_point }
     }
 
-    fn compute_stir_queries<const DIGEST_ELEMS: usize>(
+    fn compute_stir_queries<CH, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut WhirChallenger<F>,
+        challenger: &mut CH,
         round_state: &RoundState<F, H, C, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig,
@@ -420,6 +422,7 @@ where
     ) -> (Vec<MultilinearPoint<F>>, Vec<usize>)
     where
         F: PrimeField32,
+        CH: CanSample<F>,
     {
         let stir_challenges_indexes = get_challenge_stir_queries::<F, _>(
             round_state.domain.size(),

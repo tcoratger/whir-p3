@@ -5,7 +5,6 @@ use super::{
     statement::{StatementVerifier, VerifierWeights},
 };
 use crate::{
-    merkle_tree::WhirChallenger,
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     utils::expand_randomness,
@@ -45,10 +44,13 @@ where
         Self { params }
     }
 
-    fn parse_commitment<const DIGEST_ELEMS: usize>(
+    fn parse_commitment<CH, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut WhirChallenger<F>,
-    ) -> ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>> {
+        challenger: &mut CH,
+    ) -> ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>>
+    where
+        CH: CanSample<F>,
+    {
         // Read the Merkle root from the challenger
         let root = challenger.sample_array();
 
@@ -62,9 +64,9 @@ where
     }
 
     #[allow(clippy::too_many_lines)]
-    fn parse_proof<const DIGEST_ELEMS: usize>(
+    fn parse_proof<CH, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut WhirChallenger<F>,
+        challenger: &mut CH,
         parsed_commitment: &ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>>,
         statement_points_len: usize,
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
@@ -79,6 +81,7 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        CH: GrindingChallenger + CanSample<F>,
     {
         let mmcs = MerkleTreeMmcs::<_, <F as Field>::Packing, _, _, DIGEST_ELEMS>::new(
             self.params.merkle_hash.clone(),
@@ -396,9 +399,9 @@ where
         value
     }
 
-    pub fn verify<const DIGEST_ELEMS: usize>(
+    pub fn verify<CH, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut WhirChallenger<F>,
+        challenger: &mut CH,
         statement: &StatementVerifier<F>,
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
     ) -> ProofResult<()>
@@ -412,6 +415,7 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        CH: GrindingChallenger + CanSample<F>,
     {
         // First, derive all Fiat-Shamir challenges
         let parsed_commitment = self.parse_commitment(challenger);
