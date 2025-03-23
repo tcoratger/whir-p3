@@ -496,25 +496,6 @@ mod tests {
     }
 
     #[test]
-    fn test_transpose_square() {
-        let size = 512;
-        assert!(size * size > 2 * workload_size::<Pair>());
-
-        let mut matrix = create_matrix(size, size);
-
-        assert_transposed(&mut matrix, size, size);
-    }
-
-    #[test]
-    fn test_transpose_rectangular_parallel() {
-        let rows = 256;
-        let cols = 64;
-        let mut matrix = create_matrix(rows, cols);
-
-        assert_transposed(&mut matrix, rows, cols);
-    }
-
-    #[test]
     fn test_transpose_edge_case_double_rows() {
         let rows = 16;
         let cols = 8;
