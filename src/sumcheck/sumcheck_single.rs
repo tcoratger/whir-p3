@@ -6,11 +6,8 @@ use crate::{
 };
 use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
 use p3_field::Field;
-use rayon::{
-    iter::{IndexedParallelIterator, ParallelIterator},
-    join,
-    slice::ParallelSlice,
-};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 /// Implements the single-round sumcheck protocol for verifying a multilinear polynomial evaluation.
 ///
@@ -117,7 +114,7 @@ where
     pub fn compute_sumcheck_polynomial(&self) -> SumcheckPolynomial<F> {
         assert!(self.num_variables() >= 1);
 
-        // Compute the quadratic coefficients using parallel reduction
+        #[cfg(feature = "parallel")]
         let (c0, c2) = self
             .evaluation_of_p
             .evals()
@@ -132,6 +129,22 @@ where
                 (p_0 * eq_0, p_1 * eq_1)
             })
             .reduce(|| (F::ZERO, F::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2));
+
+        #[cfg(not(feature = "parallel"))]
+        let (c0, c2) = self
+            .evaluation_of_p
+            .evals()
+            .chunks_exact(2)
+            .zip(self.weights.evals().chunks_exact(2))
+            .map(|(p_at, eq_at)| {
+                // Convert evaluations to coefficients for the linear fns p and eq.
+                let (p_0, p_1) = (p_at[0], p_at[1] - p_at[0]);
+                let (eq_0, eq_1) = (eq_at[0], eq_at[1] - eq_at[0]);
+
+                // Now we need to add the contribution of p(x) * eq(x)
+                (p_0 * eq_0, p_1 * eq_1)
+            })
+            .fold((F::ZERO, F::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2));
 
         // Compute the middle coefficient using sum rule: sum = 2 * c0 + c1 + c2
         let c1 = self.sum - c0.double() - c2;
@@ -234,7 +247,8 @@ where
         assert!(self.num_variables() >= 1);
 
         let randomness = folding_randomness.0[0];
-        let (evaluations_of_p, evaluations_of_eq) = join(
+        #[cfg(feature = "parallel")]
+        let (evaluations_of_p, evaluations_of_eq) = rayon::join(
             || {
                 self.evaluation_of_p
                     .evals()
@@ -249,6 +263,20 @@ where
                     .map(|at| (at[1] - at[0]) * randomness + at[0])
                     .collect()
             },
+        );
+
+        #[cfg(not(feature = "parallel"))]
+        let (evaluations_of_p, evaluations_of_eq) = (
+            self.evaluation_of_p
+                .evals()
+                .chunks_exact(2)
+                .map(|at| (at[1] - at[0]) * randomness + at[0])
+                .collect(),
+            self.weights
+                .evals()
+                .chunks_exact(2)
+                .map(|at| (at[1] - at[0]) * randomness + at[0])
+                .collect(),
         );
 
         // Update

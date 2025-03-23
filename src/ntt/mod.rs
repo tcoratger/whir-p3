@@ -2,8 +2,10 @@
 
 use cooley_tukey::ntt_batch;
 use p3_field::{Field, TwoAdicField};
-use rayon::prelude::*;
 use transpose::transpose;
+
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 pub mod cooley_tukey;
 pub mod matrix;
@@ -22,6 +24,17 @@ pub fn expand_from_coeff<F: Field + TwoAdicField>(coeffs: &[F], expansion: usize
     // Do coset NTT.
     let root = engine.root(expanded_size);
     result.extend_from_slice(coeffs);
+    #[cfg(not(feature = "parallel"))]
+    for i in 1..expansion {
+        let root = root.exp_u64(i as u64);
+        let mut offset = F::ONE;
+        result.extend(coeffs.iter().map(|x| {
+            let val = *x * offset;
+            offset *= root;
+            val
+        }));
+    }
+    #[cfg(feature = "parallel")]
     result.par_extend((1..expansion).into_par_iter().flat_map(|i| {
         let root_i = root.exp_u64(i as u64);
         coeffs.par_iter().enumerate().map_with(F::ZERO, move |root_j, (j, coeff)| {
@@ -30,7 +43,6 @@ pub fn expand_from_coeff<F: Field + TwoAdicField>(coeffs: &[F], expansion: usize
             } else {
                 *root_j *= root_i;
             }
-
             *coeff * *root_j
         })
     }));

@@ -1,8 +1,12 @@
 use super::{dense::WhirDensePolynomial, evals::EvaluationsList, hypercube::BinaryHypercubePoint};
 use crate::{ntt::wavelet::wavelet_transform, poly::multilinear::MultilinearPoint};
 use p3_field::Field;
-use rayon::join;
-use std::mem::size_of;
+
+#[cfg(feature = "parallel")]
+use {
+    rayon::{join, prelude::*},
+    std::mem::size_of,
+};
 
 /// Represents a multilinear polynomial in coefficient form with `num_variables` variables.
 ///
@@ -92,10 +96,17 @@ where
     #[must_use]
     pub fn fold(&self, folding_randomness: &MultilinearPoint<F>) -> Self {
         let folding_factor = folding_randomness.num_variables();
+        #[cfg(not(feature = "parallel"))]
         let coeffs = self
             .coeffs
             .chunks_exact(1 << folding_factor)
-            .map(|chunk| eval_multivariate(chunk, &folding_randomness.0))
+            .map(|coeffs| eval_multivariate(coeffs, &folding_randomness.0))
+            .collect();
+        #[cfg(feature = "parallel")]
+        let coeffs = self
+            .coeffs
+            .par_chunks_exact(1 << folding_factor)
+            .map(|coeffs| eval_multivariate(coeffs, &folding_randomness.0))
             .collect();
 
         Self { coeffs, num_variables: self.num_variables() - folding_factor }
@@ -162,8 +173,11 @@ fn eval_multivariate<F: Field>(coeffs: &[F], point: &[F]) -> F {
         }
         [x, tail @ ..] => {
             let (b0t, b1t) = coeffs.split_at(coeffs.len() / 2);
+            #[cfg(not(feature = "parallel"))]
+            let (b0t, b1t) = (eval_multivariate(b0t, tail), eval_multivariate(b1t, tail));
+            #[cfg(feature = "parallel")]
             let (b0t, b1t) = {
-                let work_size = (1 << 15) / size_of::<F>();
+                let work_size: usize = (1 << 15) / size_of::<F>();
                 if coeffs.len() > work_size {
                     join(|| eval_multivariate(b0t, tail), || eval_multivariate(b1t, tail))
                 } else {
@@ -248,6 +262,7 @@ where
     if let Some((&x, tail)) = eval.split_first() {
         let (low, high) = coeff.split_at(coeff.len() / 2);
 
+        #[cfg(feature = "parallel")]
         {
             const PARALLEL_THRESHOLD: usize = 10;
             if tail.len() > PARALLEL_THRESHOLD {

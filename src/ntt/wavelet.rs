@@ -1,8 +1,8 @@
-use super::utils::workload_size;
 use crate::ntt::transpose::transpose;
 use p3_field::Field;
-use rayon::prelude::*;
-use std::cmp::max;
+
+#[cfg(feature = "parallel")]
+use {super::utils::workload_size, rayon::prelude::*};
 
 /// Fast Wavelet Transform.
 ///
@@ -18,10 +18,11 @@ pub fn wavelet_transform<F: Field>(values: &mut [F]) {
 pub fn wavelet_transform_batch<F: Field>(values: &mut [F], size: usize) {
     debug_assert_eq!(values.len() % size, 0);
     debug_assert!(size.is_power_of_two());
+    #[cfg(feature = "parallel")]
     if values.len() > workload_size::<F>() && values.len() != size {
         // Multiple wavelet transforms, compute in parallel.
         // Work size is largest multiple of `size` smaller than `WORKLOAD_SIZE`.
-        let workload_size = size * max(1, workload_size::<F>() / size);
+        let workload_size = size * std::cmp::max(1, workload_size::<F>() / size);
         return values.par_chunks_mut(workload_size).for_each(|values| {
             wavelet_transform_batch(values, size);
         });

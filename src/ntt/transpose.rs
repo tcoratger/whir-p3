@@ -1,6 +1,5 @@
 use super::matrix::MatrixMut;
 use crate::ntt::utils::workload_size;
-use rayon::join;
 use std::mem::swap;
 
 /// Transpose a matrix in-place.
@@ -14,7 +13,7 @@ pub fn transpose<F: Sized + Copy + Send>(matrix: &mut [F], rows: usize, cols: us
     if rows == cols {
         for matrix in matrix.chunks_exact_mut(rows * cols) {
             let matrix = MatrixMut::from_mut_slice(matrix, rows, cols);
-            transpose_square_parallel(matrix);
+            transpose_square(matrix);
         }
     } else {
         // TODO: Special case for rows = 2 * cols and cols = 2 * rows.
@@ -24,7 +23,7 @@ pub fn transpose<F: Sized + Copy + Send>(matrix: &mut [F], rows: usize, cols: us
             scratch.copy_from_slice(matrix);
             let src = MatrixMut::from_mut_slice(scratch.as_mut_slice(), rows, cols);
             let dst = MatrixMut::from_mut_slice(matrix, cols, rows);
-            transpose_copy_parallel(src, dst);
+            transpose_copy(src, dst);
         }
     }
 }
@@ -32,10 +31,7 @@ pub fn transpose<F: Sized + Copy + Send>(matrix: &mut [F], rows: usize, cols: us
 /// Transpose and swap two square size matrices (parallel version).
 ///
 /// The size must be a power of two.
-pub fn transpose_square_swap_parallel<F: Sized + Send>(
-    mut a: MatrixMut<'_, F>,
-    mut b: MatrixMut<'_, F>,
-) {
+pub fn transpose_square_swap<F: Sized + Send>(mut a: MatrixMut<'_, F>, mut b: MatrixMut<'_, F>) {
     debug_assert!(a.is_square());
     debug_assert_eq!(a.rows(), b.cols());
     debug_assert_eq!(a.cols(), b.rows());
@@ -64,20 +60,19 @@ pub fn transpose_square_swap_parallel<F: Sized + Send>(
         let (aa, ab, ac, ad) = a.split_quadrants(n, n);
         let (ba, bb, bc, bd) = b.split_quadrants(n, n);
 
-        join(
-            || {
-                join(
-                    || transpose_square_swap_parallel(aa, ba),
-                    || transpose_square_swap_parallel(ab, bc),
-                )
-            },
-            || {
-                join(
-                    || transpose_square_swap_parallel(ac, bb),
-                    || transpose_square_swap_parallel(ad, bd),
-                )
-            },
+        #[cfg(feature = "parallel")]
+        rayon::join(
+            || rayon::join(|| transpose_square_swap(aa, ba), || transpose_square_swap(ab, bc)),
+            || rayon::join(|| transpose_square_swap(ac, bb), || transpose_square_swap(ad, bd)),
         );
+
+        #[cfg(not(feature = "parallel"))]
+        {
+            transpose_square_swap(aa, ba);
+            transpose_square_swap(ab, bc);
+            transpose_square_swap(ac, bb);
+            transpose_square_swap(ad, bd);
+        }
     } else {
         // Optimized 2×2 loop unrolling for larger blocks
         // - Reduces loop overhead
@@ -95,7 +90,7 @@ pub fn transpose_square_swap_parallel<F: Sized + Send>(
 
 /// Transpose a square matrix in-place. Asserts that the size of the matrix is a power of two.
 /// This is the parallel version.
-fn transpose_square_parallel<F: Sized + Send>(mut m: MatrixMut<'_, F>) {
+fn transpose_square<F: Sized + Send>(mut m: MatrixMut<'_, F>) {
     debug_assert!(m.is_square());
     debug_assert!(m.rows().is_power_of_two());
     let size = m.rows();
@@ -105,10 +100,18 @@ fn transpose_square_parallel<F: Sized + Send>(mut m: MatrixMut<'_, F>) {
         let n = size / 2;
         let (a, b, c, d) = m.split_quadrants(n, n);
 
-        join(
-            || transpose_square_swap_parallel(b, c),
-            || join(|| transpose_square_parallel(a), || transpose_square_parallel(d)),
+        #[cfg(feature = "parallel")]
+        rayon::join(
+            || transpose_square_swap(b, c),
+            || rayon::join(|| transpose_square(a), || transpose_square(d)),
         );
+
+        #[cfg(not(feature = "parallel"))]
+        {
+            transpose_square(a);
+            transpose_square(d);
+            transpose_square_swap(b, c);
+        }
     } else {
         for i in 0..size {
             for j in (i + 1)..size {
@@ -126,7 +129,7 @@ fn transpose_square_parallel<F: Sized + Send>(mut m: MatrixMut<'_, F>) {
 ///
 /// Uses cache-friendly recursive decomposition and direct pointer manipulation for maximum
 /// performance.
-pub fn transpose_copy_parallel<F: Copy + Send>(src: MatrixMut<'_, F>, mut dst: MatrixMut<'_, F>) {
+pub fn transpose_copy<F: Copy + Send>(src: MatrixMut<'_, F>, mut dst: MatrixMut<'_, F>) {
     assert_eq!(src.rows(), dst.cols());
     assert_eq!(src.cols(), dst.rows());
 
@@ -155,15 +158,24 @@ pub fn transpose_copy_parallel<F: Copy + Send>(src: MatrixMut<'_, F>, mut dst: M
         (src.split_horizontal(split_size), dst.split_vertical(split_size))
     };
 
-    // Execute recursive transposition in parallel
-    join(|| transpose_copy_parallel(src_a, dst_a), || transpose_copy_parallel(src_b, dst_b));
+    // Execute recursive transposition
+    #[cfg(feature = "parallel")]
+    rayon::join(|| transpose_copy(src_a, dst_a), || transpose_copy(src_b, dst_b));
+
+    #[cfg(not(feature = "parallel"))]
+    for (s, mut d) in [(src_a, dst_a), (src_b, dst_b)] {
+        for i in 0..s.rows() {
+            for j in 0..s.cols() {
+                d[(j, i)] = s[(i, j)];
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use rayon::ThreadPoolBuilder;
 
     type Pair = (usize, usize);
     type Triple = (usize, usize, usize);
@@ -209,7 +221,7 @@ mod tests {
             let view_b = MatrixMut::from_mut_slice(&mut matrix_b[0], size, size);
 
             // Perform swap transpose
-            transpose_square_swap_parallel(view_a, view_b);
+            transpose_square_swap(view_a, view_b);
 
             // Verify swap was applied correctly
             let view_a = MatrixMut::from_mut_slice(&mut matrix_a[0], size, size);
@@ -232,7 +244,7 @@ mod tests {
         let view_a = MatrixMut::from_mut_slice(&mut matrix_a[0], size, size);
         let view_b = MatrixMut::from_mut_slice(&mut matrix_b[0], size, size);
 
-        transpose_square_swap_parallel(view_a, view_b);
+        transpose_square_swap(view_a, view_b);
 
         let view_a = MatrixMut::from_mut_slice(&mut matrix_a[0], size, size);
         let view_b = MatrixMut::from_mut_slice(&mut matrix_b[0], size, size);
@@ -255,7 +267,7 @@ mod tests {
         let view_a = MatrixMut::from_mut_slice(&mut matrix_a[0], size, size);
         let view_b = MatrixMut::from_mut_slice(&mut matrix_b[0], size, size);
 
-        transpose_square_swap_parallel(view_a, view_b);
+        transpose_square_swap(view_a, view_b);
 
         let view_a = MatrixMut::from_mut_slice(&mut matrix_a[0], size, size);
         let view_b = MatrixMut::from_mut_slice(&mut matrix_b[0], size, size);
@@ -268,43 +280,43 @@ mod tests {
     }
 
     #[test]
-    fn test_transpose_square_parallel_small() {
+    fn test_transpose_square_small() {
         for size in [2, 4] {
             let mut matrix = create_matrix(size, size);
             let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
 
-            transpose_square_parallel(view);
+            transpose_square(view);
 
             assert_transposed(&mut matrix, size, size);
         }
     }
 
     #[test]
-    fn test_transpose_square_parallel_medium() {
+    fn test_transpose_square_medium() {
         let size = 8;
         let mut matrix = create_matrix(size, size);
         let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
 
-        transpose_square_parallel(view);
+        transpose_square(view);
 
         assert_transposed(&mut matrix, size, size);
     }
 
     #[test]
-    fn test_transpose_square_parallel_large() {
+    fn test_transpose_square_large() {
         let size = 1024;
         assert!(size * size > 2 * workload_size::<Triple>());
 
         let mut matrix = create_matrix(size, size);
         let view = MatrixMut::from_mut_slice(&mut matrix, size, size);
 
-        transpose_square_parallel(view);
+        transpose_square(view);
 
         assert_transposed(&mut matrix, size, size);
     }
 
     #[test]
-    fn test_transpose_copy_parallel_small() {
+    fn test_transpose_copy_small() {
         let rows = 2;
         let cols = 4;
 
@@ -314,13 +326,13 @@ mod tests {
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
 
-        transpose_copy_parallel(src_view, dst_view);
+        transpose_copy(src_view, dst_view);
 
         assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
-    fn test_transpose_copy_parallel_medium() {
+    fn test_transpose_copy_medium() {
         let rows = 8;
         let cols = 16;
 
@@ -330,13 +342,13 @@ mod tests {
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
 
-        transpose_copy_parallel(src_view, dst_view);
+        transpose_copy(src_view, dst_view);
 
         assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
-    fn test_transpose_copy_parallel_large() {
+    fn test_transpose_copy_large() {
         let rows = 64;
         let cols = 128;
 
@@ -346,13 +358,13 @@ mod tests {
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
 
-        transpose_copy_parallel(src_view, dst_view);
+        transpose_copy(src_view, dst_view);
 
         assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
-    fn test_transpose_copy_parallel_tall_matrix() {
+    fn test_transpose_copy_tall_matrix() {
         let rows = 32;
         let cols = 4;
 
@@ -362,13 +374,13 @@ mod tests {
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
 
-        transpose_copy_parallel(src_view, dst_view);
+        transpose_copy(src_view, dst_view);
 
         assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
-    fn test_transpose_copy_parallel_wide_matrix() {
+    fn test_transpose_copy_wide_matrix() {
         let rows = 4;
         let cols = 32;
 
@@ -378,13 +390,13 @@ mod tests {
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
 
-        transpose_copy_parallel(src_view, dst_view);
+        transpose_copy(src_view, dst_view);
 
         assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
-    fn test_transpose_copy_parallel_edge_case_double_rows() {
+    fn test_transpose_copy_edge_case_double_rows() {
         let rows = 16;
         let cols = 8;
 
@@ -394,13 +406,13 @@ mod tests {
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
 
-        transpose_copy_parallel(src_view, dst_view);
+        transpose_copy(src_view, dst_view);
 
         assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
-    fn test_transpose_copy_parallel_edge_case_double_cols() {
+    fn test_transpose_copy_edge_case_double_cols() {
         let rows = 8;
         let cols = 16;
 
@@ -410,13 +422,13 @@ mod tests {
         let src_view = MatrixMut::from_mut_slice(&mut src, rows, cols);
         let dst_view = MatrixMut::from_mut_slice(&mut dst, cols, rows);
 
-        transpose_copy_parallel(src_view, dst_view);
+        transpose_copy(src_view, dst_view);
 
         assert_transposed(&mut dst, rows, cols);
     }
 
     #[test]
-    fn test_transpose_square_small() {
+    fn test_transpose_small() {
         let size = 4;
         let mut matrix = create_matrix(size, size);
         transpose(&mut matrix, size, size);
@@ -424,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn test_transpose_square_large() {
+    fn test_transpose_large() {
         let size = 1024;
         assert!(size * size > 2 * workload_size::<Pair>());
 
@@ -484,15 +496,11 @@ mod tests {
     }
 
     #[test]
-    fn test_transpose_square_parallel() {
+    fn test_transpose_square() {
         let size = 512;
         assert!(size * size > 2 * workload_size::<Pair>());
 
         let mut matrix = create_matrix(size, size);
-
-        // Ensure parallel execution
-        let pool = ThreadPoolBuilder::new().num_threads(4).build().unwrap();
-        pool.install(|| transpose(&mut matrix, size, size));
 
         assert_transposed(&mut matrix, size, size);
     }
@@ -502,10 +510,6 @@ mod tests {
         let rows = 256;
         let cols = 64;
         let mut matrix = create_matrix(rows, cols);
-
-        // Ensure parallel execution
-        let pool = ThreadPoolBuilder::new().num_threads(4).build().unwrap();
-        pool.install(|| transpose(&mut matrix, rows, cols));
 
         assert_transposed(&mut matrix, rows, cols);
     }

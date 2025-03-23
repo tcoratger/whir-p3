@@ -1,5 +1,4 @@
 use p3_field::Field;
-use rayon::join;
 
 /// Decomposes `value` into its base-`base` representation with `n_bits` digits.
 /// The result follows big-endian order:
@@ -56,12 +55,18 @@ pub(crate) fn eval_eq<F: Field>(eval: &[F], out: &mut [F], scalar: F) {
         let s0 = scalar - s1; // Contribution when `X_i = 0`
 
         // Use parallel execution if the number of remaining variables is large.
-        if tail.len() > PARALLEL_THRESHOLD {
-            join(|| eval_eq(tail, low, s0), || eval_eq(tail, high, s1));
-        } else {
-            eval_eq(tail, low, s0);
-            eval_eq(tail, high, s1);
+        #[cfg(feature = "parallel")]
+        {
+            const PARALLEL_THRESHOLD: usize = 10;
+            if tail.len() > PARALLEL_THRESHOLD {
+                rayon::join(|| eval_eq(tail, low, s0), || eval_eq(tail, high, s1));
+                return;
+            }
         }
+
+        // Default sequential execution
+        eval_eq(tail, low, s0);
+        eval_eq(tail, high, s1);
     } else {
         // Leaf case: Add the accumulated scalar to the final output slot.
         out[0] += scalar;

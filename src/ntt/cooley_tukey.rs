@@ -1,15 +1,16 @@
 use crate::ntt::{
     transpose::transpose,
-    utils::{lcm, sqrt_factor, workload_size},
+    utils::{lcm, sqrt_factor},
 };
 use p3_field::{Field, TwoAdicField};
-use rayon::prelude::*;
 use std::{
     any::{Any, TypeId},
-    cmp::max,
     collections::HashMap,
     sync::{Arc, LazyLock, Mutex, RwLock, RwLockReadGuard},
 };
+
+#[cfg(feature = "parallel")]
+use {super::utils::workload_size, rayon::prelude::*, std::cmp::max};
 
 /// Global cache for NTT engines, indexed by field.
 static ENGINE_CACHE: LazyLock<Mutex<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>> =
@@ -128,6 +129,12 @@ impl<F: Field> NttEngine<F> {
     pub fn intt_batch(&self, values: &mut [F], size: usize) {
         assert!(values.len() % size == 0);
 
+        #[cfg(not(feature = "parallel"))]
+        values.chunks_exact_mut(size).for_each(|values| {
+            values[1..].reverse();
+        });
+
+        #[cfg(feature = "parallel")]
         values.par_chunks_exact_mut(size).for_each(|values| {
             values[1..].reverse();
         });
@@ -159,6 +166,15 @@ impl<F: Field> NttEngine<F> {
 
                 // Compute powers of roots of unity.
                 let root = self.root(size);
+                #[cfg(not(feature = "parallel"))]
+                {
+                    let mut root_i = F::ONE;
+                    for _ in 0..size {
+                        roots.push(root_i);
+                        root_i *= root;
+                    }
+                }
+                #[cfg(feature = "parallel")]
                 roots.par_extend((0..size).into_par_iter().map_with(F::ZERO, |root_i, i| {
                     if root_i.is_zero() {
                         *root_i = root.exp_u64(i as u64);
@@ -196,6 +212,7 @@ impl<F: Field> NttEngine<F> {
     fn ntt_dispatch(&self, values: &mut [F], roots: &[F], size: usize) {
         debug_assert_eq!(values.len() % size, 0);
         debug_assert_eq!(roots.len() % size, 0);
+        #[cfg(feature = "parallel")]
         if values.len() > workload_size::<F>() && values.len() != size {
             // Multiple NTTs, compute in parallel.
             // Work size is largest multiple of `size` smaller than `WORKLOAD_SIZE`.
@@ -330,11 +347,29 @@ impl<F: Field + TwoAdicField> NttEngine<F> {
     }
 }
 
+#[cfg(not(feature = "parallel"))]
+fn apply_twiddles<F: Field>(values: &mut [F], roots: &[F], rows: usize, cols: usize) {
+    debug_assert_eq!(values.len() % (rows * cols), 0);
+    let step = roots.len() / (rows * cols);
+    for values in values.chunks_exact_mut(rows * cols) {
+        for (i, row) in values.chunks_exact_mut(cols).enumerate().skip(1) {
+            let step = (i * step) % roots.len();
+            let mut index = step;
+            for value in row.iter_mut().skip(1) {
+                index %= roots.len();
+                *value *= roots[index];
+                index += step;
+            }
+        }
+    }
+}
+
 /// Applies precomputed twiddle factors to the given values matrix.
 ///
 /// This function modifies `values` in-place by multiplying specific elements with
 /// corresponding twiddle factors from `roots`. The twiddle factors are applied to all
 /// rows except the first one, and only to columns beyond the first column.
+#[cfg(feature = "parallel")]
 fn apply_twiddles<F: Field>(values: &mut [F], roots: &[F], rows: usize, cols: usize) {
     let size = rows * cols;
     debug_assert_eq!(values.len() % size, 0);

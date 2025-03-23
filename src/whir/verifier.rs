@@ -61,6 +61,7 @@ where
         ParsedCommitment { root: root.into(), ood_points, ood_answers }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn parse_proof<const DIGEST_ELEMS: usize>(
         &self,
         challenger: &mut WhirChallenger<F>,

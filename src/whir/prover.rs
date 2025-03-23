@@ -169,6 +169,7 @@ where
         self.round(challenger, round_state)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn round<const DIGEST_ELEMS: usize>(
         &self,
         challenger: &mut WhirChallenger<F>,

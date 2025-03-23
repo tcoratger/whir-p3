@@ -3,10 +3,8 @@ use crate::{
     parameters::FoldType,
 };
 use p3_field::{Field, TwoAdicField};
-use rayon::{
-    iter::{IndexedParallelIterator, ParallelIterator},
-    slice::ParallelSliceMut,
-};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 /// Computes the folded value of a function evaluated on a coset.
 ///
@@ -131,6 +129,19 @@ pub fn transform_evaluations<F: Field + TwoAdicField>(
             // Step 3: Apply scaling to match the desired domain layout
             // Each value is scaled by: size_inv * offset^j
             let size_inv = F::from_u64(folding_factor_exp as u64).inverse();
+            #[cfg(not(feature = "parallel"))]
+            {
+                let mut coset_offset_inv = F::ONE;
+                for answers in evals.chunks_exact_mut(folding_factor_exp) {
+                    let mut scale = size_inv;
+                    for v in answers.iter_mut() {
+                        *v *= scale;
+                        scale *= coset_offset_inv;
+                    }
+                    coset_offset_inv *= domain_gen_inv;
+                }
+            }
+            #[cfg(feature = "parallel")]
             evals.par_chunks_exact_mut(folding_factor_exp).enumerate().for_each_with(
                 F::ZERO,
                 |offset, (i, answers)| {

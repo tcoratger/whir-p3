@@ -3,9 +3,8 @@ use crate::{
     utils::eval_eq,
 };
 use p3_field::Field;
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
-};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 /// Represents a weight function used in polynomial evaluations.
 ///
@@ -73,12 +72,18 @@ impl<F: Field> Weights<F> {
         match self {
             Self::Linear { weight } => {
                 assert_eq!(poly.num_variables(), weight.num_variables());
-
-                poly.evals()
-                    .par_iter()
-                    .enumerate()
-                    .map(|(corner, poly)| weight[corner] * *poly)
-                    .sum()
+                #[cfg(not(feature = "parallel"))]
+                {
+                    poly.evals().iter().zip(weight.evals().iter()).map(|(p, w)| *p * *w).sum()
+                }
+                #[cfg(feature = "parallel")]
+                {
+                    poly.evals()
+                        .par_iter()
+                        .zip(weight.evals().par_iter())
+                        .map(|(p, w)| *p * *w)
+                        .sum()
+                }
             }
             Self::Evaluation { point } => poly.eval_extension(point),
         }
@@ -106,7 +111,13 @@ impl<F: Field> Weights<F> {
                 eval_eq(&point.0, accumulator.evals_mut(), factor);
             }
             Self::Linear { weight } => {
+                #[cfg(feature = "parallel")]
                 accumulator.evals_mut().par_iter_mut().enumerate().for_each(|(corner, acc)| {
+                    *acc += factor * weight[corner];
+                });
+
+                #[cfg(not(feature = "parallel"))]
+                accumulator.evals_mut().iter_mut().enumerate().for_each(|(corner, acc)| {
                     *acc += factor * weight[corner];
                 });
             }
