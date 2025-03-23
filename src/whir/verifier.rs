@@ -79,14 +79,13 @@ where
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
-        let mmcs =
-            MerkleTreeMmcs::<<F as Field>::Packing, <F as Field>::Packing, H, C, DIGEST_ELEMS>::new(
-                self.params.merkle_hash.clone(),
-                self.params.merkle_compress.clone(),
-            );
+        let mmcs = MerkleTreeMmcs::<_, <F as Field>::Packing, _, _, DIGEST_ELEMS>::new(
+            self.params.merkle_hash.clone(),
+            self.params.merkle_compress.clone(),
+        );
 
         let mut sumcheck_rounds = Vec::new();
-        let mut folding_randomness: MultilinearPoint<F>;
+        let mut folding_randomness;
         let initial_combination_randomness;
 
         if self.params.initial_statement {
