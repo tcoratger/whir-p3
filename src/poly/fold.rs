@@ -43,6 +43,7 @@ pub fn compute_fold<F: Field>(
 
     // Perform the folding process `folding_factor` times.
     for rec in 0..folding_factor {
+        let r = folding_randomness[folding_randomness.len() - 1 - rec];
         let offset = answers.len() / 2;
         let mut coset_index_inv = F::ONE;
 
@@ -56,8 +57,7 @@ pub fn compute_fold<F: Field>(
             let right = point_inv * (f0 - f1);
 
             // Apply the folding transformation with randomness
-            answers[i] =
-                two_inv * (left + folding_randomness[folding_randomness.len() - 1 - rec] * right);
+            answers[i] = two_inv * (left + r * right);
             coset_index_inv *= coset_gen_inv;
         }
 
@@ -72,6 +72,33 @@ pub fn compute_fold<F: Field>(
     answers[0]
 }
 
+/// Applies a folding transformation to evaluation vectors in-place.
+///
+/// This is used to prepare a set of evaluations for a sumcheck-style polynomial folding,
+/// supporting two modes:
+///
+/// - `FoldType::Naive`: applies only the reshaping step (transposition).
+/// - `FoldType::ProverHelps`: performs reshaping, inverse NTTs, and applies coset + scaling
+///   correction.
+///
+/// The evaluations are grouped into `2^folding_factor` blocks of size `N / 2^folding_factor`.
+/// For each group, the function performs the following (if `ProverHelps`):
+///
+/// 1. Transpose: reshape layout to enable independent processing of each sub-coset.
+/// 2. Inverse NTT: convert each sub-coset from evaluation to coefficient form (no 1/N scaling).
+/// 3. Scale correction: Each output is multiplied by:
+///
+///    ```ignore
+///    size_inv * (domain_gen_inv^i)^j
+///    ```
+///
+///    where:
+///      - `size_inv = 1 / 2^folding_factor`
+///      - `i` is the subdomain index
+///      - `j` is the index within the block
+///
+/// # Panics
+/// Panics if the input size is not divisible by `2^folding_factor`.
 pub fn transform_evaluations<F: Field + TwoAdicField>(
     evals: &mut [F],
     fold_type: FoldType,
@@ -79,24 +106,30 @@ pub fn transform_evaluations<F: Field + TwoAdicField>(
     domain_gen_inv: F,
     folding_factor: usize,
 ) {
+    // Compute the number of sub-cosets = 2^folding_factor
     let folding_factor_exp = 1 << folding_factor;
+
+    // Ensure input is divisible by folding factor
     assert!(evals.len() % folding_factor_exp == 0);
+
+    // Number of rows (one per subdomain)
     let size_of_new_domain = evals.len() / folding_factor_exp;
 
     match fold_type {
         FoldType::Naive => {
-            // Perform only the stacking step (transpose)
+            // Simply transpose into column-major form: shape = [folding_factor_exp ×
+            // size_of_new_domain]
             transpose(evals, folding_factor_exp, size_of_new_domain);
         }
         FoldType::ProverHelps => {
-            // Perform stacking (transpose)
+            // Step 1: Reshape via transposition
             transpose(evals, folding_factor_exp, size_of_new_domain);
 
-            // Batch inverse NTTs
+            // Step 2: Apply inverse NTTs
             intt_batch(evals, folding_factor_exp);
 
-            // Apply coset and size correction.
-            // Stacked evaluation at i is f(B_l) where B_l = w^i * <w^n/k>
+            // Step 3: Apply scaling to match the desired domain layout
+            // Each value is scaled by: size_inv * offset^j
             let size_inv = F::from_u64(folding_factor_exp as u64).inverse();
             evals.par_chunks_exact_mut(folding_factor_exp).enumerate().for_each_with(
                 F::ZERO,
@@ -275,5 +308,278 @@ mod tests {
             // Ensure computed and expected values match
             assert_eq!(answer_processed, answer_unprocessed);
         }
+    }
+
+    #[test]
+    fn test_compute_fold_single_layer() {
+        // Folding a vector of size 2: f(x) = [1, 3]
+        let f0 = BabyBear::from_u64(1);
+        let f1 = BabyBear::from_u64(3);
+        let answers = vec![f0, f1];
+
+        let r = BabyBear::from_u64(2); // folding randomness
+        let folding_randomness = vec![r];
+
+        let coset_offset_inv = BabyBear::from_u64(5); // arbitrary inverse offset
+        let coset_gen_inv = BabyBear::from_u64(7); // arbitrary generator inverse
+        let two_inv = BabyBear::from_u64(2).inverse();
+
+        // g = (f0 + f1 + r * (f0 - f1) * coset_offset_inv) / 2
+        // Here coset_index_inv = 1
+        // => left = f0 + f1
+        // => right = r * (f0 - f1) * coset_offset_inv
+        // => g = (left + right) / 2
+        let expected = two_inv * (f0 + f1 + r * (f0 - f1) * coset_offset_inv);
+
+        let result = compute_fold(
+            &answers,
+            &folding_randomness,
+            coset_offset_inv,
+            coset_gen_inv,
+            two_inv,
+            1,
+        );
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_compute_fold_two_layers() {
+        // Define the input evaluations: f(x) = [f00, f01, f10, f11]
+        let f00 = BabyBear::from_u64(1);
+        let f01 = BabyBear::from_u64(2);
+        let f10 = BabyBear::from_u64(3);
+        let f11 = BabyBear::from_u64(4);
+
+        // Create the input vector for folding
+        let answers = vec![f00, f01, f10, f11];
+
+        // Folding randomness used in each layer (innermost first)
+        let r0 = BabyBear::from_u64(5); // randomness for layer 1 (first fold)
+        let r1 = BabyBear::from_u64(7); // randomness for layer 2 (second fold)
+        let folding_randomness = vec![r1, r0]; // reversed because fold reads from the back
+
+        // Precompute constants
+        let two_inv = BabyBear::from_u64(2).inverse(); // 1/2 used in folding formula
+        let coset_offset_inv = BabyBear::from_u64(9); // offset⁻¹
+        let coset_gen_inv = BabyBear::from_u64(3); // generator⁻¹
+
+        // --- First layer of folding ---
+
+        // Fold the pair [f00, f10] using coset_index_inv = 1
+        // left = f00 + f10
+        let g0_left = f00 + f10;
+
+        // right = (f00 - f10) * coset_offset_inv * coset_index_inv
+        // where coset_index_inv = 1
+        let g0_right = coset_offset_inv * (f00 - f10);
+
+        // g0 = (left + r0 * right) / 2
+        let g0 = two_inv * (g0_left + r0 * g0_right);
+
+        // Fold the pair [f01, f11] using coset_index_inv = coset_gen_inv
+        let coset_index_inv_1 = coset_gen_inv;
+
+        // left = f01 + f11
+        let g1_left = f01 + f11;
+
+        // right = (f01 - f11) * coset_offset_inv * coset_index_inv_1
+        let g1_right = coset_offset_inv * coset_index_inv_1 * (f01 - f11);
+
+        // g1 = (left + r0 * right) / 2
+        let g1 = two_inv * (g1_left + r0 * g1_right);
+
+        // --- Second layer of folding ---
+
+        // Update the coset offset for next layer: offset⁻¹ → offset⁻¹²
+        let next_coset_offset_inv = coset_offset_inv * coset_offset_inv;
+
+        // Fold the pair [g0, g1] using coset_index_inv = 1
+        // left = g0 + g1
+        let g_final_left = g0 + g1;
+
+        // right = (g0 - g1) * next_coset_offset_inv
+        let g_final_right = next_coset_offset_inv * (g0 - g1);
+
+        // Final folded value
+        let expected = two_inv * (g_final_left + r1 * g_final_right);
+
+        // Compute using the actual implementation
+        let result = compute_fold(
+            &answers,
+            &folding_randomness,
+            coset_offset_inv,
+            coset_gen_inv,
+            two_inv,
+            2,
+        );
+
+        // Assert that the result matches the manually computed expected value
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_compute_fold_with_zero_randomness() {
+        // Inputs: f(x) = [f0, f1]
+        let f0 = BabyBear::from_u64(6);
+        let f1 = BabyBear::from_u64(2);
+        let answers = vec![f0, f1];
+
+        let r = BabyBear::ZERO;
+        let folding_randomness = vec![r];
+
+        let two_inv = BabyBear::from_u64(2).inverse();
+        let coset_offset_inv = BabyBear::from_u64(10);
+        let coset_gen_inv = BabyBear::from_u64(3);
+
+        let left = f0 + f1;
+        // with r = 0, this simplifies to (f0 + f1) / 2
+        let expected = two_inv * left;
+
+        let result = compute_fold(
+            &answers,
+            &folding_randomness,
+            coset_offset_inv,
+            coset_gen_inv,
+            two_inv,
+            1,
+        );
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_compute_fold_all_zeros() {
+        // All values are zero: f(x) = [0, 0, ..., 0]
+        let answers = vec![BabyBear::ZERO; 8];
+        let folding_randomness = vec![BabyBear::from_u64(3); 3];
+        let two_inv = BabyBear::from_u64(2).inverse();
+        let coset_offset_inv = BabyBear::from_u64(4);
+        let coset_gen_inv = BabyBear::from_u64(7);
+
+        // each fold step is (0 + 0 + r * (0 - 0) * _) / 2 = 0
+        let expected = BabyBear::ZERO;
+
+        let result = compute_fold(
+            &answers,
+            &folding_randomness,
+            coset_offset_inv,
+            coset_gen_inv,
+            two_inv,
+            3,
+        );
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_transform_evaluations_naive_manual() {
+        // Input: 2×2 matrix (folding_factor = 1 → folding_factor_exp = 2)
+        // Stored row-major as: [a00, a01, a10, a11]
+        // We expect it to transpose to: [a00, a10, a01, a11]
+
+        let folding_factor = 1;
+        let mut evals = vec![
+            BabyBear::from_u64(1), // a00
+            BabyBear::from_u64(2), // a01
+            BabyBear::from_u64(3), // a10
+            BabyBear::from_u64(4), // a11
+        ];
+
+        // Expected transpose: column-major layout
+        let expected = vec![
+            BabyBear::from_u64(1), // a00
+            BabyBear::from_u64(3), // a10
+            BabyBear::from_u64(2), // a01
+            BabyBear::from_u64(4), // a11
+        ];
+
+        // Naive transpose — only reshuffling the data
+        transform_evaluations(
+            &mut evals,
+            FoldType::Naive,
+            BabyBear::ONE,
+            BabyBear::ONE,
+            folding_factor,
+        );
+
+        assert_eq!(evals, expected);
+    }
+
+    #[test]
+    #[allow(clippy::cast_sign_loss)]
+    fn test_transform_evaluations_prover_helps() {
+        // Setup:
+        // - 2×2 matrix: 2 cosets (rows), each with 2 points
+        // - folding_factor = 1 → folding_factor_exp = 2
+        let folding_factor = 1;
+        let folding_factor_exp = 1 << folding_factor;
+
+        // Domain generator and its inverse (arbitrary but consistent)
+        let domain_gen = BabyBear::from_u64(4);
+        let domain_gen_inv = domain_gen.inverse();
+
+        // Row-major input:
+        //   row 0: [a0, a1]
+        //   row 1: [b0, b1]
+        let a0 = BabyBear::from_u64(1);
+        let a1 = BabyBear::from_u64(3);
+        let b0 = BabyBear::from_u64(2);
+        let b1 = BabyBear::from_u64(4);
+        let mut evals = vec![a0, a1, b0, b1];
+
+        // Step 1: Transpose (rows become columns)
+        // After transpose: [a0, b0, a1, b1]
+        let t0 = a0;
+        let t1 = b0;
+        let t2 = a1;
+        let t3 = b1;
+
+        // Step 2: Inverse NTT on each row (length 2) without scaling
+        //
+        // For [x0, x1], inverse NTT without scaling is:
+        //     [x0 + x1, x0 - x1]
+        //
+        // Row 0: [a0, b0] → [a0 + b0, a0 - b0]
+        let intt0 = t0 + t1;
+        let intt1 = t0 - t1;
+
+        // Row 1: [a1, b1] → [a1 + b1, a1 - b1]
+        let intt2 = t2 + t3;
+        let intt3 = t2 - t3;
+
+        // Step 3: Apply scaling
+        //
+        // Each row is scaled by:
+        //    v[j] *= size_inv * (coset_offset_inv)^j
+        //
+        // For row 0, offset = 1 (coset_offset_inv^j = 1)
+        // For row 1, offset = domain_gen_inv
+        let size_inv = BabyBear::from_u64(folding_factor_exp as u64).inverse();
+
+        let expected = vec![
+            intt0 * size_inv * BabyBear::ONE,
+            intt1 * size_inv * BabyBear::ONE,
+            intt2 * size_inv * BabyBear::ONE, // first entry of row 1, scale = 1
+            intt3 * size_inv * domain_gen_inv, // second entry of row 1
+        ];
+
+        // Run transform
+        transform_evaluations(
+            &mut evals,
+            FoldType::ProverHelps,
+            domain_gen,
+            domain_gen_inv,
+            folding_factor,
+        );
+
+        // Validate output
+        assert_eq!(evals, expected);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_transform_evaluations_invalid_length() {
+        let mut evals = vec![BabyBear::from_u64(1); 6]; // Not a power of 2
+        transform_evaluations(&mut evals, FoldType::Naive, BabyBear::ONE, BabyBear::ONE, 2);
     }
 }
