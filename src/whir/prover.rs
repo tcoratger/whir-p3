@@ -6,7 +6,10 @@ use crate::{
     poly::{coeffs::CoefficientList, fold::transform_evaluations, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     utils::expand_randomness,
-    whir::{fs_utils::get_challenge_stir_queries, statement::Weights, utils::sample_ood_points},
+    whir::{
+        fs_utils::get_challenge_stir_queries, parameters::RoundConfig, statement::Weights,
+        utils::sample_ood_points,
+    },
 };
 use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
 use p3_commit::Mmcs;
@@ -200,6 +203,9 @@ where
 
         let round_params = &self.0.round_parameters[round_state.round];
 
+        // Compute the folding factors for later use
+        let folding_factor_next = self.0.folding_factor.at_round(round_state.round + 1);
+
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
@@ -209,14 +215,11 @@ where
             self.0.fold_optimisation,
             new_domain.backing_domain.group_gen(),
             new_domain.backing_domain.group_gen_inv(),
-            self.0.folding_factor.at_round(round_state.round + 1),
+            folding_factor_next,
         );
 
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
-        let folded_matrix = RowMajorMatrix::new(
-            evals.clone(),
-            1 << self.0.folding_factor.at_round(round_state.round + 1),
-        );
+        let folded_matrix = RowMajorMatrix::new(evals.clone(), 1 << folding_factor_next);
 
         let merkle_tree =
             MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
@@ -231,24 +234,14 @@ where
                 folded_coefficients.evaluate(point)
             });
 
-        // STIR queries
-        let stir_challenges_indexes = get_challenge_stir_queries::<F, _>(
-            round_state.domain.size(), // Current domain size *before* folding
-            self.0.folding_factor.at_round(round_state.round), // Current fold factor
-            round_params.num_queries,
+        // STIR Queries
+        let (stir_challenges, stir_challenges_indexes) = self.compute_stir_queries(
             challenger,
+            &round_state,
+            num_variables,
+            round_params,
+            ood_points,
         );
-
-        // Compute the generator of the folded domain, in the extension field
-        let domain_scaled_gen = round_state
-            .domain
-            .backing_domain
-            .element(1 << self.0.folding_factor.at_round(round_state.round));
-        let stir_challenges: Vec<_> = ood_points
-            .into_iter()
-            .chain(stir_challenges_indexes.iter().map(|i| domain_scaled_gen.exp_u64(*i as u64)))
-            .map(|univariate| MultilinearPoint::expand_from_univariate(univariate, num_variables))
-            .collect();
 
         // Collect Merkle proofs for stir queries
         let merkle_proofs: Vec<_> = stir_challenges_indexes
@@ -294,7 +287,7 @@ where
                 sumcheck_prover
             })
             .unwrap_or_else(|| {
-                let mut statement = Statement::<F>::new(folded_coefficients.num_variables());
+                let mut statement = Statement::new(folded_coefficients.num_variables());
 
                 for (point, eval) in stir_challenges.into_iter().zip(stir_evaluations) {
                     let weights = Weights::evaluation(point.clone());
@@ -309,7 +302,7 @@ where
 
         let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials(
             challenger,
-            self.0.folding_factor.at_round(round_state.round + 1),
+            folding_factor_next,
             round_params.folding_pow_bits as usize,
         );
 
@@ -417,5 +410,37 @@ where
             .collect();
 
         WhirProof { merkle_paths: round_state.merkle_proofs, statement_values_at_random_point }
+    }
+
+    fn compute_stir_queries<const DIGEST_ELEMS: usize>(
+        &self,
+        challenger: &mut WhirChallenger<F>,
+        round_state: &RoundState<F, H, C, DIGEST_ELEMS>,
+        num_variables: usize,
+        round_params: &RoundConfig,
+        ood_points: Vec<F>,
+    ) -> (Vec<MultilinearPoint<F>>, Vec<usize>)
+    where
+        F: PrimeField32,
+    {
+        let stir_challenges_indexes = get_challenge_stir_queries::<F, _>(
+            round_state.domain.size(),
+            self.0.folding_factor.at_round(round_state.round),
+            round_params.num_queries,
+            challenger,
+        );
+
+        // Compute the generator of the folded domain, in the extension field
+        let domain_scaled_gen = round_state
+            .domain
+            .backing_domain
+            .element(1 << self.0.folding_factor.at_round(round_state.round));
+        let stir_challenges = ood_points
+            .into_iter()
+            .chain(stir_challenges_indexes.iter().map(|i| domain_scaled_gen.exp_u64(*i as u64)))
+            .map(|univariate| MultilinearPoint::expand_from_univariate(univariate, num_variables))
+            .collect();
+
+        (stir_challenges, stir_challenges_indexes)
     }
 }
