@@ -40,7 +40,7 @@ cast_sign_loss = "allow"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-rayon = "1.0"
+rayon = { version = "1.0", optional = true }
 p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a" }
 p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a" }
 p3-monty-31 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a" }
