@@ -1,10 +1,11 @@
+use p3_challenger::{CanSample, GrindingChallenger};
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+
 use super::parameters::WhirConfig;
 use crate::{
     fs_utils::{OODIOPattern, WhirPoWIOPattern},
     sumcheck::sumcheck_single_io_pattern::SumcheckSingleChallenger,
 };
-use p3_challenger::{CanSample, GrindingChallenger};
-use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 
 /// Trait for adding Merkle digests to a Fiat-Shamir transcript.
 pub trait DigestChallenger<F: Field, const DIGEST_ELEMS: usize> {

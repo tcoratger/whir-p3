@@ -1,6 +1,7 @@
-use crate::domain::general::GeneralEvaluationDomain;
 use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 use radix2::Radix2EvaluationDomain;
+
+use crate::domain::general::GeneralEvaluationDomain;
 
 pub mod general;
 pub mod radix2;
@@ -144,8 +145,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
+
+    use super::*;
 
     #[test]
     fn test_domain_creation_valid() {

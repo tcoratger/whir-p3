@@ -1,8 +1,3 @@
-use super::{parameters::WhirConfig, utils::sample_ood_points};
-use crate::{
-    ntt::expand_from_coeff,
-    poly::{coeffs::CoefficientList, fold::transform_evaluations},
-};
 use p3_challenger::{CanObserve, CanSample};
 use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
@@ -10,6 +5,12 @@ use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
+
+use super::{parameters::WhirConfig, utils::sample_ood_points};
+use crate::{
+    ntt::expand_from_coeff,
+    poly::{coeffs::CoefficientList, fold::transform_evaluations},
+};
 
 #[derive(Debug)]
 pub struct Witness<F: Field, H, C, const DIGEST_ELEMS: usize> {
@@ -106,6 +107,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use p3_baby_bear::{
+        BabyBear, Poseidon2BabyBear, default_babybear_poseidon2_16, default_babybear_poseidon2_24,
+    };
+    use p3_challenger::{HashChallenger, SerializingChallenger32};
+    use p3_keccak::Keccak256Hash;
+    use rand::Rng;
+
     use super::*;
     use crate::{
         merkle_tree::{Poseidon2Compression, Poseidon2Sponge},
@@ -114,12 +122,6 @@ mod tests {
         },
         poly::multilinear::MultilinearPoint,
     };
-    use p3_baby_bear::{
-        BabyBear, Poseidon2BabyBear, default_babybear_poseidon2_16, default_babybear_poseidon2_24,
-    };
-    use p3_challenger::{HashChallenger, SerializingChallenger32};
-    use p3_keccak::Keccak256Hash;
-    use rand::Rng;
 
     type Perm16 = Poseidon2BabyBear<16>;
     type Perm24 = Poseidon2BabyBear<24>;

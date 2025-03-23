@@ -82,11 +82,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_challenger::{CanObserve, CanSample, HashChallenger, SerializingChallenger32};
     use p3_field::PrimeCharacteristicRing;
     use p3_keccak::Keccak256Hash;
+
+    use super::*;
 
     #[test]
     fn test_add_ood() {

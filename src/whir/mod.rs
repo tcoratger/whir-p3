@@ -1,5 +1,6 @@
-use crate::whir::prover::Proof;
 use prover::Leafs;
+
+use crate::whir::prover::Proof;
 
 pub mod committer;
 pub mod fs_utils;

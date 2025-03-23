@@ -70,8 +70,9 @@ pub fn sqrt_factor(n: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use proptest::prelude::*;
+
+    use super::*;
 
     /// Computes the largest factor of `x` that is ≤ sqrt(x).
     /// If `x` is 0, returns 0.

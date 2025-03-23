@@ -106,9 +106,10 @@ impl<F: Field> Iterator for LagrangePolynomialIterator<F> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
 
     #[test]
     fn test_lagrange_iterator_single_variable() {

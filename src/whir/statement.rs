@@ -1,10 +1,11 @@
+use p3_field::Field;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::eval_eq,
 };
-use p3_field::Field;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 
 /// Represents a weight function used in polynomial evaluations.
 ///
@@ -373,9 +374,10 @@ impl<F: Field> StatementVerifier<F> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
 
     #[test]
     fn test_weights_evaluation() {

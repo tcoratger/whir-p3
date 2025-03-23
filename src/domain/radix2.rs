@@ -100,9 +100,10 @@ impl<F: Field + TwoAdicField> Radix2EvaluationDomain<F> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
 
     #[test]
     fn test_domain_creation() {

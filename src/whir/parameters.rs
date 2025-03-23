@@ -1,9 +1,11 @@
+use std::{f64::consts::LOG2_10, marker::PhantomData};
+
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+
 use crate::{
     domain::Domain,
     parameters::{FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters},
 };
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
-use std::{f64::consts::LOG2_10, marker::PhantomData};
 
 #[derive(Debug, Clone)]
 pub struct RoundConfig {
@@ -415,10 +417,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::merkle_tree::{Poseidon2Compression, Poseidon2Sponge};
+    use p3_baby_bear::BabyBear;
 
     use super::*;
-    use p3_baby_bear::BabyBear;
+    use crate::merkle_tree::{Poseidon2Compression, Poseidon2Sponge};
 
     /// Generates default WHIR parameters
     fn default_whir_params() -> WhirParameters<u8, Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {

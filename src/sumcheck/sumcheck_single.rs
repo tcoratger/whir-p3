@@ -1,13 +1,14 @@
+use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
+use p3_field::Field;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::eval_eq,
     whir::statement::Statement,
 };
-use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
-use p3_field::Field;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 
 /// Implements the single-round sumcheck protocol for verifying a multilinear polynomial evaluation.
 ///
@@ -288,15 +289,16 @@ where
 
 #[cfg(test)]
 mod tests {
+    use p3_baby_bear::BabyBear;
+    use p3_challenger::{HashChallenger, SerializingChallenger32};
+    use p3_field::PrimeCharacteristicRing;
+    use p3_keccak::Keccak256Hash;
+
     use super::*;
     use crate::{
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
         whir::statement::Weights,
     };
-    use p3_baby_bear::BabyBear;
-    use p3_challenger::{HashChallenger, SerializingChallenger32};
-    use p3_field::PrimeCharacteristicRing;
-    use p3_keccak::Keccak256Hash;
 
     #[test]
     fn test_sumcheck_single_initialization() {

@@ -1,5 +1,6 @@
-use super::radix2::Radix2EvaluationDomain;
 use p3_field::{Field, TwoAdicField};
+
+use super::radix2::Radix2EvaluationDomain;
 
 /// Defines a domain over which finite field (I)FFTs can be performed.
 ///

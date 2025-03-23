@@ -58,9 +58,10 @@ impl<F: Field> WhirDensePolynomial<F> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
 
     #[test]
     fn test_zero_polynomial() {

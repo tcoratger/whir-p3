@@ -1,10 +1,11 @@
+use p3_field::{Field, TwoAdicField};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 use crate::{
     ntt::{cooley_tukey::intt_batch, transpose::transpose},
     parameters::FoldType,
 };
-use p3_field::{Field, TwoAdicField};
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 
 /// Computes the folded value of a function evaluated on a coset.
 ///
@@ -163,10 +164,11 @@ pub fn transform_evaluations<F: Field + TwoAdicField>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::poly::{coeffs::CoefficientList, multilinear::MultilinearPoint};
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
+    use crate::poly::{coeffs::CoefficientList, multilinear::MultilinearPoint};
 
     #[test]
     fn test_folding() {

@@ -2,10 +2,9 @@
 
 use cooley_tukey::ntt_batch;
 use p3_field::{Field, TwoAdicField};
-use transpose::transpose;
-
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use transpose::transpose;
 
 pub mod cooley_tukey;
 pub mod matrix;
@@ -54,9 +53,10 @@ pub fn expand_from_coeff<F: Field + TwoAdicField>(coeffs: &[F], expansion: usize
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
 
     #[test]
     fn test_expand_from_coeff_size_2() {

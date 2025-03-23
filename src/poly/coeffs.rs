@@ -1,12 +1,12 @@
-use super::{dense::WhirDensePolynomial, evals::EvaluationsList, hypercube::BinaryHypercubePoint};
-use crate::{ntt::wavelet::wavelet_transform, poly::multilinear::MultilinearPoint};
 use p3_field::Field;
-
 #[cfg(feature = "parallel")]
 use {
     rayon::{join, prelude::*},
     std::mem::size_of,
 };
+
+use super::{dense::WhirDensePolynomial, evals::EvaluationsList, hypercube::BinaryHypercubePoint};
+use crate::{ntt::wavelet::wavelet_transform, poly::multilinear::MultilinearPoint};
 
 /// Represents a multilinear polynomial in coefficient form with `num_variables` variables.
 ///
@@ -283,10 +283,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::poly::evals::EvaluationsList;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
+    use crate::poly::evals::EvaluationsList;
 
     #[test]
     fn test_coefficient_list_initialization() {

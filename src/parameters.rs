@@ -1,6 +1,7 @@
+use std::{fmt::Display, marker::PhantomData, str::FromStr};
+
 use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 use serde::Serialize;
-use std::{fmt::Display, marker::PhantomData, str::FromStr};
 use thiserror::Error;
 
 use crate::whir::{

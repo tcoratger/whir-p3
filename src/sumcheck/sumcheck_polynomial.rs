@@ -1,5 +1,6 @@
-use crate::poly::multilinear::MultilinearPoint;
 use p3_field::Field;
+
+use crate::poly::multilinear::MultilinearPoint;
 
 /// Represents a polynomial stored in evaluation form over a ternary domain {0,1,2}^n.
 ///
@@ -114,9 +115,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
 
     #[test]
     fn test_binary_to_ternary_index() {

@@ -89,9 +89,10 @@ pub fn expand_randomness<F: Field>(base: F, len: usize) -> Vec<F> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
 
     #[test]
     fn test_base_decomposition_binary() {

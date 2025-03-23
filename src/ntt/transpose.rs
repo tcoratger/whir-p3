@@ -1,6 +1,7 @@
+use std::mem::swap;
+
 use super::matrix::MatrixMut;
 use crate::ntt::utils::workload_size;
-use std::mem::swap;
 
 /// Transpose a matrix in-place.
 /// Will batch transpose multiple matrices if the length of the slice is a multiple of rows * cols.
@@ -174,8 +175,9 @@ pub fn transpose_copy<F: Copy + Send>(src: MatrixMut<'_, F>, mut dst: MatrixMut<
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use proptest::prelude::*;
+
+    use super::*;
 
     type Pair = (usize, usize);
     type Triple = (usize, usize, usize);

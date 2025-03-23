@@ -1,9 +1,10 @@
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+
 use super::stir_evaluations::StirEvalContext;
 use crate::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
 };
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 
 #[derive(Default, Debug, Clone)]
 pub(crate) struct ParsedRound<F> {
@@ -65,9 +66,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
 
     #[test]
     fn test_compute_folds_helped_basic_case() {

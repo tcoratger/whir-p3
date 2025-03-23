@@ -1,8 +1,8 @@
-use crate::ntt::transpose::transpose;
 use p3_field::Field;
-
 #[cfg(feature = "parallel")]
 use {super::utils::workload_size, rayon::prelude::*};
+
+use crate::ntt::transpose::transpose;
 
 /// Fast Wavelet Transform.
 ///
@@ -90,9 +90,10 @@ pub fn wavelet_transform_batch<F: Field>(values: &mut [F], size: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
 
     #[test]
     fn test_wavelet_transform_single_element() {

@@ -1,16 +1,17 @@
-use crate::ntt::{
-    transpose::transpose,
-    utils::{lcm, sqrt_factor},
-};
-use p3_field::{Field, TwoAdicField};
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
     sync::{Arc, LazyLock, Mutex, RwLock, RwLockReadGuard},
 };
 
+use p3_field::{Field, TwoAdicField};
 #[cfg(feature = "parallel")]
 use {super::utils::workload_size, rayon::prelude::*, std::cmp::max};
+
+use crate::ntt::{
+    transpose::transpose,
+    utils::{lcm, sqrt_factor},
+};
 
 /// Global cache for NTT engines, indexed by field.
 static ENGINE_CACHE: LazyLock<Mutex<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>> =
@@ -418,9 +419,10 @@ fn apply_twiddles<F: Field>(values: &mut [F], roots: &[F], rows: usize, cols: us
 #[cfg(test)]
 #[allow(clippy::significant_drop_tightening)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, PrimeField64, TwoAdicField};
+
+    use super::*;
 
     #[test]
     fn test_root_computation() {

@@ -1,3 +1,11 @@
+use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
+use p3_commit::Mmcs;
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
+use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
+use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use serde::{Deserialize, Serialize};
+
 use super::{WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     domain::Domain,
@@ -10,13 +18,6 @@ use crate::{
         utils::sample_ood_points,
     },
 };
-use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
-use p3_commit::Mmcs;
-use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
-use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
-use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
-use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
-use serde::{Deserialize, Serialize};
 
 pub type Proof<F, const DIGEST_ELEMS: usize> = Vec<[F; DIGEST_ELEMS]>;
 pub type Leafs<F> = Vec<Vec<F>>;

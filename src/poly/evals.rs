@@ -1,6 +1,8 @@
-use super::{multilinear::MultilinearPoint, sequential_lag_poly::LagrangePolynomialIterator};
-use p3_field::Field;
 use std::ops::Index;
+
+use p3_field::Field;
+
+use super::{multilinear::MultilinearPoint, sequential_lag_poly::LagrangePolynomialIterator};
 
 /// Represents a multilinear polynomial `f` in `num_variables` unknowns, stored via its evaluations
 /// over the hypercube `{0,1}^{num_variables}`.
@@ -174,10 +176,11 @@ fn eval_multilinear<F: Field>(evals: &[F], point: &[F]) -> F {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::poly::hypercube::BinaryHypercube;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
+    use crate::poly::hypercube::BinaryHypercube;
 
     #[test]
     fn test_new_evaluations_list() {

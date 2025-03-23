@@ -1,8 +1,9 @@
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+
 use crate::{
     parameters::FoldingFactor,
     poly::{coeffs::CoefficientList, fold::compute_fold, multilinear::MultilinearPoint},
 };
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 
 /// Unified context for evaluating STIR queries during a WHIR proof round.
 ///
@@ -127,8 +128,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
+
+    use super::*;
 
     #[test]
     fn test_stir_eval_prover_helps_basic() {

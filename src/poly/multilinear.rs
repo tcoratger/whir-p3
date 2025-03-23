@@ -1,5 +1,6 @@
-use super::hypercube::BinaryHypercubePoint;
 use p3_field::Field;
+
+use super::hypercube::BinaryHypercubePoint;
 
 /// A point `(x_1, ..., x_n)` in `F^n` for some field `F`.
 ///
@@ -172,9 +173,10 @@ impl<F> From<F> for MultilinearPoint<F> {
 #[cfg(test)]
 #[allow(clippy::identity_op, clippy::cast_sign_loss, clippy::erasing_op)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
 
     #[test]
     fn test_num_variables() {

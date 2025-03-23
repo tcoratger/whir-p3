@@ -46,10 +46,11 @@ pub trait DigestReader<MerkleInnerDigest> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
     use p3_challenger::{HashChallenger, SerializingChallenger32};
     use p3_keccak::Keccak256Hash;
+
+    use super::*;
 
     #[test]
     fn test_challenge_stir_queries_single_byte_indices() {

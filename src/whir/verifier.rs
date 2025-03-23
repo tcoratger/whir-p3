@@ -1,3 +1,13 @@
+use std::iter;
+
+use p3_challenger::{CanSample, GrindingChallenger};
+use p3_commit::Mmcs;
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+use p3_matrix::Dimensions;
+use p3_merkle_tree::MerkleTreeMmcs;
+use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
+use serde::{Deserialize, Serialize};
+
 use super::{
     ProofError, ProofResult, WhirProof,
     fs_utils::get_challenge_stir_queries,
@@ -10,14 +20,6 @@ use crate::{
     utils::expand_randomness,
     whir::{parameters::WhirConfig, parsed_proof::ParsedProof},
 };
-use p3_challenger::{CanSample, GrindingChallenger};
-use p3_commit::Mmcs;
-use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
-use p3_matrix::Dimensions;
-use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
-use serde::{Deserialize, Serialize};
-use std::iter;
 
 #[derive(Clone)]
 struct ParsedCommitment<F, D> {
