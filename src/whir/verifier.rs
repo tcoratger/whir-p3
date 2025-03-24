@@ -60,7 +60,7 @@ where
         let ood_points = challenger.sample_vec(self.params.committment_ood_samples);
 
         // Sample OOD answers corresponding to the OOD points
-        let ood_answers = challenger.sample_vec(ood_points.len());
+        let ood_answers = challenger.sample_vec(self.params.committment_ood_samples);
 
         ParsedCommitment { root: root.into(), ood_points, ood_answers }
     }
@@ -162,10 +162,13 @@ where
                 .collect();
 
             // Verify Merkle openings using `verify_batch`
-            let dimensions = answers
-                .iter()
-                .map(|row| Dimensions { height: domain_size, width: row.len() })
-                .collect::<Vec<_>>();
+            let dimensions = vec![
+                Dimensions {
+                    height: domain_size,
+                    width: 1 << self.params.folding_factor.at_round(r),
+                };
+                answers.len()
+            ];
 
             mmcs.verify_batch(
                 &prev_root,
@@ -175,21 +178,6 @@ where
                 merkle_proof,
             )
             .map_err(|_| ProofError::InvalidProof)?;
-
-            // Old WHIR version:
-            //
-            // if !merkle_proof
-            //     .verify(
-            //         &self.params.leaf_hash_params,
-            //         &self.params.two_to_one_params,
-            //         &prev_root,
-            //         answers.iter().map(|a| a.as_ref()),
-            //     )
-            //     .unwrap() ||
-            //     merkle_proof.leaf_indexes != stir_challenges_indexes
-            // {
-            //     return Err(ProofError::InvalidProof);
-            // }
 
             if round_params.pow_bits > 0. {
                 challenger.grind(round_params.pow_bits as usize);
@@ -257,10 +245,13 @@ where
         let (final_answers, final_proof) =
             &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
 
-        let dimensions = final_answers
-            .iter()
-            .map(|row| p3_matrix::Dimensions { height: domain_size, width: row.len() })
-            .collect::<Vec<_>>();
+        let dimensions = vec![
+            Dimensions {
+                height: domain_size,
+                width: 1 << self.params.folding_factor.at_round(self.params.n_rounds()),
+            };
+            final_answers.len()
+        ];
 
         mmcs.verify_batch(
             &prev_root,
@@ -270,23 +261,6 @@ where
             final_proof,
         )
         .map_err(|_| ProofError::InvalidProof)?;
-
-        // Old WHIR version:
-        //
-        // let (final_merkle_proof, final_randomness_answers) =
-        //     &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
-        // if !final_merkle_proof
-        //     .verify(
-        //         &self.params.leaf_hash_params,
-        //         &self.params.two_to_one_params,
-        //         &prev_root,
-        //         final_randomness_answers.iter().map(|a| a.as_ref()),
-        //     )
-        //     .unwrap()
-        //     || final_merkle_proof.leaf_indexes != final_randomness_indexes
-        // {
-        //     return Err(ProofError::InvalidProof);
-        // }
 
         if self.params.final_pow_bits > 0. {
             challenger.grind(self.params.final_pow_bits as usize);
