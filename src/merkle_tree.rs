@@ -5,7 +5,7 @@ use p3_keccak::Keccak256Hash;
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 
-type Perm = Poseidon2BabyBear<16>;
+pub type Perm = Poseidon2BabyBear<16>;
 pub type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
 pub type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
 

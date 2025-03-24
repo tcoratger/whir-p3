@@ -1,5 +1,7 @@
 use p3_challenger::{CanSample, GrindingChallenger};
-use p3_field::Field;
+use p3_field::{Field, PrimeField32};
+
+use crate::merkle_tree::WhirChallenger;
 
 /// Adds simulated sumcheck rounds to a Fiat-Shamir transcript.
 pub trait SumcheckSingleChallenger<F: Field> {
@@ -12,18 +14,17 @@ pub trait SumcheckSingleChallenger<F: Field> {
     fn add_sumcheck(&mut self, folding_factor: usize, pow_bits: usize);
 }
 
-impl<F, Challenger> SumcheckSingleChallenger<F> for Challenger
+impl<F> SumcheckSingleChallenger<F> for WhirChallenger<F>
 where
-    F: Field,
-    Challenger: CanSample<F> + GrindingChallenger,
+    F: PrimeField32,
 {
     fn add_sumcheck(&mut self, folding_factor: usize, pow_bits: usize) {
         for _ in 0..folding_factor {
             // Sample 3 polynomial coefficients
-            let _coeffs = [self.sample(), self.sample(), self.sample()];
+            let _coeffs: [F; 3] = [self.sample(), self.sample(), self.sample()];
 
             // Sample 1 folding randomness
-            let _folding_rand = self.sample();
+            let _folding_rand: F = self.sample();
 
             // Apply proof-of-work if required
             if pow_bits > 0 {

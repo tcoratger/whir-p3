@@ -1,4 +1,8 @@
 use p3_field::Field;
+use rand::{
+    Rng,
+    distr::{Distribution, StandardUniform},
+};
 
 use super::hypercube::BinaryHypercubePoint;
 
@@ -167,6 +171,15 @@ where
 impl<F> From<F> for MultilinearPoint<F> {
     fn from(value: F) -> Self {
         Self(vec![value])
+    }
+}
+
+impl<F> MultilinearPoint<F>
+where
+    StandardUniform: Distribution<F>,
+{
+    pub fn rand<R: Rng>(rng: &mut R, num_variables: usize) -> Self {
+        Self((0..num_variables).map(|_| rng.sample(StandardUniform)).collect())
     }
 }
 

@@ -86,8 +86,7 @@ where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
             + Sync,
-        C: CanSample<F>
-            + PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
@@ -181,8 +180,7 @@ where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
             + Sync,
-        C: CanSample<F>
-            + PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
@@ -340,8 +338,7 @@ where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
             + Sync,
-        C: CanSample<F>
-            + PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,

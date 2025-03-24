@@ -4,6 +4,8 @@ use p3_challenger::{
 use p3_field::PrimeField32;
 use p3_symmetric::CryptographicHasher;
 
+use crate::merkle_tree::WhirChallenger;
+
 /// Trait for adding out-of-domain (OOD) queries and responses to a challenger.
 ///
 /// OOD queries are used in polynomial commitment schemes and proof systems,
@@ -27,10 +29,9 @@ pub trait OODIOPattern<F: PrimeField32> {
 }
 
 /// Implementation using `SerializingChallenger32`
-impl<F, H> OODIOPattern<F> for SerializingChallenger32<F, HashChallenger<u8, H, 32>>
+impl<F> OODIOPattern<F> for WhirChallenger<F>
 where
     F: PrimeField32,
-    H: Clone + CryptographicHasher<u8, [u8; 32]>,
 {
     fn add_ood(&mut self, num_samples: usize) {
         if num_samples > 0 {
@@ -68,9 +69,9 @@ pub trait WhirPoWIOPattern {
     fn pow(&mut self, bits: usize);
 }
 
-impl<C> WhirPoWIOPattern for C
+impl<F> WhirPoWIOPattern for WhirChallenger<F>
 where
-    C: GrindingChallenger,
+    F: PrimeField32,
 {
     fn pow(&mut self, bits: usize) {
         if bits > 0 {

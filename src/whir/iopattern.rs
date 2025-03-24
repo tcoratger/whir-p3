@@ -1,30 +1,49 @@
-use p3_challenger::{CanSample, GrindingChallenger};
+use p3_challenger::{CanObserve, CanSample, CanSampleBits, GrindingChallenger};
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+use p3_symmetric::Hash;
 
 use super::parameters::WhirConfig;
 use crate::{
     fs_utils::{OODIOPattern, WhirPoWIOPattern},
+    merkle_tree::{KeccakDigest, WhirChallenger},
     sumcheck::sumcheck_single_io_pattern::SumcheckSingleChallenger,
 };
 
 /// Trait for adding Merkle digests to a Fiat-Shamir transcript.
-pub trait DigestChallenger<F: Field, const DIGEST_ELEMS: usize> {
-    fn observe_digest(&mut self, label: &str);
+pub trait DigestChallenger<F, const DIGEST_ELEMS: usize> {
+    fn observe_digest(&mut self, digest: Hash<F, u8, DIGEST_ELEMS>);
+}
+
+impl<F, const DIGEST_ELEMS: usize> DigestChallenger<F, DIGEST_ELEMS> for WhirChallenger<F>
+where
+    WhirChallenger<F>: CanObserve<Hash<F, u8, DIGEST_ELEMS>>,
+{
+    fn observe_digest(&mut self, digest: Hash<F, u8, DIGEST_ELEMS>) {
+        self.observe(digest);
+    }
 }
 
 /// Trait that defines how a Whir proof's transcript interaction is constructed.
-pub trait WhirChallengerTranscript<F, const DIGEST_ELEMS: usize>
+pub trait WhirChallengerTranscript<F, PowStrategy, H, C, const DIGEST_ELEMS: usize>
 where
     F: Field + PrimeField32 + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
-    fn commit_statement(&mut self, params: &WhirConfig<F, (), (), ()>);
+    fn commit_statement(
+        &mut self,
+        params: &WhirConfig<F, PowStrategy, H, C>,
+        digest: Hash<F, u8, DIGEST_ELEMS>,
+    );
 
-    fn add_whir_proof(&mut self, params: &WhirConfig<F, (), (), ()>);
+    fn add_whir_proof(
+        &mut self,
+        params: &WhirConfig<F, PowStrategy, H, C>,
+        digest: Hash<F, u8, DIGEST_ELEMS>,
+    );
 }
 
-impl<F, Challenger, const DIGEST_ELEMS: usize> WhirChallengerTranscript<F, DIGEST_ELEMS>
-    for Challenger
+impl<F, PowStrategy, H, C, Challenger, const DIGEST_ELEMS: usize>
+    WhirChallengerTranscript<F, PowStrategy, H, C, DIGEST_ELEMS> for Challenger
 where
     F: Field + PrimeField32 + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
@@ -35,8 +54,12 @@ where
         + DigestChallenger<F, DIGEST_ELEMS>
         + OODIOPattern<F>,
 {
-    fn commit_statement(&mut self, params: &WhirConfig<F, (), (), ()>) {
-        self.observe_digest("merkle_digest");
+    fn commit_statement(
+        &mut self,
+        params: &WhirConfig<F, PowStrategy, H, C>,
+        digest: Hash<F, u8, DIGEST_ELEMS>,
+    ) {
+        self.observe_digest(digest);
 
         if params.committment_ood_samples > 0 {
             assert!(params.initial_statement);
@@ -44,7 +67,11 @@ where
         }
     }
 
-    fn add_whir_proof(&mut self, params: &WhirConfig<F, (), (), ()>) {
+    fn add_whir_proof(
+        &mut self,
+        params: &WhirConfig<F, PowStrategy, H, C>,
+        digest: Hash<F, u8, DIGEST_ELEMS>,
+    ) {
         if params.initial_statement {
             // Simulate initial sumcheck round
             let _initial_combination = self.sample();
@@ -63,7 +90,7 @@ where
             let domain_size_bits =
                 ((folded_domain_size * 2 - 1).ilog2() as usize).next_power_of_two();
 
-            self.observe_digest("merkle_digest");
+            self.observe_digest(digest);
             self.add_ood(r.ood_samples);
             for _ in 0..r.num_queries {
                 let _index: usize = self.sample_bits(domain_size_bits);
