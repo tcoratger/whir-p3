@@ -188,6 +188,7 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+    use rand::rng;
 
     use super::*;
 
@@ -850,5 +851,28 @@ mod tests {
         assert_eq!(point.eq_poly3(6), BabyBear::from_u64(0));
         assert_eq!(point.eq_poly3(7), BabyBear::from_u64(0));
         assert_eq!(point.eq_poly3(8), BabyBear::from_u64(1)); // 8 corresponds to ternary (2,2)
+    }
+
+    #[test]
+    fn test_multilinear_point_rand_not_all_same() {
+        const K: usize = 20; // Number of trials
+        const N: usize = 10; // Number of variables
+
+        let mut rng = rng();
+
+        let mut all_same_count = 0;
+
+        for _ in 0..K {
+            let point = MultilinearPoint::<BabyBear>::rand(&mut rng, N);
+            let first = point.0[0];
+
+            // Check if all coordinates are the same as the first one
+            if point.0.iter().all(|&x| x == first) {
+                all_same_count += 1;
+            }
+        }
+
+        // If all K trials are completely uniform, the RNG is suspicious
+        assert!(all_same_count < K, "rand generated uniform points in all {K} trials");
     }
 }
