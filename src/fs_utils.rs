@@ -1,8 +1,5 @@
-use p3_challenger::{
-    CanObserve, CanSample, GrindingChallenger, HashChallenger, SerializingChallenger32,
-};
+use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
 use p3_field::PrimeField32;
-use p3_symmetric::CryptographicHasher;
 
 use crate::merkle_tree::WhirChallenger;
 

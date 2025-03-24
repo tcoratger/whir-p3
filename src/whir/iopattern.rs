@@ -1,11 +1,11 @@
-use p3_challenger::{CanObserve, CanSample, CanSampleBits, GrindingChallenger};
+use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 use p3_symmetric::Hash;
 
 use super::parameters::WhirConfig;
 use crate::{
     fs_utils::{OODIOPattern, WhirPoWIOPattern},
-    merkle_tree::{KeccakDigest, WhirChallenger},
+    merkle_tree::WhirChallenger,
     sumcheck::sumcheck_single_io_pattern::SumcheckSingleChallenger,
 };
 
@@ -16,7 +16,7 @@ pub trait DigestChallenger<F, const DIGEST_ELEMS: usize> {
 
 impl<F, const DIGEST_ELEMS: usize> DigestChallenger<F, DIGEST_ELEMS> for WhirChallenger<F>
 where
-    WhirChallenger<F>: CanObserve<Hash<F, u8, DIGEST_ELEMS>>,
+    Self: CanObserve<Hash<F, u8, DIGEST_ELEMS>>,
 {
     fn observe_digest(&mut self, digest: Hash<F, u8, DIGEST_ELEMS>) {
         self.observe(digest);

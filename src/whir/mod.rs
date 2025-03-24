@@ -79,7 +79,7 @@ mod tests {
         let perm = Perm::new_from_rng_128(&mut rng());
 
         let hash = MyHash::new(perm.clone());
-        let compress = MyCompress::new(perm.clone());
+        let compress = MyCompress::new(perm);
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
 
