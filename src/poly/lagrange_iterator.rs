@@ -40,28 +40,30 @@ impl<F: Field> From<&MultilinearPoint<F>> for LagrangePolynomialIterator<F> {
     /// - Stores `c_i` in reverse order for **efficient bit processing**.
     /// - Precomputes `1 - c_i` for each coordinate to avoid recomputation.
     /// - Constructs a **stack** for incremental computation.
-    fn from(point: &MultilinearPoint<F>) -> Self {
-        let num_variables = point.num_variables();
+    fn from(multilinear_point: &MultilinearPoint<F>) -> Self {
+        let num_variables = multilinear_point.num_variables();
 
-        // Initialize stack with identity element
-        let mut stack = vec![F::ONE];
+        // Clone the original point (c_1, ..., c_n)
+        let mut point = multilinear_point.0.clone();
 
-        // Clone point values and compute `1 - c_i` in parallel
-        let mut point = point.0.clone();
+        // Compute point_negated = (1 - c_1, ..., 1 - c_n)
         let mut point_negated: Vec<_> = point.iter().map(|&x| F::ONE - x).collect();
 
-        // Compute partial products for the first iteration
+        // Compute the stack of partial products (1, (1 - c_1), ..., ∏_{i=1}^{n} (1 - c_i))
+        let mut stack = Vec::with_capacity(num_variables + 1);
         let mut running_product = F::ONE;
-        for &point_neg in &point_negated {
-            running_product *= point_neg;
+        stack.push(running_product); // stack[0] = 1
+
+        for &neg in &point_negated {
+            running_product *= neg;
             stack.push(running_product);
         }
 
-        // Reverse point vectors for more efficient access
+        // Reverse the point and its negation for bit-friendly access
         point.reverse();
         point_negated.reverse();
 
-        Self { num_variables, point, point_negated, stack, last_position: None }
+        Self { last_position: None, point, point_negated, stack, num_variables }
     }
 }
 

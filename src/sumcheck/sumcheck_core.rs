@@ -2,8 +2,8 @@ use p3_field::Field;
 
 use crate::{
     poly::{
-        coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint,
-        sequential_lag_poly::LagrangePolynomialIterator,
+        coeffs::CoefficientList, evals::EvaluationsList,
+        lagrange_iterator::LagrangePolynomialIterator, multilinear::MultilinearPoint,
     },
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     utils::base_decomposition,

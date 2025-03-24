@@ -2,7 +2,7 @@ use std::ops::Index;
 
 use p3_field::Field;
 
-use super::{multilinear::MultilinearPoint, sequential_lag_poly::LagrangePolynomialIterator};
+use super::{lagrange_iterator::LagrangePolynomialIterator, multilinear::MultilinearPoint};
 
 /// Represents a multilinear polynomial `f` in `num_variables` unknowns, stored via its evaluations
 /// over the hypercube `{0,1}^{num_variables}`.
