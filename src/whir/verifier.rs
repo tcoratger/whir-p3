@@ -192,7 +192,7 @@ where
                 Vec::with_capacity(self.params.folding_factor.at_round(r + 1));
 
             for _ in 0..self.params.folding_factor.at_round(r + 1) {
-                let sumcheck_poly_evals: [F; 3] = challenger.sample_array();
+                let sumcheck_poly_evals: [_; 3] = challenger.sample_array();
                 let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
                 let folding_randomness_single = challenger.sample();
                 sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
@@ -211,7 +211,7 @@ where
                 ood_answers,
                 stir_challenges_indexes,
                 stir_challenges_points,
-                stir_challenges_answers: vec![], // TODO answers.clone(),
+                stir_challenges_answers: answers.clone(),
                 combination_randomness,
                 sumcheck_rounds,
                 domain_gen_inv,
@@ -288,7 +288,7 @@ where
             final_folding_randomness: folding_randomness,
             final_randomness_indexes,
             final_randomness_points,
-            final_randomness_answers: vec![], // TODO final_randomness_answers.clone(),
+            final_randomness_answers: final_answers.clone(),
             final_sumcheck_rounds,
             final_sumcheck_randomness,
             final_coefficients,
