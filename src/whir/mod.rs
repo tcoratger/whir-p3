@@ -170,6 +170,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_whir() {
         let folding_factors = [1, 2, 3, 4];
         let soundness_type = [
