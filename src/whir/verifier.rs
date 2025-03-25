@@ -163,7 +163,7 @@ where
             // Verify Merkle openings using `verify_batch`
             let dimensions = vec![
                 Dimensions {
-                    height: domain_size,
+                    height: domain_size, // TODO: this is not correct (need to think about it)
                     width: 1 << self.params.folding_factor.at_round(r),
                 };
                 answers.len()
@@ -246,7 +246,7 @@ where
 
         let dimensions = vec![
             Dimensions {
-                height: domain_size,
+                height: domain_size, // TODO: this is not correct (need to think about it)
                 width: 1 << self.params.folding_factor.at_round(self.params.n_rounds()),
             };
             final_answers.len()
