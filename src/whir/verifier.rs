@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     ProofError, ProofResult, WhirProof,
-    fs_utils::get_challenge_stir_queries,
     parsed_proof::ParsedRound,
     statement::{StatementVerifier, VerifierWeights},
+    utils::get_challenge_stir_queries,
 };
 use crate::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},

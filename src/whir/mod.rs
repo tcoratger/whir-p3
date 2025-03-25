@@ -3,8 +3,7 @@ use prover::Leafs;
 use crate::whir::prover::Proof;
 
 pub mod committer;
-pub mod fs_utils;
-pub mod iopattern;
+pub mod fiat_shamir;
 pub mod parameters;
 pub mod parsed_proof;
 pub mod prover;
@@ -61,7 +60,9 @@ mod tests {
             FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters,
         },
         poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
-        whir::{iopattern::WhirChallengerTranscript, parameters::WhirConfig, statement::Statement},
+        whir::{
+            fiat_shamir::WhirChallengerTranscript, parameters::WhirConfig, statement::Statement,
+        },
     };
 
     type F = BabyBear;
