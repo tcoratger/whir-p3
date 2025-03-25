@@ -130,10 +130,10 @@ impl FoldType {
     ///
     /// - If `Naive`, performs coset-based folding round by round.
     /// - If `ProverHelps`, reuses the precomputed coefficient evaluations.
-    pub(crate) fn stir_evaluations_verifier<F, H, C>(
+    pub(crate) fn stir_evaluations_verifier<F, H, C, PowStrategy>(
         self,
         parsed: &ParsedProof<F>,
-        params: &WhirConfig<F, H, C>,
+        params: &WhirConfig<F, H, C, PowStrategy>,
     ) -> Vec<Vec<F>>
     where
         F: Field + TwoAdicField,

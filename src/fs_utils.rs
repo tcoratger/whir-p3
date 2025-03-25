@@ -1,166 +1,104 @@
 use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
-use p3_field::PrimeField32;
+use p3_field::{Field, PrimeField32};
 
-use crate::merkle_tree::WhirChallenger;
+use crate::{
+    fiat_shamir::{codecs::traits::FieldDomainSeparator, pow::PoWDomainSeparator},
+    merkle_tree::WhirChallenger,
+};
 
-/// Trait for adding out-of-domain (OOD) queries and responses to a challenger.
+/// Trait for adding out-of-domain (OOD) queries and their responses to an DomainSeparator.
 ///
-/// OOD queries are used in polynomial commitment schemes and proof systems,
-/// allowing the challenger to sample challenge points outside the domain.
-/// The prover responds with corresponding evaluations, which are later verified.
-///
-/// This trait modifies the challenger state by:
-/// - Sampling `num_samples` OOD challenge points.
-/// - Sampling `num_samples` OOD responses.
-/// - Observing these values in the challenger for deterministic randomness.
-///
-/// If `num_samples == 0`, the challenger remains unchanged.
-pub trait OODIOPattern<F: PrimeField32> {
-    /// Adds `num_samples` OOD queries and their corresponding responses.
+/// This trait allows extending an DomainSeparator with challenge-response interactions.
+pub trait OODDomainSeparator<F: Field> {
+    /// Adds `num_samples` OOD queries and their corresponding responses to the DomainSeparator.
     ///
-    /// - If `num_samples > 0`, it:
-    ///   - Samples `num_samples` challenge points.
-    ///   - Samples `num_samples` responses.
-    ///   - Observes both the queries and responses for future deterministic challenges.
-    fn add_ood(&mut self, num_samples: usize);
+    /// - If `num_samples > 0`, this appends:
+    ///   - A challenge query labeled `"ood_query"` with `num_samples` elements.
+    ///   - A corresponding response labeled `"ood_ans"` with `num_samples` elements.
+    /// - If `num_samples == 0`, the DomainSeparator remains unchanged.
+    #[must_use]
+    fn add_ood(self, num_samples: usize) -> Self;
 }
 
-/// Implementation using `SerializingChallenger32`
-impl<F> OODIOPattern<F> for WhirChallenger<F>
+impl<F, DomainSeparator> OODDomainSeparator<F> for DomainSeparator
 where
-    F: PrimeField32,
+    F: Field,
+    DomainSeparator: FieldDomainSeparator<F>,
 {
-    fn add_ood(&mut self, num_samples: usize) {
+    fn add_ood(self, num_samples: usize) -> Self {
         if num_samples > 0 {
-            for _ in 0..num_samples {
-                // Sample an OOD query
-                let query: F = self.sample();
-                // Sample corresponding answer
-                let answer: F = self.sample();
-
-                // Observe the query
-                self.observe(query);
-                // Observe the answer
-                self.observe(answer);
-            }
+            self.challenge_scalars(num_samples, "ood_query").add_scalars(num_samples, "ood_ans")
+        } else {
+            self
         }
     }
 }
 
-/// Trait for incorporating Proof-of-Work (PoW) challenges into a challenger.
+/// Trait for adding a Proof-of-Work (PoW) challenge to an DomainSeparator.
 ///
-/// This trait allows the challenger to generate a PoW challenge by computing a
-/// proof that satisfies a difficulty condition (grinding). The generated proof
-/// is then observed by the challenger, ensuring it is incorporated into future
-/// challenge randomness.
-///
-/// This is useful in interactive proofs or protocols requiring computational
-/// effort to deter spam or enforce security guarantees.
-pub trait WhirPoWIOPattern {
-    /// Generates a Proof-of-Work (PoW) challenge with `bits` difficulty.
+/// This trait enables an DomainSeparator to include PoW challenges.
+pub trait WhirPoWDomainSeparator {
+    /// Adds a Proof-of-Work challenge to the DomainSeparator.
     ///
-    /// - If `bits > 0`, it:
-    ///   - Computes a PoW witness by iterating over possible values until a valid one is found.
-    ///   - Observes the witness, ensuring its influence on future randomness.
-    /// - If `bits == 0`, no PoW is performed, and the challenger remains unchanged.
-    fn pow(&mut self, bits: usize);
+    /// - If `bits > 0`, this appends a PoW challenge labeled `"pow_queries"`.
+    /// - If `bits == 0`, the DomainSeparator remains unchanged.
+    #[must_use]
+    fn pow(self, bits: f64) -> Self;
 }
 
-impl<F> WhirPoWIOPattern for WhirChallenger<F>
+impl<DomainSeparator> WhirPoWDomainSeparator for DomainSeparator
 where
-    F: PrimeField32,
+    DomainSeparator: PoWDomainSeparator,
 {
-    fn pow(&mut self, bits: usize) {
-        if bits > 0 {
-            let proof = self.grind(bits);
-            self.observe(proof);
-        }
+    fn pow(self, bits: f64) -> Self {
+        if bits > 0. { self.challenge_pow("pow_queries") } else { self }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_challenger::{CanObserve, CanSample, HashChallenger, SerializingChallenger32};
-    use p3_field::PrimeCharacteristicRing;
-    use p3_keccak::Keccak256Hash;
 
     use super::*;
+    use crate::fiat_shamir::domain_separator::DomainSeparator;
 
     #[test]
     fn test_add_ood() {
-        let hasher = Keccak256Hash {}; // Replace with the hash function you're using
-        let mut challenger = SerializingChallenger32::<
-            BabyBear,
-            HashChallenger<u8, Keccak256Hash, 32>,
-        >::from_hasher(vec![], hasher);
+        let iop: DomainSeparator = DomainSeparator::new("test_protocol");
 
-        // Add 3 OOD queries
-        challenger.add_ood(3);
+        // Apply OOD query addition
+        let updated_iop =
+            <DomainSeparator as OODDomainSeparator<BabyBear>>::add_ood(iop.clone(), 3);
 
-        // Ensure that exactly 3 queries and responses were sampled
-        let query: BabyBear = challenger.sample();
-        let answer: BabyBear = challenger.sample();
-        challenger.observe(query);
-        challenger.observe(answer);
+        // Convert to a string for inspection
+        let pattern_str = String::from_utf8(updated_iop.as_bytes().to_vec()).unwrap();
 
-        // Ensure that query and answer are nonzero
-        assert_ne!(query, BabyBear::ZERO);
-        assert_ne!(answer, BabyBear::ZERO);
+        // Check if "ood_query" and "ood_ans" were correctly appended
+        assert!(pattern_str.contains("ood_query"));
+        assert!(pattern_str.contains("ood_ans"));
+
+        // Test case where num_samples = 0 (should not modify anything)
+        let unchanged_iop = <DomainSeparator as OODDomainSeparator<BabyBear>>::add_ood(iop, 0);
+        let unchanged_str = String::from_utf8(unchanged_iop.as_bytes().to_vec()).unwrap();
+        assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
     }
 
     #[test]
-    fn test_add_ood_no_samples() {
-        let hasher = Keccak256Hash {};
-        let mut challenger = SerializingChallenger32::<
-            BabyBear,
-            HashChallenger<u8, Keccak256Hash, 32>,
-        >::from_hasher(vec![], hasher);
+    fn test_pow() {
+        let iop: DomainSeparator = DomainSeparator::new("test_protocol");
 
-        // Add 0 OOD queries (should not change anything)
-        challenger.add_ood(0);
+        // Apply PoW challenge
+        let updated_iop = iop.clone().pow(10.0);
 
-        // Since no queries were added, sampling should not produce new values
-        let query: BabyBear = challenger.sample();
-        let answer: BabyBear = challenger.sample();
+        // Convert to a string for inspection
+        let pattern_str = String::from_utf8(updated_iop.as_bytes().to_vec()).unwrap();
 
-        assert_ne!(query, BabyBear::ZERO);
-        assert_ne!(answer, BabyBear::ZERO);
-    }
+        // Check if "pow_queries" was correctly added
+        assert!(pattern_str.contains("pow_queries"));
 
-    #[test]
-    fn test_pow_challenge() {
-        let hasher = Keccak256Hash {};
-        let mut challenger = SerializingChallenger32::<
-            BabyBear,
-            HashChallenger<u8, Keccak256Hash, 32>,
-        >::from_hasher(vec![], hasher);
-
-        // Perform PoW with 5-bit difficulty
-        challenger.pow(5);
-
-        // Ensure that a witness was generated and observed
-        let proof: BabyBear = challenger.sample();
-        challenger.observe(proof);
-
-        assert_ne!(proof, BabyBear::ZERO); // The proof must be a nonzero value
-    }
-
-    #[test]
-    fn test_pow_no_work() {
-        let hasher = Keccak256Hash {};
-        let mut challenger = SerializingChallenger32::<
-            BabyBear,
-            HashChallenger<u8, Keccak256Hash, 32>,
-        >::from_hasher(vec![], hasher);
-
-        // Perform PoW with 0-bit difficulty (should do nothing)
-        challenger.pow(0);
-
-        // No new values should have been observed
-        let proof: BabyBear = challenger.sample();
-
-        // The proof should not be modified
-        assert_ne!(proof, BabyBear::ZERO);
+        // Test case where bits = 0 (should not modify anything)
+        let unchanged_iop = iop.pow(0.0);
+        let unchanged_str = String::from_utf8(unchanged_iop.as_bytes().to_vec()).unwrap();
+        assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
     }
 }

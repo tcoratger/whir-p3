@@ -54,6 +54,8 @@ itertools = "0.14"
 thiserror = "2.0"
 sha3 = "0.10"
 rand = "0.9"
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+keccak = "0.1"
 
 [dev-dependencies]
 criterion = "0.5"

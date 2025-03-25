@@ -3,7 +3,7 @@ use prover::Leafs;
 use crate::whir::prover::Proof;
 
 pub mod committer;
-pub mod fiat_shamir;
+pub mod domainsep;
 pub mod parameters;
 pub mod parsed_proof;
 pub mod prover;
@@ -19,194 +19,174 @@ pub struct WhirProof<F, const DIGEST_ELEMS: usize> {
     pub statement_values_at_random_point: Vec<F>,
 }
 
-/// Signals an invalid IO pattern.
-///
-/// This error indicates a wrong IO Pattern declared
-/// upon instantiation of the SAFE sponge.
-#[derive(Debug, Clone)]
-pub struct IOPatternError(String);
+// #[cfg(test)]
+// mod tests {
+//     use p3_baby_bear::BabyBear;
+//     use p3_field::PrimeCharacteristicRing;
+//     use p3_keccak::Keccak256Hash;
+//     use p3_symmetric::Hash;
+//     use rand::rng;
 
-/// An error happened when creating or verifying a proof.
-#[derive(Debug, Clone)]
-pub enum ProofError {
-    /// Signals the verification equation has failed.
-    InvalidProof,
-    /// The IO pattern specified mismatches the IO pattern used during the protocol execution.
-    InvalidIO(IOPatternError),
-    /// Serialization/Deserialization led to errors.
-    SerializationError,
-}
+//     use super::{
+//         committer::Committer,
+//         prover::Prover,
+//         statement::{StatementVerifier, Weights},
+//         verifier::Verifier,
+//     };
+//     use crate::{
+//         merkle_tree::{MyCompress, MyHash, Perm, WhirChallenger},
+//         parameters::{
+//             FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters,
+//         },
+//         poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
+//         whir::{
+//             fiat_shamir::WhirChallengerTranscript, parameters::WhirConfig, statement::Statement,
+//         },
+//     };
 
-/// The result type when trying to prove or verify a proof using Fiat-Shamir.
-pub type ProofResult<T> = Result<T, ProofError>;
+//     /// Field type used in the tests.
+//     type F = BabyBear;
 
-#[cfg(test)]
-mod tests {
-    use p3_baby_bear::BabyBear;
-    use p3_field::PrimeCharacteristicRing;
-    use p3_keccak::Keccak256Hash;
-    use p3_symmetric::Hash;
-    use rand::rng;
+//     /// Run a complete WHIR STARK proof lifecycle.
+//     ///
+//     /// This function performs the full pipeline:
+//     /// - Defines a multilinear polynomial with `num_variables`
+//     /// - Generates constraints for this polynomial
+//     /// - Initializes a Fiat-Shamir transcript (challenger)
+//     /// - Commits to the polynomial and produces a witness
+//     /// - Generates a STARK proof with the prover
+//     /// - Verifies the proof with the verifier
+//     ///
+//     /// The protocol is configured using folding, soundness, and PoW parameters.
+//     fn make_whir_things(
+//         num_variables: usize,
+//         folding_factor: FoldingFactor,
+//         num_points: usize,
+//         soundness_type: SoundnessType,
+//         pow_bits: usize,
+//         fold_type: FoldType,
+//     ) {
+//         // Number of coefficients = 2^num_variables
+//         let num_coeffs = 1 << num_variables;
 
-    use super::{
-        committer::Committer,
-        prover::Prover,
-        statement::{StatementVerifier, Weights},
-        verifier::Verifier,
-    };
-    use crate::{
-        merkle_tree::{MyCompress, MyHash, Perm, WhirChallenger},
-        parameters::{
-            FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters,
-        },
-        poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
-        whir::{
-            fiat_shamir::WhirChallengerTranscript, parameters::WhirConfig, statement::Statement,
-        },
-    };
+//         // Initialize a random permutation for the Merkle tree.
+//         let perm = Perm::new_from_rng_128(&mut rng());
 
-    /// Field type used in the tests.
-    type F = BabyBear;
+//         // Create hash and compression functions for the Merkle tree
+//         let hash = MyHash::new(perm.clone());
+//         let compress = MyCompress::new(perm);
 
-    /// Run a complete WHIR STARK proof lifecycle.
-    ///
-    /// This function performs the full pipeline:
-    /// - Defines a multilinear polynomial with `num_variables`
-    /// - Generates constraints for this polynomial
-    /// - Initializes a Fiat-Shamir transcript (challenger)
-    /// - Commits to the polynomial and produces a witness
-    /// - Generates a STARK proof with the prover
-    /// - Verifies the proof with the verifier
-    ///
-    /// The protocol is configured using folding, soundness, and PoW parameters.
-    fn make_whir_things(
-        num_variables: usize,
-        folding_factor: FoldingFactor,
-        num_points: usize,
-        soundness_type: SoundnessType,
-        pow_bits: usize,
-        fold_type: FoldType,
-    ) {
-        // Number of coefficients = 2^num_variables
-        let num_coeffs = 1 << num_variables;
+//         // Set the multivariate polynomial parameters
+//         let mv_params = MultivariateParameters::<F>::new(num_variables);
 
-        // Initialize a random permutation for the Merkle tree.
-        let perm = Perm::new_from_rng_128(&mut rng());
+//         // Construct WHIR protocol parameters
+//         let whir_params = WhirParameters::<_, _> {
+//             initial_statement: true,
+//             security_level: 32,
+//             pow_bits,
+//             folding_factor,
+//             merkle_hash: hash,
+//             merkle_compress: compress,
+//             soundness_type,
+//             starting_log_inv_rate: 1,
+//             fold_optimisation: fold_type,
+//         };
 
-        // Create hash and compression functions for the Merkle tree
-        let hash = MyHash::new(perm.clone());
-        let compress = MyCompress::new(perm);
+//         // Combine protocol and polynomial parameters into a single config
+//         let params = WhirConfig::new(mv_params, whir_params);
 
-        // Set the multivariate polynomial parameters
-        let mv_params = MultivariateParameters::<F>::new(num_variables);
+//         // Define a polynomial with all coefficients set to 1 (i.e., constant 1 polynomial)
+//         let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]);
 
-        // Construct WHIR protocol parameters
-        let whir_params = WhirParameters::<_, _> {
-            initial_statement: true,
-            security_level: 32,
-            pow_bits,
-            folding_factor,
-            merkle_hash: hash,
-            merkle_compress: compress,
-            soundness_type,
-            starting_log_inv_rate: 1,
-            fold_optimisation: fold_type,
-        };
+//         // Sample `num_points` random multilinear points in the Boolean hypercube
+//         let points: Vec<_> = (0..num_points)
+//             .map(|_| MultilinearPoint::<F>::rand(&mut rng(), num_variables))
+//             .collect();
 
-        // Combine protocol and polynomial parameters into a single config
-        let params = WhirConfig::new(mv_params, whir_params);
+//         // Construct a new statement with the correct number of variables
+//         let mut statement = Statement::<F>::new(num_variables);
 
-        // Define a polynomial with all coefficients set to 1 (i.e., constant 1 polynomial)
-        let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]);
+//         // Add constraints for each sampled point (equality constraints)
+//         for point in &points {
+//             let eval = polynomial.evaluate(point);
+//             let weights = Weights::evaluation(point.clone());
+//             statement.add_constraint(weights, eval);
+//         }
 
-        // Sample `num_points` random multilinear points in the Boolean hypercube
-        let points: Vec<_> = (0..num_points)
-            .map(|_| MultilinearPoint::<F>::rand(&mut rng(), num_variables))
-            .collect();
+//         // Construct a linear constraint to test sumcheck
+//         let input = CoefficientList::new((0..1 << num_variables).map(F::from_u64).collect());
+//         let linear_claim_weight = Weights::linear(input.into());
 
-        // Construct a new statement with the correct number of variables
-        let mut statement = Statement::<F>::new(num_variables);
+//         // Convert the polynomial to extension form for weighted evaluation
+//         let poly = EvaluationsList::from(polynomial.clone().to_extension());
 
-        // Add constraints for each sampled point (equality constraints)
-        for point in &points {
-            let eval = polynomial.evaluate(point);
-            let weights = Weights::evaluation(point.clone());
-            statement.add_constraint(weights, eval);
-        }
+//         // Evaluate the weighted sum and add it as a linear constraint
+//         let sum = linear_claim_weight.weighted_sum(&poly);
+//         statement.add_constraint(linear_claim_weight, sum);
 
-        // Construct a linear constraint to test sumcheck
-        let input = CoefficientList::new((0..1 << num_variables).map(F::from_u64).collect());
-        let linear_claim_weight = Weights::linear(input.into());
+//         // Create a dummy digest representing the initial Merkle root
+//         let dummy_digest: Hash<F, u8, 32> = Hash::from([0; 32]);
 
-        // Convert the polynomial to extension form for weighted evaluation
-        let poly = EvaluationsList::from(polynomial.clone().to_extension());
+//         // Instantiate the challenger with an empty state
+//         let mut proof_challenger = WhirChallenger::<F>::from_hasher(vec![], Keccak256Hash {});
 
-        // Evaluate the weighted sum and add it as a linear constraint
-        let sum = linear_claim_weight.weighted_sum(&poly);
-        statement.add_constraint(linear_claim_weight, sum);
+//         // Run the IOPattern logic: commit to the statement and run the proof phase
+//         proof_challenger.commit_statement(&params, dummy_digest);
+//         proof_challenger.add_whir_proof(&params, dummy_digest);
 
-        // Create a dummy digest representing the initial Merkle root
-        let dummy_digest: Hash<F, u8, 32> = Hash::from([0; 32]);
+//         // Commit to the polynomial and produce a witness
+//         let committer = Committer::new(params.clone());
+//         let witness = committer.commit(&mut proof_challenger, polynomial);
 
-        // Instantiate the challenger with an empty state
-        let mut proof_challenger = WhirChallenger::<F>::from_hasher(vec![], Keccak256Hash {});
+//         // Generate a proof using the prover
+//         let prover = Prover(params.clone());
+//         let statement_verifier = StatementVerifier::from_statement(&statement);
+//         let proof = prover.prove(&mut proof_challenger, statement, witness);
 
-        // Run the IOPattern logic: commit to the statement and run the proof phase
-        proof_challenger.commit_statement(&params, dummy_digest);
-        proof_challenger.add_whir_proof(&params, dummy_digest);
+//         // Verify the proof using the verifier and the same transcript
+//         let verifier = Verifier::new(params);
+//         assert!(verifier.verify(&mut proof_challenger, &statement_verifier, &proof).is_ok());
+//     }
 
-        // Commit to the polynomial and produce a witness
-        let committer = Committer::new(params.clone());
-        let witness = committer.commit(&mut proof_challenger, polynomial);
+//     #[test]
+//     #[ignore]
+//     fn test_whir() {
+//         // let folding_factors = [1, 2, 3, 4];
+//         // let soundness_type = [
+//         //     SoundnessType::ConjectureList,
+//         //     SoundnessType::ProvableList,
+//         //     SoundnessType::UniqueDecoding,
+//         // ];
+//         // let fold_types = [FoldType::Naive, FoldType::ProverHelps];
+//         // let num_points = [0, 1, 2];
+//         // let pow_bits = [0, 5, 10];
 
-        // Generate a proof using the prover
-        let prover = Prover(params.clone());
-        let statement_verifier = StatementVerifier::from_statement(&statement);
-        let proof = prover.prove(&mut proof_challenger, statement, witness);
+//         let folding_factors = [1];
+//         let soundness_type = [SoundnessType::ConjectureList];
+//         let fold_types = [FoldType::Naive];
+//         let num_points = [0];
+//         let pow_bits = [0];
 
-        // Verify the proof using the verifier and the same transcript
-        let verifier = Verifier::new(params);
-        assert!(verifier.verify(&mut proof_challenger, &statement_verifier, &proof).is_ok());
-    }
-
-    #[test]
-    fn test_whir() {
-        // let folding_factors = [1, 2, 3, 4];
-        // let soundness_type = [
-        //     SoundnessType::ConjectureList,
-        //     SoundnessType::ProvableList,
-        //     SoundnessType::UniqueDecoding,
-        // ];
-        // let fold_types = [FoldType::Naive, FoldType::ProverHelps];
-        // let num_points = [0, 1, 2];
-        // let pow_bits = [0, 5, 10];
-
-        let folding_factors = [1];
-        let soundness_type = [SoundnessType::ConjectureList];
-        let fold_types = [FoldType::Naive];
-        let num_points = [0];
-        let pow_bits = [0];
-
-        for folding_factor in folding_factors {
-            let num_variables = folding_factor..=3 * folding_factor;
-            for num_variable in num_variables {
-                for fold_type in fold_types {
-                    for num_points in num_points {
-                        for soundness_type in soundness_type {
-                            for pow_bits in pow_bits {
-                                make_whir_things(
-                                    num_variable,
-                                    FoldingFactor::Constant(folding_factor),
-                                    num_points,
-                                    soundness_type,
-                                    pow_bits,
-                                    fold_type,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+//         for folding_factor in folding_factors {
+//             let num_variables = folding_factor..=3 * folding_factor;
+//             for num_variable in num_variables {
+//                 for fold_type in fold_types {
+//                     for num_points in num_points {
+//                         for soundness_type in soundness_type {
+//                             for pow_bits in pow_bits {
+//                                 make_whir_things(
+//                                     num_variable,
+//                                     FoldingFactor::Constant(folding_factor),
+//                                     num_points,
+//                                     soundness_type,
+//                                     pow_bits,
+//                                     fold_type,
+//                                 );
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }

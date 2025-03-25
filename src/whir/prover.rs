@@ -1,14 +1,22 @@
-use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
-use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
-use super::{WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement};
+use super::{
+    WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement,
+    utils::DigestWriter,
+};
 use crate::{
     domain::Domain,
+    fiat_shamir::{
+        codecs::traits::{FieldToUnit, UnitToField},
+        errors::ProofResult,
+        pow::{PoWChallenge, PowStrategy},
+        traits::VerifierMessageBytes,
+    },
     ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
@@ -45,15 +53,16 @@ where
 }
 
 #[derive(Debug)]
-pub struct Prover<F, H, C>(pub WhirConfig<F, H, C>)
+pub struct Prover<F, H, C, PowStrategy>(pub WhirConfig<F, H, C, PowStrategy>)
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField;
 
-impl<F, H, C> Prover<F, H, C>
+impl<F, H, C, PS> Prover<F, H, C, PS>
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    PS: PowStrategy,
 {
     fn validate_parameters(&self) -> bool {
         self.0.mv_parameters.num_variables ==
@@ -76,12 +85,12 @@ where
         witness.polynomial.num_variables() == self.0.mv_parameters.num_variables
     }
 
-    pub fn prove<CH, const DIGEST_ELEMS: usize>(
+    pub fn prove<ProverState, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut CH,
+        prover_state: &mut ProverState,
         mut statement: Statement<F>,
         witness: Witness<F, H, C, DIGEST_ELEMS>,
-    ) -> WhirProof<F, DIGEST_ELEMS>
+    ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
         F: PrimeField32,
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
@@ -91,7 +100,11 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        CH: GrindingChallenger + CanObserve<F> + CanSample<F>,
+        ProverState: UnitToField<F>
+            + FieldToUnit<F>
+            + VerifierMessageBytes
+            + PoWChallenge
+            + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
     {
         // Validate parameters
         assert!(
@@ -118,8 +131,9 @@ where
 
         let mut sumcheck_prover = None;
         let folding_randomness = if self.0.initial_statement {
-            // Sample the combination randomness if we run sumcheck for an initial statement
-            let combination_randomness_gen = challenger.sample();
+            // If there is initial statement, then we run the sum-check for
+            // this initial statement.
+            let [combination_randomness_gen] = prover_state.challenge_scalars()?;
 
             // Create the sumcheck prover
             let mut sumcheck = SumcheckSingle::new(
@@ -129,24 +143,24 @@ where
             );
 
             // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck.compute_sumcheck_polynomials(
-                challenger,
+            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS, _>(
+                prover_state,
                 self.0.folding_factor.at_round(0),
-                self.0.starting_folding_pow_bits as usize,
-            );
+                self.0.starting_folding_pow_bits,
+            )?;
 
             sumcheck_prover = Some(sumcheck);
             folding_randomness
         } else {
-            // If there is no initial statement, obtain the initial folding randomness from the
-            // challenger
-            let folding_randomness = challenger.sample_vec(self.0.folding_factor.at_round(0));
+            // If there is no initial statement, there is no need to run the
+            // initial rounds of the sum-check, and the verifier directly sends
+            // the initial folding randomnesses.
+            let mut folding_randomness = vec![F::ZERO; self.0.folding_factor.at_round(0)];
+            prover_state.fill_challenge_scalars(&mut folding_randomness)?;
 
-            // Perform proof-of-work (if required)
             if self.0.starting_folding_pow_bits > 0. {
-                challenger.grind(self.0.starting_folding_pow_bits as usize);
+                prover_state.challenge_pow::<PS>(self.0.starting_folding_pow_bits)?;
             }
-
             MultilinearPoint(folding_randomness)
         };
         let mut randomness_vec = Vec::with_capacity(self.0.mv_parameters.num_variables);
@@ -167,15 +181,15 @@ where
             statement,
         };
 
-        self.round(challenger, round_state)
+        self.round(prover_state, round_state)
     }
 
     #[allow(clippy::too_many_lines)]
-    fn round<CH, const DIGEST_ELEMS: usize>(
+    fn round<ProverState, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut CH,
+        prover_state: &mut ProverState,
         mut round_state: RoundState<F, H, C, DIGEST_ELEMS>,
-    ) -> WhirProof<F, DIGEST_ELEMS>
+    ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
         F: PrimeField32,
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
@@ -185,7 +199,11 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        CH: GrindingChallenger + CanObserve<F> + CanSample<F>,
+        ProverState: UnitToField<F>
+            + VerifierMessageBytes
+            + FieldToUnit<F>
+            + PoWChallenge
+            + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
     {
         // Fold the coefficients
         let folded_coefficients = round_state.coefficients.fold(&round_state.folding_randomness);
@@ -197,7 +215,7 @@ where
 
         // Base case: final round reached
         if round_state.round == self.0.n_rounds() {
-            return self.final_round(challenger, round_state, &folded_coefficients);
+            return self.final_round(prover_state, round_state, &folded_coefficients);
         }
 
         let round_params = &self.0.round_parameters[round_state.round];
@@ -225,22 +243,22 @@ where
         let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger
-        challenger.observe_slice(root.as_ref());
+        prover_state.add_digest(root)?;
 
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) =
-            sample_ood_points(challenger, round_params.ood_samples, num_variables, |point| {
+            sample_ood_points(prover_state, round_params.ood_samples, num_variables, |point| {
                 folded_coefficients.evaluate(point)
-            });
+            })?;
 
         // STIR Queries
         let (stir_challenges, stir_challenges_indexes) = self.compute_stir_queries(
-            challenger,
+            prover_state,
             &round_state,
             num_variables,
             round_params,
             ood_points,
-        );
+        )?;
 
         // Collect Merkle proofs for stir queries
         let merkle_proofs: Vec<_> = stir_challenges_indexes
@@ -263,13 +281,13 @@ where
         );
         round_state.merkle_proofs.extend(merkle_proofs);
 
-        // Perform proof-of-work if required
+        // PoW
         if round_params.pow_bits > 0. {
-            challenger.grind(round_params.pow_bits as usize);
+            prover_state.challenge_pow::<PS>(round_params.pow_bits)?;
         }
 
         // Randomness for combination
-        let combination_randomness_gen = challenger.sample();
+        let [combination_randomness_gen] = prover_state.challenge_scalars()?;
         let combination_randomness =
             expand_randomness(combination_randomness_gen, stir_challenges.len());
 
@@ -299,11 +317,11 @@ where
                 )
             });
 
-        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials(
-            challenger,
+        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS, _>(
+            prover_state,
             folding_factor_next,
-            round_params.folding_pow_bits as usize,
-        );
+            round_params.folding_pow_bits,
+        )?;
 
         let start_idx = self.0.folding_factor.total_number(round_state.round);
         let mut arr = folding_randomness.clone().0;
@@ -325,15 +343,15 @@ where
             prev_merkle_prover_data: prover_data,
             merkle_proofs: round_state.merkle_proofs,
         };
-        self.round(challenger, round_state)
+        self.round(prover_state, round_state)
     }
 
-    fn final_round<CH, const DIGEST_ELEMS: usize>(
+    fn final_round<ProverState, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut CH,
+        prover_state: &mut ProverState,
         mut round_state: RoundState<F, H, C, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<F>,
-    ) -> WhirProof<F, DIGEST_ELEMS>
+    ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
         F: PrimeField32,
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
@@ -343,19 +361,23 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        CH: GrindingChallenger + CanObserve<F> + CanSample<F>,
+        ProverState: UnitToField<F>
+            + VerifierMessageBytes
+            + FieldToUnit<F>
+            + PoWChallenge
+            + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
     {
-        challenger.observe_slice(folded_coefficients.coeffs());
-
+        // Directly send coefficients of the polynomial to the verifier.
+        prover_state.add_scalars(folded_coefficients.coeffs())?;
         // Final verifier queries and answers. The indices are over the folded domain.
-        let final_challenge_indexes = get_challenge_stir_queries::<F, _>(
+        let final_challenge_indexes = get_challenge_stir_queries(
             // The size of the original domain before folding
             round_state.domain.size(),
             // The folding factor we used to fold the previous polynomial
             self.0.folding_factor.at_round(round_state.round),
             self.0.final_queries,
-            challenger,
-        );
+            prover_state,
+        )?;
 
         // Every query requires opening these many in the previous Merkle tree
         let merkle_proof: Vec<_> = final_challenge_indexes
@@ -366,9 +388,9 @@ where
             .collect();
         round_state.merkle_proofs.extend(merkle_proof);
 
-        // Perform proof-of-work if required
+        // PoW
         if self.0.final_pow_bits > 0. {
-            challenger.grind(self.0.final_pow_bits as usize);
+            prover_state.challenge_pow::<PS>(self.0.final_pow_bits)?;
         }
 
         // Run final sumcheck if required
@@ -378,11 +400,11 @@ where
                 .unwrap_or_else(|| {
                     SumcheckSingle::new(folded_coefficients.clone(), &round_state.statement, F::ONE)
                 })
-                .compute_sumcheck_polynomials(
-                    challenger,
+                .compute_sumcheck_polynomials::<PS, _>(
+                    prover_state,
                     self.0.final_sumcheck_rounds,
-                    self.0.final_folding_pow_bits as usize,
-                );
+                    self.0.final_folding_pow_bits,
+                )?;
 
             let start_idx = self.0.folding_factor.total_number(round_state.round);
             let mut arr = final_folding_randomness.clone().0;
@@ -408,27 +430,27 @@ where
             })
             .collect();
 
-        WhirProof { merkle_paths: round_state.merkle_proofs, statement_values_at_random_point }
+        Ok(WhirProof { merkle_paths: round_state.merkle_proofs, statement_values_at_random_point })
     }
 
-    fn compute_stir_queries<CH, const DIGEST_ELEMS: usize>(
+    fn compute_stir_queries<ProverState, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut CH,
+        prover_state: &mut ProverState,
         round_state: &RoundState<F, H, C, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig,
         ood_points: Vec<F>,
-    ) -> (Vec<MultilinearPoint<F>>, Vec<usize>)
+    ) -> ProofResult<(Vec<MultilinearPoint<F>>, Vec<usize>)>
     where
         F: PrimeField32,
-        CH: CanSample<F>,
+        ProverState: VerifierMessageBytes,
     {
-        let stir_challenges_indexes = get_challenge_stir_queries::<F, _>(
+        let stir_challenges_indexes = get_challenge_stir_queries(
             round_state.domain.size(),
             self.0.folding_factor.at_round(round_state.round),
             round_params.num_queries,
-            challenger,
-        );
+            prover_state,
+        )?;
 
         // Compute the generator of the folded domain, in the extension field
         let domain_scaled_gen = round_state
@@ -441,6 +463,6 @@ where
             .map(|univariate| MultilinearPoint::expand_from_univariate(univariate, num_variables))
             .collect();
 
-        (stir_challenges, stir_challenges_indexes)
+        Ok((stir_challenges, stir_challenges_indexes))
     }
 }

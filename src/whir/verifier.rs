@@ -1,6 +1,5 @@
 use std::{fmt::Debug, iter};
 
-use p3_challenger::{CanSample, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
 use p3_matrix::Dimensions;
@@ -9,12 +8,18 @@ use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ProofError, ProofResult, WhirProof,
+    WhirProof,
     parsed_proof::ParsedRound,
     statement::{StatementVerifier, VerifierWeights},
-    utils::get_challenge_stir_queries,
+    utils::{DigestReader, get_challenge_stir_queries},
 };
 use crate::{
+    fiat_shamir::{
+        codecs::traits::{DeserializeField, UnitToField},
+        errors::{ProofError, ProofResult},
+        pow::{PoWChallenge, PowStrategy},
+        traits::VerifierMessageBytes,
+    },
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     utils::expand_randomness,
@@ -29,46 +34,50 @@ struct ParsedCommitment<F, D> {
 }
 
 #[derive(Debug)]
-pub struct Verifier<F, H, C>
+pub struct Verifier<F, H, C, PowStrategy>
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
-    params: WhirConfig<F, H, C>,
+    params: WhirConfig<F, H, C, PowStrategy>,
 }
 
-impl<F, H, C> Verifier<F, H, C>
+impl<F, H, C, PS> Verifier<F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField32,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    PS: PowStrategy,
 {
-    pub const fn new(params: WhirConfig<F, H, C>) -> Self {
+    pub const fn new(params: WhirConfig<F, H, C, PS>) -> Self {
         Self { params }
     }
 
-    fn parse_commitment<CH, const DIGEST_ELEMS: usize>(
+    fn parse_commitment<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut CH,
-    ) -> ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>>
+        verifier_state: &mut VerifierState,
+    ) -> ProofResult<ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>>>
     where
-        CH: CanSample<F>,
+        VerifierState: VerifierMessageBytes
+            + DeserializeField<F>
+            + UnitToField<F>
+            + DigestReader<Hash<F, F, DIGEST_ELEMS>>,
     {
-        // Read the Merkle root from the challenger
-        let root = challenger.sample_array();
+        let root = verifier_state.read_digest()?;
 
-        // Sample OOD points if required
-        let ood_points = challenger.sample_vec(self.params.committment_ood_samples);
+        let mut ood_points = vec![F::ZERO; self.params.committment_ood_samples];
+        let mut ood_answers = vec![F::ZERO; self.params.committment_ood_samples];
+        if self.params.committment_ood_samples > 0 {
+            verifier_state.fill_challenge_scalars(&mut ood_points)?;
+            verifier_state.fill_next_scalars(&mut ood_answers)?;
+        }
 
-        // Sample OOD answers corresponding to the OOD points
-        let ood_answers = challenger.sample_vec(self.params.committment_ood_samples);
-
-        ParsedCommitment { root: root.into(), ood_points, ood_answers }
+        Ok(ParsedCommitment { root, ood_points, ood_answers })
     }
 
     #[allow(clippy::too_many_lines)]
-    fn parse_proof<CH, const DIGEST_ELEMS: usize>(
+    fn parse_proof<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut CH,
+        verifier_state: &mut VerifierState,
         parsed_commitment: &ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>>,
         statement_points_len: usize,
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
@@ -82,7 +91,11 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        CH: GrindingChallenger + CanSample<F> + std::fmt::Debug,
+        VerifierState: VerifierMessageBytes
+            + UnitToField<F>
+            + DeserializeField<F>
+            + PoWChallenge
+            + DigestReader<Hash<F, F, DIGEST_ELEMS>>,
     {
         let mmcs = MerkleTreeMmcs::<_, <F as Field>::Packing, _, _, DIGEST_ELEMS>::new(
             self.params.merkle_hash.clone(),
@@ -94,8 +107,8 @@ where
         let initial_combination_randomness;
 
         if self.params.initial_statement {
-            // Sample combination randomness and first sumcheck polynomial
-            let combination_randomness_gen = challenger.sample();
+            // Derive combination randomness and first sumcheck polynomial
+            let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
             initial_combination_randomness = expand_randomness(
                 combination_randomness_gen,
                 parsed_commitment.ood_points.len() + statement_points_len,
@@ -104,13 +117,13 @@ where
             // Initial sumcheck
             sumcheck_rounds.reserve_exact(self.params.folding_factor.at_round(0));
             for _ in 0..self.params.folding_factor.at_round(0) {
-                let sumcheck_poly_evals: [_; 3] = challenger.sample_array();
+                let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars()?;
                 let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-                let folding_randomness_single = challenger.sample();
+                let [folding_randomness_single] = verifier_state.challenge_scalars()?;
                 sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
 
                 if self.params.starting_folding_pow_bits > 0. {
-                    challenger.grind(self.params.starting_folding_pow_bits as usize);
+                    verifier_state.challenge_pow::<PS>(self.params.starting_folding_pow_bits)?;
                 }
             }
 
@@ -122,13 +135,13 @@ where
 
             initial_combination_randomness = vec![F::ONE];
 
-            let folding_randomness_vec =
-                challenger.sample_vec(self.params.folding_factor.at_round(0));
+            let mut folding_randomness_vec = vec![F::ZERO; self.params.folding_factor.at_round(0)];
+            verifier_state.fill_challenge_scalars(&mut folding_randomness_vec)?;
             folding_randomness = MultilinearPoint(folding_randomness_vec);
 
             // PoW
             if self.params.starting_folding_pow_bits > 0. {
-                challenger.grind(self.params.starting_folding_pow_bits as usize);
+                verifier_state.challenge_pow::<PS>(self.params.starting_folding_pow_bits)?;
             }
         }
 
@@ -143,17 +156,21 @@ where
             let (answers, merkle_proof) = &whir_proof.merkle_paths[r];
             let round_params = &self.params.round_parameters[r];
 
-            let new_root = challenger.sample_array();
+            let new_root = verifier_state.read_digest()?;
 
-            let ood_points = challenger.sample_vec(round_params.ood_samples);
-            let ood_answers = challenger.sample_vec(round_params.ood_samples);
+            let mut ood_points = vec![F::ZERO; round_params.ood_samples];
+            let mut ood_answers = vec![F::ZERO; round_params.ood_samples];
+            if round_params.ood_samples > 0 {
+                verifier_state.fill_challenge_scalars(&mut ood_points)?;
+                verifier_state.fill_next_scalars(&mut ood_answers)?;
+            }
 
-            let stir_challenges_indexes = get_challenge_stir_queries::<F, _>(
+            let stir_challenges_indexes = get_challenge_stir_queries(
                 domain_size,
                 self.params.folding_factor.at_round(r),
                 round_params.num_queries,
-                challenger,
-            );
+                verifier_state,
+            )?;
 
             let stir_challenges_points = stir_challenges_indexes
                 .iter()
@@ -179,10 +196,10 @@ where
             .map_err(|_| ProofError::InvalidProof)?;
 
             if round_params.pow_bits > 0. {
-                challenger.grind(round_params.pow_bits as usize);
+                verifier_state.challenge_pow::<PS>(round_params.pow_bits)?;
             }
 
-            let combination_randomness_gen = challenger.sample();
+            let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
             let combination_randomness = expand_randomness(
                 combination_randomness_gen,
                 stir_challenges_indexes.len() + round_params.ood_samples,
@@ -192,13 +209,13 @@ where
                 Vec::with_capacity(self.params.folding_factor.at_round(r + 1));
 
             for _ in 0..self.params.folding_factor.at_round(r + 1) {
-                let sumcheck_poly_evals: [_; 3] = challenger.sample_array();
+                let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars()?;
                 let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-                let folding_randomness_single = challenger.sample();
+                let [folding_randomness_single] = verifier_state.challenge_scalars()?;
                 sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
 
                 if round_params.folding_pow_bits > 0. {
-                    challenger.grind(round_params.folding_pow_bits as usize);
+                    verifier_state.challenge_pow::<PS>(round_params.folding_pow_bits)?;
                 }
             }
 
@@ -226,15 +243,16 @@ where
             domain_size /= 2;
         }
 
-        let final_coefficients = challenger.sample_vec(1 << self.params.final_sumcheck_rounds);
+        let mut final_coefficients = vec![F::ZERO; 1 << self.params.final_sumcheck_rounds];
+        verifier_state.fill_next_scalars(&mut final_coefficients)?;
         let final_coefficients = CoefficientList::new(final_coefficients);
 
-        let final_randomness_indexes = get_challenge_stir_queries::<F, _>(
+        let final_randomness_indexes = get_challenge_stir_queries(
             domain_size,
             self.params.folding_factor.at_round(self.params.n_rounds()),
             self.params.final_queries,
-            challenger,
-        );
+            verifier_state,
+        )?;
         let final_randomness_points: Vec<_> = final_randomness_indexes
             .iter()
             .map(|index| exp_domain_gen.exp_u64(*index as u64))
@@ -265,18 +283,18 @@ where
         })?;
 
         if self.params.final_pow_bits > 0. {
-            challenger.grind(self.params.final_pow_bits as usize);
+            verifier_state.challenge_pow::<PS>(self.params.final_pow_bits)?;
         }
 
         let mut final_sumcheck_rounds = Vec::with_capacity(self.params.final_sumcheck_rounds);
         for _ in 0..self.params.final_sumcheck_rounds {
-            let sumcheck_poly_evals: [F; 3] = challenger.sample_array();
+            let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars()?;
             let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-            let folding_randomness_single = challenger.sample();
+            let [folding_randomness_single] = verifier_state.challenge_scalars()?;
             final_sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
 
             if self.params.final_folding_pow_bits > 0. {
-                challenger.grind(self.params.final_folding_pow_bits as usize);
+                verifier_state.challenge_pow::<PS>(self.params.final_folding_pow_bits)?;
             }
         }
 
@@ -377,9 +395,9 @@ where
         value
     }
 
-    pub fn verify<CH, const DIGEST_ELEMS: usize>(
+    pub fn verify<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: &mut CH,
+        verifier_state: &mut VerifierState,
         statement: &StatementVerifier<F>,
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
     ) -> ProofResult<()>
@@ -392,14 +410,18 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        CH: GrindingChallenger + CanSample<F> + std::fmt::Debug,
+        VerifierState: VerifierMessageBytes
+            + UnitToField<F>
+            + DeserializeField<F>
+            + PoWChallenge
+            + DigestReader<Hash<F, F, DIGEST_ELEMS>>,
     {
         // First, derive all Fiat-Shamir challenges
-        let parsed_commitment = self.parse_commitment(challenger);
+        let parsed_commitment = self.parse_commitment(verifier_state)?;
         let evaluations: Vec<_> = statement.constraints.iter().map(|(_, eval)| *eval).collect();
 
         let parsed = self.parse_proof(
-            challenger,
+            verifier_state,
             &parsed_commitment,
             statement.constraints.len(),
             whir_proof,

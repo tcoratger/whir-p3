@@ -284,7 +284,7 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_field::PrimeCharacteristicRing;
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 
     use super::*;
     use crate::poly::evals::EvaluationsList;
@@ -475,7 +475,7 @@ mod tests {
     #[test]
     fn test_evaluate_at_extension_single_variable() {
         type F = BabyBear;
-        type E = BabyBear;
+        type E = BinomialExtensionField<F, 4>;
 
         // Polynomial f(X) = 3 + 7X in base field
         let coeff0 = F::from_u64(3);
@@ -483,12 +483,9 @@ mod tests {
         let coeffs = vec![coeff0, coeff1];
         let coeff_list = CoefficientList::new(coeffs);
 
-        // Convert to extension field
-        let coeff_list_ext = coeff_list.to_extension::<E>();
-
         let x = E::from_u64(2); // Evaluation at x = 2 in extension field
         let expected_value = E::from_u64(3) + E::from_u64(7) * x; // f(2) = 3 + 7 * 2
-        let eval_result = coeff_list_ext.evaluate_at_extension(&MultilinearPoint(vec![x]));
+        let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x]));
 
         assert_eq!(eval_result, expected_value);
     }
@@ -496,7 +493,7 @@ mod tests {
     #[test]
     fn test_evaluate_at_extension_two_variables() {
         type F = BabyBear;
-        type E = BabyBear;
+        type E = BinomialExtensionField<F, 4>;
 
         // Polynomial f(X₀, X₁) = 2 + 5X₀ + 3X₁ + 7X₀X₁
         let coeffs = vec![
@@ -506,13 +503,12 @@ mod tests {
             F::from_u64(7), // X₀X₁ term
         ];
         let coeff_list = CoefficientList::new(coeffs);
-        let coeff_list_ext = coeff_list.to_extension::<E>();
 
         let x0 = E::from_u64(2);
         let x1 = E::from_u64(3);
         let expected_value =
             E::from_u64(2) + E::from_u64(5) * x1 + E::from_u64(3) * x0 + E::from_u64(7) * x0 * x1;
-        let eval_result = coeff_list_ext.evaluate_at_extension(&MultilinearPoint(vec![x0, x1]));
+        let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x0, x1]));
 
         assert_eq!(eval_result, expected_value);
     }
@@ -520,7 +516,7 @@ mod tests {
     #[test]
     fn test_evaluate_at_extension_three_variables() {
         type F = BabyBear;
-        type E = BabyBear;
+        type E = BinomialExtensionField<F, 4>;
 
         // Polynomial: f(X₀, X₁, X₂) = 1 + 2X₂ + 3X₁ + 5X₁X₂ + 4X₀ + 6X₀X₂ + 7X₀X₁ + 8X₀X₁X₂
         let coeffs = vec![
@@ -534,7 +530,6 @@ mod tests {
             F::from_u64(8), // X₀X₁X₂ (111)
         ];
         let coeff_list = CoefficientList::new(coeffs);
-        let coeff_list_ext = coeff_list.to_extension::<E>();
 
         let x0 = E::from_u64(2);
         let x1 = E::from_u64(3);
@@ -550,7 +545,7 @@ mod tests {
             E::from_u64(7) * x0 * x1 +
             E::from_u64(8) * x0 * x1 * x2;
 
-        let eval_result = coeff_list_ext.evaluate_at_extension(&MultilinearPoint(vec![x0, x1, x2]));
+        let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x0, x1, x2]));
 
         assert_eq!(eval_result, expected_value);
     }
@@ -558,15 +553,14 @@ mod tests {
     #[test]
     fn test_evaluate_at_extension_zero_polynomial() {
         type F = BabyBear;
-        type E = BabyBear;
+        type E = BinomialExtensionField<F, 4>;
 
         // Zero polynomial f(X) = 0
         let coeff_list = CoefficientList::new(vec![F::ZERO; 4]); // f(X₀, X₁) = 0
-        let coeff_list_ext = coeff_list.to_extension::<E>();
 
         let x0 = E::from_u64(5);
         let x1 = E::from_u64(7);
-        let eval_result = coeff_list_ext.evaluate_at_extension(&MultilinearPoint(vec![x0, x1]));
+        let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x0, x1]));
 
         assert_eq!(eval_result, E::ZERO);
     }
