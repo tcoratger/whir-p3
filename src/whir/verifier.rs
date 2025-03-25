@@ -1,4 +1,4 @@
-use std::iter;
+use std::{fmt::Debug, iter};
 
 use p3_challenger::{CanSample, GrindingChallenger};
 use p3_commit::Mmcs;
@@ -82,7 +82,7 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        CH: GrindingChallenger + CanSample<F>,
+        CH: GrindingChallenger + CanSample<F> + std::fmt::Debug,
     {
         let mmcs = MerkleTreeMmcs::<_, <F as Field>::Packing, _, _, DIGEST_ELEMS>::new(
             self.params.merkle_hash.clone(),
@@ -226,7 +226,7 @@ where
             domain_size /= 2;
         }
 
-        let final_coefficients = challenger.sample_vec(self.params.final_sumcheck_rounds);
+        let final_coefficients = challenger.sample_vec(1 << self.params.final_sumcheck_rounds);
         let final_coefficients = CoefficientList::new(final_coefficients);
 
         let final_randomness_indexes = get_challenge_stir_queries::<F, _>(
@@ -259,7 +259,10 @@ where
             final_answers,
             final_proof,
         )
-        .map_err(|_| ProofError::InvalidProof)?;
+        .map_err(|e| {
+            println!("error : {e:?}");
+            ProofError::InvalidProof
+        })?;
 
         if self.params.final_pow_bits > 0. {
             challenger.grind(self.params.final_pow_bits as usize);
@@ -389,7 +392,7 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        CH: GrindingChallenger + CanSample<F>,
+        CH: GrindingChallenger + CanSample<F> + std::fmt::Debug,
     {
         // First, derive all Fiat-Shamir challenges
         let parsed_commitment = self.parse_commitment(challenger);

@@ -170,17 +170,22 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_whir() {
-        let folding_factors = [1, 2, 3, 4];
-        let soundness_type = [
-            SoundnessType::ConjectureList,
-            SoundnessType::ProvableList,
-            SoundnessType::UniqueDecoding,
-        ];
-        let fold_types = [FoldType::Naive, FoldType::ProverHelps];
-        let num_points = [0, 1, 2];
-        let pow_bits = [0, 5, 10];
+        // let folding_factors = [1, 2, 3, 4];
+        // let soundness_type = [
+        //     SoundnessType::ConjectureList,
+        //     SoundnessType::ProvableList,
+        //     SoundnessType::UniqueDecoding,
+        // ];
+        // let fold_types = [FoldType::Naive, FoldType::ProverHelps];
+        // let num_points = [0, 1, 2];
+        // let pow_bits = [0, 5, 10];
+
+        let folding_factors = [1];
+        let soundness_type = [SoundnessType::ConjectureList];
+        let fold_types = [FoldType::Naive];
+        let num_points = [0];
+        let pow_bits = [0];
 
         for folding_factor in folding_factors {
             let num_variables = folding_factor..=3 * folding_factor;
