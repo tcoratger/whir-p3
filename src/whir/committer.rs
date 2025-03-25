@@ -22,9 +22,8 @@ use crate::{
 #[derive(Debug)]
 pub struct Witness<F: Field, H, C, const DIGEST_ELEMS: usize> {
     pub(crate) polynomial: CoefficientList<F>,
-    pub(crate) merkle_tree:
-        MerkleTreeMmcs<<F as Field>::Packing, <F as Field>::Packing, H, C, DIGEST_ELEMS>,
-    pub(crate) prover_data: MerkleTree<F, F, DenseMatrix<F>, DIGEST_ELEMS>,
+    pub(crate) merkle_tree: MerkleTreeMmcs<<F as Field>::Packing, u8, H, C, DIGEST_ELEMS>,
+    pub(crate) prover_data: MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     pub(crate) merkle_leaves: Vec<F>,
     pub(crate) ood_points: Vec<F>,
     pub(crate) ood_answers: Vec<F>,
@@ -51,14 +50,14 @@ where
         polynomial: CoefficientList<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     ) -> ProofResult<Witness<F, H, C, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
             + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState: FieldToUnit<F> + UnitToField<F> + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
+        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        ProverState: FieldToUnit<F> + UnitToField<F> + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Compute domain expansion factor
         let base_domain = self.0.starting_domain.base_domain.unwrap();
@@ -86,8 +85,10 @@ where
         let folded_matrix = RowMajorMatrix::new(folded_evals.clone(), fold_size);
 
         // Commit to the Merkle tree
-        let merkle_tree =
-            MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+        let merkle_tree = MerkleTreeMmcs::<<F as Field>::Packing, u8, H, C, DIGEST_ELEMS>::new(
+            self.0.merkle_hash.clone(),
+            self.0.merkle_compress.clone(),
+        );
         let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger

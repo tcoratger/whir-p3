@@ -85,12 +85,12 @@ pub trait DigestWriter<MerkleInnerDigest> {
     fn add_digest(&mut self, digest: MerkleInnerDigest) -> ProofResult<()>;
 }
 
-// impl<F, H, const DIGEST_ELEMS: usize> DigestWriter<Hash<F, F, DIGEST_ELEMS>> for ProverState<H,
+// impl<F, H, const DIGEST_ELEMS: usize> DigestWriter<Hash<F, u8, DIGEST_ELEMS>> for ProverState<H,
 // F> where
 //     F: Field + TwoAdicField + Unit,
 //     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 // {
-//     fn add_digest(&mut self, digest: Hash<F, F, DIGEST_ELEMS>) -> ProofResult<()> {
+//     fn add_digest(&mut self, digest: Hash<F, u8, DIGEST_ELEMS>) -> ProofResult<()> {
 //         // self.add_bytes(digest.as_ref()).map_err(ProofError::InvalidDomainSeparator)
 //         self.public_bytes(digest).map_err(ProofError::InvalidDomainSeparator)?;
 //         self.narg_string.extend(digest);

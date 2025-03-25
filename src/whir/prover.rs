@@ -28,7 +28,7 @@ use crate::{
     },
 };
 
-pub type Proof<F, const DIGEST_ELEMS: usize> = Vec<[F; DIGEST_ELEMS]>;
+pub type Proof<const DIGEST_ELEMS: usize> = Vec<[u8; DIGEST_ELEMS]>;
 pub type Leafs<F> = Vec<Vec<F>>;
 
 pub(crate) struct RoundState<F, H, C, const DIGEST_ELEMS: usize>
@@ -41,13 +41,12 @@ where
     pub(crate) sumcheck_prover: Option<SumcheckSingle<F>>,
     pub(crate) folding_randomness: MultilinearPoint<F>,
     pub(crate) coefficients: CoefficientList<F>,
-    pub(crate) prev_merkle:
-        MerkleTreeMmcs<<F as Field>::Packing, <F as Field>::Packing, H, C, DIGEST_ELEMS>,
-    pub(crate) prev_merkle_prover_data: MerkleTree<F, F, DenseMatrix<F>, DIGEST_ELEMS>,
+    pub(crate) prev_merkle: MerkleTreeMmcs<<F as Field>::Packing, u8, H, C, DIGEST_ELEMS>,
+    pub(crate) prev_merkle_prover_data: MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     pub(crate) prev_merkle_answers: Vec<F>,
     /// - The first element is the opened leaf values
     /// - The second element is the Merkle proof (siblings)
-    pub(crate) merkle_proofs: Vec<(Leafs<F>, Proof<F, DIGEST_ELEMS>)>,
+    pub(crate) merkle_proofs: Vec<(Leafs<F>, Proof<DIGEST_ELEMS>)>,
     pub(crate) randomness_vec: Vec<F>,
     pub(crate) statement: Statement<F>,
 }
@@ -93,18 +92,18 @@ where
     ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
         F: PrimeField32,
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
             + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
             + FieldToUnit<F>
             + UnitToBytes
             + PoWChallenge
-            + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
+            + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Validate parameters
         assert!(
@@ -192,18 +191,18 @@ where
     ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
         F: PrimeField32,
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
             + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
             + UnitToBytes
             + FieldToUnit<F>
             + PoWChallenge
-            + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
+            + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Fold the coefficients
         let folded_coefficients = round_state.coefficients.fold(&round_state.folding_randomness);
@@ -238,8 +237,10 @@ where
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
         let folded_matrix = RowMajorMatrix::new(evals.clone(), 1 << folding_factor_next);
 
-        let merkle_tree =
-            MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+        let merkle_tree = MerkleTreeMmcs::<<F as Field>::Packing, u8, H, C, DIGEST_ELEMS>::new(
+            self.0.merkle_hash.clone(),
+            self.0.merkle_compress.clone(),
+        );
         let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger
@@ -354,18 +355,18 @@ where
     ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
         F: PrimeField32,
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
             + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
             + UnitToBytes
             + FieldToUnit<F>
             + PoWChallenge
-            + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
+            + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_scalars(folded_coefficients.coeffs())?;

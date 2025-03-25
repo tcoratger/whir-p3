@@ -55,12 +55,12 @@ where
     fn parse_commitment<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState,
-    ) -> ProofResult<ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>>>
+    ) -> ProofResult<ParsedCommitment<F, Hash<F, u8, DIGEST_ELEMS>>>
     where
         VerifierState: UnitToBytes
             + DeserializeField<F>
             + UnitToField<F>
-            + DigestReader<Hash<F, F, DIGEST_ELEMS>>,
+            + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
     {
         let root = verifier_state.read_digest()?;
 
@@ -78,26 +78,26 @@ where
     fn parse_proof<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState,
-        parsed_commitment: &ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>>,
+        parsed_commitment: &ParsedCommitment<F, Hash<F, u8, DIGEST_ELEMS>>,
         statement_points_len: usize,
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
     ) -> ProofResult<ParsedProof<F>>
     where
         F: PrimeField32,
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
             + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         VerifierState: UnitToBytes
             + UnitToField<F>
             + DeserializeField<F>
             + PoWChallenge
-            + DigestReader<Hash<F, F, DIGEST_ELEMS>>,
+            + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
     {
-        let mmcs = MerkleTreeMmcs::<_, <F as Field>::Packing, _, _, DIGEST_ELEMS>::new(
+        let mmcs = MerkleTreeMmcs::<F, u8, H, C, DIGEST_ELEMS>::new(
             self.params.merkle_hash.clone(),
             self.params.merkle_compress.clone(),
         );
@@ -319,7 +319,7 @@ where
 
     fn compute_w_poly<const DIGEST_ELEMS: usize>(
         &self,
-        parsed_commitment: &ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>>,
+        parsed_commitment: &ParsedCommitment<F, Hash<F, u8, DIGEST_ELEMS>>,
         statement: &StatementVerifier<F>,
         proof: &ParsedProof<F>,
     ) -> F {
@@ -403,18 +403,18 @@ where
     ) -> ProofResult<()>
     where
         F: PrimeField32,
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [<F as Field>::Packing; DIGEST_ELEMS]>
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
+            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
             + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         VerifierState: UnitToBytes
             + UnitToField<F>
             + DeserializeField<F>
             + PoWChallenge
-            + DigestReader<Hash<F, F, DIGEST_ELEMS>>,
+            + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // First, derive all Fiat-Shamir challenges
         let parsed_commitment = self.parse_commitment(verifier_state)?;
