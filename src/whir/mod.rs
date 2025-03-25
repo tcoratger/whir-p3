@@ -65,8 +65,20 @@ mod tests {
         },
     };
 
+    /// Field type used in the tests.
     type F = BabyBear;
 
+    /// Run a complete WHIR STARK proof lifecycle.
+    ///
+    /// This function performs the full pipeline:
+    /// - Defines a multilinear polynomial with `num_variables`
+    /// - Generates constraints for this polynomial
+    /// - Initializes a Fiat-Shamir transcript (challenger)
+    /// - Commits to the polynomial and produces a witness
+    /// - Generates a STARK proof with the prover
+    /// - Verifies the proof with the verifier
+    ///
+    /// The protocol is configured using folding, soundness, and PoW parameters.
     fn make_whir_things(
         num_variables: usize,
         folding_factor: FoldingFactor,
@@ -75,15 +87,20 @@ mod tests {
         pow_bits: usize,
         fold_type: FoldType,
     ) {
+        // Number of coefficients = 2^num_variables
         let num_coeffs = 1 << num_variables;
 
+        // Initialize a random permutation for the Merkle tree.
         let perm = Perm::new_from_rng_128(&mut rng());
 
+        // Create hash and compression functions for the Merkle tree
         let hash = MyHash::new(perm.clone());
         let compress = MyCompress::new(perm);
 
+        // Set the multivariate polynomial parameters
         let mv_params = MultivariateParameters::<F>::new(num_variables);
 
+        // Construct WHIR protocol parameters
         let whir_params = WhirParameters::<(), _, _> {
             initial_statement: true,
             security_level: 32,
@@ -97,51 +114,59 @@ mod tests {
             fold_optimisation: fold_type,
         };
 
+        // Combine protocol and polynomial parameters into a single config
         let params = WhirConfig::new(mv_params, whir_params);
 
-        let polynomial = CoefficientList::new(vec![F::from_u64(1); num_coeffs]);
+        // Define a polynomial with all coefficients set to 1 (i.e., constant 1 polynomial)
+        let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]);
 
+        // Sample `num_points` random multilinear points in the Boolean hypercube
         let points: Vec<_> = (0..num_points)
             .map(|_| MultilinearPoint::<F>::rand(&mut rng(), num_variables))
             .collect();
 
+        // Construct a new statement with the correct number of variables
         let mut statement = Statement::<F>::new(num_variables);
 
+        // Add constraints for each sampled point (equality constraints)
         for point in &points {
             let eval = polynomial.evaluate(point);
             let weights = Weights::evaluation(point.clone());
             statement.add_constraint(weights, eval);
         }
 
+        // Construct a linear constraint to test sumcheck
         let input = CoefficientList::new((0..1 << num_variables).map(F::from_u64).collect());
-
         let linear_claim_weight = Weights::linear(input.into());
 
+        // Convert the polynomial to extension form for weighted evaluation
         let poly = EvaluationsList::from(polynomial.clone().to_extension());
 
+        // Evaluate the weighted sum and add it as a linear constraint
         let sum = linear_claim_weight.weighted_sum(&poly);
         statement.add_constraint(linear_claim_weight, sum);
 
-        // Create an empty digest of zeros to simulate the Merkle root.
+        // Create a dummy digest representing the initial Merkle root
         let dummy_digest: Hash<F, u8, 32> = Hash::from([0; 32]);
 
-        // Create the challenger with an empty Keccak state.
+        // Instantiate the challenger with an empty state
         let mut proof_challenger = WhirChallenger::<F>::from_hasher(vec![], Keccak256Hash {});
 
-        // Run the transcript logic.
+        // Run the IOPattern logic: commit to the statement and run the proof phase
         proof_challenger.commit_statement(&params, dummy_digest);
         proof_challenger.add_whir_proof(&params, dummy_digest);
 
+        // Commit to the polynomial and produce a witness
         let committer = Committer::new(params.clone());
         let witness = committer.commit(&mut proof_challenger, polynomial);
 
+        // Generate a proof using the prover
         let prover = Prover(params.clone());
         let statement_verifier = StatementVerifier::from_statement(&statement);
-
         let proof = prover.prove(&mut proof_challenger, statement, witness);
 
+        // Verify the proof using the verifier and the same transcript
         let verifier = Verifier::new(params);
-
         assert!(verifier.verify(&mut proof_challenger, &statement_verifier, &proof).is_ok());
     }
 
