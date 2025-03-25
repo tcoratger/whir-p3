@@ -101,7 +101,7 @@ mod tests {
         let mv_params = MultivariateParameters::<F>::new(num_variables);
 
         // Construct WHIR protocol parameters
-        let whir_params = WhirParameters::<(), _, _> {
+        let whir_params = WhirParameters::<_, _> {
             initial_statement: true,
             security_level: 32,
             pow_bits,
@@ -109,7 +109,6 @@ mod tests {
             merkle_hash: hash,
             merkle_compress: compress,
             soundness_type,
-            _pow_parameters: Default::default(),
             starting_log_inv_rate: 1,
             fold_optimisation: fold_type,
         };

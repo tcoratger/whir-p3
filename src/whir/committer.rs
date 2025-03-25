@@ -24,17 +24,17 @@ pub struct Witness<F: Field, H, C, const DIGEST_ELEMS: usize> {
 }
 
 #[derive(Debug)]
-pub struct Committer<F, PowStrategy, H, C>(WhirConfig<F, PowStrategy, H, C>)
+pub struct Committer<F, H, C>(WhirConfig<F, H, C>)
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField;
 
-impl<F, PowStrategy, H, C> Committer<F, PowStrategy, H, C>
+impl<F, H, C> Committer<F, H, C>
 where
     F: Field + TwoAdicField + PrimeField32 + Eq,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
-    pub const fn new(config: WhirConfig<F, PowStrategy, H, C>) -> Self {
+    pub const fn new(config: WhirConfig<F, H, C>) -> Self {
         Self(config)
     }
 
@@ -154,7 +154,6 @@ mod tests {
             merkle_compress: Poseidon2Compression::new(poseidon_p16),
             soundness_type: SoundnessType::ConjectureList,
             fold_optimisation: FoldType::ProverHelps,
-            _pow_parameters: std::marker::PhantomData::<u8>,
             starting_log_inv_rate: starting_rate,
         };
 
@@ -235,7 +234,6 @@ mod tests {
             merkle_compress: Poseidon2Compression::new(poseidon_p16),
             soundness_type: SoundnessType::ConjectureList,
             fold_optimisation: FoldType::ProverHelps,
-            _pow_parameters: std::marker::PhantomData::<u8>,
             starting_log_inv_rate: starting_rate,
         };
 
@@ -289,7 +287,6 @@ mod tests {
             merkle_compress: Poseidon2Compression::new(poseidon_p16),
             soundness_type: SoundnessType::ConjectureList,
             fold_optimisation: FoldType::ProverHelps,
-            _pow_parameters: std::marker::PhantomData::<u8>,
             starting_log_inv_rate: starting_rate,
         };
 

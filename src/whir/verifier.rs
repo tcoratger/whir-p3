@@ -29,20 +29,20 @@ struct ParsedCommitment<F, D> {
 }
 
 #[derive(Debug)]
-pub struct Verifier<F, PowStrategy, H, C>
+pub struct Verifier<F, H, C>
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
-    params: WhirConfig<F, PowStrategy, H, C>,
+    params: WhirConfig<F, H, C>,
 }
 
-impl<F, PowStrategy, H, C> Verifier<F, PowStrategy, H, C>
+impl<F, H, C> Verifier<F, H, C>
 where
     F: Field + TwoAdicField + PrimeField32,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
-    pub const fn new(params: WhirConfig<F, PowStrategy, H, C>) -> Self {
+    pub const fn new(params: WhirConfig<F, H, C>) -> Self {
         Self { params }
     }
 

@@ -130,10 +130,10 @@ impl FoldType {
     ///
     /// - If `Naive`, performs coset-based folding round by round.
     /// - If `ProverHelps`, reuses the precomputed coefficient evaluations.
-    pub(crate) fn stir_evaluations_verifier<F, PowStrategy, H, C>(
+    pub(crate) fn stir_evaluations_verifier<F, H, C>(
         self,
         parsed: &ParsedProof<F>,
-        params: &WhirConfig<F, PowStrategy, H, C>,
+        params: &WhirConfig<F, H, C>,
     ) -> Vec<Vec<F>>
     where
         F: Field + TwoAdicField,
@@ -329,7 +329,7 @@ impl FoldingFactor {
 
 /// Configuration parameters for WHIR proofs.
 #[derive(Clone, Debug)]
-pub struct WhirParameters<PowStrategy, H, C> {
+pub struct WhirParameters<H, C> {
     /// Whether the initial statement is included in the proof.
     pub initial_statement: bool,
     /// The logarithmic inverse rate for sampling.
@@ -344,15 +344,13 @@ pub struct WhirParameters<PowStrategy, H, C> {
     pub pow_bits: usize,
     /// The folding optimization strategy.
     pub fold_optimisation: FoldType,
-    /// Phantom type for PoW parameters.
-    pub _pow_parameters: PhantomData<PowStrategy>,
     /// Hash used in the Merkle tree.
     pub merkle_hash: H,
     /// Compression method used in the Merkle tree.
     pub merkle_compress: C,
 }
 
-impl<PowStrategy, H, C> Display for WhirParameters<PowStrategy, H, C> {
+impl<H, C> Display for WhirParameters<H, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,

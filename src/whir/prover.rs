@@ -45,12 +45,12 @@ where
 }
 
 #[derive(Debug)]
-pub struct Prover<F, PowStrategy, H, C>(pub WhirConfig<F, PowStrategy, H, C>)
+pub struct Prover<F, H, C>(pub WhirConfig<F, H, C>)
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField;
 
-impl<F, PowStrategy, H, C> Prover<F, PowStrategy, H, C>
+impl<F, H, C> Prover<F, H, C>
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,

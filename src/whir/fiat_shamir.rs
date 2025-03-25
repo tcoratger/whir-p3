@@ -24,26 +24,18 @@ where
 }
 
 /// Trait that defines how a Whir proof's transcript interaction is constructed.
-pub trait WhirChallengerTranscript<F, PowStrategy, H, C, const DIGEST_ELEMS: usize>
+pub trait WhirChallengerTranscript<F, H, C, const DIGEST_ELEMS: usize>
 where
     F: Field + PrimeField32 + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
-    fn commit_statement(
-        &mut self,
-        params: &WhirConfig<F, PowStrategy, H, C>,
-        digest: Hash<F, u8, DIGEST_ELEMS>,
-    );
+    fn commit_statement(&mut self, params: &WhirConfig<F, H, C>, digest: Hash<F, u8, DIGEST_ELEMS>);
 
-    fn add_whir_proof(
-        &mut self,
-        params: &WhirConfig<F, PowStrategy, H, C>,
-        digest: Hash<F, u8, DIGEST_ELEMS>,
-    );
+    fn add_whir_proof(&mut self, params: &WhirConfig<F, H, C>, digest: Hash<F, u8, DIGEST_ELEMS>);
 }
 
-impl<F, PowStrategy, H, C, Challenger, const DIGEST_ELEMS: usize>
-    WhirChallengerTranscript<F, PowStrategy, H, C, DIGEST_ELEMS> for Challenger
+impl<F, H, C, Challenger, const DIGEST_ELEMS: usize> WhirChallengerTranscript<F, H, C, DIGEST_ELEMS>
+    for Challenger
 where
     F: Field + PrimeField32 + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
@@ -56,7 +48,7 @@ where
 {
     fn commit_statement(
         &mut self,
-        params: &WhirConfig<F, PowStrategy, H, C>,
+        params: &WhirConfig<F, H, C>,
         digest: Hash<F, u8, DIGEST_ELEMS>,
     ) {
         self.observe_digest(digest);
@@ -67,11 +59,7 @@ where
         }
     }
 
-    fn add_whir_proof(
-        &mut self,
-        params: &WhirConfig<F, PowStrategy, H, C>,
-        digest: Hash<F, u8, DIGEST_ELEMS>,
-    ) {
+    fn add_whir_proof(&mut self, params: &WhirConfig<F, H, C>, digest: Hash<F, u8, DIGEST_ELEMS>) {
         if params.initial_statement {
             // Simulate initial sumcheck round
             let _initial_combination = self.sample();
