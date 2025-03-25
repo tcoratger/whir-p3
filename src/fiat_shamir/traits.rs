@@ -22,17 +22,6 @@ pub trait CommonUnitToBytes {
     fn public_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch>;
 }
 
-/// Methods for adding bytes to the [`DomainSeparator`](crate::DomainSeparator), properly counting
-/// group elements.
-pub trait ByteDomainSeparator {
-    fn add_bytes(self, count: usize, label: &str) -> Self;
-    fn challenge_bytes(self, count: usize, label: &str) -> Self;
-}
-
-pub trait ByteWriter {
-    fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch>;
-}
-
 /// Squeezing bytes from the sponge.
 ///
 /// While this trait is trivial for byte-oriented sponges, it is non-trivial for algebraic hashes.
@@ -42,12 +31,54 @@ pub trait ByteWriter {
 ///   `implementor.fill_challenge_bytes(&mut out[..1]); implementor.fill_challenge_bytes(&mut
 ///   out[1..]);` is expected to be equivalent to `implementor.fill_challenge_bytes(&mut out);`.
 /// - $\mathbb{F}_p$ implementations are expected to provide no such guarantee. In addition, we expect the implementation to return bytes that are uniformly distributed. In particular, note that the most significant bytes of a $\mod p$ element are not uniformly distributed. The number of bytes good to be used can be discovered playing with [our scripts](https://github.com/arkworks-rs/spongefish/blob/main/scripts/useful_bits_modp.py).
-pub trait VerifierMessageBytes {
+pub trait UnitToBytes {
     fn fill_challenge_bytes(&mut self, output: &mut [u8]) -> Result<(), DomainSeparatorMismatch>;
 
     #[inline(always)]
     fn challenge_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
         let mut output = [0u8; N];
         self.fill_challenge_bytes(&mut output).map(|()| output)
+    }
+}
+
+/// A trait for absorbing and squeezing bytes from a sponge.
+///
+/// While this trait is trivial for byte-oriented sponges, non-algebraic hashes are tricky.
+/// We point the curious reader to the documentation of [`CommonUnitToBytes`] and [`UnitToBytes`]
+/// for more details.
+pub trait ByteTranscript: CommonUnitToBytes + UnitToBytes {}
+
+pub trait ByteReader {
+    fn fill_next_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch>;
+
+    #[inline(always)]
+    fn next_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
+        let mut input = [0u8; N];
+        self.fill_next_bytes(&mut input).map(|()| input)
+    }
+}
+
+pub trait ByteWriter {
+    fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch>;
+}
+
+/// Methods for adding bytes to the [`DomainSeparator`](crate::DomainSeparator), properly counting
+/// group elements.
+pub trait ByteDomainSeparator {
+    fn add_bytes(self, count: usize, label: &str) -> Self;
+    fn challenge_bytes(self, count: usize, label: &str) -> Self;
+}
+
+impl<T: UnitTranscript<u8>> CommonUnitToBytes for T {
+    #[inline]
+    fn public_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+        self.public_units(input)
+    }
+}
+
+impl<T: UnitTranscript<u8>> UnitToBytes for T {
+    #[inline]
+    fn fill_challenge_bytes(&mut self, output: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
+        self.fill_challenge_units(output)
     }
 }

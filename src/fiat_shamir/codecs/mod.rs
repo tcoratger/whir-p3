@@ -1,6 +1,8 @@
 pub mod domain_separator;
 pub mod plonky3;
+pub mod prover_messages;
 pub mod traits;
+pub mod verifier_messages;
 
 /// Bytes needed in order to encode an element of F.
 #[allow(unused)]

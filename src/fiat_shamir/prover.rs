@@ -117,20 +117,6 @@ where
     }
 }
 
-impl<H, R, F> CommonUnitToBytes for ProverState<H, F, R>
-where
-    F: Field + Unit,
-    H: DuplexSpongeInterface<F>,
-    R: TryCryptoRng + TryRngCore,
-{
-    fn public_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
-        for &byte in input {
-            self.public_units(&[F::from_u8(byte)])?;
-        }
-        Ok(())
-    }
-}
-
 impl<H, U, R> core::fmt::Debug for ProverState<H, U, R>
 where
     U: Unit,
@@ -152,16 +138,16 @@ where
     }
 }
 
-impl<H, R> ByteWriter for ProverState<H, u8, R>
-where
-    H: DuplexSpongeInterface<u8>,
-    R: TryRngCore + TryCryptoRng,
-{
-    #[inline(always)]
-    fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
-        self.add_units(input)
-    }
-}
+// impl<H, R> ByteWriter for ProverState<H, u8, R>
+// where
+//     H: DuplexSpongeInterface<u8>,
+//     R: TryRngCore + TryCryptoRng,
+// {
+//     #[inline(always)]
+//     fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+//         self.add_units(input)
+//     }
+// }
 
 /// A cryptographically-secure random number generator that is bound to the protocol transcript.
 ///

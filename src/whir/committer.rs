@@ -58,8 +58,7 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState:
-            FieldToUnit<F> + UnitToField<F> + ByteWriter + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
+        ProverState: FieldToUnit<F> + UnitToField<F> + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
     {
         // Compute domain expansion factor
         let base_domain = self.0.starting_domain.base_domain.unwrap();

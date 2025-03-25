@@ -15,7 +15,7 @@ use crate::{
         codecs::traits::{FieldToUnit, UnitToField},
         errors::ProofResult,
         pow::{PoWChallenge, PowStrategy},
-        traits::VerifierMessageBytes,
+        traits::UnitToBytes,
     },
     ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations, multilinear::MultilinearPoint},
@@ -102,7 +102,7 @@ where
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
             + FieldToUnit<F>
-            + VerifierMessageBytes
+            + UnitToBytes
             + PoWChallenge
             + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
     {
@@ -200,7 +200,7 @@ where
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
-            + VerifierMessageBytes
+            + UnitToBytes
             + FieldToUnit<F>
             + PoWChallenge
             + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
@@ -362,7 +362,7 @@ where
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
-            + VerifierMessageBytes
+            + UnitToBytes
             + FieldToUnit<F>
             + PoWChallenge
             + DigestWriter<Hash<F, F, DIGEST_ELEMS>>,
@@ -443,7 +443,7 @@ where
     ) -> ProofResult<(Vec<MultilinearPoint<F>>, Vec<usize>)>
     where
         F: PrimeField32,
-        ProverState: VerifierMessageBytes,
+        ProverState: UnitToBytes,
     {
         let stir_challenges_indexes = get_challenge_stir_queries(
             round_state.domain.size(),

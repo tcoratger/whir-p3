@@ -18,7 +18,7 @@ use crate::{
         codecs::traits::{DeserializeField, UnitToField},
         errors::{ProofError, ProofResult},
         pow::{PoWChallenge, PowStrategy},
-        traits::VerifierMessageBytes,
+        traits::UnitToBytes,
     },
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
@@ -57,7 +57,7 @@ where
         verifier_state: &mut VerifierState,
     ) -> ProofResult<ParsedCommitment<F, Hash<F, F, DIGEST_ELEMS>>>
     where
-        VerifierState: VerifierMessageBytes
+        VerifierState: UnitToBytes
             + DeserializeField<F>
             + UnitToField<F>
             + DigestReader<Hash<F, F, DIGEST_ELEMS>>,
@@ -91,7 +91,7 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        VerifierState: VerifierMessageBytes
+        VerifierState: UnitToBytes
             + UnitToField<F>
             + DeserializeField<F>
             + PoWChallenge
@@ -410,7 +410,7 @@ where
             + PseudoCompressionFunction<[<F as Field>::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        VerifierState: VerifierMessageBytes
+        VerifierState: UnitToBytes
             + UnitToField<F>
             + DeserializeField<F>
             + PoWChallenge

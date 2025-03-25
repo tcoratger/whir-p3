@@ -8,17 +8,6 @@ pub trait FieldDomainSeparator<F: Field> {
     fn challenge_scalars(self, count: usize, label: &str) -> Self;
 }
 
-/// Add field elements to the protocol transcript.
-pub trait FieldToUnit<F: Field>: CommonFieldToUnit<F> {
-    fn add_scalars(&mut self, input: &[F]) -> ProofResult<()>;
-}
-
-/// Add field elements as shared public information.
-pub trait CommonFieldToUnit<F: Field> {
-    type Repr;
-    fn public_scalars(&mut self, input: &[F]) -> ProofResult<Self::Repr>;
-}
-
 /// Interpret verifier messages as uniformly distributed field elements.
 ///
 /// The implementation of this trait **MUST** ensure that the field elements
@@ -30,6 +19,17 @@ pub trait UnitToField<F: Field> {
         let mut output = [F::default(); N];
         self.fill_challenge_scalars(&mut output).map(|()| output)
     }
+}
+
+/// Add field elements as shared public information.
+pub trait CommonFieldToUnit<F: Field> {
+    type Repr;
+    fn public_scalars(&mut self, input: &[F]) -> ProofResult<Self::Repr>;
+}
+
+/// Add field elements to the protocol transcript.
+pub trait FieldToUnit<F: Field>: CommonFieldToUnit<F> {
+    fn add_scalars(&mut self, input: &[F]) -> ProofResult<()>;
 }
 
 /// Deserialize field elements from the protocol transcript.

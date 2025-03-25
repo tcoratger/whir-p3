@@ -1,11 +1,14 @@
 use itertools::Itertools;
 use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_symmetric::Hash;
 
 use crate::{
     fiat_shamir::{
         codecs::traits::{FieldToUnit, UnitToField},
-        errors::ProofResult,
-        traits::VerifierMessageBytes,
+        duplex_sponge::Unit,
+        errors::{ProofError, ProofResult},
+        prover::ProverState,
+        traits::{ByteWriter, UnitToBytes},
     },
     poly::multilinear::MultilinearPoint,
 };
@@ -23,7 +26,7 @@ pub fn get_challenge_stir_queries<T>(
     narg_string: &mut T,
 ) -> ProofResult<Vec<usize>>
 where
-    T: VerifierMessageBytes,
+    T: UnitToBytes,
 {
     let folded_domain_size = domain_size >> folding_factor;
     // Compute required bytes per index: `domain_size_bytes = ceil(log2(folded_domain_size) / 8)`
@@ -81,6 +84,19 @@ where
 pub trait DigestWriter<MerkleInnerDigest> {
     fn add_digest(&mut self, digest: MerkleInnerDigest) -> ProofResult<()>;
 }
+
+// impl<F, H, const DIGEST_ELEMS: usize> DigestWriter<Hash<F, F, DIGEST_ELEMS>> for ProverState<H,
+// F> where
+//     F: Field + TwoAdicField + Unit,
+//     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+// {
+//     fn add_digest(&mut self, digest: Hash<F, F, DIGEST_ELEMS>) -> ProofResult<()> {
+//         // self.add_bytes(digest.as_ref()).map_err(ProofError::InvalidDomainSeparator)
+//         self.public_bytes(digest).map_err(ProofError::InvalidDomainSeparator)?;
+//         self.narg_string.extend(digest);
+//         Ok(())
+//     }
+// }
 
 pub trait DigestReader<MerkleInnerDigest> {
     fn read_digest(&mut self) -> ProofResult<MerkleInnerDigest>;
