@@ -12,7 +12,7 @@ use super::{
     committer::reader::ParsedCommitment,
     parsed_proof::ParsedRound,
     statement::{StatementVerifier, VerifierWeights},
-    utils::{DigestReader, get_challenge_stir_queries},
+    utils::{DigestToUnitDeserialize, get_challenge_stir_queries},
 };
 use crate::{
     fiat_shamir::{
@@ -62,7 +62,7 @@ where
             + UnitToField<F>
             + FieldToUnitDeserialize<F>
             + PoWChallenge
-            + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
+            + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         let mmcs = MerkleTreeMmcs::new(
             self.params.merkle_hash.clone(),
@@ -384,7 +384,7 @@ where
             + UnitToField<F>
             + FieldToUnitDeserialize<F>
             + PoWChallenge
-            + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
+            + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // First, derive all Fiat-Shamir challenges
         let evaluations: Vec<_> = statement

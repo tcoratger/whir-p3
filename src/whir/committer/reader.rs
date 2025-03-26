@@ -7,7 +7,7 @@ use crate::{
         errors::ProofResult,
         traits::UnitToBytes,
     },
-    whir::{parameters::WhirConfig, utils::DigestReader},
+    whir::{parameters::WhirConfig, utils::DigestToUnitDeserialize},
 };
 
 #[derive(Debug, Clone)]
@@ -40,7 +40,7 @@ where
         VerifierState: UnitToBytes
             + FieldToUnitDeserialize<F>
             + UnitToField<F>
-            + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
+            + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         let root = verifier_state.read_digest()?;
 

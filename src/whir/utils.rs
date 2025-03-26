@@ -98,6 +98,6 @@ where
     }
 }
 
-pub trait DigestReader<MerkleInnerDigest> {
+pub trait DigestToUnitDeserialize<MerkleInnerDigest> {
     fn read_digest(&mut self) -> ProofResult<MerkleInnerDigest>;
 }
