@@ -3,10 +3,8 @@ use rand::{TryCryptoRng, TryRngCore};
 
 use super::traits::FieldToUnit;
 use crate::fiat_shamir::{
-    codecs::traits::CommonFieldToUnit,
-    duplex_sponge::interface::DuplexSpongeInterface,
-    errors::ProofResult,
-    prover::ProverState,
+    codecs::traits::CommonFieldToUnit, duplex_sponge::interface::DuplexSpongeInterface,
+    errors::ProofResult, prover::ProverState,
 };
 
 impl<F: Field, H: DuplexSpongeInterface, R: TryRngCore + TryCryptoRng> FieldToUnit<F>

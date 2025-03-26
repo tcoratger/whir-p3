@@ -286,9 +286,7 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    
     use p3_field::PrimeCharacteristicRing;
-    
 
     use super::*;
     use crate::{
