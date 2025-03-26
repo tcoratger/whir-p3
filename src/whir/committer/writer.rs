@@ -178,10 +178,10 @@ mod tests {
         let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let io: DomainSeparator = DomainSeparator::new("🌪️")
+        let domainsep: DomainSeparator = DomainSeparator::new("🌪️")
             .commit_statement(&params)
             .add_whir_proof(&params);
-        let mut prover_state = io.to_prover_state();
+        let mut prover_state = domainsep.to_prover_state();
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(params.clone());
@@ -262,8 +262,8 @@ mod tests {
         let mut rng = rand::rng();
         let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 1024]);
 
-        let io = DomainSeparator::new("🌪️").commit_statement(&params);
-        let mut prover_state = io.to_prover_state();
+        let domainsep = DomainSeparator::new("🌪️").commit_statement(&params);
+        let mut prover_state = domainsep.to_prover_state();
 
         let committer = CommitmentWriter::new(params);
         let witness = committer.commit(&mut prover_state, polynomial).unwrap();
@@ -315,8 +315,8 @@ mod tests {
         let mut rng = rand::rng();
         let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        let io = DomainSeparator::new("🌪️").commit_statement(&params);
-        let mut prover_state = io.to_prover_state();
+        let domainsep = DomainSeparator::new("🌪️").commit_statement(&params);
+        let mut prover_state = domainsep.to_prover_state();
 
         let committer = CommitmentWriter::new(params);
         let witness = committer.commit(&mut prover_state, polynomial).unwrap();
