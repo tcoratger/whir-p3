@@ -1,14 +1,11 @@
 use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
-use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
-use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
+use p3_matrix::dense::RowMajorMatrix;
+use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
-use super::{
-    parameters::WhirConfig,
-    utils::{DigestWriter, sample_ood_points},
-};
+use super::Witness;
 use crate::{
     fiat_shamir::{
         codecs::traits::{FieldToUnit, UnitToField},
@@ -16,42 +13,31 @@ use crate::{
     },
     ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
+    whir::{
+        parameters::WhirConfig,
+        utils::{DigestWriter, sample_ood_points},
+    },
 };
 
-/// Represents the commitment and evaluation data for a polynomial.
+/// Responsible for committing polynomials using a Merkle-based scheme.
 ///
-/// This structure holds all necessary components to verify a commitment,
-/// including the polynomial itself, the Merkle tree used for commitment,
-/// and out-of-domain (OOD) evaluations.
+/// The `Committer` processes a polynomial, expands and folds its evaluations,
+/// and constructs a Merkle tree from the resulting values.
+///
+/// It provides a commitment that can be used for proof generation and verification.
 #[derive(Debug)]
-pub struct Witness<F: Field, H, C, const DIGEST_ELEMS: usize> {
-    /// The committed polynomial in coefficient form.
-    pub(crate) polynomial: CoefficientList<F>,
-    /// The Merkle tree constructed from the polynomial evaluations.
-    pub(crate) merkle_tree: MerkleTreeMmcs<F, u8, H, C, DIGEST_ELEMS>,
-    /// Prover data of the Merkle tree.
-    pub(crate) prover_data: MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
-    /// The leaves of the Merkle tree, derived from folded polynomial evaluations.
-    pub(crate) merkle_leaves: Vec<F>,
-    /// Out-of-domain challenge points used for polynomial verification.
-    pub(crate) ood_points: Vec<F>,
-    /// The corresponding polynomial evaluations at the OOD challenge points.
-    pub(crate) ood_answers: Vec<F>,
-}
-
-#[derive(Debug)]
-pub struct Committer<F, H, C, PowStrategy>(WhirConfig<F, H, C, PowStrategy>)
+pub struct CommitmentWriter<F, H, C, PowStrategy>(WhirConfig<F, H, C, PowStrategy>)
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField;
 
-impl<F, H, C, PowStrategy> Committer<F, H, C, PowStrategy>
+impl<F, H, C, PS> CommitmentWriter<F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField32 + Eq,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
-    pub const fn new(config: WhirConfig<F, H, C, PowStrategy>) -> Self {
-        Self(config)
+    pub const fn new(params: WhirConfig<F, H, C, PS>) -> Self {
+        Self(params)
     }
 
     /// Commits a polynomial using a Merkle-based commitment scheme.
@@ -197,7 +183,7 @@ mod tests {
         let mut prover_state = io.to_prover_state();
 
         // Run the Commitment Phase
-        let committer = Committer::new(params.clone());
+        let committer = CommitmentWriter::new(params.clone());
         let witness = committer.commit(&mut prover_state, polynomial.clone()).unwrap();
 
         // Ensure Merkle leaves are correctly generated.
@@ -270,7 +256,7 @@ mod tests {
         let io = DomainSeparator::new("🌪️").commit_statement(&params);
         let mut prover_state = io.to_prover_state();
 
-        let committer = Committer::new(params);
+        let committer = CommitmentWriter::new(params);
         let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
         // Expansion factor is 2
@@ -323,7 +309,7 @@ mod tests {
         let io = DomainSeparator::new("🌪️").commit_statement(&params);
         let mut prover_state = io.to_prover_state();
 
-        let committer = Committer::new(params);
+        let committer = CommitmentWriter::new(params);
         let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
         assert!(

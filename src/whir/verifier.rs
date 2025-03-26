@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     WhirProof,
+    committer::reader::ParsedCommitment,
     parsed_proof::ParsedRound,
     statement::{StatementVerifier, VerifierWeights},
     utils::{DigestReader, get_challenge_stir_queries},
@@ -25,13 +26,6 @@ use crate::{
     utils::expand_randomness,
     whir::{parameters::WhirConfig, parsed_proof::ParsedProof},
 };
-
-#[derive(Clone)]
-struct ParsedCommitment<F, D> {
-    root: D,
-    ood_points: Vec<F>,
-    ood_answers: Vec<F>,
-}
 
 #[derive(Debug)]
 pub struct Verifier<F, H, C, PowStrategy>
@@ -50,28 +44,6 @@ where
 {
     pub const fn new(params: WhirConfig<F, H, C, PS>) -> Self {
         Self { params }
-    }
-
-    fn parse_commitment<VerifierState, const DIGEST_ELEMS: usize>(
-        &self,
-        verifier_state: &mut VerifierState,
-    ) -> ProofResult<ParsedCommitment<F, Hash<F, u8, DIGEST_ELEMS>>>
-    where
-        VerifierState: UnitToBytes
-            + DeserializeField<F>
-            + UnitToField<F>
-            + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
-    {
-        let root = verifier_state.read_digest()?;
-
-        let mut ood_points = vec![F::ZERO; self.params.committment_ood_samples];
-        let mut ood_answers = vec![F::ZERO; self.params.committment_ood_samples];
-        if self.params.committment_ood_samples > 0 {
-            verifier_state.fill_challenge_scalars(&mut ood_points)?;
-            verifier_state.fill_next_scalars(&mut ood_answers)?;
-        }
-
-        Ok(ParsedCommitment { root, ood_points, ood_answers })
     }
 
     #[allow(clippy::too_many_lines)]
@@ -393,6 +365,7 @@ where
     pub fn verify<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState,
+        parsed_commitment: &ParsedCommitment<F, Hash<F, u8, DIGEST_ELEMS>>,
         statement: &StatementVerifier<F>,
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
     ) -> ProofResult<()>
@@ -407,12 +380,11 @@ where
             + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // First, derive all Fiat-Shamir challenges
-        let parsed_commitment = self.parse_commitment(verifier_state)?;
         let evaluations: Vec<_> = statement.constraints.iter().map(|(_, eval)| *eval).collect();
 
         let parsed = self.parse_proof(
             verifier_state,
-            &parsed_commitment,
+            parsed_commitment,
             statement.constraints.len(),
             whir_proof,
         )?;
@@ -524,7 +496,7 @@ where
             prev_sumcheck.map_or(F::ZERO, |(poly, rand)| poly.evaluate_at_point(&rand.into()));
 
         // Check the final sumcheck evaluation
-        let evaluation_of_v_poly = self.compute_w_poly(&parsed_commitment, statement, &parsed);
+        let evaluation_of_v_poly = self.compute_w_poly(parsed_commitment, statement, &parsed);
         let final_value = parsed.final_coefficients.evaluate(&parsed.final_sumcheck_randomness);
 
         if prev_sumcheck_poly_eval != evaluation_of_v_poly * final_value {
