@@ -108,19 +108,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::{
-        BabyBear, Poseidon2BabyBear, default_babybear_poseidon2_16, default_babybear_poseidon2_24,
-    };
-    use p3_challenger::{HashChallenger, SerializingChallenger32};
+    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_keccak::Keccak256Hash;
-    use p3_sha256::Sha256;
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32};
     use rand::Rng;
 
     use super::*;
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
-        merkle_tree::{Poseidon2Compression, Poseidon2Sponge},
         parameters::{
             FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters,
         },
@@ -136,6 +131,11 @@ mod tests {
         // Define the field type and Merkle tree configuration.
         type F = BabyBear;
 
+        type ByteHash = Keccak256Hash;
+        type FieldHash = SerializingHasher32<ByteHash>;
+
+        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+
         // Set up Whir protocol parameters.
         let security_level = 100;
         let pow_bits = 20;
@@ -144,15 +144,9 @@ mod tests {
         let folding_factor = 4;
         let first_round_folding_factor = 4;
 
-        // let poseidon_p16 = default_babybear_poseidon2_16();
-        // let poseidon_p24 = default_babybear_poseidon2_24();
-
-        type ByteHash = Keccak256Hash;
-        type FieldHash = SerializingHasher32<ByteHash>;
         let byte_hash = ByteHash {};
         let field_hash = FieldHash::new(byte_hash);
 
-        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
         let compress = MyCompress::new(byte_hash);
 
         let whir_params = WhirParameters::<FieldHash, MyCompress> {
@@ -225,6 +219,11 @@ mod tests {
     fn test_large_polynomial() {
         type F = BabyBear;
 
+        type ByteHash = Keccak256Hash;
+        type FieldHash = SerializingHasher32<ByteHash>;
+
+        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+
         let security_level = 100;
         let pow_bits = 20;
         let num_variables = 10;
@@ -232,12 +231,9 @@ mod tests {
         let folding_factor = 4;
         let first_round_folding_factor = 4;
 
-        type ByteHash = Keccak256Hash;
-        type FieldHash = SerializingHasher32<ByteHash>;
         let byte_hash = ByteHash {};
         let field_hash = FieldHash::new(byte_hash);
 
-        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
         let compress = MyCompress::new(byte_hash);
 
         let whir_params = WhirParameters {
@@ -279,6 +275,11 @@ mod tests {
     fn test_commitment_without_ood_samples() {
         type F = BabyBear;
 
+        type ByteHash = Keccak256Hash;
+        type FieldHash = SerializingHasher32<ByteHash>;
+
+        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+
         let security_level = 100;
         let pow_bits = 20;
         let num_variables = 5;
@@ -286,15 +287,9 @@ mod tests {
         let folding_factor = 4;
         let first_round_folding_factor = 4;
 
-        // let poseidon_p16 = default_babybear_poseidon2_16();
-        // let poseidon_p24 = default_babybear_poseidon2_24();
-
-        type ByteHash = Keccak256Hash;
-        type FieldHash = SerializingHasher32<ByteHash>;
         let byte_hash = ByteHash {};
         let field_hash = FieldHash::new(byte_hash);
 
-        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
         let compress = MyCompress::new(byte_hash);
 
         let whir_params = WhirParameters {

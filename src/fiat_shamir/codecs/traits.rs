@@ -4,7 +4,9 @@ use crate::fiat_shamir::errors::ProofResult;
 
 /// Absorb and squeeze field elements to the IO pattern.
 pub trait FieldDomainSeparator<F: Field> {
+    #[must_use]
     fn add_scalars(self, count: usize, label: &str) -> Self;
+    #[must_use]
     fn challenge_scalars(self, count: usize, label: &str) -> Self;
 }
 

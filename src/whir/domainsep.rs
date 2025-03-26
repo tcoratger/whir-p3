@@ -1,4 +1,4 @@
-use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 
 use super::parameters::WhirConfig;
 use crate::{

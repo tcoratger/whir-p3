@@ -11,7 +11,7 @@ use super::duplex_sponge::{DuplexSponge, Permutation};
 pub type Keccak = DuplexSponge<AlignedKeccakF1600>;
 
 fn transmute_state(st: &mut AlignedKeccakF1600) -> &mut [u64; 25] {
-    unsafe { &mut *(st as *mut AlignedKeccakF1600 as *mut [u64; 25]) }
+    unsafe { &mut *std::ptr::from_mut::<AlignedKeccakF1600>(st).cast::<[u64; 25]>() }
 }
 
 /// Width of the Keccak-f1600 sponge (in bytes)

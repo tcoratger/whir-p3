@@ -10,6 +10,7 @@ pub trait SumcheckSingleDomainSeparator<F: Field> {
     /// - Samples 3 scalars for the sumcheck polynomial.
     /// - Samples 1 scalar for folding randomness.
     /// - Optionally performs a PoW challenge if `pow_bits > 0`.
+    #[must_use]
     fn add_sumcheck(self, folding_factor: usize, pow_bits: f64) -> Self;
 }
 

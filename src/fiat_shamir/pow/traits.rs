@@ -13,6 +13,7 @@ pub trait PoWDomainSeparator {
     /// [`spongefish::DomainSeparator`]. It is up to the implementor to change the domain
     /// separator or the label in order to reflect changes in the proof in order to preserve
     /// simulation extractability.
+    #[must_use]
     fn challenge_pow(self, label: &str) -> Self;
 }
 

@@ -18,7 +18,7 @@ where
         let base_field_size = bytes_uniform_modp(F::PrimeSubfield::bits() as u32);
         let mut buf = vec![0u8; F::DIMENSION * base_field_size];
 
-        for o in output.iter_mut() {
+        for _o in output.iter_mut() {
             self.fill_challenge_bytes(&mut buf)?;
             // TODO
             // *o = F::from_basis_coefficients_slice(
@@ -36,8 +36,8 @@ where
 {
     type Repr = Vec<u8>;
 
-    fn public_scalars(&mut self, input: &[F]) -> ProofResult<Self::Repr> {
-        let mut buf = Vec::new();
+    fn public_scalars(&mut self, _input: &[F]) -> ProofResult<Self::Repr> {
+        let buf = Vec::new();
         // TODO
         // for i in input {
         //     i.serialize_compressed(&mut buf)?;

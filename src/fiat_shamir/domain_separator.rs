@@ -46,7 +46,7 @@ where
 }
 
 impl<H: DuplexSpongeInterface<U>, U: Unit> DomainSeparator<H, U> {
-    pub fn from_string(io: String) -> Self {
+    pub const fn from_string(io: String) -> Self {
         Self { io, _hash: PhantomData }
     }
 
@@ -60,36 +60,33 @@ impl<H: DuplexSpongeInterface<U>, U: Unit> DomainSeparator<H, U> {
     }
 
     /// Absorb `count` native elements.
+    #[must_use]
     pub fn absorb(self, count: usize, label: &str) -> Self {
         assert!(count > 0, "Count must be positive.");
         assert!(!label.contains(SEP_BYTE), "Label cannot contain the separator BYTE.");
         assert!(
-            match label.chars().next() {
-                Some(char) => !char.is_ascii_digit(),
-                None => true,
-            },
+            label.chars().next().is_none_or(|char| !char.is_ascii_digit()),
             "Label cannot start with a digit."
         );
 
-        Self::from_string(self.io + SEP_BYTE + &format!("A{}", count) + label)
+        Self::from_string(self.io + SEP_BYTE + &format!("A{count}") + label)
     }
 
     /// Squeeze `count` native elements.
+    #[must_use]
     pub fn squeeze(self, count: usize, label: &str) -> Self {
         assert!(count > 0, "Count must be positive.");
         assert!(!label.contains(SEP_BYTE), "Label cannot contain the separator BYTE.");
         assert!(
-            match label.chars().next() {
-                Some(char) => !char.is_ascii_digit(),
-                None => true,
-            },
+            label.chars().next().is_none_or(|char| !char.is_ascii_digit()),
             "Label cannot start with a digit."
         );
 
-        Self::from_string(self.io + SEP_BYTE + &format!("S{}", count) + label)
+        Self::from_string(self.io + SEP_BYTE + &format!("S{count}") + label)
     }
 
     /// Ratchet the state.
+    #[must_use]
     pub fn ratchet(self) -> Self {
         Self::from_string(self.io + SEP_BYTE + "R")
     }
@@ -216,9 +213,9 @@ impl Op {
     /// Create a new OP from the portion of a tag.
     fn new(id: char, count: Option<usize>) -> Result<Self, DomainSeparatorMismatch> {
         match (id, count) {
-            ('A', Some(c)) if c > 0 => Ok(Op::Absorb(c)),
-            ('R', None) | ('R', Some(0)) => Ok(Op::Ratchet),
-            ('S', Some(c)) if c > 0 => Ok(Op::Squeeze(c)),
+            ('A', Some(c)) if c > 0 => Ok(Self::Absorb(c)),
+            ('R', None | Some(0)) => Ok(Self::Ratchet),
+            ('S', Some(c)) if c > 0 => Ok(Self::Squeeze(c)),
             _ => Err("Invalid tag".into()),
         }
     }
@@ -226,11 +223,11 @@ impl Op {
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
+
     use rand::TryRngCore;
 
     use super::*;
-    use crate::fiat_shamir::{keccak::Keccak, traits::ByteWriter};
+    use crate::fiat_shamir::keccak::Keccak;
 
     #[test]
     fn test_domain_separator() {

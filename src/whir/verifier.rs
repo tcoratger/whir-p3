@@ -1,7 +1,7 @@
 use std::{fmt::Debug, iter};
 
 use p3_commit::Mmcs;
-use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
@@ -83,12 +83,8 @@ where
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
     ) -> ProofResult<ParsedProof<F>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
-            + CryptographicHasher<F, [u8; DIGEST_ELEMS]>
-            + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         VerifierState: UnitToBytes
             + UnitToField<F>
@@ -235,7 +231,7 @@ where
 
             folding_randomness = new_folding_randomness;
 
-            prev_root = new_root.into();
+            prev_root = new_root;
             domain_gen = domain_gen * domain_gen;
             exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(r + 1));
             domain_gen_inv = domain_gen_inv * domain_gen_inv;
@@ -401,12 +397,8 @@ where
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
-            + CryptographicHasher<F, [u8; DIGEST_ELEMS]>
-            + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         VerifierState: UnitToBytes
             + UnitToField<F>

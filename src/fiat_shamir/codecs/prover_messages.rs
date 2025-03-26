@@ -4,10 +4,9 @@ use rand::{TryCryptoRng, TryRngCore};
 use super::traits::FieldToUnit;
 use crate::fiat_shamir::{
     codecs::traits::CommonFieldToUnit,
-    duplex_sponge::{Unit, interface::DuplexSpongeInterface},
-    errors::{DomainSeparatorMismatch, ProofResult},
+    duplex_sponge::interface::DuplexSpongeInterface,
+    errors::ProofResult,
     prover::ProverState,
-    traits::{ByteWriter, CommonUnitToBytes},
 };
 
 impl<F: Field, H: DuplexSpongeInterface, R: TryRngCore + TryCryptoRng> FieldToUnit<F>

@@ -94,9 +94,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
             + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + Sync,
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
             + FieldToUnit<F>
@@ -192,9 +190,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
             + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + Sync,
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
             + UnitToBytes
@@ -355,9 +351,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
             + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + Sync,
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
             + UnitToBytes

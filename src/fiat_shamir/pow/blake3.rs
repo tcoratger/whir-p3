@@ -89,6 +89,7 @@ impl PowStrategy for Blake3PoW {
 
 impl Blake3PoW {
     /// Default Blake3 initialization vector. Copied here because it is not publicly exported.
+    #[allow(clippy::unreadable_literal)]
     const BLAKE3_IV: [u32; 8] = [
         0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB,
         0x5BE0CD19,
@@ -99,7 +100,7 @@ impl Blake3PoW {
     /// length `MAX_SIMD_DEGREE` sequence of nonces starting from `nonce`.
     fn check_many(&mut self, nonce: u64) -> Option<u64> {
         for (i, input) in self.inputs.chunks_exact_mut(BLOCK_LEN).enumerate() {
-            input[32..40].copy_from_slice(&(nonce + i as u64).to_le_bytes())
+            input[32..40].copy_from_slice(&(nonce + i as u64).to_le_bytes());
         }
         // `hash_many` requires an array of references. We need to construct this fresh
         // each call as we cannot store the references and mutate the array.

@@ -30,11 +30,11 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
 
     /// Finish the block and compress the state.
     pub fn ratchet(&mut self) -> Result<(), DomainSeparatorMismatch> {
-        if self.stack.pop_front().unwrap() != Op::Ratchet {
-            Err("Invalid tag".into())
-        } else {
+        if self.stack.pop_front().unwrap() == Op::Ratchet {
             self.ds.ratchet_unchecked();
             Ok(())
+        } else {
+            Err("Invalid tag".into())
         }
     }
 

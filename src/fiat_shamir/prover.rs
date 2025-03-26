@@ -1,4 +1,3 @@
-use p3_field::Field;
 use rand::{TryCryptoRng, TryRngCore};
 
 use super::{
@@ -10,9 +9,10 @@ use super::{
     sho::HashStateWithInstructions,
     traits::UnitTranscript,
 };
-use crate::fiat_shamir::traits::{ByteWriter, CommonUnitToBytes};
+use crate::fiat_shamir::traits::ByteWriter;
 
 /// [`ProverState`] is the prover state of an interactive proof (IP) system.
+///
 /// It internally holds the **secret coins** of the prover for zero-knowledge, and
 /// has the hash function state for the verifier state.
 ///
@@ -60,7 +60,6 @@ where
     /// Add a slice `[U]` to the protocol transcript.
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
-    #[inline(always)]
     pub fn add_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
         let old_len = self.narg_string.len();
         self.hash_state.absorb(input)?;
@@ -72,14 +71,12 @@ where
     }
 
     /// Ratchet the verifier's state.
-    #[inline(always)]
     pub fn ratchet(&mut self) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.ratchet()
     }
 
     /// Return a reference to the random number generator associated to the protocol transcript.
-    #[inline(always)]
-    pub fn rng(&mut self) -> &mut (impl TryCryptoRng + TryRngCore) {
+    pub fn rng(&mut self) -> &mut impl TryCryptoRng {
         &mut self.rng
     }
 
@@ -134,7 +131,7 @@ where
     H: DuplexSpongeInterface<U>,
 {
     fn from(domain_separator: &DomainSeparator<H, U>) -> Self {
-        ProverState::new(domain_separator, DefaultRng::default())
+        Self::new(domain_separator, DefaultRng::default())
     }
 }
 
@@ -143,7 +140,6 @@ where
     H: DuplexSpongeInterface<u8>,
     R: TryRngCore + TryCryptoRng,
 {
-    #[inline(always)]
     fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         self.add_units(input)
     }

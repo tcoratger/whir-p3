@@ -71,12 +71,12 @@ impl From<String> for DomainSeparatorMismatch {
 
 impl<B: Borrow<DomainSeparatorMismatch>> From<B> for ProofError {
     fn from(value: B) -> Self {
-        ProofError::InvalidDomainSeparator(value.borrow().clone())
+        Self::InvalidDomainSeparator(value.borrow().clone())
     }
 }
 
 impl From<std::io::Error> for DomainSeparatorMismatch {
     fn from(value: std::io::Error) -> Self {
-        DomainSeparatorMismatch(value.to_string())
+        Self(value.to_string())
     }
 }

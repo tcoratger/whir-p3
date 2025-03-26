@@ -23,13 +23,12 @@ pub trait Unit: Clone + Sized + zeroize::Zeroize {
 ///
 /// For implementors:
 ///
-/// - State is written in *the first* [`Permutation::R`] (rate) bytes of the state.
-/// The last [`Permutation::N`]-[`Permutation::R`] bytes are never touched directly except during
-/// initialization.
-/// - The duplex sponge is in *overwrite mode*.
-/// This mode is not known to affect the security levels and removes assumptions on
-/// [`Permutation::U`] as well as constraints in the final zero-knowledge proof implementing the
-/// hash function.
+/// - State is written in *the first* [`Permutation::R`] (rate) bytes of the state. The last
+///   [`Permutation::N`]-[`Permutation::R`] bytes are never touched directly except during
+///   initialization.
+/// - The duplex sponge is in *overwrite mode*. This mode is not known to affect the security levels
+///   and removes assumptions on [`Permutation::U`] as well as constraints in the final
+///   zero-knowledge proof implementing the hash function.
 /// - The [`std::default::Default`] implementation *MUST* initialize the state to zero.
 /// - The [`Permutation::new`] method should initialize the sponge writing the entropy provided in
 ///   the `iv` in the last [`Permutation::N`]-[`Permutation::R`] elements of the state.
@@ -130,7 +129,7 @@ mod tests {
 
     // Dummy unit that wraps a single byte
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Zeroize)]
-    pub(crate) struct DummyUnit(pub u8);
+    pub(super) struct DummyUnit(pub u8);
 
     impl Unit for DummyUnit {
         fn write(bunch: &[Self], w: &mut impl Write) -> Result<(), std::io::Error> {
@@ -142,7 +141,7 @@ mod tests {
             let mut buf = vec![0u8; bunch.len()];
             r.read_exact(&mut buf)?;
             for (i, b) in buf.into_iter().enumerate() {
-                bunch[i] = DummyUnit(b);
+                bunch[i] = Self(b);
             }
             Ok(())
         }
@@ -150,7 +149,7 @@ mod tests {
 
     // A dummy permutation that tracks how often it's permuted
     #[derive(Clone, Debug)]
-    pub(crate) struct DummyPermutation {
+    pub(super) struct DummyPermutation {
         pub state: [DummyUnit; Self::N],
         pub permuted: RefCell<usize>, // not part of cryptographic state
     }

@@ -28,6 +28,7 @@ where
     /// Right now, this is done by:
     /// - permuting the state.
     /// - zero rate elements.
+    ///
     /// This has the effect that state holds no information about the elements absorbed so far.
     /// The resulting state is compressed.
     fn ratchet_unchecked(&mut self) -> &mut Self;

@@ -5,7 +5,6 @@ use p3_symmetric::Hash;
 use crate::{
     fiat_shamir::{
         codecs::traits::{FieldToUnit, UnitToField},
-        duplex_sponge::Unit,
         errors::{ProofError, ProofResult},
         prover::ProverState,
         traits::{ByteWriter, UnitToBytes},

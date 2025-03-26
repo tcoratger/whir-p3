@@ -286,9 +286,9 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_challenger::{HashChallenger, SerializingChallenger32};
+    
     use p3_field::PrimeCharacteristicRing;
-    use p3_keccak::Keccak256Hash;
+    
 
     use super::*;
     use crate::{
