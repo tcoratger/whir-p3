@@ -28,21 +28,21 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Verifier<F, H, C, PowStrategy>
+pub struct Verifier<'a, F, H, C, PowStrategy>
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
-    params: WhirConfig<F, H, C, PowStrategy>,
+    params: &'a WhirConfig<F, H, C, PowStrategy>,
 }
 
-impl<F, H, C, PS> Verifier<F, H, C, PS>
+impl<'a, F, H, C, PS> Verifier<'a, F, H, C, PS>
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
     PS: PowStrategy,
 {
-    pub const fn new(params: WhirConfig<F, H, C, PS>) -> Self {
+    pub const fn new(params: &'a WhirConfig<F, H, C, PS>) -> Self {
         Self { params }
     }
 
@@ -368,6 +368,7 @@ where
         value
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn verify<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState,
@@ -402,7 +403,7 @@ where
         let computed_folds = self
             .params
             .fold_optimisation
-            .stir_evaluations_verifier(&parsed, &self.params);
+            .stir_evaluations_verifier(&parsed, self.params);
 
         let mut prev_sumcheck = None;
 
