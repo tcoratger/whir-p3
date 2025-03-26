@@ -3,7 +3,7 @@ use p3_symmetric::Hash;
 
 use crate::{
     fiat_shamir::{
-        codecs::traits::{DeserializeField, UnitToField},
+        codecs::traits::{FieldToUnitDeserialize, UnitToField},
         errors::ProofResult,
         traits::UnitToBytes,
     },
@@ -38,7 +38,7 @@ where
     ) -> ProofResult<ParsedCommitment<F, Hash<F, u8, DIGEST_ELEMS>>>
     where
         VerifierState: UnitToBytes
-            + DeserializeField<F>
+            + FieldToUnitDeserialize<F>
             + UnitToField<F>
             + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
     {

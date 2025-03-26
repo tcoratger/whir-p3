@@ -38,7 +38,7 @@ pub trait FieldToUnitSerialize<F: Field>: CommonFieldToUnit<F> {
 ///
 /// The implementation of this trait **MUST** ensure that the field elements
 /// are correct encodings.
-pub trait DeserializeField<F: Field>: CommonFieldToUnit<F> {
+pub trait FieldToUnitDeserialize<F: Field>: CommonFieldToUnit<F> {
     fn fill_next_scalars(&mut self, output: &mut [F]) -> ProofResult<()>;
 
     fn next_scalars<const N: usize>(&mut self) -> ProofResult<[F; N]> {

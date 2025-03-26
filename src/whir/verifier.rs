@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{
     fiat_shamir::{
-        codecs::traits::{DeserializeField, UnitToField},
+        codecs::traits::{FieldToUnitDeserialize, UnitToField},
         errors::{ProofError, ProofResult},
         pow::traits::{PoWChallenge, PowStrategy},
         traits::UnitToBytes,
@@ -60,7 +60,7 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         VerifierState: UnitToBytes
             + UnitToField<F>
-            + DeserializeField<F>
+            + FieldToUnitDeserialize<F>
             + PoWChallenge
             + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
     {
@@ -382,7 +382,7 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         VerifierState: UnitToBytes
             + UnitToField<F>
-            + DeserializeField<F>
+            + FieldToUnitDeserialize<F>
             + PoWChallenge
             + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
     {
