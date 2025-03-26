@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
     fiat_shamir::{
-        codecs::traits::{FieldToUnit, UnitToField},
+        codecs::traits::{FieldToUnitSerialize, UnitToField},
         errors::ProofResult,
         pow::traits::{PoWChallenge, PowStrategy},
     },
@@ -198,7 +198,7 @@ where
         pow_bits: f64,
     ) -> ProofResult<MultilinearPoint<F>>
     where
-        ProverState: FieldToUnit<F> + UnitToField<F> + PoWChallenge,
+        ProverState: FieldToUnitSerialize<F> + UnitToField<F> + PoWChallenge,
         S: PowStrategy,
     {
         let mut res = Vec::with_capacity(folding_factor);

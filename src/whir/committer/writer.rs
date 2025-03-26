@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::Witness;
 use crate::{
     fiat_shamir::{
-        codecs::traits::{FieldToUnit, UnitToField},
+        codecs::traits::{FieldToUnitSerialize, UnitToField},
         errors::ProofResult,
     },
     ntt::expand_from_coeff,
@@ -58,7 +58,8 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState: FieldToUnit<F> + UnitToField<F> + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
+        ProverState:
+            FieldToUnitSerialize<F> + UnitToField<F> + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Retrieve the base domain, ensuring it is set.
         let base_domain = self.0.starting_domain.base_domain.unwrap();

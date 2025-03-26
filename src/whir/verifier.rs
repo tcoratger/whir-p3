@@ -64,7 +64,7 @@ where
             + PoWChallenge
             + DigestReader<Hash<F, u8, DIGEST_ELEMS>>,
     {
-        let mmcs = MerkleTreeMmcs::<F, u8, H, C, DIGEST_ELEMS>::new(
+        let mmcs = MerkleTreeMmcs::new(
             self.params.merkle_hash.clone(),
             self.params.merkle_compress.clone(),
         );

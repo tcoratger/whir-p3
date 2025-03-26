@@ -1,13 +1,13 @@
 use p3_field::Field;
 use rand::{TryCryptoRng, TryRngCore};
 
-use super::traits::FieldToUnit;
+use super::traits::FieldToUnitSerialize;
 use crate::fiat_shamir::{
     codecs::traits::CommonFieldToUnit, duplex_sponge::interface::DuplexSpongeInterface,
     errors::ProofResult, prover::ProverState,
 };
 
-impl<F: Field, H: DuplexSpongeInterface, R: TryRngCore + TryCryptoRng> FieldToUnit<F>
+impl<F: Field, H: DuplexSpongeInterface, R: TryRngCore + TryCryptoRng> FieldToUnitSerialize<F>
     for ProverState<H, u8, R>
 {
     fn add_scalars(&mut self, input: &[F]) -> ProofResult<()> {

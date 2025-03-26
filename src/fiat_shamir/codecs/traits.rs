@@ -30,7 +30,7 @@ pub trait CommonFieldToUnit<F: Field> {
 }
 
 /// Add field elements to the protocol transcript.
-pub trait FieldToUnit<F: Field>: CommonFieldToUnit<F> {
+pub trait FieldToUnitSerialize<F: Field>: CommonFieldToUnit<F> {
     fn add_scalars(&mut self, input: &[F]) -> ProofResult<()>;
 }
 

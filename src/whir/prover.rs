@@ -12,7 +12,7 @@ use super::{
 use crate::{
     domain::Domain,
     fiat_shamir::{
-        codecs::traits::{FieldToUnit, UnitToField},
+        codecs::traits::{FieldToUnitSerialize, UnitToField},
         errors::ProofResult,
         pow::traits::{PoWChallenge, PowStrategy},
         traits::UnitToBytes,
@@ -95,7 +95,7 @@ where
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
-            + FieldToUnit<F>
+            + FieldToUnitSerialize<F>
             + UnitToBytes
             + PoWChallenge
             + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
@@ -190,7 +190,7 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
             + UnitToBytes
-            + FieldToUnit<F>
+            + FieldToUnitSerialize<F>
             + PoWChallenge
             + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
     {
@@ -355,7 +355,7 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
             + UnitToBytes
-            + FieldToUnit<F>
+            + FieldToUnitSerialize<F>
             + PoWChallenge
             + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
     {

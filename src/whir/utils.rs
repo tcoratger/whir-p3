@@ -4,7 +4,7 @@ use p3_symmetric::Hash;
 
 use crate::{
     fiat_shamir::{
-        codecs::traits::{FieldToUnit, UnitToField},
+        codecs::traits::{FieldToUnitSerialize, UnitToField},
         errors::{ProofError, ProofResult},
         prover::ProverState,
         traits::{BytesToUnitSerialize, UnitToBytes},
@@ -58,7 +58,7 @@ pub fn sample_ood_points<F, ProverState, E>(
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
-    ProverState: FieldToUnit<F> + UnitToField<F>,
+    ProverState: FieldToUnitSerialize<F> + UnitToField<F>,
     E: Fn(&MultilinearPoint<F>) -> F,
 {
     let mut ood_points = vec![F::ZERO; num_samples];
