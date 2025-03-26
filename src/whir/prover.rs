@@ -229,10 +229,8 @@ where
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
         let folded_matrix = RowMajorMatrix::new(evals.clone(), 1 << folding_factor_next);
 
-        let merkle_tree = MerkleTreeMmcs::<F, u8, H, C, DIGEST_ELEMS>::new(
-            self.0.merkle_hash.clone(),
-            self.0.merkle_compress.clone(),
-        );
+        let merkle_tree =
+            MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
         let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger
@@ -403,11 +401,15 @@ where
                 )?;
 
             let start_idx = self.0.folding_factor.total_number(round_state.round);
-            let mut arr = final_folding_randomness.clone().0;
-            arr.reverse();
+            let rand_dst = &mut round_state.randomness_vec
+                [start_idx..start_idx + final_folding_randomness.0.len()];
 
-            round_state.randomness_vec[start_idx..start_idx + final_folding_randomness.0.len()]
-                .copy_from_slice(&arr);
+            for (dst, src) in rand_dst
+                .iter_mut()
+                .zip(final_folding_randomness.0.iter().rev())
+            {
+                *dst = *src;
+            }
         }
 
         let mut randomness_vec_rev = round_state.randomness_vec;
