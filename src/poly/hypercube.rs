@@ -42,7 +42,10 @@ impl BinaryHypercube {
     pub const fn new(num_variables: usize) -> Self {
         // Note that we need strictly smaller, since some code would overflow otherwise.
         debug_assert!(num_variables < usize::BITS as usize);
-        Self { pos: 0, num_variables }
+        Self {
+            pos: 0,
+            num_variables,
+        }
     }
 }
 

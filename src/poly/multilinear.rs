@@ -34,7 +34,13 @@ where
         Self(
             (0..num_variables)
                 .rev()
-                .map(|i| if (point.0 >> i) & 1 == 1 { F::ONE } else { F::ZERO })
+                .map(|i| {
+                    if (point.0 >> i) & 1 == 1 {
+                        F::ONE
+                    } else {
+                        F::ZERO
+                    }
+                })
                 .collect(),
         )
     }
@@ -179,7 +185,11 @@ where
     StandardUniform: Distribution<F>,
 {
     pub fn rand<R: Rng>(rng: &mut R, num_variables: usize) -> Self {
-        Self((0..num_variables).map(|_| rng.sample(StandardUniform)).collect())
+        Self(
+            (0..num_variables)
+                .map(|_| rng.sample(StandardUniform))
+                .collect(),
+        )
     }
 }
 
@@ -280,22 +290,34 @@ mod tests {
 
     #[test]
     fn test_to_hypercube_all_zeros() {
-        let point =
-            MultilinearPoint(vec![BabyBear::ZERO, BabyBear::ZERO, BabyBear::ZERO, BabyBear::ZERO]);
+        let point = MultilinearPoint(vec![
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+        ]);
         assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint(0)));
     }
 
     #[test]
     fn test_to_hypercube_all_ones() {
-        let point =
-            MultilinearPoint(vec![BabyBear::ONE, BabyBear::ONE, BabyBear::ONE, BabyBear::ONE]);
+        let point = MultilinearPoint(vec![
+            BabyBear::ONE,
+            BabyBear::ONE,
+            BabyBear::ONE,
+            BabyBear::ONE,
+        ]);
         assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint(0b1111)));
     }
 
     #[test]
     fn test_to_hypercube_mixed_bits() {
-        let point =
-            MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO, BabyBear::ONE, BabyBear::ZERO]);
+        let point = MultilinearPoint(vec![
+            BabyBear::ONE,
+            BabyBear::ZERO,
+            BabyBear::ONE,
+            BabyBear::ZERO,
+        ]);
         assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint(0b1010)));
     }
 
@@ -320,7 +342,10 @@ mod tests {
             BabyBear::ONE,
             BabyBear::ZERO,
         ]);
-        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint(0b1101_0110)));
+        assert_eq!(
+            point.to_hypercube(),
+            Some(BinaryHypercubePoint(0b1101_0110))
+        );
     }
 
     #[test]
@@ -371,8 +396,13 @@ mod tests {
         let expanded = MultilinearPoint::expand_from_univariate(point, 5);
 
         // For n = 5, we expect [y^16, y^8, y^4, y^2, y]
-        let expected =
-            vec![point.exp_u64(16), point.exp_u64(8), point.exp_u64(4), point.exp_u64(2), point];
+        let expected = vec![
+            point.exp_u64(16),
+            point.exp_u64(8),
+            point.exp_u64(4),
+            point.exp_u64(2),
+            point,
+        ];
         assert_eq!(expanded.0, expected);
     }
 
@@ -445,8 +475,12 @@ mod tests {
     #[test]
     fn test_eq_poly_mixed_bits_match() {
         // Multilinear point (1,0,1,0)
-        let ml_point =
-            MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO, BabyBear::ONE, BabyBear::ZERO]);
+        let ml_point = MultilinearPoint(vec![
+            BabyBear::ONE,
+            BabyBear::ZERO,
+            BabyBear::ONE,
+            BabyBear::ZERO,
+        ]);
         let binary_point = BinaryHypercubePoint(0b1010);
 
         // eq_poly should evaluate to 1 since c_i = p_i for all i
@@ -456,8 +490,12 @@ mod tests {
     #[test]
     fn test_eq_poly_mixed_bits_mismatch() {
         // Multilinear point (1,0,1,0)
-        let ml_point =
-            MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO, BabyBear::ONE, BabyBear::ZERO]);
+        let ml_point = MultilinearPoint(vec![
+            BabyBear::ONE,
+            BabyBear::ZERO,
+            BabyBear::ONE,
+            BabyBear::ZERO,
+        ]);
         let binary_point = BinaryHypercubePoint(0b1100); // Differs at second bit
 
         // eq_poly should evaluate to 0 since there is at least one mismatch
@@ -550,20 +588,36 @@ mod tests {
 
     #[test]
     fn test_eq_poly_outside_mixed_match() {
-        let ml_point1 =
-            MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO, BabyBear::ONE, BabyBear::ZERO]);
-        let ml_point2 =
-            MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO, BabyBear::ONE, BabyBear::ZERO]);
+        let ml_point1 = MultilinearPoint(vec![
+            BabyBear::ONE,
+            BabyBear::ZERO,
+            BabyBear::ONE,
+            BabyBear::ZERO,
+        ]);
+        let ml_point2 = MultilinearPoint(vec![
+            BabyBear::ONE,
+            BabyBear::ZERO,
+            BabyBear::ONE,
+            BabyBear::ZERO,
+        ]);
 
         assert_eq!(ml_point1.eq_poly_outside(&ml_point2), BabyBear::ONE);
     }
 
     #[test]
     fn test_eq_poly_outside_mixed_mismatch() {
-        let ml_point1 =
-            MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO, BabyBear::ONE, BabyBear::ZERO]);
-        let ml_point2 =
-            MultilinearPoint(vec![BabyBear::ZERO, BabyBear::ONE, BabyBear::ZERO, BabyBear::ONE]);
+        let ml_point1 = MultilinearPoint(vec![
+            BabyBear::ONE,
+            BabyBear::ZERO,
+            BabyBear::ONE,
+            BabyBear::ZERO,
+        ]);
+        let ml_point2 = MultilinearPoint(vec![
+            BabyBear::ZERO,
+            BabyBear::ONE,
+            BabyBear::ZERO,
+            BabyBear::ONE,
+        ]);
 
         assert_eq!(ml_point1.eq_poly_outside(&ml_point2), BabyBear::ZERO);
     }
@@ -734,13 +788,13 @@ mod tests {
         ]);
         // (2,1,0,1,0,2,1) in base 3 = 2 * 3^6 + 1 * 3^5 + 0 * 3^4 + 1 * 3^3 + 0 * 3^2 + 2 * 3^1 + 1
         // * 3^0
-        let ternary_point = 2 * 3_i32.pow(6) +
-            1 * 3_i32.pow(5) +
-            0 * 3_i32.pow(4) +
-            1 * 3_i32.pow(3) +
-            0 * 3_i32.pow(2) +
-            2 * 3_i32.pow(1) +
-            1;
+        let ternary_point = 2 * 3_i32.pow(6)
+            + 1 * 3_i32.pow(5)
+            + 0 * 3_i32.pow(4)
+            + 1 * 3_i32.pow(3)
+            + 0 * 3_i32.pow(2)
+            + 2 * 3_i32.pow(1)
+            + 1;
 
         assert_eq!(ml_point.eq_poly3(ternary_point as usize), BabyBear::ONE);
     }
@@ -758,13 +812,13 @@ mod tests {
             BabyBear::ONE,
         ]);
         // (2,1,0,1,1,2,1) differs at the fifth coordinate
-        let ternary_point = 2 * 3_i32.pow(6) +
-            1 * 3_i32.pow(5) +
-            0 * 3_i32.pow(4) +
-            1 * 3_i32.pow(3) +
-            1 * 3_i32.pow(2) +
-            2 * 3_i32.pow(1) +
-            1;
+        let ternary_point = 2 * 3_i32.pow(6)
+            + 1 * 3_i32.pow(5)
+            + 0 * 3_i32.pow(4)
+            + 1 * 3_i32.pow(3)
+            + 1 * 3_i32.pow(2)
+            + 2 * 3_i32.pow(1)
+            + 1;
 
         assert_eq!(ml_point.eq_poly3(ternary_point as usize), BabyBear::ZERO);
     }
@@ -789,16 +843,40 @@ mod tests {
     #[test]
     fn test_equality() {
         let point = MultilinearPoint(vec![BabyBear::from_u64(0), BabyBear::from_u64(0)]);
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b00)), BabyBear::from_u64(1));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b01)), BabyBear::from_u64(0));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b10)), BabyBear::from_u64(0));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b11)), BabyBear::from_u64(0));
+        assert_eq!(
+            point.eq_poly(BinaryHypercubePoint(0b00)),
+            BabyBear::from_u64(1)
+        );
+        assert_eq!(
+            point.eq_poly(BinaryHypercubePoint(0b01)),
+            BabyBear::from_u64(0)
+        );
+        assert_eq!(
+            point.eq_poly(BinaryHypercubePoint(0b10)),
+            BabyBear::from_u64(0)
+        );
+        assert_eq!(
+            point.eq_poly(BinaryHypercubePoint(0b11)),
+            BabyBear::from_u64(0)
+        );
 
         let point = MultilinearPoint(vec![BabyBear::from_u64(1), BabyBear::from_u64(0)]);
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b00)), BabyBear::from_u64(0));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b01)), BabyBear::from_u64(0));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b10)), BabyBear::from_u64(1));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b11)), BabyBear::from_u64(0));
+        assert_eq!(
+            point.eq_poly(BinaryHypercubePoint(0b00)),
+            BabyBear::from_u64(0)
+        );
+        assert_eq!(
+            point.eq_poly(BinaryHypercubePoint(0b01)),
+            BabyBear::from_u64(0)
+        );
+        assert_eq!(
+            point.eq_poly(BinaryHypercubePoint(0b10)),
+            BabyBear::from_u64(1)
+        );
+        assert_eq!(
+            point.eq_poly(BinaryHypercubePoint(0b11)),
+            BabyBear::from_u64(0)
+        );
     }
 
     #[test]
@@ -873,6 +951,9 @@ mod tests {
         }
 
         // If all K trials are completely uniform, the RNG is suspicious
-        assert!(all_same_count < K, "rand generated uniform points in all {K} trials");
+        assert!(
+            all_same_count < K,
+            "rand generated uniform points in all {K} trials"
+        );
     }
 }

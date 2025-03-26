@@ -52,9 +52,16 @@ where
 
         let mut duplex_sponge = Keccak::default();
         duplex_sponge.absorb_unchecked(domain_separator.as_bytes());
-        let rng = ProverPrivateRng { ds: duplex_sponge, csrng };
+        let rng = ProverPrivateRng {
+            ds: duplex_sponge,
+            csrng,
+        };
 
-        Self { rng, hash_state, narg_string: Vec::new() }
+        Self {
+            rng,
+            hash_state,
+            narg_string: Vec::new(),
+        }
     }
 
     /// Add a slice `[U]` to the protocol transcript.

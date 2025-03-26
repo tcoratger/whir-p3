@@ -47,7 +47,11 @@ pub fn sqrt_factor(n: usize) -> usize {
             } else {
                 // - If `twos` is even: The largest factor is `3 * 2^((twos - 1) / 2)`
                 // - If `twos` is odd: The largest factor is `2^((twos / 2))`
-                if twos % 2 == 0 { 3 << ((twos - 1) / 2) } else { 2 << (twos / 2) }
+                if twos % 2 == 0 {
+                    3 << ((twos - 1) / 2)
+                } else {
+                    2 << (twos / 2)
+                }
             }
         }
 
@@ -59,7 +63,11 @@ pub fn sqrt_factor(n: usize) -> usize {
             } else {
                 // - If `twos` is even: The largest factor is `3 * 2^(twos / 2)`
                 // - If `twos` is odd: The largest factor is `4 * 2^(twos / 2)`
-                if twos % 2 == 0 { 3 << (twos / 2) } else { 4 << (twos / 2) }
+                if twos % 2 == 0 {
+                    3 << (twos / 2)
+                } else {
+                    4 << (twos / 2)
+                }
             }
         }
 

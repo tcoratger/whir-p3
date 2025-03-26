@@ -49,7 +49,10 @@ where
     pub fn evaluate_hypercube(&self, point: BinaryHypercubePoint) -> F {
         assert_eq!(self.coeffs.len(), 1 << self.num_variables);
         assert!(point.0 < (1 << self.num_variables));
-        self.evaluate(&MultilinearPoint::from_binary_hypercube_point(point, self.num_variables))
+        self.evaluate(&MultilinearPoint::from_binary_hypercube_point(
+            point,
+            self.num_variables,
+        ))
     }
 
     /// Evaluates the polynomial at an arbitrary point in `F^n`.
@@ -78,7 +81,10 @@ where
         // WhirDensePolynomial::from_coefficients_slice converts to a dense univariate polynomial.
         // The coefficient order is "coefficient of 1 first".
         let univariate = WhirDensePolynomial::from_coefficients_slice(&self.coeffs);
-        points.iter().map(|point| univariate.evaluate(point)).collect()
+        points
+            .iter()
+            .map(|point| univariate.evaluate(point))
+            .collect()
     }
 
     /// Folds the polynomial along high-indexed variables, reducing its dimensionality.
@@ -109,7 +115,10 @@ where
             .map(|coeffs| eval_multivariate(coeffs, &folding_randomness.0))
             .collect();
 
-        Self { coeffs, num_variables: self.num_variables() - folding_factor }
+        Self {
+            coeffs,
+            num_variables: self.num_variables() - folding_factor,
+        }
     }
 
     /// Evaluate self at `point`, where `point` is from a field extension extending the field over
@@ -179,7 +188,10 @@ fn eval_multivariate<F: Field>(coeffs: &[F], point: &[F]) -> F {
             let (b0t, b1t) = {
                 let work_size: usize = (1 << 15) / size_of::<F>();
                 if coeffs.len() > work_size {
-                    join(|| eval_multivariate(b0t, tail), || eval_multivariate(b1t, tail))
+                    join(
+                        || eval_multivariate(b0t, tail),
+                        || eval_multivariate(b1t, tail),
+                    )
                 } else {
                     (eval_multivariate(b0t, tail), eval_multivariate(b1t, tail))
                 }
@@ -200,7 +212,10 @@ impl<F> CoefficientList<F> {
         assert!(len.is_power_of_two());
         let num_variables = len.ilog2();
 
-        Self { coeffs, num_variables: num_variables as usize }
+        Self {
+            coeffs,
+            num_variables: num_variables as usize,
+        }
     }
 
     /// Returns a reference to the stored coefficients.
@@ -226,7 +241,12 @@ impl<F> CoefficientList<F> {
     ///
     /// Note that this is currently restricted to the case where F is a prime field.
     pub fn to_extension<E: Field<PrimeSubfield = F>>(self) -> CoefficientList<E> {
-        CoefficientList::new(self.coeffs.into_iter().map(E::from_prime_subfield).collect())
+        CoefficientList::new(
+            self.coeffs
+                .into_iter()
+                .map(E::from_prime_subfield)
+                .collect(),
+        )
     }
 }
 
@@ -322,11 +342,20 @@ mod tests {
 
         // Evaluations at hypercube points (expected values derived manually)
         // f(0,0) = coeffs[0]
-        assert_eq!(coeff_list.evaluate_hypercube(BinaryHypercubePoint(0b00)), coeff0);
+        assert_eq!(
+            coeff_list.evaluate_hypercube(BinaryHypercubePoint(0b00)),
+            coeff0
+        );
         // f(0,1) = coeffs[0] + coeffs[1]
-        assert_eq!(coeff_list.evaluate_hypercube(BinaryHypercubePoint(0b01)), coeff0 + coeff1);
+        assert_eq!(
+            coeff_list.evaluate_hypercube(BinaryHypercubePoint(0b01)),
+            coeff0 + coeff1
+        );
         // f(1,0) = coeffs[0] + coeffs[2]
-        assert_eq!(coeff_list.evaluate_hypercube(BinaryHypercubePoint(0b10)), coeff0 + coeff2);
+        assert_eq!(
+            coeff_list.evaluate_hypercube(BinaryHypercubePoint(0b10)),
+            coeff0 + coeff2
+        );
         // f(1,1) = coeffs[0] + coeffs[1] + coeffs[2] + coeffs[3]
         assert_eq!(
             coeff_list.evaluate_hypercube(BinaryHypercubePoint(0b11)),
@@ -362,8 +391,14 @@ mod tests {
         let coeff_list = CoefficientList::new(coeffs);
 
         // Single-variable polynomial evaluations
-        assert_eq!(coeff_list.evaluate_hypercube(BinaryHypercubePoint(0)), coeff0);
-        assert_eq!(coeff_list.evaluate_hypercube(BinaryHypercubePoint(1)), coeff0 + coeff1);
+        assert_eq!(
+            coeff_list.evaluate_hypercube(BinaryHypercubePoint(0)),
+            coeff0
+        );
+        assert_eq!(
+            coeff_list.evaluate_hypercube(BinaryHypercubePoint(1)),
+            coeff0 + coeff1
+        );
     }
 
     #[test]
@@ -384,7 +419,10 @@ mod tests {
         let expected_eval = coeff_list.evaluate(&MultilinearPoint(vec![eval_value, folding_value]));
 
         // Ensure folding preserves evaluation correctness
-        assert_eq!(folded.evaluate(&MultilinearPoint(vec![eval_value])), expected_eval);
+        assert_eq!(
+            folded.evaluate(&MultilinearPoint(vec![eval_value])),
+            expected_eval
+        );
     }
 
     #[test]
@@ -404,7 +442,10 @@ mod tests {
         let expected_eval = coeff_list.evaluate(&full_point);
 
         // Ensure correctness of folding and evaluation
-        assert_eq!(folded.evaluate(&MultilinearPoint(vec![eval_x0])), expected_eval);
+        assert_eq!(
+            folded.evaluate(&MultilinearPoint(vec![eval_x0])),
+            expected_eval
+        );
     }
 
     #[test]
@@ -455,8 +496,9 @@ mod tests {
         let coeffs = (0..(1 << num_variables)).map(BabyBear::from_u64).collect();
         let coeffs_list = CoefficientList::new(coeffs);
 
-        let randomness: Vec<_> =
-            (0..num_variables).map(|i| BabyBear::from_u64(35 * i as u64)).collect();
+        let randomness: Vec<_> = (0..num_variables)
+            .map(|i| BabyBear::from_u64(35 * i as u64))
+            .collect();
         for k in 0..num_variables {
             let fold_part = randomness[0..k].to_vec();
             let eval_part = randomness[k..randomness.len()].to_vec();
@@ -536,14 +578,14 @@ mod tests {
         let x2 = E::from_u64(4);
 
         // Correct expected value based on the coefficient order
-        let expected_value = E::from_u64(1) +
-            E::from_u64(2) * x2 +
-            E::from_u64(3) * x1 +
-            E::from_u64(5) * x1 * x2 +
-            E::from_u64(4) * x0 +
-            E::from_u64(6) * x0 * x2 +
-            E::from_u64(7) * x0 * x1 +
-            E::from_u64(8) * x0 * x1 * x2;
+        let expected_value = E::from_u64(1)
+            + E::from_u64(2) * x2
+            + E::from_u64(3) * x1
+            + E::from_u64(5) * x1 * x2
+            + E::from_u64(4) * x0
+            + E::from_u64(6) * x0 * x2
+            + E::from_u64(7) * x0 * x1
+            + E::from_u64(8) * x0 * x1 * x2;
 
         let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x0, x1, x2]));
 

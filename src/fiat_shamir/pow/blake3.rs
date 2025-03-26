@@ -29,7 +29,13 @@ impl PowStrategy for Blake3PoW {
             input[..challenge.len()].copy_from_slice(&challenge);
         }
         let outputs = [0; OUT_LEN * MAX_SIMD_DEGREE];
-        Self { challenge, threshold, platform, inputs, outputs }
+        Self {
+            challenge,
+            threshold,
+            platform,
+            inputs,
+            outputs,
+        }
     }
 
     /// This deliberately uses the high level interface to guarantee
@@ -51,7 +57,9 @@ impl PowStrategy for Blake3PoW {
     /// Finds the minimal `nonce` that satisfies the challenge.
     #[cfg(not(feature = "parallel"))]
     fn solve(&mut self) -> Option<u64> {
-        (0u64..).step_by(MAX_SIMD_DEGREE).find_map(|nonce| self.check_many(nonce))
+        (0u64..)
+            .step_by(MAX_SIMD_DEGREE)
+            .find_map(|nonce| self.check_many(nonce))
     }
 
     /// Finds the minimal `nonce` that satisfies the challenge.
@@ -105,7 +113,9 @@ impl Blake3PoW {
         // `hash_many` requires an array of references. We need to construct this fresh
         // each call as we cannot store the references and mutate the array.
         let inputs: [&[u8; BLOCK_LEN]; MAX_SIMD_DEGREE] = std::array::from_fn(|i| {
-            self.inputs[(i * BLOCK_LEN)..((i + 1) * BLOCK_LEN)].try_into().unwrap()
+            self.inputs[(i * BLOCK_LEN)..((i + 1) * BLOCK_LEN)]
+                .try_into()
+                .unwrap()
         });
         let counter = 0;
         let flags_start = 0;

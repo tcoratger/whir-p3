@@ -23,7 +23,8 @@ where
 {
     fn add_ood(self, num_samples: usize) -> Self {
         if num_samples > 0 {
-            self.challenge_scalars(num_samples, "ood_query").add_scalars(num_samples, "ood_ans")
+            self.challenge_scalars(num_samples, "ood_query")
+                .add_scalars(num_samples, "ood_ans")
         } else {
             self
         }
@@ -47,7 +48,11 @@ where
     DomainSeparator: PoWDomainSeparator,
 {
     fn pow(self, bits: f64) -> Self {
-        if bits > 0. { self.challenge_pow("pow_queries") } else { self }
+        if bits > 0. {
+            self.challenge_pow("pow_queries")
+        } else {
+            self
+        }
     }
 }
 

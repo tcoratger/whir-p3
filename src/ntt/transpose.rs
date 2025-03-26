@@ -63,8 +63,18 @@ pub fn transpose_square_swap<F: Sized + Send>(mut a: MatrixMut<'_, F>, mut b: Ma
 
         #[cfg(feature = "parallel")]
         rayon::join(
-            || rayon::join(|| transpose_square_swap(aa, ba), || transpose_square_swap(ab, bc)),
-            || rayon::join(|| transpose_square_swap(ac, bb), || transpose_square_swap(ad, bd)),
+            || {
+                rayon::join(
+                    || transpose_square_swap(aa, ba),
+                    || transpose_square_swap(ab, bc),
+                )
+            },
+            || {
+                rayon::join(
+                    || transpose_square_swap(ac, bb),
+                    || transpose_square_swap(ad, bd),
+                )
+            },
         );
 
         #[cfg(not(feature = "parallel"))]
@@ -149,19 +159,31 @@ pub fn transpose_copy<F: Copy + Send>(src: MatrixMut<'_, F>, mut dst: MatrixMut<
     }
 
     // Determine optimal split axis
-    let (split_size, split_vertical) =
-        if rows > cols { (rows / 2, true) } else { (cols / 2, false) };
+    let (split_size, split_vertical) = if rows > cols {
+        (rows / 2, true)
+    } else {
+        (cols / 2, false)
+    };
 
     // Split source and destination matrices accordingly
     let ((src_a, src_b), (dst_a, dst_b)) = if split_vertical {
-        (src.split_vertical(split_size), dst.split_horizontal(split_size))
+        (
+            src.split_vertical(split_size),
+            dst.split_horizontal(split_size),
+        )
     } else {
-        (src.split_horizontal(split_size), dst.split_vertical(split_size))
+        (
+            src.split_horizontal(split_size),
+            dst.split_vertical(split_size),
+        )
     };
 
     // Execute recursive transposition
     #[cfg(feature = "parallel")]
-    rayon::join(|| transpose_copy(src_a, dst_a), || transpose_copy(src_b, dst_b));
+    rayon::join(
+        || transpose_copy(src_a, dst_a),
+        || transpose_copy(src_b, dst_b),
+    );
 
     #[cfg(not(feature = "parallel"))]
     for (s, mut d) in [(src_a, dst_a), (src_b, dst_b)] {
@@ -185,7 +207,9 @@ mod tests {
     /// Creates a rectangular `rows x cols` matrix stored as a flat vector.
     /// Each element `(i, j)` represents its row and column position.
     fn create_matrix(rows: usize, cols: usize) -> Vec<Pair> {
-        (0..rows).flat_map(|i| (0..cols).map(move |j| (i, j))).collect()
+        (0..rows)
+            .flat_map(|i| (0..cols).map(move |j| (i, j)))
+            .collect()
     }
 
     /// Creates multiple matrices where each element is `(index, row, col)`.
@@ -198,7 +222,9 @@ mod tests {
     fn create_matrices(rows: usize, cols: usize, instances: usize) -> Vec<Vec<Triple>> {
         (0..instances)
             .map(|index| {
-                (0..rows).flat_map(|row| (0..cols).map(move |col| (index, row, col))).collect()
+                (0..rows)
+                    .flat_map(|row| (0..cols).map(move |col| (index, row, col)))
+                    .collect()
             })
             .collect()
     }
@@ -474,8 +500,10 @@ mod tests {
         let cols = 16;
 
         // Create matrices and flatten them into a single vector
-        let mut matrices: Vec<Triple> =
-            create_matrices(rows, cols, num_matrices).into_iter().flatten().collect();
+        let mut matrices: Vec<Triple> = create_matrices(rows, cols, num_matrices)
+            .into_iter()
+            .flatten()
+            .collect();
 
         transpose(&mut matrices, rows, cols);
 
@@ -524,8 +552,10 @@ mod tests {
         let size = 64;
 
         // Create matrices and flatten them into a single vector
-        let mut matrices: Vec<Triple> =
-            create_matrices(size, size, num_matrices).into_iter().flatten().collect();
+        let mut matrices: Vec<Triple> = create_matrices(size, size, num_matrices)
+            .into_iter()
+            .flatten()
+            .collect();
 
         transpose(&mut matrices, size, size);
 

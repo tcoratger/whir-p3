@@ -178,19 +178,28 @@ mod tests {
         let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let io: DomainSeparator =
-            DomainSeparator::new("🌪️").commit_statement(&params).add_whir_proof(&params);
+        let io: DomainSeparator = DomainSeparator::new("🌪️")
+            .commit_statement(&params)
+            .add_whir_proof(&params);
         let mut prover_state = io.to_prover_state();
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(params.clone());
-        let witness = committer.commit(&mut prover_state, polynomial.clone()).unwrap();
+        let witness = committer
+            .commit(&mut prover_state, polynomial.clone())
+            .unwrap();
 
         // Ensure Merkle leaves are correctly generated.
-        assert!(!witness.merkle_leaves.is_empty(), "Merkle leaves should not be empty");
+        assert!(
+            !witness.merkle_leaves.is_empty(),
+            "Merkle leaves should not be empty"
+        );
 
         // Ensure OOD (out-of-domain) points are generated.
-        assert!(!witness.ood_points.is_empty(), "OOD points should be generated");
+        assert!(
+            !witness.ood_points.is_empty(),
+            "OOD points should be generated"
+        );
 
         // Validate the number of generated OOD points.
         assert_eq!(

@@ -158,7 +158,9 @@ mod tests {
 
         let mut evals = Vec::new();
 
-        let context = StirEvalContext::ProverHelps { folding_randomness: &r };
+        let context = StirEvalContext::ProverHelps {
+            folding_randomness: &r,
+        };
         context.evaluate(&[coeffs], &mut evals);
 
         assert_eq!(evals, vec![expected]);
@@ -177,7 +179,9 @@ mod tests {
         let expected = c0 + c1 * r0;
 
         let mut evals = Vec::new();
-        let context = StirEvalContext::ProverHelps { folding_randomness: &r };
+        let context = StirEvalContext::ProverHelps {
+            folding_randomness: &r,
+        };
         context.evaluate(&[coeffs], &mut evals);
 
         assert_eq!(evals, vec![expected]);
@@ -194,7 +198,9 @@ mod tests {
         ]);
 
         let mut evals = Vec::new();
-        let context = StirEvalContext::ProverHelps { folding_randomness: &r };
+        let context = StirEvalContext::ProverHelps {
+            folding_randomness: &r,
+        };
         context.evaluate(&[coeffs], &mut evals);
 
         assert_eq!(evals, vec![BabyBear::ZERO]);
@@ -209,7 +215,9 @@ mod tests {
         let r = MultilinearPoint(vec![BabyBear::from_u64(7)]); // Evaluate at x = 7
 
         let mut evals = Vec::new();
-        let context = StirEvalContext::ProverHelps { folding_randomness: &r };
+        let context = StirEvalContext::ProverHelps {
+            folding_randomness: &r,
+        };
         context.evaluate(&[coeffs1, coeffs2], &mut evals);
 
         // f1(7) = 1, f2(7) = 7

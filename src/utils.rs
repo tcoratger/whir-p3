@@ -211,8 +211,12 @@ mod tests {
         eval_eq(&eval, &mut output, scalar);
 
         // Expected results for (X1, X2) = (1,0)
-        let expected_output =
-            vec![BabyBear::ZERO, BabyBear::ZERO, BabyBear::from_u64(2), BabyBear::ZERO];
+        let expected_output = vec![
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+            BabyBear::from_u64(2),
+            BabyBear::ZERO,
+        ];
 
         assert_eq!(output, expected_output);
     }
@@ -280,8 +284,13 @@ mod tests {
         let base = BabyBear::ZERO;
         let len = 5;
 
-        let expected =
-            vec![BabyBear::ONE, BabyBear::ZERO, BabyBear::ZERO, BabyBear::ZERO, BabyBear::ZERO];
+        let expected = vec![
+            BabyBear::ONE,
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+        ];
         assert_eq!(expand_randomness(base, len), expected);
     }
 

@@ -36,14 +36,17 @@ pub fn expand_from_coeff<F: Field + TwoAdicField>(coeffs: &[F], expansion: usize
     #[cfg(feature = "parallel")]
     result.par_extend((1..expansion).into_par_iter().flat_map(|i| {
         let root_i = root.exp_u64(i as u64);
-        coeffs.par_iter().enumerate().map_with(F::ZERO, move |root_j, (j, coeff)| {
-            if root_j.is_zero() {
-                *root_j = root_i.exp_u64(j as u64);
-            } else {
-                *root_j *= root_i;
-            }
-            *coeff * *root_j
-        })
+        coeffs
+            .par_iter()
+            .enumerate()
+            .map_with(F::ZERO, move |root_j, (j, coeff)| {
+                if root_j.is_zero() {
+                    *root_j = root_i.exp_u64(j as u64);
+                } else {
+                    *root_j *= root_i;
+                }
+                *coeff * *root_j
+            })
     }));
 
     ntt_batch(&mut result, coeffs.len());

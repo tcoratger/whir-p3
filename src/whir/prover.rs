@@ -64,13 +64,13 @@ where
     PS: PowStrategy,
 {
     fn validate_parameters(&self) -> bool {
-        self.0.mv_parameters.num_variables ==
-            self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
+        self.0.mv_parameters.num_variables
+            == self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
     }
 
     fn validate_statement(&self, statement: &Statement<F>) -> bool {
-        statement.num_variables() == self.0.mv_parameters.num_variables &&
-            (self.0.initial_statement || statement.constraints.is_empty())
+        statement.num_variables() == self.0.mv_parameters.num_variables
+            && (self.0.initial_statement || statement.constraints.is_empty())
     }
 
     fn validate_witness<const DIGEST_ELEMS: usize>(
@@ -91,9 +91,7 @@ where
         witness: Witness<F, H, C, DIGEST_ELEMS>,
     ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
-            + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
@@ -104,9 +102,9 @@ where
     {
         // Validate parameters
         assert!(
-            self.validate_parameters() &&
-                self.validate_statement(&statement) &&
-                self.validate_witness(&witness)
+            self.validate_parameters()
+                && self.validate_statement(&statement)
+                && self.validate_witness(&witness)
         );
 
         // Convert witness ood_points into constraints
@@ -187,9 +185,7 @@ where
         mut round_state: RoundState<F, H, C, DIGEST_ELEMS>,
     ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
-            + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
@@ -199,10 +195,12 @@ where
             + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Fold the coefficients
-        let folded_coefficients = round_state.coefficients.fold(&round_state.folding_randomness);
+        let folded_coefficients = round_state
+            .coefficients
+            .fold(&round_state.folding_randomness);
 
-        let num_variables = self.0.mv_parameters.num_variables -
-            self.0.folding_factor.total_number(round_state.round);
+        let num_variables = self.0.mv_parameters.num_variables
+            - self.0.folding_factor.total_number(round_state.round);
         // num_variables should match the folded_coefficients here.
         assert_eq!(num_variables, folded_coefficients.num_variables());
 
@@ -241,10 +239,12 @@ where
         prover_state.add_digest(root)?;
 
         // Handle OOD (Out-Of-Domain) samples
-        let (ood_points, ood_answers) =
-            sample_ood_points(prover_state, round_params.ood_samples, num_variables, |point| {
-                folded_coefficients.evaluate(point)
-            })?;
+        let (ood_points, ood_answers) = sample_ood_points(
+            prover_state,
+            round_params.ood_samples,
+            num_variables,
+            |point| folded_coefficients.evaluate(point),
+        )?;
 
         // STIR Queries
         let (stir_challenges, stir_challenges_indexes) = self.compute_stir_queries(
@@ -259,14 +259,18 @@ where
         let merkle_proofs: Vec<_> = stir_challenges_indexes
             .iter()
             .map(|&index| {
-                round_state.prev_merkle.open_batch(index, &round_state.prev_merkle_prover_data)
+                round_state
+                    .prev_merkle
+                    .open_batch(index, &round_state.prev_merkle_prover_data)
             })
             .collect();
 
         // Evaluate answers in the folding randomness.
         let mut stir_evaluations = ood_answers;
-        let answers: Vec<_> =
-            merkle_proofs.iter().map(|(openings, _)| openings[0].clone()).collect();
+        let answers: Vec<_> = merkle_proofs
+            .iter()
+            .map(|(openings, _)| openings[0].clone())
+            .collect();
         self.0.fold_optimisation.stir_evaluations_prover(
             &round_state,
             &stir_challenges_indexes,
@@ -348,9 +352,7 @@ where
         folded_coefficients: &CoefficientList<F>,
     ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
-            + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<F>
@@ -375,7 +377,9 @@ where
         let merkle_proof: Vec<_> = final_challenge_indexes
             .iter()
             .map(|&index| {
-                round_state.prev_merkle.open_batch(index, &round_state.prev_merkle_prover_data)
+                round_state
+                    .prev_merkle
+                    .open_batch(index, &round_state.prev_merkle_prover_data)
             })
             .collect();
         round_state.merkle_proofs.extend(merkle_proof);
@@ -422,7 +426,10 @@ where
             })
             .collect();
 
-        Ok(WhirProof { merkle_paths: round_state.merkle_proofs, statement_values_at_random_point })
+        Ok(WhirProof {
+            merkle_paths: round_state.merkle_proofs,
+            statement_values_at_random_point,
+        })
     }
 
     fn compute_stir_queries<ProverState, const DIGEST_ELEMS: usize>(
@@ -450,7 +457,11 @@ where
             .element(1 << self.0.folding_factor.at_round(round_state.round));
         let stir_challenges = ood_points
             .into_iter()
-            .chain(stir_challenges_indexes.iter().map(|i| domain_scaled_gen.exp_u64(*i as u64)))
+            .chain(
+                stir_challenges_indexes
+                    .iter()
+                    .map(|i| domain_scaled_gen.exp_u64(*i as u64)),
+            )
             .map(|univariate| MultilinearPoint::expand_from_univariate(univariate, num_variables))
             .collect();
 

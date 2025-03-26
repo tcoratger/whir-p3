@@ -61,7 +61,11 @@ pub struct DuplexSponge<C: Permutation> {
 impl<U: Unit, C: Permutation<U = U>> DuplexSpongeInterface<U> for DuplexSponge<C> {
     fn new(iv: [u8; 32]) -> Self {
         assert!(C::N > C::R, "Capacity of the sponge should be > 0.");
-        Self { permutation: C::new(iv), absorb_pos: 0, squeeze_pos: C::R }
+        Self {
+            permutation: C::new(iv),
+            absorb_pos: 0,
+            squeeze_pos: C::R,
+        }
     }
 
     fn absorb_unchecked(&mut self, mut input: &[U]) -> &mut Self {
@@ -109,7 +113,9 @@ impl<U: Unit, C: Permutation<U = U>> DuplexSpongeInterface<U> for DuplexSponge<C
         self.permutation.permute();
         // set to zero the state up to rate
         // XXX. is the compiler really going to do this?
-        self.permutation.as_mut()[..C::R].iter_mut().for_each(Zeroize::zeroize);
+        self.permutation.as_mut()[..C::R]
+            .iter_mut()
+            .for_each(Zeroize::zeroize);
         self.squeeze_pos = C::R;
         self
     }
@@ -162,7 +168,10 @@ mod tests {
 
     impl Default for DummyPermutation {
         fn default() -> Self {
-            Self { state: [DummyUnit(0); Self::N], permuted: RefCell::new(0) }
+            Self {
+                state: [DummyUnit(0); Self::N],
+                permuted: RefCell::new(0),
+            }
         }
     }
 
@@ -176,7 +185,10 @@ mod tests {
             for (i, byte) in iv.iter().take(Self::N - Self::R).enumerate() {
                 state[Self::R + i] = DummyUnit(*byte);
             }
-            Self { state, permuted: RefCell::new(0) }
+            Self {
+                state,
+                permuted: RefCell::new(0),
+            }
         }
 
         fn permute(&mut self) {
@@ -211,7 +223,10 @@ mod tests {
         assert_eq!(sponge.squeeze_pos, DummyPermutation::R);
         // The last N - R elements should store the IV
         for i in 0..(DummyPermutation::N - DummyPermutation::R) {
-            assert_eq!(sponge.permutation.state[DummyPermutation::R + i], DummyUnit(42));
+            assert_eq!(
+                sponge.permutation.state[DummyPermutation::R + i],
+                DummyUnit(42)
+            );
         }
     }
 

@@ -143,9 +143,10 @@ pub fn transform_evaluations<F: Field + TwoAdicField>(
                 }
             }
             #[cfg(feature = "parallel")]
-            evals.par_chunks_exact_mut(folding_factor_exp).enumerate().for_each_with(
-                F::ZERO,
-                |offset, (i, answers)| {
+            evals
+                .par_chunks_exact_mut(folding_factor_exp)
+                .enumerate()
+                .for_each_with(F::ZERO, |offset, (i, answers)| {
                     if *offset == F::ZERO {
                         *offset = domain_gen_inv.exp_u64(i as u64);
                     } else {
@@ -156,8 +157,7 @@ pub fn transform_evaluations<F: Field + TwoAdicField>(
                         *v *= scale;
                         scale *= *offset;
                     }
-                },
-            );
+                });
         }
     }
 }
@@ -195,8 +195,9 @@ mod tests {
         let index = 15;
 
         // Folding randomness values: {0, 1, 2} (since folding_factor = 3)
-        let folding_randomness: Vec<_> =
-            (0..folding_factor).map(|i| BabyBear::from_u64(i as u64)).collect();
+        let folding_randomness: Vec<_> = (0..folding_factor)
+            .map(|i| BabyBear::from_u64(i as u64))
+            .collect();
 
         // Compute coset offset: ω^index
         let coset_offset = root_of_unity.exp_u64(index);
@@ -262,15 +263,19 @@ mod tests {
         let root_of_unity_inv = root_of_unity.inverse();
 
         // Folding randomness values: {0, 1, 2} (since folding_factor = 3)
-        let folding_randomness: Vec<_> =
-            (0..folding_factor).map(|i| BabyBear::from_u64(i as u64)).collect();
+        let folding_randomness: Vec<_> = (0..folding_factor)
+            .map(|i| BabyBear::from_u64(i as u64))
+            .collect();
 
         // Step 1: Evaluate the polynomial on the entire domain of size 256
         // We evaluate at points: {ω^w} for w in {0, 1, ..., 255}
         let mut domain_evaluations: Vec<_> = (0..domain_size)
             .map(|w| root_of_unity.exp_u64(w))
             .map(|point| {
-                poly.evaluate(&MultilinearPoint::expand_from_univariate(point, num_variables))
+                poly.evaluate(&MultilinearPoint::expand_from_univariate(
+                    point,
+                    num_variables,
+                ))
             })
             .collect();
 

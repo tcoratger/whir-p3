@@ -43,7 +43,10 @@ where
         let size = degree * (1 << log_rho_inv);
         let base_domain = GeneralEvaluationDomain::new(size)?;
         let backing_domain = Self::to_extension_domain(&base_domain);
-        Some(Self { backing_domain, base_domain: Some(base_domain) })
+        Some(Self {
+            backing_domain,
+            base_domain: Some(base_domain),
+        })
     }
 
     /// Returns the domain size after `folding_factor` applications of folding.
@@ -73,7 +76,10 @@ where
     /// The base domain is set to `None` since scaling only affects the extended field.
     #[must_use]
     pub fn scale(&self, power: usize) -> Self {
-        Self { backing_domain: self.scale_generator_by(power), base_domain: None }
+        Self {
+            backing_domain: self.scale_generator_by(power),
+            base_domain: None,
+        }
     }
 
     /// Converts a base field evaluation domain into an extended field domain.
@@ -218,7 +224,10 @@ mod tests {
         let backing_domain = &domain.backing_domain;
 
         // Check if size_as_field_element correctly converts the size to field representation
-        assert_eq!(backing_domain.size_as_field_element(), BabyBear::from_u64(16));
+        assert_eq!(
+            backing_domain.size_as_field_element(),
+            BabyBear::from_u64(16)
+        );
     }
 
     #[test]
@@ -261,7 +270,10 @@ mod tests {
 
         // The inverse generator should be `g^-2`.
         let expected_group_gen_inv = expected_group_gen.inverse();
-        assert_eq!(scaled_domain.backing_domain.group_gen_inv(), expected_group_gen_inv);
+        assert_eq!(
+            scaled_domain.backing_domain.group_gen_inv(),
+            expected_group_gen_inv
+        );
     }
 
     #[test]
@@ -307,7 +319,10 @@ mod tests {
 
         // The offset_pow_size should be offset^(new_size)
         let expected_offset_pow_size = expected_offset.exp_u64(8);
-        assert_eq!(scaled_domain.coset_offset_pow_size(), expected_offset_pow_size);
+        assert_eq!(
+            scaled_domain.coset_offset_pow_size(),
+            expected_offset_pow_size
+        );
     }
 
     #[test]
@@ -319,7 +334,10 @@ mod tests {
         let expected_size_as_field_element = BabyBear::from_u64(8);
 
         // Check if size_as_field_element correctly represents the scaled size in the field
-        assert_eq!(scaled_domain.size_as_field_element(), expected_size_as_field_element);
+        assert_eq!(
+            scaled_domain.size_as_field_element(),
+            expected_size_as_field_element
+        );
     }
 
     #[test]

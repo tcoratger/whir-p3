@@ -193,21 +193,21 @@ mod tests {
                 v5 + v1 + v9 + v13,
                 v1 + v2 + v5 + v6 + v9 + v10 + v13 + v14,
                 v3 + v1 + v5 + v7 + v9 + v11 + v13 + v15,
-                v1 + v2 +
-                    v3 +
-                    v4 +
-                    v5 +
-                    v6 +
-                    v7 +
-                    v8 +
-                    v9 +
-                    v10 +
-                    v11 +
-                    v12 +
-                    v13 +
-                    v14 +
-                    v15 +
-                    v16
+                v1 + v2
+                    + v3
+                    + v4
+                    + v5
+                    + v6
+                    + v7
+                    + v8
+                    + v9
+                    + v10
+                    + v11
+                    + v12
+                    + v13
+                    + v14
+                    + v15
+                    + v16
             ]
         );
     }
@@ -234,7 +234,9 @@ mod tests {
         let batch_size = 2_i32.pow(20) as usize;
         // Ensure values.len() > size to enter parallel execution
         let total_size = batch_size * 4;
-        let mut values = (1..=total_size as u64).map(BabyBear::from_u64).collect::<Vec<_>>();
+        let mut values = (1..=total_size as u64)
+            .map(BabyBear::from_u64)
+            .collect::<Vec<_>>();
 
         // Keep a copy to compare later
         let original_values = values.clone();
@@ -255,7 +257,11 @@ mod tests {
             let mut expected_chunk = original_values[start..end].to_vec();
             wavelet_transform_batch(&mut expected_chunk, batch_size);
 
-            assert_eq!(&values[start..end], &expected_chunk, "Mismatch in chunk {i}");
+            assert_eq!(
+                &values[start..end],
+                &expected_chunk,
+                "Mismatch in chunk {i}"
+            );
         }
 
         // Ensure the first element remains unchanged

@@ -75,7 +75,11 @@ impl<F: Field> Weights<F> {
                 assert_eq!(poly.num_variables(), weight.num_variables());
                 #[cfg(not(feature = "parallel"))]
                 {
-                    poly.evals().iter().zip(weight.evals().iter()).map(|(p, w)| *p * *w).sum()
+                    poly.evals()
+                        .iter()
+                        .zip(weight.evals().iter())
+                        .map(|(p, w)| *p * *w)
+                        .sum()
                 }
                 #[cfg(feature = "parallel")]
                 {
@@ -113,14 +117,22 @@ impl<F: Field> Weights<F> {
             }
             Self::Linear { weight } => {
                 #[cfg(feature = "parallel")]
-                accumulator.evals_mut().par_iter_mut().enumerate().for_each(|(corner, acc)| {
-                    *acc += factor * weight[corner];
-                });
+                accumulator
+                    .evals_mut()
+                    .par_iter_mut()
+                    .enumerate()
+                    .for_each(|(corner, acc)| {
+                        *acc += factor * weight[corner];
+                    });
 
                 #[cfg(not(feature = "parallel"))]
-                accumulator.evals_mut().iter_mut().enumerate().for_each(|(corner, acc)| {
-                    *acc += factor * weight[corner];
-                });
+                accumulator
+                    .evals_mut()
+                    .iter_mut()
+                    .enumerate()
+                    .for_each(|(corner, acc)| {
+                        *acc += factor * weight[corner];
+                    });
             }
         }
     }
@@ -156,7 +168,10 @@ pub struct Statement<F> {
 impl<F: Field> Statement<F> {
     /// Creates an empty `Statement<F>` for polynomials with `num_variables` variables.
     pub const fn new(num_variables: usize) -> Self {
-        Self { num_variables, constraints: Vec::new() }
+        Self {
+            num_variables,
+            constraints: Vec::new(),
+        }
     }
 
     /// Returns the number of variables defining the polynomial space.
@@ -238,7 +253,10 @@ pub enum VerifierWeights<F> {
     Evaluation { point: MultilinearPoint<F> },
     /// Linear weight representation over `num_variables` variables.
     /// May store a precomputed term for efficiency.
-    Linear { num_variables: usize, term: Option<F> },
+    Linear {
+        num_variables: usize,
+        term: Option<F>,
+    },
 }
 
 impl<F: Field> VerifierWeights<F> {
@@ -252,7 +270,10 @@ impl<F: Field> VerifierWeights<F> {
     /// - `num_variables`: The number of variables in the polynomial space.
     /// - `term`: An optional precomputed term for efficiency.
     pub const fn linear(num_variables: usize, term: Option<F>) -> Self {
-        Self::Linear { num_variables, term }
+        Self::Linear {
+            num_variables,
+            term,
+        }
     }
 
     /// Returns the number of variables in the weight.
@@ -320,7 +341,10 @@ pub struct StatementVerifier<F> {
 impl<F: Field> StatementVerifier<F> {
     /// Creates a new statement verifier for a given number of variables.
     const fn new(num_variables: usize) -> Self {
-        Self { num_variables, constraints: Vec::new() }
+        Self {
+            num_variables,
+            constraints: Vec::new(),
+        }
     }
 
     /// Returns the number of variables in the statement.

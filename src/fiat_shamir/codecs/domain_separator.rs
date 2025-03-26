@@ -12,7 +12,10 @@ where
     H: DuplexSpongeInterface,
 {
     fn add_scalars(self, count: usize, label: &str) -> Self {
-        self.add_bytes(count * F::DIMENSION * bytes_modp(F::PrimeSubfield::bits() as u32), label)
+        self.add_bytes(
+            count * F::DIMENSION * bytes_modp(F::PrimeSubfield::bits() as u32),
+            label,
+        )
     }
 
     fn challenge_scalars(self, count: usize, label: &str) -> Self {

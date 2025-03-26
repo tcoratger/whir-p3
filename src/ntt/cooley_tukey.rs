@@ -67,7 +67,11 @@ impl<F: Field> NttEngine<F> {
 
         // Ensure `omega_order` is the correct root of unity
         let computed_root = omega_order.exp_u64(order as u64);
-        assert_eq!(computed_root, F::ONE, "ω_order is not a valid root of unity.");
+        assert_eq!(
+            computed_root,
+            F::ONE,
+            "ω_order is not a valid root of unity."
+        );
 
         assert_ne!(omega_order.exp_u64(order as u64 / 2), F::ONE);
 
@@ -145,7 +149,10 @@ impl<F: Field> NttEngine<F> {
 
     /// Computes the `order`-th root of unity by exponentiating `omega_order`.
     pub fn root(&self, order: usize) -> F {
-        assert!(self.order % order == 0, "Subgroup of requested order does not exist.");
+        assert!(
+            self.order % order == 0,
+            "Subgroup of requested order does not exist."
+        );
         self.omega_order.exp_u64((self.order / order) as u64)
     }
 
@@ -161,7 +168,11 @@ impl<F: Field> NttEngine<F> {
             if roots.is_empty() || roots.len() % order != 0 {
                 // Compute minimal size to support all sizes seen so far.
                 // TODO: Do we really need all of these? Can we leverage omega_2 = -1?
-                let size = if roots.is_empty() { order } else { lcm(roots.len(), order) };
+                let size = if roots.is_empty() {
+                    order
+                } else {
+                    lcm(roots.len(), order)
+                };
                 roots.clear();
                 roots.reserve_exact(size);
 
@@ -404,15 +415,19 @@ pub fn apply_twiddles<F: Field>(values: &mut [F], roots: &[F], rows: usize, cols
         if values.len() > workload_size::<F>() {
             if values.len() == size {
                 // Only one matrix → parallelize rows directly
-                values.par_chunks_exact_mut(cols).enumerate().skip(1).for_each(|(i, row)| {
-                    let step = (i * step) % roots.len();
-                    let mut index = step;
-                    for value in row.iter_mut().skip(1) {
-                        index %= roots.len();
-                        *value *= roots[index];
-                        index += step;
-                    }
-                });
+                values
+                    .par_chunks_exact_mut(cols)
+                    .enumerate()
+                    .skip(1)
+                    .for_each(|(i, row)| {
+                        let step = (i * step) % roots.len();
+                        let mut index = step;
+                        for value in row.iter_mut().skip(1) {
+                            index %= roots.len();
+                            *value *= roots[index];
+                            index += step;
+                        }
+                    });
                 return;
             }
             // Multiple matrices → chunk and recurse
@@ -476,7 +491,9 @@ mod tests {
         let omega = BabyBear::two_adic_generator(BabyBear::TWO_ADICITY);
         let engine = NttEngine::new(1 << BabyBear::TWO_ADICITY, omega);
         assert_eq!(
-            engine.root(1 << BabyBear::TWO_ADICITY).exp_u64(1 << BabyBear::TWO_ADICITY),
+            engine
+                .root(1 << BabyBear::TWO_ADICITY)
+                .exp_u64(1 << BabyBear::TWO_ADICITY),
             BabyBear::ONE
         );
     }
@@ -866,62 +883,62 @@ mod tests {
         let omega7 = omega * omega6; // ω⁷
 
         let expected_f0 = f0 + f1 + f2 + f3 + f4 + f5 + f6 + f7;
-        let expected_f1 = f0 +
-            f1 * omega1 +
-            f2 * omega2 +
-            f3 * omega3 +
-            f4 * omega4 +
-            f5 * omega5 +
-            f6 * omega6 +
-            f7 * omega7;
-        let expected_f2 = f0 +
-            f1 * omega2 +
-            f2 * omega4 +
-            f3 * omega6 +
-            f4 * BabyBear::ONE +
-            f5 * omega2 +
-            f6 * omega4 +
-            f7 * omega6;
-        let expected_f3 = f0 +
-            f1 * omega3 +
-            f2 * omega6 +
-            f3 * omega1 +
-            f4 * omega4 +
-            f5 * omega7 +
-            f6 * omega2 +
-            f7 * omega5;
-        let expected_f4 = f0 +
-            f1 * omega4 +
-            f2 * BabyBear::ONE +
-            f3 * omega4 +
-            f4 * BabyBear::ONE +
-            f5 * omega4 +
-            f6 * BabyBear::ONE +
-            f7 * omega4;
-        let expected_f5 = f0 +
-            f1 * omega5 +
-            f2 * omega2 +
-            f3 * omega7 +
-            f4 * omega4 +
-            f5 * omega1 +
-            f6 * omega6 +
-            f7 * omega3;
-        let expected_f6 = f0 +
-            f1 * omega6 +
-            f2 * omega4 +
-            f3 * omega2 +
-            f4 * BabyBear::ONE +
-            f5 * omega6 +
-            f6 * omega4 +
-            f7 * omega2;
-        let expected_f7 = f0 +
-            f1 * omega7 +
-            f2 * omega6 +
-            f3 * omega5 +
-            f4 * omega4 +
-            f5 * omega3 +
-            f6 * omega2 +
-            f7 * omega1;
+        let expected_f1 = f0
+            + f1 * omega1
+            + f2 * omega2
+            + f3 * omega3
+            + f4 * omega4
+            + f5 * omega5
+            + f6 * omega6
+            + f7 * omega7;
+        let expected_f2 = f0
+            + f1 * omega2
+            + f2 * omega4
+            + f3 * omega6
+            + f4 * BabyBear::ONE
+            + f5 * omega2
+            + f6 * omega4
+            + f7 * omega6;
+        let expected_f3 = f0
+            + f1 * omega3
+            + f2 * omega6
+            + f3 * omega1
+            + f4 * omega4
+            + f5 * omega7
+            + f6 * omega2
+            + f7 * omega5;
+        let expected_f4 = f0
+            + f1 * omega4
+            + f2 * BabyBear::ONE
+            + f3 * omega4
+            + f4 * BabyBear::ONE
+            + f5 * omega4
+            + f6 * BabyBear::ONE
+            + f7 * omega4;
+        let expected_f5 = f0
+            + f1 * omega5
+            + f2 * omega2
+            + f3 * omega7
+            + f4 * omega4
+            + f5 * omega1
+            + f6 * omega6
+            + f7 * omega3;
+        let expected_f6 = f0
+            + f1 * omega6
+            + f2 * omega4
+            + f3 * omega2
+            + f4 * BabyBear::ONE
+            + f5 * omega6
+            + f6 * omega4
+            + f7 * omega2;
+        let expected_f7 = f0
+            + f1 * omega7
+            + f2 * omega6
+            + f3 * omega5
+            + f4 * omega4
+            + f5 * omega3
+            + f6 * omega2
+            + f7 * omega1;
 
         let expected_values = vec![
             expected_f0,
@@ -957,8 +974,11 @@ mod tests {
         let mut expected_values = vec![BabyBear::ZERO; 16];
         for (k, expected_value) in expected_values.iter_mut().enumerate().take(16) {
             let omega_k = omega.exp_u64(k as u64);
-            *expected_value =
-                values.iter().enumerate().map(|(j, &f_j)| f_j * omega_k.exp_u64(j as u64)).sum();
+            *expected_value = values
+                .iter()
+                .enumerate()
+                .map(|(j, &f_j)| f_j * omega_k.exp_u64(j as u64))
+                .sum();
         }
 
         engine.ntt_batch(&mut values_ntt, 16);
@@ -984,8 +1004,11 @@ mod tests {
         let mut expected_values = vec![BabyBear::ZERO; 32];
         for (k, expected_value) in expected_values.iter_mut().enumerate().take(32) {
             let omega_k = omega.exp_u64(k as u64);
-            *expected_value =
-                values.iter().enumerate().map(|(j, &f_j)| f_j * omega_k.exp_u64(j as u64)).sum();
+            *expected_value = values
+                .iter()
+                .enumerate()
+                .map(|(j, &f_j)| f_j * omega_k.exp_u64(j as u64))
+                .sum();
         }
 
         engine.ntt_batch(&mut values_ntt, 32);

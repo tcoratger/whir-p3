@@ -46,8 +46,9 @@ where
         for round in &self.rounds {
             let mut evals = Vec::with_capacity(round.stir_challenges_answers.len());
 
-            let stir_evals_context =
-                StirEvalContext::ProverHelps { folding_randomness: &round.folding_randomness };
+            let stir_evals_context = StirEvalContext::ProverHelps {
+                folding_randomness: &round.folding_randomness,
+            };
 
             stir_evals_context.evaluate(&round.stir_challenges_answers, &mut evals);
             result.push(evals);
@@ -56,8 +57,9 @@ where
         // Add final round
         let mut final_evals = Vec::with_capacity(self.final_randomness_answers.len());
 
-        let stir_evals_context =
-            StirEvalContext::ProverHelps { folding_randomness: &self.final_folding_randomness };
+        let stir_evals_context = StirEvalContext::ProverHelps {
+            folding_randomness: &self.final_folding_randomness,
+        };
         stir_evals_context.evaluate(&self.final_randomness_answers, &mut final_evals);
         result.push(final_evals);
         result
@@ -125,7 +127,10 @@ mod tests {
                 BabyBear::from_u64(3),
                 BabyBear::from_u64(4),
             ])
-            .evaluate(&MultilinearPoint(vec![BabyBear::from_u64(5), BabyBear::from_u64(6)])),
+            .evaluate(&MultilinearPoint(vec![
+                BabyBear::from_u64(5),
+                BabyBear::from_u64(6),
+            ])),
         ];
 
         // Expected final round evaluation:
@@ -137,7 +142,10 @@ mod tests {
                 BabyBear::from_u64(7),
                 BabyBear::from_u64(8),
             ])
-            .evaluate(&MultilinearPoint(vec![BabyBear::from_u64(55), BabyBear::from_u64(66)])),
+            .evaluate(&MultilinearPoint(vec![
+                BabyBear::from_u64(55),
+                BabyBear::from_u64(66),
+            ])),
         ];
 
         assert_eq!(folds, vec![expected_rounds, expected_final_round]);

@@ -34,7 +34,13 @@ impl<'a, T> MatrixMut<'a, T> {
         assert_eq!(slice.len(), rows * cols);
         // Safety: The input slice is valid for the lifetime `'a` and has
         // `rows` contiguous rows of length `cols`.
-        Self { data: slice.as_mut_ptr(), rows, cols, row_stride: cols, _lifetime: PhantomData }
+        Self {
+            data: slice.as_mut_ptr(),
+            rows,
+            cols,
+            row_stride: cols,
+            _lifetime: PhantomData,
+        }
     }
 
     /// returns the number of rows

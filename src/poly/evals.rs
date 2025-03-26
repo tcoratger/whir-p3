@@ -34,9 +34,15 @@ where
     /// - If `evals.len()` is **not** a power of two.
     pub fn new(evals: Vec<F>) -> Self {
         let len = evals.len();
-        assert!(len.is_power_of_two(), "Evaluation list length must be a power of two.");
+        assert!(
+            len.is_power_of_two(),
+            "Evaluation list length must be a power of two."
+        );
 
-        Self { evals, num_variables: len.ilog2() as usize }
+        Self {
+            evals,
+            num_variables: len.ilog2() as usize,
+        }
     }
 
     /// Evaluates the polynomial at a given multilinear point.
@@ -267,8 +273,9 @@ mod tests {
         let result = evals.evaluate(&point);
 
         // The result should be computed using Lagrange interpolation.
-        let expected =
-            LagrangePolynomialIterator::from(&point).map(|(b, lag)| lag * evals[b.0]).sum();
+        let expected = LagrangePolynomialIterator::from(&point)
+            .map(|(b, lag)| lag * evals[b.0])
+            .sum();
 
         assert_eq!(result, expected);
     }
@@ -283,10 +290,22 @@ mod tests {
         let evals = EvaluationsList::new(vec![e1, e2, e3, e4]);
 
         // Evaluating at a binary hypercube point should return the direct value
-        assert_eq!(evals.evaluate(&MultilinearPoint(vec![BabyBear::ZERO, BabyBear::ZERO])), e1);
-        assert_eq!(evals.evaluate(&MultilinearPoint(vec![BabyBear::ZERO, BabyBear::ONE])), e2);
-        assert_eq!(evals.evaluate(&MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO])), e3);
-        assert_eq!(evals.evaluate(&MultilinearPoint(vec![BabyBear::ONE, BabyBear::ONE])), e4);
+        assert_eq!(
+            evals.evaluate(&MultilinearPoint(vec![BabyBear::ZERO, BabyBear::ZERO])),
+            e1
+        );
+        assert_eq!(
+            evals.evaluate(&MultilinearPoint(vec![BabyBear::ZERO, BabyBear::ONE])),
+            e2
+        );
+        assert_eq!(
+            evals.evaluate(&MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO])),
+            e3
+        );
+        assert_eq!(
+            evals.evaluate(&MultilinearPoint(vec![BabyBear::ONE, BabyBear::ONE])),
+            e4
+        );
     }
 
     #[test]
@@ -378,10 +397,10 @@ mod tests {
 
         // Interpolation formula:
         // f(x, y) = (1-x)(1-y) * f(0,0) + (1-x)y * f(0,1) + x(1-y) * f(1,0) + xy * f(1,1)
-        let expected = (BabyBear::ONE - x) * (BabyBear::ONE - y) * a +
-            (BabyBear::ONE - x) * y * c +
-            x * (BabyBear::ONE - y) * b +
-            x * y * d;
+        let expected = (BabyBear::ONE - x) * (BabyBear::ONE - y) * a
+            + (BabyBear::ONE - x) * y * c
+            + x * (BabyBear::ONE - y) * b
+            + x * y * d;
 
         assert_eq!(eval_multilinear(&evals, &[x, y]), expected);
     }
@@ -407,14 +426,14 @@ mod tests {
         let z = BabyBear::from_u64(1) / BabyBear::from_u64(3);
 
         // Using trilinear interpolation formula:
-        let expected = (BabyBear::ONE - x) * (BabyBear::ONE - y) * (BabyBear::ONE - z) * a +
-            (BabyBear::ONE - x) * (BabyBear::ONE - y) * z * c +
-            (BabyBear::ONE - x) * y * (BabyBear::ONE - z) * b +
-            (BabyBear::ONE - x) * y * z * e +
-            x * (BabyBear::ONE - y) * (BabyBear::ONE - z) * d +
-            x * (BabyBear::ONE - y) * z * f +
-            x * y * (BabyBear::ONE - z) * g +
-            x * y * z * h;
+        let expected = (BabyBear::ONE - x) * (BabyBear::ONE - y) * (BabyBear::ONE - z) * a
+            + (BabyBear::ONE - x) * (BabyBear::ONE - y) * z * c
+            + (BabyBear::ONE - x) * y * (BabyBear::ONE - z) * b
+            + (BabyBear::ONE - x) * y * z * e
+            + x * (BabyBear::ONE - y) * (BabyBear::ONE - z) * d
+            + x * (BabyBear::ONE - y) * z * f
+            + x * y * (BabyBear::ONE - z) * g
+            + x * y * z * h;
 
         assert_eq!(eval_multilinear(&evals, &[x, y, z]), expected);
     }
@@ -447,26 +466,26 @@ mod tests {
         let w = BabyBear::from_u64(3) / BabyBear::from_u64(5);
 
         // Quadlinear interpolation formula
-        let expected = (BabyBear::ONE - x) *
-            (BabyBear::ONE - y) *
-            (BabyBear::ONE - z) *
-            (BabyBear::ONE - w) *
-            a +
-            (BabyBear::ONE - x) * (BabyBear::ONE - y) * (BabyBear::ONE - z) * w * b +
-            (BabyBear::ONE - x) * (BabyBear::ONE - y) * z * (BabyBear::ONE - w) * c +
-            (BabyBear::ONE - x) * (BabyBear::ONE - y) * z * w * d +
-            (BabyBear::ONE - x) * y * (BabyBear::ONE - z) * (BabyBear::ONE - w) * e +
-            (BabyBear::ONE - x) * y * (BabyBear::ONE - z) * w * f +
-            (BabyBear::ONE - x) * y * z * (BabyBear::ONE - w) * g +
-            (BabyBear::ONE - x) * y * z * w * h +
-            x * (BabyBear::ONE - y) * (BabyBear::ONE - z) * (BabyBear::ONE - w) * i +
-            x * (BabyBear::ONE - y) * (BabyBear::ONE - z) * w * j +
-            x * (BabyBear::ONE - y) * z * (BabyBear::ONE - w) * k +
-            x * (BabyBear::ONE - y) * z * w * l +
-            x * y * (BabyBear::ONE - z) * (BabyBear::ONE - w) * m +
-            x * y * (BabyBear::ONE - z) * w * n +
-            x * y * z * (BabyBear::ONE - w) * o +
-            x * y * z * w * p;
+        let expected = (BabyBear::ONE - x)
+            * (BabyBear::ONE - y)
+            * (BabyBear::ONE - z)
+            * (BabyBear::ONE - w)
+            * a
+            + (BabyBear::ONE - x) * (BabyBear::ONE - y) * (BabyBear::ONE - z) * w * b
+            + (BabyBear::ONE - x) * (BabyBear::ONE - y) * z * (BabyBear::ONE - w) * c
+            + (BabyBear::ONE - x) * (BabyBear::ONE - y) * z * w * d
+            + (BabyBear::ONE - x) * y * (BabyBear::ONE - z) * (BabyBear::ONE - w) * e
+            + (BabyBear::ONE - x) * y * (BabyBear::ONE - z) * w * f
+            + (BabyBear::ONE - x) * y * z * (BabyBear::ONE - w) * g
+            + (BabyBear::ONE - x) * y * z * w * h
+            + x * (BabyBear::ONE - y) * (BabyBear::ONE - z) * (BabyBear::ONE - w) * i
+            + x * (BabyBear::ONE - y) * (BabyBear::ONE - z) * w * j
+            + x * (BabyBear::ONE - y) * z * (BabyBear::ONE - w) * k
+            + x * (BabyBear::ONE - y) * z * w * l
+            + x * y * (BabyBear::ONE - z) * (BabyBear::ONE - w) * m
+            + x * y * (BabyBear::ONE - z) * w * n
+            + x * y * z * (BabyBear::ONE - w) * o
+            + x * y * z * w * p;
 
         // Validate against the function output
         assert_eq!(eval_multilinear(&evals, &[x, y, z, w]), expected);

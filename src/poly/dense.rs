@@ -52,7 +52,9 @@ impl<F: Field> WhirDensePolynomial<F> {
 
     // Horner's method for polynomial evaluation
     fn horner_evaluate(&self, point: &F) -> F {
-        self.coeffs.iter().rfold(F::ZERO, move |result, coeff| result * *point + *coeff)
+        self.coeffs
+            .iter()
+            .rfold(F::ZERO, move |result, coeff| result * *point + *coeff)
     }
 }
 
@@ -97,7 +99,10 @@ mod tests {
         // f(1)
         assert_eq!(poly.evaluate(&BabyBear::ONE), c0 + c1 * BabyBear::ONE);
         // f(2)
-        assert_eq!(poly.evaluate(&BabyBear::from_u64(2)), c0 + c1 * BabyBear::from_u64(2));
+        assert_eq!(
+            poly.evaluate(&BabyBear::from_u64(2)),
+            c0 + c1 * BabyBear::from_u64(2)
+        );
     }
 
     #[test]
@@ -113,7 +118,10 @@ mod tests {
         // f(1)
         assert_eq!(poly.evaluate(&BabyBear::ONE), c0 + c2);
         // f(2)
-        assert_eq!(poly.evaluate(&BabyBear::from_u64(2)), c0 + c2 * BabyBear::from_u64(4));
+        assert_eq!(
+            poly.evaluate(&BabyBear::from_u64(2)),
+            c0 + c2 * BabyBear::from_u64(4)
+        );
     }
 
     #[test]
@@ -133,9 +141,9 @@ mod tests {
         // f(2)
         assert_eq!(
             poly.evaluate(&BabyBear::from_u64(2)),
-            c0 + c1 * BabyBear::from_u64(2) +
-                c2 * BabyBear::from_u64(4) +
-                c3 * BabyBear::from_u64(8)
+            c0 + c1 * BabyBear::from_u64(2)
+                + c2 * BabyBear::from_u64(4)
+                + c3 * BabyBear::from_u64(8)
         );
     }
 
@@ -153,7 +161,10 @@ mod tests {
 
         // Should be trimmed to degree 1
         assert_eq!(poly.coeffs.len(), 2);
-        assert_eq!(poly.evaluate(&BabyBear::from_u64(3)), c0 + c1 * BabyBear::from_u64(3));
+        assert_eq!(
+            poly.evaluate(&BabyBear::from_u64(3)),
+            c0 + c1 * BabyBear::from_u64(3)
+        );
     }
 
     #[test]

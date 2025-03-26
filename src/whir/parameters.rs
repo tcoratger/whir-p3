@@ -66,10 +66,14 @@ where
         mv_parameters: MultivariateParameters<F>,
         whir_parameters: WhirParameters<H, C>,
     ) -> Self {
-        whir_parameters.folding_factor.check_validity(mv_parameters.num_variables).unwrap();
+        whir_parameters
+            .folding_factor
+            .check_validity(mv_parameters.num_variables)
+            .unwrap();
 
-        let protocol_security_level =
-            whir_parameters.security_level.saturating_sub(whir_parameters.pow_bits);
+        let protocol_security_level = whir_parameters
+            .security_level
+            .saturating_sub(whir_parameters.pow_bits);
         let field_size_bits = F::bits();
         let mut log_inv_rate = whir_parameters.starting_log_inv_rate;
         let mut num_variables = mv_parameters.num_variables;
@@ -77,8 +81,9 @@ where
         let starting_domain = Domain::new(1 << mv_parameters.num_variables, log_inv_rate)
             .expect("Should have found an appropriate domain - check Field 2 adicity?");
 
-        let (num_rounds, final_sumcheck_rounds) =
-            whir_parameters.folding_factor.compute_number_of_rounds(mv_parameters.num_variables);
+        let (num_rounds, final_sumcheck_rounds) = whir_parameters
+            .folding_factor
+            .compute_number_of_rounds(mv_parameters.num_variables);
 
         let log_eta_start = Self::log_eta(whir_parameters.soundness_type, log_inv_rate);
 
@@ -176,12 +181,15 @@ where
             log_inv_rate = next_rate;
         }
 
-        let final_queries =
-            Self::queries(whir_parameters.soundness_type, protocol_security_level, log_inv_rate);
+        let final_queries = Self::queries(
+            whir_parameters.soundness_type,
+            protocol_security_level,
+            log_inv_rate,
+        );
 
         let final_pow_bits = 0_f64.max(
-            whir_parameters.security_level as f64 -
-                Self::rbr_queries(whir_parameters.soundness_type, log_inv_rate, final_queries),
+            whir_parameters.security_level as f64
+                - Self::rbr_queries(whir_parameters.soundness_type, log_inv_rate, final_queries),
         );
 
         let final_folding_pow_bits =
@@ -219,9 +227,9 @@ where
         let max_bits = self.max_pow_bits as f64;
 
         // Check the main pow bits values
-        if self.starting_folding_pow_bits > max_bits ||
-            self.final_pow_bits > max_bits ||
-            self.final_folding_pow_bits > max_bits
+        if self.starting_folding_pow_bits > max_bits
+            || self.final_pow_bits > max_bits
+            || self.final_folding_pow_bits > max_bits
         {
             return false;
         }
@@ -752,7 +760,10 @@ mod tests {
             log_inv_rate: 3,
         }];
 
-        assert!(!config.check_pow_bits(), "All values exceed max_pow_bits, should return false.");
+        assert!(
+            !config.check_pow_bits(),
+            "All values exceed max_pow_bits, should return false."
+        );
     }
 
     #[test]
@@ -812,7 +823,13 @@ mod tests {
     fn test_list_size_bits_unique_decoding() {
         // UniqueDecoding: always returns 0.0
 
-        let cases = vec![(10, 5, 2.0), (0, 5, 2.0), (10, 0, 2.0), (10, 5, 0.0), (10, 5, 10.0)];
+        let cases = vec![
+            (10, 5, 2.0),
+            (0, 5, 2.0),
+            (10, 0, 2.0),
+            (10, 5, 0.0),
+            (10, 5, 10.0),
+        ];
 
         for (num_variables, log_inv_rate, log_eta) in cases {
             let result = WhirConfig::<BabyBear, u8, u8, ()>::list_size_bits(
@@ -836,15 +853,50 @@ mod tests {
 
         let cases = vec![
             // Basic case
-            (10, 5, 2.0, 256, 3, (3.0 * 256.0) + 1.0 - (2.0 * 13.0 + (10.0 * 3.0))),
+            (
+                10,
+                5,
+                2.0,
+                256,
+                3,
+                (3.0 * 256.0) + 1.0 - (2.0 * 13.0 + (10.0 * 3.0)),
+            ),
             // Edge case: num_variables = 0
-            (0, 5, 2.0, 256, 3, (3.0 * 256.0) + 1.0 - (2.0 * 3.0 + (0.0 * 3.0))),
+            (
+                0,
+                5,
+                2.0,
+                256,
+                3,
+                (3.0 * 256.0) + 1.0 - (2.0 * 3.0 + (0.0 * 3.0)),
+            ),
             // Edge case: log_inv_rate = 0
-            (10, 0, 2.0, 256, 3, (3.0 * 256.0) + 1.0 - (2.0 * 8.0 + (10.0 * 3.0))),
+            (
+                10,
+                0,
+                2.0,
+                256,
+                3,
+                (3.0 * 256.0) + 1.0 - (2.0 * 8.0 + (10.0 * 3.0)),
+            ),
             // Edge case: log_eta = 0
-            (10, 5, 0.0, 256, 3, (3.0 * 256.0) + 1.0 - (2.0 * 15.0 + (10.0 * 3.0))),
+            (
+                10,
+                5,
+                0.0,
+                256,
+                3,
+                (3.0 * 256.0) + 1.0 - (2.0 * 15.0 + (10.0 * 3.0)),
+            ),
             // High log_eta
-            (10, 5, 10.0, 256, 3, (3.0 * 256.0) + 1.0 - (2.0 * 5.0 + (10.0 * 3.0))),
+            (
+                10,
+                5,
+                10.0,
+                256,
+                3,
+                (3.0 * 256.0) + 1.0 - (2.0 * 5.0 + (10.0 * 3.0)),
+            ),
         ];
 
         for (num_variables, log_inv_rate, log_eta, field_size_bits, ood_samples, expected) in cases
@@ -860,7 +912,13 @@ mod tests {
             assert!(
                 (result - expected).abs() < 1e-6,
                 "Failed for {:?}",
-                (num_variables, log_inv_rate, log_eta, field_size_bits, ood_samples)
+                (
+                    num_variables,
+                    log_inv_rate,
+                    log_eta,
+                    field_size_bits,
+                    ood_samples
+                )
             );
         }
     }
@@ -871,13 +929,41 @@ mod tests {
 
         let cases = vec![
             // Basic case
-            (10, 8, 2.0, 256, 3, (3.0 * 256.0) + 1.0 - (2.0 * 1.0 + (10.0 * 3.0))),
+            (
+                10,
+                8,
+                2.0,
+                256,
+                3,
+                (3.0 * 256.0) + 1.0 - (2.0 * 1.0 + (10.0 * 3.0)),
+            ),
             // log_inv_rate = 0
-            (10, 0, 2.0, 256, 3, (3.0 * 256.0) + 1.0 - (2.0 * -3.0 + (10.0 * 3.0))),
+            (
+                10,
+                0,
+                2.0,
+                256,
+                3,
+                (3.0 * 256.0) + 1.0 - (2.0 * -3.0 + (10.0 * 3.0)),
+            ),
             // log_eta = 0
-            (10, 8, 0.0, 256, 3, (3.0 * 256.0) + 1.0 - (2.0 * 3.0 + (10.0 * 3.0))),
+            (
+                10,
+                8,
+                0.0,
+                256,
+                3,
+                (3.0 * 256.0) + 1.0 - (2.0 * 3.0 + (10.0 * 3.0)),
+            ),
             // High log_eta
-            (10, 8, 10.0, 256, 3, (3.0 * 256.0) + 1.0 - (2.0 * -7.0 + (10.0 * 3.0))),
+            (
+                10,
+                8,
+                10.0,
+                256,
+                3,
+                (3.0 * 256.0) + 1.0 - (2.0 * -7.0 + (10.0 * 3.0)),
+            ),
         ];
         for (num_variables, log_inv_rate, log_eta, field_size_bits, ood_samples, expected) in cases
         {
@@ -892,7 +978,13 @@ mod tests {
             assert!(
                 (result - expected).abs() < 1e-6,
                 "Failed for {:?}",
-                (num_variables, log_inv_rate, log_eta, field_size_bits, ood_samples)
+                (
+                    num_variables,
+                    log_inv_rate,
+                    log_eta,
+                    field_size_bits,
+                    ood_samples
+                )
             );
         }
     }

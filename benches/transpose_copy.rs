@@ -3,7 +3,9 @@ use whir_p3::ntt::{matrix::MatrixMut, transpose::transpose_copy};
 
 /// Creates an `M x N` matrix with elements `(row, col)` for benchmarking.
 fn create_matrix(rows: usize, cols: usize) -> Vec<(usize, usize)> {
-    (0..rows).flat_map(|i| (0..cols).map(move |j| (i, j))).collect()
+    (0..rows)
+        .flat_map(|i| (0..cols).map(move |j| (i, j)))
+        .collect()
 }
 
 /// Benchmark function for `transpose_copy`

@@ -30,7 +30,10 @@ where
     ///
     /// The vector `evaluations` **must** have a length of `3^n_variables`.
     pub const fn new(evaluations: Vec<F>, n_variables: usize) -> Self {
-        Self { n_variables, evaluations }
+        Self {
+            n_variables,
+            evaluations,
+        }
     }
 
     /// Returns the vector of stored evaluations.
@@ -109,7 +112,11 @@ where
     /// - The input `point` must have `n_variables` dimensions.
     pub fn evaluate_at_point(&self, point: &MultilinearPoint<F>) -> F {
         assert_eq!(point.num_variables(), self.n_variables);
-        self.evaluations.iter().enumerate().map(|(i, &eval)| eval * point.eq_poly3(i)).sum()
+        self.evaluations
+            .iter()
+            .enumerate()
+            .map(|(i, &eval)| eval * point.eq_poly3(i))
+            .sum()
     }
 }
 
@@ -173,10 +180,10 @@ mod tests {
         let poly = SumcheckPolynomial::new(evaluations, 2);
 
         // Sum over {0,1}^2: f(0,0) + f(0,1) + f(1,0) + f(1,1)
-        let expected_sum = BabyBear::from_u64(1) +
-            BabyBear::from_u64(2) +
-            BabyBear::from_u64(4) +
-            BabyBear::from_u64(5);
+        let expected_sum = BabyBear::from_u64(1)
+            + BabyBear::from_u64(2)
+            + BabyBear::from_u64(4)
+            + BabyBear::from_u64(5);
         let computed_sum = poly.sum_over_boolean_hypercube();
         assert_eq!(computed_sum, expected_sum);
     }
@@ -201,14 +208,14 @@ mod tests {
         let poly = SumcheckPolynomial::new(evaluations, 3);
 
         // Sum over {0,1}^3
-        let expected_sum = BabyBear::from_u64(1) +
-            BabyBear::from_u64(2) +
-            BabyBear::from_u64(4) +
-            BabyBear::from_u64(5) +
-            BabyBear::from_u64(10) +
-            BabyBear::from_u64(11) +
-            BabyBear::from_u64(13) +
-            BabyBear::from_u64(14);
+        let expected_sum = BabyBear::from_u64(1)
+            + BabyBear::from_u64(2)
+            + BabyBear::from_u64(4)
+            + BabyBear::from_u64(5)
+            + BabyBear::from_u64(10)
+            + BabyBear::from_u64(11)
+            + BabyBear::from_u64(13)
+            + BabyBear::from_u64(14);
 
         assert_eq!(poly.sum_over_boolean_hypercube(), expected_sum);
     }
@@ -228,15 +235,15 @@ mod tests {
         let result = poly.evaluate_at_point(&point);
 
         // Compute the expected result using the full weighted sum:
-        let expected_value = BabyBear::from_u64(1) * point.eq_poly3(0) +
-            BabyBear::from_u64(2) * point.eq_poly3(1) +
-            BabyBear::from_u64(3) * point.eq_poly3(2) +
-            BabyBear::from_u64(4) * point.eq_poly3(3) +
-            BabyBear::from_u64(5) * point.eq_poly3(4) +
-            BabyBear::from_u64(6) * point.eq_poly3(5) +
-            BabyBear::from_u64(7) * point.eq_poly3(6) +
-            BabyBear::from_u64(8) * point.eq_poly3(7) +
-            BabyBear::from_u64(9) * point.eq_poly3(8);
+        let expected_value = BabyBear::from_u64(1) * point.eq_poly3(0)
+            + BabyBear::from_u64(2) * point.eq_poly3(1)
+            + BabyBear::from_u64(3) * point.eq_poly3(2)
+            + BabyBear::from_u64(4) * point.eq_poly3(3)
+            + BabyBear::from_u64(5) * point.eq_poly3(4)
+            + BabyBear::from_u64(6) * point.eq_poly3(5)
+            + BabyBear::from_u64(7) * point.eq_poly3(6)
+            + BabyBear::from_u64(8) * point.eq_poly3(7)
+            + BabyBear::from_u64(9) * point.eq_poly3(8);
 
         assert_eq!(result, expected_value);
     }
@@ -251,8 +258,9 @@ mod tests {
         let point = MultilinearPoint(vec![BabyBear::from_u64(1) / BabyBear::from_u64(2); 3]);
 
         // Compute expected evaluation:
-        let expected_value =
-            (0..27).map(|i| poly.evaluations[i] * point.eq_poly3(i)).sum::<BabyBear>();
+        let expected_value = (0..27)
+            .map(|i| poly.evaluations[i] * point.eq_poly3(i))
+            .sum::<BabyBear>();
 
         let computed_value = poly.evaluate_at_point(&point);
         assert_eq!(computed_value, expected_value);

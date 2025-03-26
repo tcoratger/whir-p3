@@ -70,7 +70,10 @@ where
 
         // Evaluate the function at each OOD point
         ood_answers.extend(ood_points.iter().map(|ood_point| {
-            evaluate_fn(&MultilinearPoint::expand_from_univariate(*ood_point, num_variables))
+            evaluate_fn(&MultilinearPoint::expand_from_univariate(
+                *ood_point,
+                num_variables,
+            ))
         }));
 
         // Commit the answers to the narg_string
@@ -90,7 +93,8 @@ where
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
     fn add_digest(&mut self, digest: Hash<F, u8, DIGEST_ELEMS>) -> ProofResult<()> {
-        self.add_bytes(digest.as_ref()).map_err(ProofError::InvalidDomainSeparator)
+        self.add_bytes(digest.as_ref())
+            .map_err(ProofError::InvalidDomainSeparator)
     }
 }
 

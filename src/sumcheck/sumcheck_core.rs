@@ -82,11 +82,17 @@ where
         combination_randomness: &[F],
     ) {
         assert_eq!(combination_randomness.len(), points.len());
-        points.iter().zip(combination_randomness).for_each(|(point, &rand)| {
-            LagrangePolynomialIterator::from(point).for_each(|(prefix, lag)| unsafe {
-                *self.evaluation_of_equality.evals_mut().get_unchecked_mut(prefix.0) += rand * lag;
+        points
+            .iter()
+            .zip(combination_randomness)
+            .for_each(|(point, &rand)| {
+                LagrangePolynomialIterator::from(point).for_each(|(prefix, lag)| unsafe {
+                    *self
+                        .evaluation_of_equality
+                        .evals_mut()
+                        .get_unchecked_mut(prefix.0) += rand * lag;
+                });
             });
-        });
     }
 
     /// Computes the sumcheck polynomial for a given folding factor.
@@ -131,10 +137,13 @@ where
             );
 
             // Accumulate evaluations over `{0,1,2}^folding_factor`.
-            evaluation_points.iter().enumerate().for_each(|(point, eval_point)| unsafe {
-                *evaluations.get_unchecked_mut(point) +=
-                    left_poly.evaluate(eval_point) * right_poly.evaluate(eval_point);
-            });
+            evaluation_points
+                .iter()
+                .enumerate()
+                .for_each(|(point, eval_point)| unsafe {
+                    *evaluations.get_unchecked_mut(point) +=
+                        left_poly.evaluate(eval_point) * right_poly.evaluate(eval_point);
+                });
         }
 
         SumcheckPolynomial::new(evaluations, folding_factor)
@@ -183,7 +192,10 @@ mod tests {
 
         // Since we initialized with no equality constraints:
         // `evaluation_of_equality` should remain filled with zeros.
-        assert_eq!(prover.evaluation_of_equality.evals(), &vec![BabyBear::ZERO; 4]);
+        assert_eq!(
+            prover.evaluation_of_equality.evals(),
+            &vec![BabyBear::ZERO; 4]
+        );
     }
 
     #[test]
@@ -211,7 +223,10 @@ mod tests {
         let expected_evaluation_of_p = vec![c1, c1 + c2];
 
         assert_eq!(prover.evaluation_of_p.evals(), &expected_evaluation_of_p);
-        assert_eq!(prover.evaluation_of_equality.evals(), &vec![BabyBear::ZERO; 2]);
+        assert_eq!(
+            prover.evaluation_of_equality.evals(),
+            &vec![BabyBear::ZERO; 2]
+        );
     }
 
     #[test]
@@ -263,7 +278,10 @@ mod tests {
         ];
 
         assert_eq!(prover.evaluation_of_p.evals(), &expected_evaluation_of_p);
-        assert_eq!(prover.evaluation_of_equality.evals(), &vec![BabyBear::ZERO; 8]);
+        assert_eq!(
+            prover.evaluation_of_equality.evals(),
+            &vec![BabyBear::ZERO; 8]
+        );
     }
 
     #[test]
@@ -307,7 +325,10 @@ mod tests {
 
         let expected_evaluation_of_equality = vec![f_00, f_01, f_10, f_11];
 
-        assert_eq!(prover.evaluation_of_equality.evals(), &expected_evaluation_of_equality);
+        assert_eq!(
+            prover.evaluation_of_equality.evals(),
+            &expected_evaluation_of_equality
+        );
     }
 
     #[test]
@@ -363,30 +384,30 @@ mod tests {
         // Compute expected sumcheck evaluations for {0,1,2}
         // Evaluating at X1 ∈ {0,1,2}
         let e0 = EvaluationsList::new(vec![ep_00, ep_01])
-            .evaluate(&MultilinearPoint(vec![BabyBear::ZERO])) *
-            EvaluationsList::new(vec![f_00, f_01])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO])) +
-            EvaluationsList::new(vec![ep_10, ep_11])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO])) *
-                EvaluationsList::new(vec![f_10, f_11])
+            .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]))
+            * EvaluationsList::new(vec![f_00, f_01])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]))
+            + EvaluationsList::new(vec![ep_10, ep_11])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]))
+                * EvaluationsList::new(vec![f_10, f_11])
                     .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]));
 
         let e1 = EvaluationsList::new(vec![ep_00, ep_01])
-            .evaluate(&MultilinearPoint(vec![BabyBear::ONE])) *
-            EvaluationsList::new(vec![f_00, f_01])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ONE])) +
-            EvaluationsList::new(vec![ep_10, ep_11])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ONE])) *
-                EvaluationsList::new(vec![f_10, f_11])
+            .evaluate(&MultilinearPoint(vec![BabyBear::ONE]))
+            * EvaluationsList::new(vec![f_00, f_01])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ONE]))
+            + EvaluationsList::new(vec![ep_10, ep_11])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ONE]))
+                * EvaluationsList::new(vec![f_10, f_11])
                     .evaluate(&MultilinearPoint(vec![BabyBear::ONE]));
 
         let e2 = EvaluationsList::new(vec![ep_00, ep_01])
-            .evaluate(&MultilinearPoint(vec![BabyBear::TWO])) *
-            EvaluationsList::new(vec![f_00, f_01])
-                .evaluate(&MultilinearPoint(vec![BabyBear::TWO])) +
-            EvaluationsList::new(vec![ep_10, ep_11])
-                .evaluate(&MultilinearPoint(vec![BabyBear::TWO])) *
-                EvaluationsList::new(vec![f_10, f_11])
+            .evaluate(&MultilinearPoint(vec![BabyBear::TWO]))
+            * EvaluationsList::new(vec![f_00, f_01])
+                .evaluate(&MultilinearPoint(vec![BabyBear::TWO]))
+            + EvaluationsList::new(vec![ep_10, ep_11])
+                .evaluate(&MultilinearPoint(vec![BabyBear::TWO]))
+                * EvaluationsList::new(vec![f_10, f_11])
                     .evaluate(&MultilinearPoint(vec![BabyBear::TWO]));
 
         let expected_evaluations = vec![e0, e1, e2];
@@ -443,54 +464,54 @@ mod tests {
 
         // Compute expected sumcheck evaluations for {0,1,2}
         let e0 = EvaluationsList::new(vec![ep_000, ep_001])
-            .evaluate(&MultilinearPoint(vec![BabyBear::ZERO])) *
-            EvaluationsList::new(vec![f_000, f_001])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO])) +
-            EvaluationsList::new(vec![ep_010, ep_011])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO])) *
-                EvaluationsList::new(vec![f_010, f_011])
-                    .evaluate(&MultilinearPoint(vec![BabyBear::ZERO])) +
-            EvaluationsList::new(vec![ep_100, ep_101])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO])) *
-                EvaluationsList::new(vec![f_100, f_101])
-                    .evaluate(&MultilinearPoint(vec![BabyBear::ZERO])) +
-            EvaluationsList::new(vec![ep_110, ep_111])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO])) *
-                EvaluationsList::new(vec![f_110, f_111])
+            .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]))
+            * EvaluationsList::new(vec![f_000, f_001])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]))
+            + EvaluationsList::new(vec![ep_010, ep_011])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]))
+                * EvaluationsList::new(vec![f_010, f_011])
+                    .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]))
+            + EvaluationsList::new(vec![ep_100, ep_101])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]))
+                * EvaluationsList::new(vec![f_100, f_101])
+                    .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]))
+            + EvaluationsList::new(vec![ep_110, ep_111])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]))
+                * EvaluationsList::new(vec![f_110, f_111])
                     .evaluate(&MultilinearPoint(vec![BabyBear::ZERO]));
 
         let e1 = EvaluationsList::new(vec![ep_000, ep_001])
-            .evaluate(&MultilinearPoint(vec![BabyBear::ONE])) *
-            EvaluationsList::new(vec![f_000, f_001])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ONE])) +
-            EvaluationsList::new(vec![ep_010, ep_011])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ONE])) *
-                EvaluationsList::new(vec![f_010, f_011])
-                    .evaluate(&MultilinearPoint(vec![BabyBear::ONE])) +
-            EvaluationsList::new(vec![ep_100, ep_101])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ONE])) *
-                EvaluationsList::new(vec![f_100, f_101])
-                    .evaluate(&MultilinearPoint(vec![BabyBear::ONE])) +
-            EvaluationsList::new(vec![ep_110, ep_111])
-                .evaluate(&MultilinearPoint(vec![BabyBear::ONE])) *
-                EvaluationsList::new(vec![f_110, f_111])
+            .evaluate(&MultilinearPoint(vec![BabyBear::ONE]))
+            * EvaluationsList::new(vec![f_000, f_001])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ONE]))
+            + EvaluationsList::new(vec![ep_010, ep_011])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ONE]))
+                * EvaluationsList::new(vec![f_010, f_011])
+                    .evaluate(&MultilinearPoint(vec![BabyBear::ONE]))
+            + EvaluationsList::new(vec![ep_100, ep_101])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ONE]))
+                * EvaluationsList::new(vec![f_100, f_101])
+                    .evaluate(&MultilinearPoint(vec![BabyBear::ONE]))
+            + EvaluationsList::new(vec![ep_110, ep_111])
+                .evaluate(&MultilinearPoint(vec![BabyBear::ONE]))
+                * EvaluationsList::new(vec![f_110, f_111])
                     .evaluate(&MultilinearPoint(vec![BabyBear::ONE]));
 
         let e2 = EvaluationsList::new(vec![ep_000, ep_001])
-            .evaluate(&MultilinearPoint(vec![BabyBear::TWO])) *
-            EvaluationsList::new(vec![f_000, f_001])
-                .evaluate(&MultilinearPoint(vec![BabyBear::TWO])) +
-            EvaluationsList::new(vec![ep_010, ep_011])
-                .evaluate(&MultilinearPoint(vec![BabyBear::TWO])) *
-                EvaluationsList::new(vec![f_010, f_011])
-                    .evaluate(&MultilinearPoint(vec![BabyBear::TWO])) +
-            EvaluationsList::new(vec![ep_100, ep_101])
-                .evaluate(&MultilinearPoint(vec![BabyBear::TWO])) *
-                EvaluationsList::new(vec![f_100, f_101])
-                    .evaluate(&MultilinearPoint(vec![BabyBear::TWO])) +
-            EvaluationsList::new(vec![ep_110, ep_111])
-                .evaluate(&MultilinearPoint(vec![BabyBear::TWO])) *
-                EvaluationsList::new(vec![f_110, f_111])
+            .evaluate(&MultilinearPoint(vec![BabyBear::TWO]))
+            * EvaluationsList::new(vec![f_000, f_001])
+                .evaluate(&MultilinearPoint(vec![BabyBear::TWO]))
+            + EvaluationsList::new(vec![ep_010, ep_011])
+                .evaluate(&MultilinearPoint(vec![BabyBear::TWO]))
+                * EvaluationsList::new(vec![f_010, f_011])
+                    .evaluate(&MultilinearPoint(vec![BabyBear::TWO]))
+            + EvaluationsList::new(vec![ep_100, ep_101])
+                .evaluate(&MultilinearPoint(vec![BabyBear::TWO]))
+                * EvaluationsList::new(vec![f_100, f_101])
+                    .evaluate(&MultilinearPoint(vec![BabyBear::TWO]))
+            + EvaluationsList::new(vec![ep_110, ep_111])
+                .evaluate(&MultilinearPoint(vec![BabyBear::TWO]))
+                * EvaluationsList::new(vec![f_110, f_111])
                     .evaluate(&MultilinearPoint(vec![BabyBear::TWO]));
 
         let expected_evaluations = vec![e0, e1, e2];

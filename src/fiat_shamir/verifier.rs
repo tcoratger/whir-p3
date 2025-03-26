@@ -40,6 +40,9 @@ impl<'a, U: Unit, H: DuplexSpongeInterface<U>> VerifierState<'a, H, U> {
     /// ```
     pub fn new(domain_separator: &DomainSeparator<H, U>, narg_string: &'a [u8]) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator);
-        Self { hash_state, narg_string }
+        Self {
+            hash_state,
+            narg_string,
+        }
     }
 }

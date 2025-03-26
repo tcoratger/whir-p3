@@ -51,6 +51,10 @@ where
             verifier_state.fill_next_scalars(&mut ood_answers)?;
         }
 
-        Ok(ParsedCommitment { root, ood_points, ood_answers })
+        Ok(ParsedCommitment {
+            root,
+            ood_points,
+            ood_answers,
+        })
     }
 }

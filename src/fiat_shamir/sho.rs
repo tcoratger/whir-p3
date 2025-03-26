@@ -60,12 +60,20 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
             }
             None => {
                 self.stack.clear();
-                Err(format!("Invalid tag. Stack empty, got {:?}", Op::Absorb(input.len())).into())
+                Err(format!(
+                    "Invalid tag. Stack empty, got {:?}",
+                    Op::Absorb(input.len())
+                )
+                .into())
             }
             Some(op) => {
                 self.stack.clear();
-                Err(format!("Invalid tag. Got {:?}, expected {:?}", Op::Absorb(input.len()), op)
-                    .into())
+                Err(format!(
+                    "Invalid tag. Got {:?}, expected {:?}",
+                    Op::Absorb(input.len()),
+                    op
+                )
+                .into())
             }
         }
     }
@@ -86,7 +94,11 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
             }
             None => {
                 self.stack.clear();
-                Err(format!("Invalid tag. Stack empty, got {:?}", Op::Squeeze(output.len())).into())
+                Err(format!(
+                    "Invalid tag. Stack empty, got {:?}",
+                    Op::Squeeze(output.len())
+                )
+                .into())
             }
             Some(op) => {
                 self.stack.clear();
@@ -110,7 +122,11 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
     }
 
     fn unchecked_load_with_stack(tag: [u8; 32], stack: VecDeque<Op>) -> Self {
-        Self { ds: H::new(tag), stack, _unit: PhantomData }
+        Self {
+            ds: H::new(tag),
+            stack,
+            _unit: PhantomData,
+        }
     }
 }
 
@@ -136,7 +152,11 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> std::fmt::Debug for HashStateWithInst
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Ensure that the state isn't accidentally logged,
         // but provide the remaining IO Pattern for debugging.
-        write!(f, "Sponge in duplex mode with committed verifier operations: {:?}", self.stack)
+        write!(
+            f,
+            "Sponge in duplex mode with committed verifier operations: {:?}",
+            self.stack
+        )
     }
 }
 

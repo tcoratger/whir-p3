@@ -47,7 +47,10 @@ where
 
 impl<H: DuplexSpongeInterface<U>, U: Unit> DomainSeparator<H, U> {
     pub const fn from_string(io: String) -> Self {
-        Self { io, _hash: PhantomData }
+        Self {
+            io,
+            _hash: PhantomData,
+        }
     }
 
     /// Create a new DomainSeparator with the domain separator.
@@ -63,9 +66,15 @@ impl<H: DuplexSpongeInterface<U>, U: Unit> DomainSeparator<H, U> {
     #[must_use]
     pub fn absorb(self, count: usize, label: &str) -> Self {
         assert!(count > 0, "Count must be positive.");
-        assert!(!label.contains(SEP_BYTE), "Label cannot contain the separator BYTE.");
         assert!(
-            label.chars().next().is_none_or(|char| !char.is_ascii_digit()),
+            !label.contains(SEP_BYTE),
+            "Label cannot contain the separator BYTE."
+        );
+        assert!(
+            label
+                .chars()
+                .next()
+                .is_none_or(|char| !char.is_ascii_digit()),
             "Label cannot start with a digit."
         );
 
@@ -76,9 +85,15 @@ impl<H: DuplexSpongeInterface<U>, U: Unit> DomainSeparator<H, U> {
     #[must_use]
     pub fn squeeze(self, count: usize, label: &str) -> Self {
         assert!(count > 0, "Count must be positive.");
-        assert!(!label.contains(SEP_BYTE), "Label cannot contain the separator BYTE.");
         assert!(
-            label.chars().next().is_none_or(|char| !char.is_ascii_digit()),
+            !label.contains(SEP_BYTE),
+            "Label cannot contain the separator BYTE."
+        );
+        assert!(
+            label
+                .chars()
+                .next()
+                .is_none_or(|char| !char.is_ascii_digit()),
             "Label cannot start with a digit."
         );
 
@@ -107,7 +122,10 @@ impl<H: DuplexSpongeInterface<U>, U: Unit> DomainSeparator<H, U> {
         let mut stack = VecDeque::new();
 
         // skip the domain separator
-        for part in domain_separator.split(|&b| b == SEP_BYTE.as_bytes()[0]).skip(1) {
+        for part in domain_separator
+            .split(|&b| b == SEP_BYTE.as_bytes()[0])
+            .skip(1)
+        {
             let next_id = part[0] as char;
             let next_length = part[1..]
                 .iter()

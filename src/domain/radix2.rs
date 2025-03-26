@@ -144,7 +144,10 @@ mod tests {
     #[test]
     fn test_size_inv() {
         let domain = Radix2EvaluationDomain::<BabyBear>::new(16).unwrap();
-        assert_eq!(domain.size_as_field_element * domain.size_inv(), BabyBear::ONE);
+        assert_eq!(
+            domain.size_as_field_element * domain.size_inv(),
+            BabyBear::ONE
+        );
     }
 
     #[test]
