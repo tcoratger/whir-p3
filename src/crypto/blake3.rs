@@ -9,13 +9,13 @@ use crate::{
         prover::ProverState,
         traits::{ByteDomainSeparator, BytesToUnitSerialize},
     },
-    whir::{domainsep::DigestDomainSeparator, utils::DigestWriter},
+    whir::{domainsep::DigestDomainSeparator, utils::DigestToUnitSerialize},
 };
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct Blake3Digest([u8; 32]);
 
-// impl DigestWriter<Blake3Digest> for ProverState {
+// impl DigestToUnitSerialize<Blake3Digest> for ProverState {
 //     fn add_digest(&mut self, digest: Blake3Digest) -> ProofResult<()> {
 //         self.add_bytes(&digest.0).map_err(ProofError::InvalidDomainSeparator)
 //     }

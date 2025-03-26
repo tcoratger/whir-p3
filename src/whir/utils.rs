@@ -83,11 +83,11 @@ where
     Ok((ood_points, ood_answers))
 }
 
-pub trait DigestWriter<MerkleInnerDigest> {
+pub trait DigestToUnitSerialize<MerkleInnerDigest> {
     fn add_digest(&mut self, digest: MerkleInnerDigest) -> ProofResult<()>;
 }
 
-impl<F, const DIGEST_ELEMS: usize> DigestWriter<Hash<F, u8, DIGEST_ELEMS>> for ProverState
+impl<F, const DIGEST_ELEMS: usize> DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>> for ProverState
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,

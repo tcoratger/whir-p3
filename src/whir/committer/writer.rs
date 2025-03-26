@@ -15,7 +15,7 @@ use crate::{
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
     whir::{
         parameters::WhirConfig,
-        utils::{DigestWriter, sample_ood_points},
+        utils::{DigestToUnitSerialize, sample_ood_points},
     },
 };
 
@@ -58,8 +58,9 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState:
-            FieldToUnitSerialize<F> + UnitToField<F> + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
+        ProverState: FieldToUnitSerialize<F>
+            + UnitToField<F>
+            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Retrieve the base domain, ensuring it is set.
         let base_domain = self.0.starting_domain.base_domain.unwrap();

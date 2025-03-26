@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement,
-    utils::DigestWriter,
+    utils::DigestToUnitSerialize,
 };
 use crate::{
     domain::Domain,
@@ -98,7 +98,7 @@ where
             + FieldToUnitSerialize<F>
             + UnitToBytes
             + PoWChallenge
-            + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
+            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Validate parameters
         assert!(
@@ -192,7 +192,7 @@ where
             + UnitToBytes
             + FieldToUnitSerialize<F>
             + PoWChallenge
-            + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
+            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Fold the coefficients
         let folded_coefficients = round_state
@@ -357,7 +357,7 @@ where
             + UnitToBytes
             + FieldToUnitSerialize<F>
             + PoWChallenge
-            + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
+            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_scalars(folded_coefficients.coeffs())?;
