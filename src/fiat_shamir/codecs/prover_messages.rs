@@ -17,7 +17,7 @@ impl<F: Field, H: DuplexSpongeInterface, R: TryRngCore + TryCryptoRng> FieldToUn
     }
 }
 
-// impl<H, R, F> ByteWriter for ProverState<H, F, R>
+// impl<H, R, F> BytesToUnitSerialize for ProverState<H, F, R>
 // where
 //     F: Field + Unit,
 //     H: DuplexSpongeInterface<F>,

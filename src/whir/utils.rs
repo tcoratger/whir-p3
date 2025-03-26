@@ -7,7 +7,7 @@ use crate::{
         codecs::traits::{FieldToUnit, UnitToField},
         errors::{ProofError, ProofResult},
         prover::ProverState,
-        traits::{ByteWriter, UnitToBytes},
+        traits::{BytesToUnitSerialize, UnitToBytes},
     },
     poly::multilinear::MultilinearPoint,
 };

@@ -7,7 +7,7 @@ use crate::{
         domain_separator::DomainSeparator,
         errors::{ProofError, ProofResult},
         prover::ProverState,
-        traits::{ByteDomainSeparator, ByteWriter},
+        traits::{ByteDomainSeparator, BytesToUnitSerialize},
     },
     whir::{domainsep::DigestDomainSeparator, utils::DigestWriter},
 };

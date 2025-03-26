@@ -9,7 +9,7 @@ use super::{
     sho::HashStateWithInstructions,
     traits::UnitTranscript,
 };
-use crate::fiat_shamir::traits::ByteWriter;
+use crate::fiat_shamir::traits::BytesToUnitSerialize;
 
 /// [`ProverState`] is the prover state of an interactive proof (IP) system.
 ///
@@ -135,7 +135,7 @@ where
     }
 }
 
-impl<H, R> ByteWriter for ProverState<H, u8, R>
+impl<H, R> BytesToUnitSerialize for ProverState<H, u8, R>
 where
     H: DuplexSpongeInterface<u8>,
     R: TryRngCore + TryCryptoRng,
