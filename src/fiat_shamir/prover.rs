@@ -138,16 +138,16 @@ where
     }
 }
 
-// impl<H, R> ByteWriter for ProverState<H, u8, R>
-// where
-//     H: DuplexSpongeInterface<u8>,
-//     R: TryRngCore + TryCryptoRng,
-// {
-//     #[inline(always)]
-//     fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
-//         self.add_units(input)
-//     }
-// }
+impl<H, R> ByteWriter for ProverState<H, u8, R>
+where
+    H: DuplexSpongeInterface<u8>,
+    R: TryRngCore + TryCryptoRng,
+{
+    #[inline(always)]
+    fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+        self.add_units(input)
+    }
+}
 
 /// A cryptographically-secure random number generator that is bound to the protocol transcript.
 ///

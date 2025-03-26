@@ -21,9 +21,9 @@ impl DigestDomainSeparator for DomainSeparator {
     }
 }
 
-pub trait WhirDomainSeparator<F, H, C, const DIGEST_ELEMS: usize>
+pub trait WhirDomainSeparator<F, H, C>
 where
-    F: Field + PrimeField32 + TwoAdicField,
+    F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
     #[must_use]
@@ -33,10 +33,9 @@ where
     fn add_whir_proof<PowStrategy>(self, params: &WhirConfig<F, H, C, PowStrategy>) -> Self;
 }
 
-impl<F, DomainSeparator, H, C, const DIGEST_ELEMS: usize> WhirDomainSeparator<F, H, C, DIGEST_ELEMS>
-    for DomainSeparator
+impl<F, DomainSeparator, H, C> WhirDomainSeparator<F, H, C> for DomainSeparator
 where
-    F: Field + PrimeField32 + TwoAdicField,
+    F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
     DomainSeparator: ByteDomainSeparator
         + FieldDomainSeparator<F>

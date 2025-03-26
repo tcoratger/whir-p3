@@ -1,4 +1,4 @@
-use super::{errors::ProofResult, traits::ByteDomainSeparator};
+use crate::fiat_shamir::{errors::ProofResult, traits::ByteDomainSeparator};
 
 /// [`spongefish::DomainSeparator`] for proof-of-work challenges.
 pub trait PoWDomainSeparator {

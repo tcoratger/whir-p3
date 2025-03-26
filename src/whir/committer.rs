@@ -13,7 +13,6 @@ use crate::{
     fiat_shamir::{
         codecs::traits::{FieldToUnit, UnitToField},
         errors::ProofResult,
-        traits::ByteWriter,
     },
     ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
@@ -22,7 +21,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Witness<F: Field, H, C, const DIGEST_ELEMS: usize> {
     pub(crate) polynomial: CoefficientList<F>,
-    pub(crate) merkle_tree: MerkleTreeMmcs<<F as Field>::Packing, u8, H, C, DIGEST_ELEMS>,
+    pub(crate) merkle_tree: MerkleTreeMmcs<F, u8, H, C, DIGEST_ELEMS>,
     pub(crate) prover_data: MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     pub(crate) merkle_leaves: Vec<F>,
     pub(crate) ood_points: Vec<F>,
@@ -50,12 +49,8 @@ where
         polynomial: CoefficientList<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     ) -> ProofResult<Witness<F, H, C, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
-            + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
-            + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: FieldToUnit<F> + UnitToField<F> + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
     {
@@ -85,10 +80,8 @@ where
         let folded_matrix = RowMajorMatrix::new(folded_evals.clone(), fold_size);
 
         // Commit to the Merkle tree
-        let merkle_tree = MerkleTreeMmcs::<<F as Field>::Packing, u8, H, C, DIGEST_ELEMS>::new(
-            self.0.merkle_hash.clone(),
-            self.0.merkle_compress.clone(),
-        );
+        let merkle_tree =
+            MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
         let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger
@@ -120,11 +113,13 @@ mod tests {
     };
     use p3_challenger::{HashChallenger, SerializingChallenger32};
     use p3_keccak::Keccak256Hash;
+    use p3_sha256::Sha256;
+    use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32};
     use rand::Rng;
 
     use super::*;
     use crate::{
-        fiat_shamir::domain_separator::DomainSeparator,
+        fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         merkle_tree::{Poseidon2Compression, Poseidon2Sponge},
         parameters::{
             FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters,
@@ -149,10 +144,18 @@ mod tests {
         let folding_factor = 4;
         let first_round_folding_factor = 4;
 
-        let poseidon_p16 = default_babybear_poseidon2_16();
-        let poseidon_p24 = default_babybear_poseidon2_24();
+        // let poseidon_p16 = default_babybear_poseidon2_16();
+        // let poseidon_p24 = default_babybear_poseidon2_24();
 
-        let whir_params = WhirParameters {
+        type ByteHash = Keccak256Hash;
+        type FieldHash = SerializingHasher32<ByteHash>;
+        let byte_hash = ByteHash {};
+        let field_hash = FieldHash::new(byte_hash);
+
+        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+        let compress = MyCompress::new(byte_hash);
+
+        let whir_params = WhirParameters::<FieldHash, MyCompress> {
             initial_statement: true,
             security_level,
             pow_bits,
@@ -160,23 +163,26 @@ mod tests {
                 first_round_folding_factor,
                 folding_factor,
             ),
-            merkle_hash: Poseidon2Sponge::new(poseidon_p24),
-            merkle_compress: Poseidon2Compression::new(poseidon_p16),
+            // merkle_hash: Poseidon2Sponge::new(poseidon_p24),
+            // merkle_compress: Poseidon2Compression::new(poseidon_p16),
+            merkle_hash: field_hash,
+            merkle_compress: compress,
             soundness_type: SoundnessType::ConjectureList,
             fold_optimisation: FoldType::ProverHelps,
             starting_log_inv_rate: starting_rate,
         };
 
         // Define multivariate parameters for the polynomial.
-        let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let params = WhirConfig::new(mv_params, whir_params);
+        let mv_params = MultivariateParameters::new(num_variables);
+        let params = WhirConfig::<F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = rand::rng();
         let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let io = DomainSeparator::new("🌪️").commit_statement(&params).add_whir_proof(&params);
+        let io: DomainSeparator =
+            DomainSeparator::new("🌪️").commit_statement(&params).add_whir_proof(&params);
         let mut prover_state = io.to_prover_state();
 
         // Run the Commitment Phase
@@ -215,102 +221,116 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn test_large_polynomial() {
-    //     type F = BabyBear;
+    #[test]
+    fn test_large_polynomial() {
+        type F = BabyBear;
 
-    //     let security_level = 100;
-    //     let pow_bits = 20;
-    //     let num_variables = 10;
-    //     let starting_rate = 1;
-    //     let folding_factor = 4;
-    //     let first_round_folding_factor = 4;
+        let security_level = 100;
+        let pow_bits = 20;
+        let num_variables = 10;
+        let starting_rate = 1;
+        let folding_factor = 4;
+        let first_round_folding_factor = 4;
 
-    //     let poseidon_p16 = default_babybear_poseidon2_16();
-    //     let poseidon_p24 = default_babybear_poseidon2_24();
+        type ByteHash = Keccak256Hash;
+        type FieldHash = SerializingHasher32<ByteHash>;
+        let byte_hash = ByteHash {};
+        let field_hash = FieldHash::new(byte_hash);
 
-    //     let whir_params = WhirParameters {
-    //         initial_statement: true,
-    //         security_level,
-    //         pow_bits,
-    //         folding_factor: FoldingFactor::ConstantFromSecondRound(
-    //             first_round_folding_factor,
-    //             folding_factor,
-    //         ),
-    //         merkle_hash: Poseidon2Sponge::new(poseidon_p24),
-    //         merkle_compress: Poseidon2Compression::new(poseidon_p16),
-    //         soundness_type: SoundnessType::ConjectureList,
-    //         fold_optimisation: FoldType::ProverHelps,
-    //         starting_log_inv_rate: starting_rate,
-    //     };
+        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+        let compress = MyCompress::new(byte_hash);
 
-    //     let mv_params = MultivariateParameters::<F>::new(num_variables);
-    //     let params = WhirConfig::new(mv_params, whir_params);
+        let whir_params = WhirParameters {
+            initial_statement: true,
+            security_level,
+            pow_bits,
+            folding_factor: FoldingFactor::ConstantFromSecondRound(
+                first_round_folding_factor,
+                folding_factor,
+            ),
+            merkle_hash: field_hash,
+            merkle_compress: compress,
+            soundness_type: SoundnessType::ConjectureList,
+            fold_optimisation: FoldType::ProverHelps,
+            starting_log_inv_rate: starting_rate,
+        };
 
-    //     let mut rng = rand::rng();
-    //     let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 1024]);
+        let mv_params = MultivariateParameters::<F>::new(num_variables);
+        let params = WhirConfig::<F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
-    //     let io = DomainSeparator::new("🌪️").commit_statement(&params);
-    //     let mut prover_state = io.to_prover_state();
+        let mut rng = rand::rng();
+        let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 1024]);
 
-    //     let committer = Committer::new(params);
-    //     let witness = committer.commit(&mut prover_state, polynomial).unwrap();
+        let io = DomainSeparator::new("🌪️").commit_statement(&params);
+        let mut prover_state = io.to_prover_state();
 
-    //     // Expansion factor is 2
-    //     assert_eq!(
-    //         witness.merkle_leaves.len(),
-    //         1024 * 2,
-    //         "Merkle tree should have expected number of leaves"
-    //     );
-    // }
+        let committer = Committer::new(params);
+        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
-    // #[test]
-    // fn test_commitment_without_ood_samples() {
-    //     type F = BabyBear;
+        // Expansion factor is 2
+        assert_eq!(
+            witness.merkle_leaves.len(),
+            1024 * 2,
+            "Merkle tree should have expected number of leaves"
+        );
+    }
 
-    //     let security_level = 100;
-    //     let pow_bits = 20;
-    //     let num_variables = 5;
-    //     let starting_rate = 1;
-    //     let folding_factor = 4;
-    //     let first_round_folding_factor = 4;
+    #[test]
+    fn test_commitment_without_ood_samples() {
+        type F = BabyBear;
 
-    //     let poseidon_p16 = default_babybear_poseidon2_16();
-    //     let poseidon_p24 = default_babybear_poseidon2_24();
+        let security_level = 100;
+        let pow_bits = 20;
+        let num_variables = 5;
+        let starting_rate = 1;
+        let folding_factor = 4;
+        let first_round_folding_factor = 4;
 
-    //     let whir_params = WhirParameters {
-    //         initial_statement: true,
-    //         security_level,
-    //         pow_bits,
-    //         folding_factor: FoldingFactor::ConstantFromSecondRound(
-    //             first_round_folding_factor,
-    //             folding_factor,
-    //         ),
-    //         merkle_hash: Poseidon2Sponge::new(poseidon_p24),
-    //         merkle_compress: Poseidon2Compression::new(poseidon_p16),
-    //         soundness_type: SoundnessType::ConjectureList,
-    //         fold_optimisation: FoldType::ProverHelps,
-    //         starting_log_inv_rate: starting_rate,
-    //     };
+        // let poseidon_p16 = default_babybear_poseidon2_16();
+        // let poseidon_p24 = default_babybear_poseidon2_24();
 
-    //     let mv_params = MultivariateParameters::<F>::new(num_variables);
-    //     let mut params = WhirConfig::new(mv_params, whir_params);
+        type ByteHash = Keccak256Hash;
+        type FieldHash = SerializingHasher32<ByteHash>;
+        let byte_hash = ByteHash {};
+        let field_hash = FieldHash::new(byte_hash);
 
-    //     // Explicitly set OOD samples to 0
-    //     params.committment_ood_samples = 0;
+        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+        let compress = MyCompress::new(byte_hash);
 
-    //     let mut rng = rand::rng();
-    //     let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 32]);
+        let whir_params = WhirParameters {
+            initial_statement: true,
+            security_level,
+            pow_bits,
+            folding_factor: FoldingFactor::ConstantFromSecondRound(
+                first_round_folding_factor,
+                folding_factor,
+            ),
+            merkle_hash: field_hash,
+            merkle_compress: compress,
+            soundness_type: SoundnessType::ConjectureList,
+            fold_optimisation: FoldType::ProverHelps,
+            starting_log_inv_rate: starting_rate,
+        };
 
-    //     let io = DomainSeparator::new("🌪️").commit_statement(&params);
-    //     let mut prover_state = io.to_prover_state();
+        let mv_params = MultivariateParameters::<F>::new(num_variables);
+        let mut params =
+            WhirConfig::<F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
-    //     let committer = Committer::new(params);
-    //     let witness = committer.commit(&mut prover_state, polynomial).unwrap();
+        // Explicitly set OOD samples to 0
+        params.committment_ood_samples = 0;
 
-    //     assert!(
-    //         witness.ood_points.is_empty(),
-    //         "There should be no OOD points when committment_ood_samples is 0"
-    //     );
-    // }
+        let mut rng = rand::rng();
+        let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 32]);
+
+        let io = DomainSeparator::new("🌪️").commit_statement(&params);
+        let mut prover_state = io.to_prover_state();
+
+        let committer = Committer::new(params);
+        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
+
+        assert!(
+            witness.ood_points.is_empty(),
+            "There should be no OOD points when committment_ood_samples is 0"
+        );
+    }
 }

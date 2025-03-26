@@ -1,5 +1,5 @@
 use p3_commit::Mmcs;
-use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
@@ -14,7 +14,7 @@ use crate::{
     fiat_shamir::{
         codecs::traits::{FieldToUnit, UnitToField},
         errors::ProofResult,
-        pow::{PoWChallenge, PowStrategy},
+        pow::traits::{PoWChallenge, PowStrategy},
         traits::UnitToBytes,
     },
     ntt::expand_from_coeff,
@@ -41,7 +41,7 @@ where
     pub(crate) sumcheck_prover: Option<SumcheckSingle<F>>,
     pub(crate) folding_randomness: MultilinearPoint<F>,
     pub(crate) coefficients: CoefficientList<F>,
-    pub(crate) prev_merkle: MerkleTreeMmcs<<F as Field>::Packing, u8, H, C, DIGEST_ELEMS>,
+    pub(crate) prev_merkle: MerkleTreeMmcs<F, u8, H, C, DIGEST_ELEMS>,
     pub(crate) prev_merkle_prover_data: MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     pub(crate) prev_merkle_answers: Vec<F>,
     /// - The first element is the opened leaf values
@@ -91,7 +91,6 @@ where
         witness: Witness<F, H, C, DIGEST_ELEMS>,
     ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
-        F: PrimeField32,
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
             + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
@@ -190,7 +189,6 @@ where
         mut round_state: RoundState<F, H, C, DIGEST_ELEMS>,
     ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
-        F: PrimeField32,
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
             + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
@@ -237,7 +235,7 @@ where
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
         let folded_matrix = RowMajorMatrix::new(evals.clone(), 1 << folding_factor_next);
 
-        let merkle_tree = MerkleTreeMmcs::<<F as Field>::Packing, u8, H, C, DIGEST_ELEMS>::new(
+        let merkle_tree = MerkleTreeMmcs::<F, u8, H, C, DIGEST_ELEMS>::new(
             self.0.merkle_hash.clone(),
             self.0.merkle_compress.clone(),
         );
@@ -354,7 +352,6 @@ where
         folded_coefficients: &CoefficientList<F>,
     ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
-        F: PrimeField32,
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
             + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
             + Sync,
@@ -443,7 +440,6 @@ where
         ood_points: Vec<F>,
     ) -> ProofResult<(Vec<MultilinearPoint<F>>, Vec<usize>)>
     where
-        F: PrimeField32,
         ProverState: UnitToBytes,
     {
         let stir_challenges_indexes = get_challenge_stir_queries(

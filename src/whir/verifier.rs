@@ -17,7 +17,7 @@ use crate::{
     fiat_shamir::{
         codecs::traits::{DeserializeField, UnitToField},
         errors::{ProofError, ProofResult},
-        pow::{PoWChallenge, PowStrategy},
+        pow::traits::{PoWChallenge, PowStrategy},
         traits::UnitToBytes,
     },
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
@@ -44,7 +44,7 @@ where
 
 impl<F, H, C, PS> Verifier<F, H, C, PS>
 where
-    F: Field + TwoAdicField + PrimeField32,
+    F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
     PS: PowStrategy,
 {
@@ -83,9 +83,8 @@ where
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
     ) -> ProofResult<ParsedProof<F>>
     where
-        F: PrimeField32,
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
+            + CryptographicHasher<F, [u8; DIGEST_ELEMS]>
             + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
             + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
@@ -402,9 +401,8 @@ where
         whir_proof: &WhirProof<F, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
-        F: PrimeField32,
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]>
-            + CryptographicHasher<<F as Field>::Packing, [u8; DIGEST_ELEMS]>
+            + CryptographicHasher<F, [u8; DIGEST_ELEMS]>
             + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>
             + PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2>

@@ -7,7 +7,7 @@ use crate::{
     fiat_shamir::{
         codecs::traits::{FieldToUnit, UnitToField},
         errors::ProofResult,
-        pow::{PoWChallenge, PowStrategy},
+        pow::traits::{PoWChallenge, PowStrategy},
     },
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::eval_eq,

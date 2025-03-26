@@ -1,10 +1,6 @@
-use p3_challenger::{CanObserve, CanSample, GrindingChallenger};
-use p3_field::{Field, PrimeField32};
+use p3_field::Field;
 
-use crate::{
-    fiat_shamir::{codecs::traits::FieldDomainSeparator, pow::PoWDomainSeparator},
-    merkle_tree::WhirChallenger,
-};
+use crate::fiat_shamir::{codecs::traits::FieldDomainSeparator, pow::traits::PoWDomainSeparator};
 
 /// Trait for adding out-of-domain (OOD) queries and their responses to an DomainSeparator.
 ///

@@ -50,12 +50,14 @@ p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a
 p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a" }
 p3-commit = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a" }
 p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a" }
+p3-sha256 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f00191a" }
 itertools = "0.14"
 thiserror = "2.0"
 sha3 = "0.10"
 rand = "0.9"
 zeroize = { version = "1.8", features = ["zeroize_derive"] }
 keccak = "0.1"
+blake3 = "1.5.4"
 
 [dev-dependencies]
 criterion = "0.5"

@@ -1,16 +1,11 @@
-use std::io;
-
-use p3_field::{BasedVectorSpace, Field, PrimeField, PrimeField32, PrimeField64};
-use rand::{TryCryptoRng, TryRngCore};
+use p3_field::{BasedVectorSpace, Field};
 
 use super::{
     bytes_uniform_modp,
     traits::{CommonFieldToUnit, UnitToField},
 };
 use crate::fiat_shamir::{
-    duplex_sponge::{Unit, interface::DuplexSpongeInterface},
-    errors::{DomainSeparatorMismatch, ProofResult},
-    prover::ProverState,
+    errors::ProofResult,
     traits::{CommonUnitToBytes, UnitToBytes, UnitTranscript},
 };
 
