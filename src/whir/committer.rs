@@ -18,13 +18,24 @@ use crate::{
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
 };
 
+/// Represents the commitment and evaluation data for a polynomial.
+///
+/// This structure holds all necessary components to verify a commitment,
+/// including the polynomial itself, the Merkle tree used for commitment,
+/// and out-of-domain (OOD) evaluations.
 #[derive(Debug)]
 pub struct Witness<F: Field, H, C, const DIGEST_ELEMS: usize> {
+    /// The committed polynomial in coefficient form.
     pub(crate) polynomial: CoefficientList<F>,
+    /// The Merkle tree constructed from the polynomial evaluations.
     pub(crate) merkle_tree: MerkleTreeMmcs<F, u8, H, C, DIGEST_ELEMS>,
+    /// Prover data of the Merkle tree.
     pub(crate) prover_data: MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
+    /// The leaves of the Merkle tree, derived from folded polynomial evaluations.
     pub(crate) merkle_leaves: Vec<F>,
+    /// Out-of-domain challenge points used for polynomial verification.
     pub(crate) ood_points: Vec<F>,
+    /// The corresponding polynomial evaluations at the OOD challenge points.
     pub(crate) ood_answers: Vec<F>,
 }
 
@@ -43,6 +54,15 @@ where
         Self(config)
     }
 
+    /// Commits a polynomial using a Merkle-based commitment scheme.
+    ///
+    /// This function:
+    /// - Expands polynomial coefficients to evaluations.
+    /// - Applies folding and restructuring optimizations.
+    /// - Converts evaluations to an extension field.
+    /// - Constructs a Merkle tree from the evaluations.
+    /// - Computes out-of-domain (OOD) challenge points and their evaluations.
+    /// - Returns a `Witness` containing the commitment data.
     pub fn commit<ProverState, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
@@ -54,14 +74,14 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: FieldToUnit<F> + UnitToField<F> + DigestWriter<Hash<F, u8, DIGEST_ELEMS>>,
     {
-        // Compute domain expansion factor
+        // Retrieve the base domain, ensuring it is set.
         let base_domain = self.0.starting_domain.base_domain.unwrap();
+
+        // Compute expansion factor based on the domain size and polynomial length.
         let expansion = base_domain.size() / polynomial.num_coeffs();
 
         // Expand polynomial coefficients into evaluations over the domain
         let mut evals = expand_from_coeff(polynomial.coeffs(), expansion);
-
-        // Apply structured folding transformation
         transform_evaluations(
             &mut evals,
             self.0.fold_optimisation,
@@ -95,6 +115,7 @@ where
             |point| polynomial.evaluate_at_extension(point),
         )?;
 
+        // Return the witness containing the polynomial, Merkle tree, and OOD results.
         Ok(Witness {
             polynomial: polynomial.to_extension(),
             merkle_tree,
@@ -108,7 +129,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
+    use p3_baby_bear::BabyBear;
     use p3_keccak::Keccak256Hash;
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32};
     use rand::Rng;
@@ -123,19 +144,15 @@ mod tests {
         whir::domainsep::WhirDomainSeparator,
     };
 
-    type Perm16 = Poseidon2BabyBear<16>;
-    type Perm24 = Poseidon2BabyBear<24>;
+    type F = BabyBear;
+
+    type ByteHash = Keccak256Hash;
+    type FieldHash = SerializingHasher32<ByteHash>;
+
+    type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 
     #[test]
     fn test_basic_commitment() {
-        // Define the field type and Merkle tree configuration.
-        type F = BabyBear;
-
-        type ByteHash = Keccak256Hash;
-        type FieldHash = SerializingHasher32<ByteHash>;
-
-        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-
         // Set up Whir protocol parameters.
         let security_level = 100;
         let pow_bits = 20;
@@ -217,13 +234,6 @@ mod tests {
 
     #[test]
     fn test_large_polynomial() {
-        type F = BabyBear;
-
-        type ByteHash = Keccak256Hash;
-        type FieldHash = SerializingHasher32<ByteHash>;
-
-        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-
         let security_level = 100;
         let pow_bits = 20;
         let num_variables = 10;
@@ -273,13 +283,6 @@ mod tests {
 
     #[test]
     fn test_commitment_without_ood_samples() {
-        type F = BabyBear;
-
-        type ByteHash = Keccak256Hash;
-        type FieldHash = SerializingHasher32<ByteHash>;
-
-        type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-
         let security_level = 100;
         let pow_bits = 20;
         let num_variables = 5;
