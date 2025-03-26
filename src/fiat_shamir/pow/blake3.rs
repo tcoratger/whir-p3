@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use blake3::{
     self, IncrementCounter, OUT_LEN,
     guts::BLOCK_LEN,
@@ -59,6 +57,8 @@ impl PowStrategy for Blake3PoW {
     /// Finds the minimal `nonce` that satisfies the challenge.
     #[cfg(feature = "parallel")]
     fn solve(&mut self) -> Option<u64> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
         // Split the work across all available threads.
         // Use atomics to find the unique deterministic lowest satisfying nonce.
         let global_min = AtomicU64::new(u64::MAX);

@@ -31,7 +31,7 @@ pub trait PowStrategy: Clone + Sync {
     #[cfg(not(feature = "parallel"))]
     fn solve(&mut self) -> Option<u64> {
         // TODO: Parallel default impl
-        (0u64..).find_map(|nonce| if self.check(nonce) { Some(nonce) } else { None })
+        (0..=u64::MAX).find(|&nonce| self.check(nonce))
     }
 
     #[cfg(feature = "parallel")]
