@@ -9,6 +9,27 @@ use crate::fiat_shamir::{
     traits::{CommonUnitToBytes, UnitToBytes, UnitTranscript},
 };
 
+// impl<MP> Unit for MontyField31<MP>
+// where
+//     MP: MontyParameters,
+// {
+//     fn write(bunch: &[Self], mut _w: &mut impl io::Write) -> Result<(), io::Error> {
+//         for _b in bunch {
+//             // b.serialize_compressed(&mut w)
+//             //     .map_err(|_| io::Error::other("oh no!"))?;
+//         }
+//         Ok(())
+//     }
+
+//     fn read(mut _r: &mut impl io::Read, bunch: &mut [Self]) -> Result<(), io::Error> {
+//         for _b in bunch.iter_mut() {
+//             // let b_result = Self::deserialize_compressed(&mut r);
+//             // *b = b_result.map_err(|_| io::Error::other("Unable to deserialize into Field."))?;
+//         }
+//         Ok(())
+//     }
+// }
+
 impl<F, T> UnitToField<F> for T
 where
     F: Field + BasedVectorSpace<F>,
@@ -47,16 +68,19 @@ where
     }
 }
 
-// impl<H, R, F> CommonUnitToBytes for ProverState<H, F, R>
+// impl<H, MP> CommonFieldToUnit<MontyField31<MP>> for VerifierState<'_, H, MontyField31<MP>>
 // where
-//     F: Field + Unit,
-//     H: DuplexSpongeInterface<F>,
-//     R: TryRngCore + TryCryptoRng,
+//     MP: MontyParameters + FieldParameters,
+//     H: DuplexSpongeInterface<MontyField31<MP>>,
 // {
-//     fn public_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
-//         for &byte in input {
-//             self.public_units(&[F::from_u8(byte)])?;
-//         }
+//     type Repr = ();
+
+//     fn public_scalars(&mut self, input: &[MontyField31<MP>]) -> ProofResult<Self::Repr> {
+//         // let flattened: Vec<_> = input
+//         //     .iter()
+//         //     .flat_map(Field::to_base_prime_field_elements)
+//         //     .collect();
+//         // self.public_units(&flattened)?;
 //         Ok(())
 //     }
 // }

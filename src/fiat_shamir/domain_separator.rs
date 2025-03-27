@@ -241,46 +241,271 @@ impl Op {
 
 #[cfg(test)]
 mod tests {
-
-    use rand::TryRngCore;
-
     use super::*;
-    use crate::fiat_shamir::keccak::Keccak;
+
+    pub(crate) type H = DefaultHash;
 
     #[test]
-    fn test_domain_separator() {
-        // test that the byte separator is always added
-        let domain_separator = DomainSeparator::<Keccak>::new("example.com");
-        assert!(domain_separator.as_bytes().starts_with(b"example.com"));
+    fn test_op_new_invalid_cases() {
+        assert!(Op::new('A', Some(0)).is_err()); // absorb with zero
+        assert!(Op::new('S', Some(0)).is_err()); // squeeze with zero
+        assert!(Op::new('X', Some(1)).is_err()); // invalid op char
+        assert!(Op::new('R', Some(5)).is_err()); // R doesn't support > 0
+        assert!(Op::new('R', Some(0)).is_ok()); // ratchet with 0
+        assert!(Op::new('R', None).is_ok()); // ratchet with None
     }
 
     #[test]
-    fn test_prover_rng_basic() {
-        let domain_separator = DomainSeparator::<Keccak>::new("example.com");
-        let mut prover_state = domain_separator.to_prover_state();
-        let rng = prover_state.rng();
-
-        let mut random_bytes = [0u8; 32];
-        rng.try_fill_bytes(&mut random_bytes).unwrap();
-        let random_u32 = rng.try_next_u32().unwrap();
-        let random_u64 = rng.try_next_u64().unwrap();
-        assert_ne!(random_bytes, [0u8; 32]);
-        assert_ne!(random_u32, 0);
-        assert_ne!(random_u64, 0);
-        assert!(random_bytes.iter().any(|&x| x != random_bytes[0]));
+    fn test_domain_separator_new_and_bytes() {
+        let ds = DomainSeparator::<H>::new("session");
+        assert_eq!(ds.as_bytes(), b"session");
     }
 
-    // #[test]
-    // fn test_prover_state_bytewriter() {
-    //     let domain_separator = DomainSeparator::<Keccak>::new("example.com").absorb(1, "🥕");
-    //     let mut prover_state = domain_separator.to_prover_state();
-    //     assert!(prover_state.add_bytes(&[0u8]).is_ok());
-    //     assert!(prover_state.add_bytes(&[1u8]).is_err());
-    //     assert_eq!(prover_state.narg_string(), b"\0", "Protocol Transcript survives errors");
+    #[test]
+    #[should_panic]
+    fn test_new_with_separator_byte_panics() {
+        // This should panic because "\0" is forbidden in the session identifier.
+        let _ = DomainSeparator::<H>::new("invalid\0session");
+    }
 
-    //     let mut prover_state = domain_separator.to_prover_state();
-    //     // TODO: reactivate this test if needed
-    //     // assert!(prover_state.public_bytes(&[0u8]).is_ok());
-    //     assert_eq!(prover_state.narg_string(), b"");
-    // }
+    #[test]
+    fn test_domain_separator_absorb_and_squeeze() {
+        let ds = DomainSeparator::<H>::new("proto")
+            .absorb(2, "input")
+            .squeeze(1, "challenge");
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Absorb(2), Op::Squeeze(1)]);
+    }
+
+    #[test]
+    fn test_domain_separator_ratcheting() {
+        let ds = DomainSeparator::<H>::new("session").ratchet();
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Ratchet]);
+    }
+
+    #[test]
+    fn test_absorb_return_value_format() {
+        let ds = DomainSeparator::<H>::new("proto").absorb(3, "input");
+        let expected_str = "proto\0A3input"; // initial + SEP + absorb op + label
+        assert_eq!(ds.as_bytes(), expected_str.as_bytes());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_absorb_zero_panics() {
+        let _ = DomainSeparator::<H>::new("x").absorb(0, "label");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_label_with_separator_byte_panics() {
+        let _ = DomainSeparator::<H>::new("x").absorb(1, "bad\0label");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_label_starts_with_digit_panics() {
+        let _ = DomainSeparator::<H>::new("x").absorb(1, "1label");
+    }
+
+    #[test]
+    fn test_merge_consecutive_absorbs_and_squeezes() {
+        let ds = DomainSeparator::<H>::new("merge")
+            .absorb(1, "a")
+            .absorb(2, "b")
+            .squeeze(3, "c")
+            .squeeze(1, "d");
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Absorb(3), Op::Squeeze(4)]);
+    }
+
+    #[test]
+    fn test_parse_domsep_multiple_ops() {
+        let tag = "main\0A1x\0A2y\0S3z\0R\0S2w";
+        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ops = ds.finalize();
+        assert_eq!(
+            ops,
+            vec![Op::Absorb(3), Op::Squeeze(3), Op::Ratchet, Op::Squeeze(2)]
+        );
+    }
+
+    #[test]
+    fn test_byte_domain_separator_trait_impl() {
+        let ds = DomainSeparator::<H>::new("x")
+            .add_bytes(1, "a")
+            .challenge_bytes(2, "b");
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Absorb(1), Op::Squeeze(2)]);
+    }
+
+    #[test]
+    fn test_empty_operations() {
+        let ds = DomainSeparator::<H>::new("tag");
+        let ops = ds.finalize();
+        assert!(ops.is_empty());
+    }
+
+    #[test]
+    fn test_consecutive_ratchets_preserved() {
+        let ds = DomainSeparator::<H>::new("r").ratchet().ratchet();
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Ratchet, Op::Ratchet]);
+    }
+
+    #[test]
+    fn test_unicode_labels() {
+        let ds = DomainSeparator::<H>::new("emoji")
+            .absorb(1, "🦀")
+            .squeeze(1, "🎯");
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Absorb(1), Op::Squeeze(1)]);
+    }
+
+    #[test]
+    fn test_large_counts_and_labels() {
+        let label = "x".repeat(100);
+        let ds = DomainSeparator::<H>::new("big")
+            .absorb(12345, &label)
+            .squeeze(54321, &label);
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Absorb(12345), Op::Squeeze(54321)]);
+    }
+
+    #[test]
+    fn test_malformed_tag_parsing_fails() {
+        // Missing count
+        let broken = "proto\0Ax";
+        let ds = DomainSeparator::<H>::from_string(broken.to_string());
+        let res = DomainSeparator::<H>::parse_domsep(ds.as_bytes());
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_simplify_stack_keeps_unlike_ops() {
+        let tag = "test\0A2x\0S3y\0A1z";
+        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Absorb(2), Op::Squeeze(3), Op::Absorb(1)]);
+    }
+
+    #[test]
+    fn test_round_trip_operations() {
+        let ds1 = DomainSeparator::<H>::new("foo")
+            .absorb(2, "a")
+            .squeeze(3, "b")
+            .ratchet();
+        let ops1 = ds1.finalize();
+
+        let tag = std::str::from_utf8(ds1.as_bytes()).unwrap();
+        let ds2 = DomainSeparator::<H>::from_string(tag.to_string());
+        let ops2 = ds2.finalize();
+
+        assert_eq!(ops1, ops2);
+    }
+
+    #[test]
+    fn test_squeeze_returns_correct_string() {
+        let ds = DomainSeparator::<H>::new("proto").squeeze(4, "challenge");
+        let expected_str = "proto\0S4challenge";
+        assert_eq!(ds.as_bytes(), expected_str.as_bytes());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_squeeze_zero_count_panics() {
+        let _ = DomainSeparator::<H>::new("proto").squeeze(0, "label");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_squeeze_label_with_null_byte_panics() {
+        let _ = DomainSeparator::<H>::new("proto").squeeze(2, "bad\0label");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_squeeze_label_starts_with_digit_panics() {
+        let _ = DomainSeparator::<H>::new("proto").squeeze(2, "1invalid");
+    }
+
+    #[test]
+    fn test_multiple_squeeze_chaining() {
+        let ds = DomainSeparator::<H>::new("proto")
+            .squeeze(1, "first")
+            .squeeze(2, "second");
+        let expected_str = "proto\0S1first\0S2second";
+        assert_eq!(ds.as_bytes(), expected_str.as_bytes());
+    }
+
+    #[test]
+    fn test_ratchet_returns_correct_self() {
+        let ds = DomainSeparator::<H>::new("proto");
+        let ratcheted = ds.ratchet();
+        let expected_str = "proto\0R";
+        assert_eq!(ratcheted.as_bytes(), expected_str.as_bytes());
+    }
+
+    #[test]
+    fn test_finalize_mixed_ops_order_preserved() {
+        let tag = "zkp\0A1a\0S1b\0A2c\0S3d\0R\0A4e\0S1f";
+        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ops = ds.finalize();
+        assert_eq!(
+            ops,
+            vec![
+                Op::Absorb(1),
+                Op::Squeeze(1),
+                Op::Absorb(2),
+                Op::Squeeze(3),
+                Op::Ratchet,
+                Op::Absorb(4),
+                Op::Squeeze(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_finalize_large_values_and_merge() {
+        let tag = "main\0A5a\0A10b\0S8c\0S2d";
+        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Absorb(15), Op::Squeeze(10)]);
+    }
+
+    #[test]
+    fn test_finalize_merge_and_breaks() {
+        let tag = "example\0A2x\0A1y\0R\0A3z\0S4u\0S1v";
+        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ops = ds.finalize();
+        assert_eq!(
+            ops,
+            vec![Op::Absorb(3), Op::Ratchet, Op::Absorb(3), Op::Squeeze(5),]
+        );
+    }
+
+    #[test]
+    fn test_finalize_only_ratchets() {
+        let tag = "onlyratchets\0R\0R\0R";
+        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Ratchet, Op::Ratchet, Op::Ratchet]);
+    }
+
+    #[test]
+    fn test_finalize_complex_merge_boundaries() {
+        let tag = "demo\0A1a\0A1b\0S2c\0S2d\0A3e\0S1f";
+        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ops = ds.finalize();
+        assert_eq!(
+            ops,
+            vec![
+                Op::Absorb(2),  // A1a + A1b
+                Op::Squeeze(4), // S2c + S2d
+                Op::Absorb(3),  // A3e
+                Op::Squeeze(1), // S1f
+            ]
+        );
+    }
 }

@@ -32,7 +32,7 @@ where
         Self(params)
     }
 
-    fn parse_commitment<VerifierState, const DIGEST_ELEMS: usize>(
+    pub fn parse_commitment<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState,
     ) -> ProofResult<ParsedCommitment<F, Hash<F, u8, DIGEST_ELEMS>>>

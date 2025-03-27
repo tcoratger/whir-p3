@@ -133,10 +133,8 @@ mod tests {
     };
 
     type F = BabyBear;
-
     type ByteHash = Keccak256Hash;
     type FieldHash = SerializingHasher32<ByteHash>;
-
     type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 
     #[test]

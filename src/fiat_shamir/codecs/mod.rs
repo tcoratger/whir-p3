@@ -1,5 +1,5 @@
+pub mod deserialize;
 pub mod domain_separator;
-pub mod plonky3;
 pub mod prover_messages;
 pub mod traits;
 pub mod verifier_messages;

@@ -2,7 +2,9 @@ use super::{
     DefaultHash,
     domain_separator::DomainSeparator,
     duplex_sponge::{Unit, interface::DuplexSpongeInterface},
+    errors::DomainSeparatorMismatch,
     sho::HashStateWithInstructions,
+    traits::{BytesToUnitDeserialize, UnitTranscript},
 };
 
 /// [`VerifierState`] is the verifier state.
@@ -44,5 +46,35 @@ impl<'a, U: Unit, H: DuplexSpongeInterface<U>> VerifierState<'a, H, U> {
             hash_state,
             narg_string,
         }
+    }
+
+    /// Read `input.len()` elements from the NARG string.
+    #[inline]
+    pub fn fill_next_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+        U::read(&mut self.narg_string, input)?;
+        self.hash_state.absorb(input)?;
+        Ok(())
+    }
+}
+
+impl<H: DuplexSpongeInterface<U>, U: Unit> UnitTranscript<U> for VerifierState<'_, H, U> {
+    /// Add native elements to the sponge without writing them to the NARG string.
+    #[inline]
+    fn public_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
+        self.hash_state.absorb(input)
+    }
+
+    /// Fill `input` with units sampled uniformly at random.
+    #[inline]
+    fn fill_challenge_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+        self.hash_state.squeeze(input)
+    }
+}
+
+impl<H: DuplexSpongeInterface<u8>> BytesToUnitDeserialize for VerifierState<'_, H, u8> {
+    /// Read the next `input.len()` bytes from the NARG string and return them.
+    #[inline]
+    fn fill_next_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
+        self.fill_next_units(input)
     }
 }

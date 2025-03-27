@@ -8,7 +8,7 @@ pub mod interface;
 ///
 /// We require the units to have a precise size in memory, to be cloneable,
 /// and that we can zeroize them.
-pub trait Unit: Clone + Sized + zeroize::Zeroize {
+pub trait Unit: Clone + Sized {
     /// Write a bunch of units in the wire.
     fn write(bunch: &[Self], w: &mut impl std::io::Write) -> Result<(), std::io::Error>;
     /// Read a bunch of units from the wire
@@ -58,7 +58,7 @@ pub struct DuplexSponge<C: Permutation> {
     squeeze_pos: usize,
 }
 
-impl<U: Unit, C: Permutation<U = U>> DuplexSpongeInterface<U> for DuplexSponge<C> {
+impl<U: Unit + Zeroize, C: Permutation<U = U>> DuplexSpongeInterface<U> for DuplexSponge<C> {
     fn new(iv: [u8; 32]) -> Self {
         assert!(C::N > C::R, "Capacity of the sponge should be > 0.");
         Self {

@@ -7,7 +7,8 @@ use crate::{
         codecs::traits::{FieldToUnitSerialize, UnitToField},
         errors::{ProofError, ProofResult},
         prover::ProverState,
-        traits::{BytesToUnitSerialize, UnitToBytes},
+        traits::{BytesToUnitDeserialize, BytesToUnitSerialize, UnitToBytes},
+        verifier::VerifierState,
     },
     poly::multilinear::MultilinearPoint,
 };
@@ -100,4 +101,14 @@ where
 
 pub trait DigestToUnitDeserialize<MerkleInnerDigest> {
     fn read_digest(&mut self) -> ProofResult<MerkleInnerDigest>;
+}
+
+impl<F: Field, const DIGEST_ELEMS: usize> DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>
+    for VerifierState<'_>
+{
+    fn read_digest(&mut self) -> ProofResult<Hash<F, u8, DIGEST_ELEMS>> {
+        let mut digest = [0u8; DIGEST_ELEMS];
+        self.fill_next_bytes(&mut digest)?;
+        Ok(digest.into())
+    }
 }

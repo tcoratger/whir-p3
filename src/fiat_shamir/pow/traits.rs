@@ -1,4 +1,12 @@
-use crate::fiat_shamir::{errors::ProofResult, traits::ByteDomainSeparator};
+use rand::{TryCryptoRng, TryRngCore};
+
+use crate::fiat_shamir::{
+    duplex_sponge::{Unit, interface::DuplexSpongeInterface},
+    errors::{ProofError, ProofResult},
+    prover::ProverState,
+    traits::{ByteDomainSeparator, BytesToUnitDeserialize, BytesToUnitSerialize, UnitToBytes},
+    verifier::VerifierState,
+};
 
 /// [`spongefish::DomainSeparator`] for proof-of-work challenges.
 pub trait PoWDomainSeparator {
@@ -79,5 +87,39 @@ where
     fn challenge_pow(self, label: &str) -> Self {
         // 16 bytes challenge and 16 bytes nonce (that will be written)
         self.challenge_bytes(32, label).add_bytes(8, "pow-nonce")
+    }
+}
+
+impl<H, U, R> PoWChallenge for ProverState<H, U, R>
+where
+    U: Unit,
+    H: DuplexSpongeInterface<U>,
+    R: TryRngCore + TryCryptoRng,
+    Self: BytesToUnitSerialize + UnitToBytes,
+{
+    fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
+        let challenge = self.challenge_bytes()?;
+        let nonce = S::new(challenge, bits)
+            .solve()
+            .ok_or(ProofError::InvalidProof)?;
+        self.add_bytes(&nonce.to_be_bytes())?;
+        Ok(())
+    }
+}
+
+impl<H, U> PoWChallenge for VerifierState<'_, H, U>
+where
+    U: Unit,
+    H: DuplexSpongeInterface<U>,
+    Self: BytesToUnitDeserialize + UnitToBytes,
+{
+    fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
+        let challenge = self.challenge_bytes()?;
+        let nonce = u64::from_be_bytes(self.next_bytes()?);
+        if S::new(challenge, bits).check(nonce) {
+            Ok(())
+        } else {
+            Err(ProofError::InvalidProof)
+        }
     }
 }
