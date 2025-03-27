@@ -1,4 +1,4 @@
-use rand::{TryCryptoRng, TryRngCore};
+use rand::{CryptoRng, RngCore};
 
 use crate::fiat_shamir::{
     duplex_sponge::{Unit, interface::DuplexSpongeInterface},
@@ -94,7 +94,7 @@ impl<H, U, R> PoWChallenge for ProverState<H, U, R>
 where
     U: Unit,
     H: DuplexSpongeInterface<U>,
-    R: TryRngCore + TryCryptoRng,
+    R: RngCore + CryptoRng,
     Self: BytesToUnitSerialize + UnitToBytes,
 {
     fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {

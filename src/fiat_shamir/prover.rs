@@ -1,4 +1,4 @@
-use rand::{TryCryptoRng, TryRngCore};
+use rand::{CryptoRng, RngCore};
 
 use super::{
     DefaultHash, DefaultRng,
@@ -31,7 +31,7 @@ pub struct ProverState<H = DefaultHash, U = u8, R = DefaultRng>
 where
     U: Unit,
     H: DuplexSpongeInterface<U>,
-    R: TryRngCore + TryCryptoRng,
+    R: RngCore + CryptoRng,
 {
     /// The randomness state of the prover.
     pub(crate) rng: ProverPrivateRng<R>,
@@ -44,7 +44,7 @@ where
 impl<H, U, R> ProverState<H, U, R>
 where
     H: DuplexSpongeInterface<U>,
-    R: TryRngCore + TryCryptoRng,
+    R: RngCore + CryptoRng,
     U: Unit,
 {
     pub fn new(domain_separator: &DomainSeparator<H, U>, csrng: R) -> Self {
@@ -83,7 +83,7 @@ where
     }
 
     /// Return a reference to the random number generator associated to the protocol transcript.
-    pub fn rng(&mut self) -> &mut impl TryCryptoRng {
+    pub fn rng(&mut self) -> &mut impl CryptoRng {
         &mut self.rng
     }
 
@@ -102,7 +102,7 @@ impl<H, U, R> UnitTranscript<U> for ProverState<H, U, R>
 where
     U: Unit,
     H: DuplexSpongeInterface<U>,
-    R: TryRngCore + TryCryptoRng,
+    R: RngCore + CryptoRng,
 {
     /// Add public messages to the protocol transcript.
     /// Messages input to this function are not added to the protocol transcript.
@@ -125,7 +125,7 @@ impl<H, U, R> core::fmt::Debug for ProverState<H, U, R>
 where
     U: Unit,
     H: DuplexSpongeInterface<U>,
-    R: TryRngCore + TryCryptoRng,
+    R: RngCore + CryptoRng,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.hash_state.fmt(f)
@@ -145,7 +145,7 @@ where
 impl<H, R> BytesToUnitSerialize for ProverState<H, u8, R>
 where
     H: DuplexSpongeInterface<u8>,
-    R: TryRngCore + TryCryptoRng,
+    R: RngCore + CryptoRng,
 {
     fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         self.add_units(input)
@@ -162,35 +162,39 @@ where
 /// Every time a challenge is being generated, the private prover sponge is ratcheted, so that it
 /// can't be inverted and the randomness recovered.
 #[derive(Debug)]
-pub(crate) struct ProverPrivateRng<R: TryRngCore + TryCryptoRng> {
+pub(crate) struct ProverPrivateRng<R: RngCore + CryptoRng> {
     /// The duplex sponge that is used to generate the random coins.
     pub(crate) ds: Keccak,
     /// The cryptographic random number generator that seeds the sponge.
     pub(crate) csrng: R,
 }
 
-impl<R: TryRngCore + TryCryptoRng> TryRngCore for ProverPrivateRng<R> {
-    type Error = std::fmt::Error;
-
-    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+impl<R: RngCore + CryptoRng> RngCore for ProverPrivateRng<R> {
+    fn next_u32(&mut self) -> u32 {
         let mut buf = [0u8; 4];
-        self.try_fill_bytes(buf.as_mut())?;
-        Ok(u32::from_le_bytes(buf))
+        self.fill_bytes(buf.as_mut());
+        u32::from_le_bytes(buf)
     }
 
-    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+    fn next_u64(&mut self) -> u64 {
         let mut buf = [0u8; 8];
-        self.try_fill_bytes(buf.as_mut())?;
-        Ok(u64::from_le_bytes(buf))
+        self.fill_bytes(buf.as_mut());
+        u64::from_le_bytes(buf)
     }
 
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        // Seed (at most) 32 bytes of randomness from the CSRNG
+        let len = usize::min(dest.len(), 32);
+        self.csrng.fill_bytes(&mut dest[..len]);
+        self.ds.absorb_unchecked(&dest[..len]);
+        // fill `dest` with the output of the sponge
         self.ds.squeeze_unchecked(dest);
-        Ok(())
+        // erase the state from the sponge so that it can't be reverted
+        self.ds.ratchet_unchecked();
     }
 }
 
-impl<R: TryRngCore + TryCryptoRng> TryCryptoRng for ProverPrivateRng<R> {}
+impl<R: RngCore + CryptoRng> CryptoRng for ProverPrivateRng<R> {}
 
 #[cfg(test)]
 mod tests {
@@ -204,7 +208,7 @@ mod tests {
         pstate.add_bytes(&[1, 2, 3, 4]).unwrap();
 
         let mut buf = [0u8; 8];
-        pstate.rng().try_fill_bytes(&mut buf).unwrap();
+        pstate.rng().fill_bytes(&mut buf);
         assert_ne!(buf, [0; 8]);
     }
 
@@ -223,12 +227,12 @@ mod tests {
         let mut pstate = ProverState::from(&domsep);
 
         let mut buf1 = [0u8; 4];
-        pstate.rng().try_fill_bytes(&mut buf1).unwrap();
+        pstate.rng().fill_bytes(&mut buf1);
 
         pstate.ratchet().unwrap();
 
         let mut buf2 = [0u8; 4];
-        pstate.rng().try_fill_bytes(&mut buf2).unwrap();
+        pstate.rng().fill_bytes(&mut buf2);
 
         assert_ne!(buf1, buf2);
     }
@@ -294,9 +298,9 @@ mod tests {
         let mut a = [0u8; 16];
         let mut b = [0u8; 16];
 
-        p1.rng().try_fill_bytes(&mut a).unwrap();
+        p1.rng().fill_bytes(&mut a);
         p2.add_units(&[1, 2, 3]).unwrap();
-        p2.rng().try_fill_bytes(&mut b).unwrap();
+        p2.rng().fill_bytes(&mut b);
 
         assert_ne!(a, b);
     }

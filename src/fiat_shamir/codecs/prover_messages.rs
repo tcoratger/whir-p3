@@ -1,5 +1,5 @@
 use p3_field::Field;
-use rand::{TryCryptoRng, TryRngCore};
+use rand::{CryptoRng, RngCore};
 
 use super::traits::FieldToUnitSerialize;
 use crate::fiat_shamir::{
@@ -7,7 +7,7 @@ use crate::fiat_shamir::{
     errors::ProofResult, prover::ProverState,
 };
 
-impl<F: Field, H: DuplexSpongeInterface, R: TryRngCore + TryCryptoRng> FieldToUnitSerialize<F>
+impl<F: Field, H: DuplexSpongeInterface, R: RngCore + CryptoRng> FieldToUnitSerialize<F>
     for ProverState<H, u8, R>
 {
     fn add_scalars(&mut self, input: &[F]) -> ProofResult<()> {
@@ -21,7 +21,7 @@ impl<F: Field, H: DuplexSpongeInterface, R: TryRngCore + TryCryptoRng> FieldToUn
 // where
 //     F: Field + Unit,
 //     H: DuplexSpongeInterface<F>,
-//     R: TryRngCore + TryCryptoRng,
+//     R: RngCore + CryptoRng,
 // {
 //     fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
 //         self.public_bytes(input)?;
@@ -34,7 +34,7 @@ impl<F: Field, H: DuplexSpongeInterface, R: TryRngCore + TryCryptoRng> FieldToUn
 // where
 //     F: Field + Unit,
 //     H: DuplexSpongeInterface<F>,
-//     R: TryRngCore + TryCryptoRng,
+//     R: RngCore + CryptoRng,
 // {
 //     type Repr = Vec<u8>;
 
