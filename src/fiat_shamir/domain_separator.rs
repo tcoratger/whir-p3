@@ -243,7 +243,7 @@ impl Op {
 mod tests {
     use super::*;
 
-    pub(crate) type H = DefaultHash;
+    type H = DefaultHash;
 
     #[test]
     fn test_op_new_invalid_cases() {

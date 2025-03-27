@@ -92,7 +92,7 @@ mod tests {
     use super::*;
 
     #[derive(Default, Clone)]
-    pub(crate) struct DummySponge {
+    struct DummySponge {
         pub absorbed: Rc<RefCell<Vec<u8>>>,
         pub squeezed: Rc<RefCell<Vec<u8>>>,
         pub ratcheted: Rc<RefCell<bool>>,
