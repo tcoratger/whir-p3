@@ -131,6 +131,11 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
             _unit: PhantomData,
         }
     }
+
+    #[cfg(test)]
+    pub const fn ds(&self) -> &H {
+        &self.ds
+    }
 }
 
 impl<U: Unit, H: DuplexSpongeInterface<U>> Drop for HashStateWithInstructions<H, U> {

@@ -55,6 +55,12 @@ impl<'a, U: Unit, H: DuplexSpongeInterface<U>> VerifierState<'a, H, U> {
         self.hash_state.absorb(input)?;
         Ok(())
     }
+
+    /// Signals the end of the statement.
+    #[inline]
+    pub fn ratchet(&mut self) -> Result<(), DomainSeparatorMismatch> {
+        self.hash_state.ratchet()
+    }
 }
 
 impl<H: DuplexSpongeInterface<U>, U: Unit> UnitTranscript<U> for VerifierState<'_, H, U> {
@@ -76,5 +82,130 @@ impl<H: DuplexSpongeInterface<u8>> BytesToUnitDeserialize for VerifierState<'_, 
     #[inline]
     fn fill_next_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
         self.fill_next_units(input)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use super::*;
+
+    #[derive(Default, Clone)]
+    pub(crate) struct DummySponge {
+        pub absorbed: Rc<RefCell<Vec<u8>>>,
+        pub squeezed: Rc<RefCell<Vec<u8>>>,
+        pub ratcheted: Rc<RefCell<bool>>,
+    }
+
+    impl zeroize::Zeroize for DummySponge {
+        fn zeroize(&mut self) {
+            self.absorbed.borrow_mut().clear();
+            self.squeezed.borrow_mut().clear();
+            *self.ratcheted.borrow_mut() = false;
+        }
+    }
+
+    impl DummySponge {
+        fn new_inner() -> Self {
+            Self {
+                absorbed: Rc::new(RefCell::new(Vec::new())),
+                squeezed: Rc::new(RefCell::new(Vec::new())),
+                ratcheted: Rc::new(RefCell::new(false)),
+            }
+        }
+    }
+
+    impl DuplexSpongeInterface<u8> for DummySponge {
+        fn new(_iv: [u8; 32]) -> Self {
+            Self::new_inner()
+        }
+
+        fn absorb_unchecked(&mut self, input: &[u8]) -> &mut Self {
+            self.absorbed.borrow_mut().extend_from_slice(input);
+            self
+        }
+
+        fn squeeze_unchecked(&mut self, output: &mut [u8]) -> &mut Self {
+            for (i, byte) in output.iter_mut().enumerate() {
+                *byte = i as u8;
+            }
+            self.squeezed.borrow_mut().extend_from_slice(output);
+            self
+        }
+
+        fn ratchet_unchecked(&mut self) -> &mut Self {
+            *self.ratcheted.borrow_mut() = true;
+            self
+        }
+    }
+
+    #[test]
+    fn test_new_verifier_state_constructs_correctly() {
+        let ds = DomainSeparator::<DummySponge>::new("test");
+        let transcript = b"abc";
+        let vs = VerifierState::<DummySponge>::new(&ds, transcript);
+        assert_eq!(vs.narg_string, b"abc");
+    }
+
+    #[test]
+    fn test_fill_next_units_reads_and_absorbs() {
+        let ds = DomainSeparator::<DummySponge>::new("x").absorb(3, "input");
+        let mut vs = VerifierState::<DummySponge>::new(&ds, b"abc");
+        let mut buf = [0u8; 3];
+        let res = vs.fill_next_units(&mut buf);
+        assert!(res.is_ok());
+        assert_eq!(buf, *b"abc");
+        assert_eq!(*vs.hash_state.ds().absorbed.borrow(), b"abc");
+    }
+
+    #[test]
+    fn test_fill_next_units_with_insufficient_data_errors() {
+        let ds = DomainSeparator::<DummySponge>::new("x").absorb(4, "fail");
+        let mut vs = VerifierState::<DummySponge>::new(&ds, b"xy");
+        let mut buf = [0u8; 4];
+        let res = vs.fill_next_units(&mut buf);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_ratcheting_success() {
+        let ds = DomainSeparator::<DummySponge>::new("x").ratchet();
+        let mut vs = VerifierState::<DummySponge>::new(&ds, &[]);
+        assert!(vs.ratchet().is_ok());
+        assert!(*vs.hash_state.ds().ratcheted.borrow());
+    }
+
+    #[test]
+    fn test_ratcheting_wrong_op_errors() {
+        let ds = DomainSeparator::<DummySponge>::new("x").absorb(1, "wrong");
+        let mut vs = VerifierState::<DummySponge>::new(&ds, b"z");
+        assert!(vs.ratchet().is_err());
+    }
+
+    #[test]
+    fn test_unit_transcript_public_units() {
+        let ds = DomainSeparator::<DummySponge>::new("x").absorb(2, "public");
+        let mut vs = VerifierState::<DummySponge>::new(&ds, b"..");
+        assert!(vs.public_units(&[1, 2]).is_ok());
+        assert_eq!(*vs.hash_state.ds().absorbed.borrow(), &[1, 2]);
+    }
+
+    #[test]
+    fn test_unit_transcript_fill_challenge_units() {
+        let ds = DomainSeparator::<DummySponge>::new("x").squeeze(4, "c");
+        let mut vs = VerifierState::<DummySponge>::new(&ds, b"abcd");
+        let mut out = [0u8; 4];
+        assert!(vs.fill_challenge_units(&mut out).is_ok());
+        assert_eq!(out, [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_fill_next_bytes_impl() {
+        let ds = DomainSeparator::<DummySponge>::new("x").absorb(3, "byte");
+        let mut vs = VerifierState::<DummySponge>::new(&ds, b"xyz");
+        let mut out = [0u8; 3];
+        assert!(vs.fill_next_bytes(&mut out).is_ok());
+        assert_eq!(out, *b"xyz");
     }
 }
