@@ -1,13 +1,13 @@
 use p3_field::{BasedVectorSpace, Field, PrimeField32, PrimeField64};
 
 use super::{
-    bytes_uniform_modp,
     traits::{CommonFieldToUnit, UnitToField},
     utils::from_be_bytes_mod_order,
 };
 use crate::{
     crypto::field::ExtensionDegree,
     fiat_shamir::{
+        codecs::utils::bytes_uniform_modp,
         errors::ProofResult,
         traits::{CommonUnitToBytes, UnitToBytes, UnitTranscript},
     },

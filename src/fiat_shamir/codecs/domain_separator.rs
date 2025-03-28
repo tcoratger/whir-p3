@@ -1,10 +1,10 @@
 use p3_field::Field;
 
-use super::{bytes_modp, traits::FieldDomainSeparator};
+use super::{traits::FieldDomainSeparator, utils::bytes_modp};
 use crate::{
     crypto::field::ExtensionDegree,
     fiat_shamir::{
-        codecs::bytes_uniform_modp, domain_separator::DomainSeparator,
+        codecs::utils::bytes_uniform_modp, domain_separator::DomainSeparator,
         duplex_sponge::interface::DuplexSpongeInterface, traits::ByteDomainSeparator,
     },
 };
