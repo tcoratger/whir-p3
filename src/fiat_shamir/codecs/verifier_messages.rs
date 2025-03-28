@@ -1,4 +1,4 @@
-use p3_field::{BasedVectorSpace, Field, PrimeField64};
+use p3_field::{BasedVectorSpace, Field, PrimeField32, PrimeField64};
 
 use super::{
     bytes_uniform_modp,
@@ -66,20 +66,69 @@ where
     }
 }
 
+// impl<T, F> CommonFieldToUnit<F> for T
+// where
+//     F: Field + PrimeField32,
+//     T: UnitTranscript<u8>,
+// {
+//     type Repr = Vec<u8>;
+
+//     fn public_scalars(&mut self, input: &[F]) -> ProofResult<Self::Repr> {
+//         // let buf = Vec::new();
+//         // // TODO
+//         // // for i in input {
+//         // //     i.serialize_compressed(&mut buf)?;
+//         // // }
+//         // self.public_bytes(&buf)?;
+//         // Ok(buf)
+
+//         let mut buf = Vec::new();
+
+//         for scalar in input {
+//             // Encode each base element canonically as u64
+//             let bytes = scalar.as_canonical_u32().to_le_bytes();
+//             buf.extend_from_slice(&bytes);
+//         }
+
+//         println!("public_scalars: {:?}", buf);
+
+//         // Absorb into transcript
+//         self.public_bytes(&buf)?;
+
+//         Ok(buf)
+//     }
+// }
+
 impl<T, F> CommonFieldToUnit<F> for T
 where
-    F: Field,
+    F: Field + BasedVectorSpace<F::PrimeSubfield>,
+    F::PrimeSubfield: PrimeField32,
     T: UnitTranscript<u8>,
 {
     type Repr = Vec<u8>;
 
-    fn public_scalars(&mut self, _input: &[F]) -> ProofResult<Self::Repr> {
-        let buf = Vec::new();
-        // TODO
-        // for i in input {
-        //     i.serialize_compressed(&mut buf)?;
-        // }
+    fn public_scalars(&mut self, input: &[F]) -> ProofResult<Self::Repr> {
+        // Initialize a buffer to store the final serialized byte output
+        let mut buf = Vec::new();
+
+        // Loop over each scalar field element (could be base or extension field)
+        for scalar in input {
+            // Decompose the field element into its basis coefficients over the base field
+            //
+            // For base fields, this is just [scalar]; for extensions, it's length-D array
+            for coeff in scalar.as_basis_coefficients_slice() {
+                // Serialize each base field coefficient to 4 bytes (LE canonical form)
+                let bytes = coeff.as_canonical_u32().to_le_bytes();
+
+                // Append the serialized bytes to the output buffer
+                buf.extend_from_slice(&bytes);
+            }
+        }
+
+        // Absorb the serialized bytes into the Fiat-Shamir transcript
         self.public_bytes(&buf)?;
+
+        // Return the serialized byte representation
         Ok(buf)
     }
 }
@@ -266,5 +315,106 @@ mod tests {
 
         // Result obtained via a script to double check the result
         assert_eq!(out, [ef0, ef1, ef2, ef3, ef4]);
+    }
+
+    #[test]
+    fn test_common_field_to_unit_bytes() {
+        // Generate some random BabyBear values
+        let values = [BabyBear::from_u64(111), BabyBear::from_u64(222)];
+
+        // Create a domain separator indicating we will absorb 2 public scalars
+        let domsep = <DomainSeparator as FieldDomainSeparator<BabyBear>>::add_scalars(
+            DomainSeparator::new("field"),
+            2,
+            "test",
+        );
+
+        // Create prover and serialize expected values manually
+        let expected_bytes = [111, 0, 0, 0, 222, 0, 0, 0];
+
+        let mut prover = domsep.to_prover_state();
+        let actual = prover.public_scalars(&values).unwrap();
+
+        assert_eq!(
+            actual, expected_bytes,
+            "Public scalars should serialize to expected bytes"
+        );
+
+        // Determinism: same input, same transcript = same output
+        let mut prover2 = domsep.to_prover_state();
+        let actual2 = prover2.public_scalars(&values).unwrap();
+
+        assert_eq!(
+            actual, actual2,
+            "Transcript serialization should be deterministic"
+        );
+    }
+
+    #[test]
+    fn test_common_field_to_unit_bytes_extension() {
+        // Construct two extension field elements using known u64 inputs
+        let values = [EF4::from_u64(111), EF4::from_u64(222)];
+
+        // Create a domain separator committing to 2 public scalars
+        let domsep = <DomainSeparator as FieldDomainSeparator<EF4>>::add_scalars(
+            DomainSeparator::new("field"),
+            2,
+            "test",
+        );
+
+        // Compute expected bytes manually: serialize each coefficient of EF4
+        let expected_bytes = [
+            111, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0,
+        ];
+
+        // Use CommonFieldToUnit to serialize the values through the transcript
+        let mut prover = domsep.to_prover_state();
+        let actual = prover.public_scalars(&values).unwrap();
+
+        // Check that the actual bytes match expected ones
+        assert_eq!(
+            actual, expected_bytes,
+            "Public scalars should serialize to expected bytes"
+        );
+
+        // Check determinism: same input = same output
+        let mut prover2 = domsep.to_prover_state();
+        let actual2 = prover2.public_scalars(&values).unwrap();
+
+        assert_eq!(
+            actual, actual2,
+            "Transcript serialization should be deterministic"
+        );
+    }
+
+    #[test]
+    fn test_common_field_to_unit_mixed_values() {
+        let values = [
+            BabyBear::ZERO,
+            BabyBear::ONE,
+            BabyBear::from_u64(123456),
+            BabyBear::from_u64(7891011),
+        ];
+
+        let domsep = <DomainSeparator as FieldDomainSeparator<BabyBear>>::add_scalars(
+            DomainSeparator::new("mixed"),
+            values.len(),
+            "mix",
+        );
+
+        let mut prover = domsep.to_prover_state();
+        let actual = prover.public_scalars(&values).unwrap();
+
+        let expected = vec![0, 0, 0, 0, 1, 0, 0, 0, 64, 226, 1, 0, 67, 104, 120, 0];
+
+        assert_eq!(actual, expected, "Mixed values should serialize correctly");
+
+        let mut prover2 = domsep.to_prover_state();
+        assert_eq!(
+            actual,
+            prover2.public_scalars(&values).unwrap(),
+            "Serialization must be deterministic"
+        );
     }
 }

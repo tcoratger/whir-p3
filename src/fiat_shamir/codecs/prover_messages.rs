@@ -1,4 +1,4 @@
-use p3_field::Field;
+use p3_field::{BasedVectorSpace, Field, PrimeField32};
 use rand::{CryptoRng, RngCore};
 
 use super::traits::FieldToUnitSerialize;
@@ -7,8 +7,12 @@ use crate::fiat_shamir::{
     errors::ProofResult, prover::ProverState,
 };
 
-impl<F: Field, H: DuplexSpongeInterface, R: RngCore + CryptoRng> FieldToUnitSerialize<F>
-    for ProverState<H, u8, R>
+impl<F, H, R> FieldToUnitSerialize<F> for ProverState<H, u8, R>
+where
+    F: Field + BasedVectorSpace<F::PrimeSubfield>,
+    F::PrimeSubfield: PrimeField32,
+    H: DuplexSpongeInterface,
+    R: RngCore + CryptoRng,
 {
     fn add_scalars(&mut self, input: &[F]) -> ProofResult<()> {
         let serialized = self.public_scalars(input);
