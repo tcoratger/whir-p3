@@ -2,6 +2,7 @@ pub mod deserialize;
 pub mod domain_separator;
 pub mod prover_messages;
 pub mod traits;
+pub mod utils;
 pub mod verifier_messages;
 
 /// Bytes needed in order to encode an element of F.
