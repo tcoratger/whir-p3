@@ -102,6 +102,7 @@ where
 // }
 
 #[cfg(test)]
+#[allow(clippy::unreadable_literal)]
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
