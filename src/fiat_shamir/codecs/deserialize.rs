@@ -26,14 +26,3 @@ where
         Ok(())
     }
 }
-
-// impl<H, MP> FieldToUnitDeserialize<MontyField31<MP>> for VerifierState<'_, H, MontyField31<MP>>
-// where
-//     MP: MontyParameters + FieldParameters,
-//     H: DuplexSpongeInterface<MontyField31<MP>>,
-// {
-//     fn fill_next_scalars(&mut self, output: &mut [MontyField31<MP>]) -> ProofResult<()> {
-//         self.fill_next_units(output)?;
-//         Ok(())
-//     }
-// }

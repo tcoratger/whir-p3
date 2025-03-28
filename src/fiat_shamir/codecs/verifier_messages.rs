@@ -13,27 +13,6 @@ use crate::{
     },
 };
 
-// impl<MP> Unit for MontyField31<MP>
-// where
-//     MP: MontyParameters,
-// {
-//     fn write(bunch: &[Self], mut _w: &mut impl io::Write) -> Result<(), io::Error> {
-//         for _b in bunch {
-//             // b.serialize_compressed(&mut w)
-//             //     .map_err(|_| io::Error::other("oh no!"))?;
-//         }
-//         Ok(())
-//     }
-
-//     fn read(mut _r: &mut impl io::Read, bunch: &mut [Self]) -> Result<(), io::Error> {
-//         for _b in bunch.iter_mut() {
-//             // let b_result = Self::deserialize_compressed(&mut r);
-//             // *b = b_result.map_err(|_| io::Error::other("Unable to deserialize into Field."))?;
-//         }
-//         Ok(())
-//     }
-// }
-
 impl<F, T> UnitToField<F> for T
 where
     F: Field + BasedVectorSpace<F::PrimeSubfield> + ExtensionDegree,
@@ -65,39 +44,6 @@ where
         Ok(())
     }
 }
-
-// impl<T, F> CommonFieldToUnit<F> for T
-// where
-//     F: Field + PrimeField32,
-//     T: UnitTranscript<u8>,
-// {
-//     type Repr = Vec<u8>;
-
-//     fn public_scalars(&mut self, input: &[F]) -> ProofResult<Self::Repr> {
-//         // let buf = Vec::new();
-//         // // TODO
-//         // // for i in input {
-//         // //     i.serialize_compressed(&mut buf)?;
-//         // // }
-//         // self.public_bytes(&buf)?;
-//         // Ok(buf)
-
-//         let mut buf = Vec::new();
-
-//         for scalar in input {
-//             // Encode each base element canonically as u64
-//             let bytes = scalar.as_canonical_u32().to_le_bytes();
-//             buf.extend_from_slice(&bytes);
-//         }
-
-//         println!("public_scalars: {:?}", buf);
-
-//         // Absorb into transcript
-//         self.public_bytes(&buf)?;
-
-//         Ok(buf)
-//     }
-// }
 
 impl<T, F> CommonFieldToUnit<F> for T
 where
@@ -132,23 +78,6 @@ where
         Ok(buf)
     }
 }
-
-// impl<H, MP> CommonFieldToUnit<MontyField31<MP>> for VerifierState<'_, H, MontyField31<MP>>
-// where
-//     MP: MontyParameters + FieldParameters,
-//     H: DuplexSpongeInterface<MontyField31<MP>>,
-// {
-//     type Repr = ();
-
-//     fn public_scalars(&mut self, input: &[MontyField31<MP>]) -> ProofResult<Self::Repr> {
-//         // let flattened: Vec<_> = input
-//         //     .iter()
-//         //     .flat_map(Field::to_base_prime_field_elements)
-//         //     .collect();
-//         // self.public_units(&flattened)?;
-//         Ok(())
-//     }
-// }
 
 #[cfg(test)]
 #[allow(clippy::unreadable_literal)]

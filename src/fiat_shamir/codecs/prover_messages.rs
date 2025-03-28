@@ -26,37 +26,6 @@ where
     }
 }
 
-// impl<H, R, F> BytesToUnitSerialize for ProverState<H, F, R>
-// where
-//     F: Field + Unit,
-//     H: DuplexSpongeInterface<F>,
-//     R: RngCore + CryptoRng,
-// {
-//     fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
-//         self.public_bytes(input)?;
-//         self.narg_string.extend(input);
-//         Ok(())
-//     }
-// }
-
-// impl<F, H, R> CommonFieldToUnit<F> for ProverState<H, u8, R>
-// where
-//     F: Field + Unit,
-//     H: DuplexSpongeInterface<F>,
-//     R: RngCore + CryptoRng,
-// {
-//     type Repr = Vec<u8>;
-
-//     fn public_scalars(&mut self, input: &[F]) -> ProofResult<Self::Repr> {
-//         let mut buf = Vec::new();
-//         // for i in input {
-//         //     i.serialize_compressed(&mut buf)?;
-//         // }
-//         self.public_bytes(&buf)?;
-//         Ok(buf)
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
