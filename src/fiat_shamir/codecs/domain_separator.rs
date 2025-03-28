@@ -15,6 +15,16 @@ where
     H: DuplexSpongeInterface,
 {
     fn add_scalars(self, count: usize, label: &str) -> Self {
+        // Absorb `count` scalars into the transcript using an "absorb" tag.
+        //
+        // The total number of bytes to absorb is calculated as:
+        //
+        //     count × extension_degree × bytes_modp(bits)
+        //
+        // where:
+        // - `count` is the number of scalar values
+        // - `extension_degree` is the number of limbs (e.g., 4 for quartic extensions)
+        // - `bytes_modp(bits)` gives the compressed byte length for the prime subfield
         self.add_bytes(
             count * F::extension_degree() * bytes_modp(F::PrimeSubfield::bits() as u32),
             label,
@@ -22,6 +32,14 @@ where
     }
 
     fn challenge_scalars(self, count: usize, label: &str) -> Self {
+        // Squeeze `count` scalars from the transcript using a "challenge" tag.
+        //
+        // The total number of bytes to squeeze is calculated as:
+        //
+        //     count × extension_degree × bytes_uniform_modp(bits)
+        //
+        // where `bytes_uniform_modp` gives the number of bytes needed to sample uniformly
+        // over the base field.
         self.challenge_bytes(
             count * F::extension_degree() * bytes_uniform_modp(F::PrimeSubfield::bits() as u32),
             label,
