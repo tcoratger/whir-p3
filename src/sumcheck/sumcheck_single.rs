@@ -206,7 +206,7 @@ where
         for _ in 0..folding_factor {
             let sumcheck_poly = self.compute_sumcheck_polynomial();
             prover_state.add_scalars(sumcheck_poly.evaluations())?;
-            let [folding_randomness]: [F; 1] = prover_state.challenge_scalars()?;
+            let [folding_randomness] = prover_state.challenge_scalars()?;
             res.push(folding_randomness);
 
             // Do PoW if needed
