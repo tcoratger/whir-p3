@@ -19,7 +19,8 @@ pub trait UnitToField<F: Field> {
 
     fn challenge_scalars<const N: usize>(&mut self) -> ProofResult<[F; N]> {
         let mut output = [F::default(); N];
-        self.fill_challenge_scalars(&mut output).map(|()| output)
+        self.fill_challenge_scalars(&mut output)?;
+        Ok(output)
     }
 }
 
@@ -43,6 +44,7 @@ pub trait FieldToUnitDeserialize<F: Field>: CommonFieldToUnit<F> {
 
     fn next_scalars<const N: usize>(&mut self) -> ProofResult<[F; N]> {
         let mut output = [F::default(); N];
-        self.fill_next_scalars(&mut output).map(|()| output)
+        self.fill_next_scalars(&mut output)?;
+        Ok(output)
     }
 }
