@@ -26,3 +26,6 @@ Cargo.lock
 
 # Proptest data
 proptest-regressions/
+
+# Profile data
+profile.json
