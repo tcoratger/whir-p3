@@ -298,6 +298,12 @@ mod tests {
 
     use super::*;
     use crate::{
+        fiat_shamir::{
+            DefaultHash,
+            codecs::traits::FieldDomainSeparator,
+            domain_separator::DomainSeparator,
+            pow::{blake3::Blake3PoW, traits::PoWDomainSeparator},
+        },
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
         whir::statement::Weights,
     };
@@ -986,5 +992,181 @@ mod tests {
         let expected_compressed_weights = vec![weight_0, weight_1];
 
         assert_eq!(prover.weights.evals(), &expected_compressed_weights);
+    }
+
+    #[test]
+    fn test_compute_sumcheck_polynomials_basic_case() {
+        // Polynomial with 1 variable: f(X1) = 1 + 2*X1
+        let c1 = BabyBear::from_u64(1);
+        let c2 = BabyBear::from_u64(2);
+        let coeffs = CoefficientList::new(vec![c1, c2]);
+
+        // Create a statement with no equality constraints
+        let statement = Statement::new(1);
+
+        // Instantiate the Sumcheck prover
+        let mut prover = SumcheckSingle::new(coeffs, &statement, BabyBear::ONE);
+
+        // Domain separator setup
+        // Step 1: Initialize domain separator with a context label
+        let domsep: DomainSeparator<DefaultHash> = DomainSeparator::new("test");
+
+        // Step 2: Register the fact that we’re about to absorb 3 field elements
+        let domsep =
+            <DomainSeparator as FieldDomainSeparator<BabyBear>>::add_scalars(domsep, 3, "test");
+
+        // Step 3: Sample 1 challenge scalar from the transcript
+        let domsep = <DomainSeparator as FieldDomainSeparator<BabyBear>>::challenge_scalars(
+            domsep, 1, "test",
+        );
+
+        // Convert the domain separator to a prover state
+        let mut prover_state = domsep.to_prover_state();
+
+        let folding_factor = 1; // Minimum folding factor
+        let pow_bits = 0.; // No grinding
+
+        // Compute sumcheck polynomials
+        let result = prover
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+            )
+            .unwrap();
+
+        // The result should contain `folding_factor` elements
+        assert_eq!(result.0.len(), folding_factor);
+    }
+
+    #[test]
+    fn test_compute_sumcheck_polynomials_with_multiple_folding_factors() {
+        // Polynomial with 2 variables: f(X1, X2) = 1 + 2*X1 + 3*X2 + 4*X1*X2
+        let c1 = BabyBear::from_u64(1);
+        let c2 = BabyBear::from_u64(2);
+        let c3 = BabyBear::from_u64(3);
+        let c4 = BabyBear::from_u64(3);
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
+
+        let statement = Statement::new(2);
+        let mut prover = SumcheckSingle::new(coeffs, &statement, BabyBear::ONE);
+
+        let folding_factor = 2; // Increase folding factor
+        let pow_bits = 1.; // Minimal grinding
+
+        // Setup the domain separator
+        let mut domsep: DomainSeparator<DefaultHash> = DomainSeparator::new("test");
+
+        // For each folding round, we must absorb values, sample challenge, and apply PoW
+        for _ in 0..folding_factor {
+            // Absorb 3 field elements (evaluations of sumcheck polynomial)
+            domsep =
+                <DomainSeparator as FieldDomainSeparator<BabyBear>>::add_scalars(domsep, 3, "tag");
+
+            // Sample 1 challenge scalar from the Fiat-Shamir transcript
+            domsep = <DomainSeparator as FieldDomainSeparator<BabyBear>>::challenge_scalars(
+                domsep, 1, "tag",
+            );
+
+            // Apply optional PoW grinding to ensure randomness
+            domsep = domsep.challenge_pow("tag");
+        }
+
+        // Convert the domain separator to a prover state
+        let mut prover_state = domsep.to_prover_state();
+
+        let result = prover
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+            )
+            .unwrap();
+
+        // Ensure we get `folding_factor` sampled randomness values
+        assert_eq!(result.0.len(), folding_factor);
+    }
+
+    #[test]
+    fn test_compute_sumcheck_polynomials_with_three_variables() {
+        // Multilinear polynomial with 3 variables:
+        // f(X1, X2, X3) = 1 + 2*X1 + 3*X2 + 4*X3 + 5*X1*X2 + 6*X1*X3 + 7*X2*X3 + 8*X1*X2*X3
+        let c1 = BabyBear::from_u64(1);
+        let c2 = BabyBear::from_u64(2);
+        let c3 = BabyBear::from_u64(3);
+        let c4 = BabyBear::from_u64(4);
+        let c5 = BabyBear::from_u64(5);
+        let c6 = BabyBear::from_u64(6);
+        let c7 = BabyBear::from_u64(7);
+        let c8 = BabyBear::from_u64(8);
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+
+        let statement = Statement::new(3);
+        let mut prover = SumcheckSingle::new(coeffs, &statement, BabyBear::ONE);
+
+        let folding_factor = 3;
+        let pow_bits = 2.;
+
+        // Setup the domain separator
+        let mut domsep: DomainSeparator<DefaultHash> = DomainSeparator::new("test");
+
+        // Register interactions with the transcript for each round
+        for _ in 0..folding_factor {
+            // Absorb 3 field values (sumcheck evaluations at X = 0, 1, 2)
+            domsep =
+                <DomainSeparator as FieldDomainSeparator<BabyBear>>::add_scalars(domsep, 3, "tag");
+
+            // Sample 1 field challenge (folding randomness)
+            domsep = <DomainSeparator as FieldDomainSeparator<BabyBear>>::challenge_scalars(
+                domsep, 1, "tag",
+            );
+
+            // Apply challenge PoW (grinding) to enhance soundness
+            domsep = domsep.challenge_pow("tag");
+        }
+
+        // Convert the domain separator to a prover state
+        let mut prover_state = domsep.to_prover_state();
+
+        let result = prover
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+            )
+            .unwrap();
+
+        assert_eq!(result.0.len(), folding_factor);
+    }
+
+    #[test]
+    fn test_compute_sumcheck_polynomials_edge_case_zero_folding() {
+        // Multilinear polynomial with 2 variables:
+        // f(X1, X2) = 1 + 2*X1 + 3*X2 + 4*X1*X2
+        let c1 = BabyBear::from_u64(1);
+        let c2 = BabyBear::from_u64(2);
+        let c3 = BabyBear::from_u64(3);
+        let c4 = BabyBear::from_u64(4);
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
+
+        let statement = Statement::new(2);
+        let mut prover = SumcheckSingle::new(coeffs, &statement, BabyBear::ONE);
+
+        let folding_factor = 0; // Edge case: No folding
+        let pow_bits = 1.;
+
+        // No domain separator logic needed since we don't fold
+        let domsep: DomainSeparator<DefaultHash> = DomainSeparator::new("test");
+        let mut prover_state = domsep.to_prover_state();
+
+        let result = prover
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+            )
+            .unwrap();
+
+        assert_eq!(result.0.len(), 0);
     }
 }
