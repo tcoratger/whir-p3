@@ -50,7 +50,6 @@ where
     #[educe(Debug(ignore))]
     pub(crate) prev_merkle: MerkleTreeMmcs<F, u8, H, C, DIGEST_ELEMS>,
     pub(crate) prev_merkle_prover_data: MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
-    pub(crate) prev_merkle_answers: Vec<F>,
     /// - The first element is the opened leaf values
     /// - The second element is the Merkle proof (siblings)
     pub(crate) merkle_proofs: Vec<(Leafs<F>, Proof<DIGEST_ELEMS>)>,
@@ -177,7 +176,6 @@ where
             coefficients: witness.polynomial,
             prev_merkle: witness.merkle_tree,
             prev_merkle_prover_data: witness.prover_data,
-            prev_merkle_answers: witness.merkle_leaves,
             merkle_proofs: vec![],
             randomness_vec,
             statement,
@@ -341,7 +339,6 @@ where
             folding_randomness,
             coefficients: folded_coefficients,
             prev_merkle: merkle_tree,
-            prev_merkle_answers: evals,
             randomness_vec: round_state.randomness_vec.clone(),
             statement: round_state.statement,
             prev_merkle_prover_data: prover_data,
