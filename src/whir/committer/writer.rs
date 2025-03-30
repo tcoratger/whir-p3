@@ -1,5 +1,5 @@
 use p3_commit::Mmcs;
-use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
@@ -33,7 +33,7 @@ where
 
 impl<F, H, C, PS> CommitmentWriter<F, H, C, PS>
 where
-    F: Field + TwoAdicField + PrimeField32 + Eq,
+    F: Field + TwoAdicField + Eq,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
     pub const fn new(params: WhirConfig<F, H, C, PS>) -> Self {

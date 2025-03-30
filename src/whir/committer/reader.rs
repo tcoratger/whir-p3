@@ -1,4 +1,4 @@
-use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 use p3_symmetric::Hash;
 
 use crate::{
@@ -25,7 +25,7 @@ where
 
 impl<'a, F, H, C, PS> CommitmentReader<'a, F, H, C, PS>
 where
-    F: Field + TwoAdicField + PrimeField32 + Eq,
+    F: Field + TwoAdicField + Eq,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
     pub const fn new(params: &'a WhirConfig<F, H, C, PS>) -> Self {
