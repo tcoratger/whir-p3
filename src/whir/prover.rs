@@ -339,7 +339,7 @@ where
             folding_randomness,
             coefficients: folded_coefficients,
             prev_merkle: merkle_tree,
-            randomness_vec: round_state.randomness_vec.clone(),
+            randomness_vec: round_state.randomness_vec,
             statement: round_state.statement,
             prev_merkle_prover_data: prover_data,
             merkle_proofs: round_state.merkle_proofs,
