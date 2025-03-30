@@ -178,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn test_whir() {
+    fn test_whir_end_to_end() {
         let folding_factors = [1, 2];
         let soundness_type = [
             SoundnessType::ConjectureList,

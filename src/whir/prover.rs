@@ -1,4 +1,3 @@
-use educe::Educe;
 use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 use p3_matrix::{
@@ -35,9 +34,8 @@ use crate::{
 pub type Proof<const DIGEST_ELEMS: usize> = Vec<Vec<[u8; DIGEST_ELEMS]>>;
 pub type Leafs<F> = Vec<Vec<F>>;
 
-#[derive(Educe)]
-#[educe(Debug)]
-pub(crate) struct RoundState<F, H, C, const DIGEST_ELEMS: usize>
+#[derive(Debug)]
+pub(crate) struct RoundState<F, const DIGEST_ELEMS: usize>
 where
     F: Field + TwoAdicField,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
@@ -47,8 +45,6 @@ where
     pub(crate) sumcheck_prover: Option<SumcheckSingle<F>>,
     pub(crate) folding_randomness: MultilinearPoint<F>,
     pub(crate) coefficients: CoefficientList<F>,
-    #[educe(Debug(ignore))]
-    pub(crate) prev_merkle: MerkleTreeMmcs<F, u8, H, C, DIGEST_ELEMS>,
     pub(crate) prev_merkle_prover_data: MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     /// - The first element is the opened leaf values
     /// - The second element is the Merkle proof (siblings)
@@ -174,7 +170,6 @@ where
             sumcheck_prover,
             folding_randomness,
             coefficients: witness.polynomial,
-            prev_merkle: witness.merkle_tree,
             prev_merkle_prover_data: witness.prover_data,
             merkle_proofs: vec![],
             randomness_vec,
@@ -189,7 +184,7 @@ where
     fn round<ProverState, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
-        mut round_state: RoundState<F, H, C, DIGEST_ELEMS>,
+        mut round_state: RoundState<F, DIGEST_ELEMS>,
     ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
@@ -262,12 +257,11 @@ where
         )?;
 
         // Collect Merkle proofs for stir queries
+        let mmcs = MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
         let mut answers: Leafs<F> = Vec::new();
         let mut merkle_proof: Proof<DIGEST_ELEMS> = Vec::new();
         for challenge in &stir_challenges_indexes {
-            let (leaf, proof) = round_state
-                .prev_merkle
-                .open_batch(*challenge, &round_state.prev_merkle_prover_data);
+            let (leaf, proof) = mmcs.open_batch(*challenge, &round_state.prev_merkle_prover_data);
             answers.push(leaf[0].clone());
             merkle_proof.push(proof);
         }
@@ -338,7 +332,6 @@ where
             sumcheck_prover: Some(sumcheck_prover),
             folding_randomness,
             coefficients: folded_coefficients,
-            prev_merkle: merkle_tree,
             randomness_vec: round_state.randomness_vec,
             statement: round_state.statement,
             prev_merkle_prover_data: prover_data,
@@ -351,7 +344,7 @@ where
     fn final_round<ProverState, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
-        mut round_state: RoundState<F, H, C, DIGEST_ELEMS>,
+        mut round_state: RoundState<F, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<F>,
     ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
     where
@@ -377,12 +370,12 @@ where
         )?;
 
         // Every query requires opening these many in the previous Merkle tree
+        let mmcs = MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+
         let mut answers: Leafs<F> = Vec::new();
         let mut merkle_proof: Proof<DIGEST_ELEMS> = Vec::new();
         for challenge in final_challenge_indexes {
-            let (leaf, proof) = round_state
-                .prev_merkle
-                .open_batch(challenge, &round_state.prev_merkle_prover_data);
+            let (leaf, proof) = mmcs.open_batch(challenge, &round_state.prev_merkle_prover_data);
             answers.push(leaf[0].clone());
             merkle_proof.push(proof);
         }
@@ -445,7 +438,7 @@ where
     fn compute_stir_queries<ProverState, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
-        round_state: &RoundState<F, H, C, DIGEST_ELEMS>,
+        round_state: &RoundState<F, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig,
         ood_points: Vec<F>,

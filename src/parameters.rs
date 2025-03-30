@@ -94,9 +94,9 @@ impl FoldType {
     /// - If `ProverHelps`, assumes coefficients and evaluates directly at $\vec{r}$.
     ///
     /// This method is used by the prover when deriving folded polynomial values at queried points.
-    pub(crate) fn stir_evaluations_prover<F, H, C, const DIGEST_ELEMS: usize>(
+    pub(crate) fn stir_evaluations_prover<F, const DIGEST_ELEMS: usize>(
         self,
-        round_state: &RoundState<F, H, C, DIGEST_ELEMS>,
+        round_state: &RoundState<F, DIGEST_ELEMS>,
         stir_challenges_indexes: &[usize],
         answers: &[Vec<F>],
         folding_factor: FoldingFactor,
