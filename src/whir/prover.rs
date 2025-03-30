@@ -379,10 +379,10 @@ where
         // Every query requires opening these many in the previous Merkle tree
         let mut answers: Leafs<F> = Vec::new();
         let mut merkle_proof: Proof<DIGEST_ELEMS> = Vec::new();
-        for challenge in &final_challenge_indexes {
+        for challenge in final_challenge_indexes {
             let (leaf, proof) = round_state
                 .prev_merkle
-                .open_batch(*challenge, &round_state.prev_merkle_prover_data);
+                .open_batch(challenge, &round_state.prev_merkle_prover_data);
             answers.push(leaf[0].clone());
             merkle_proof.push(proof);
         }
