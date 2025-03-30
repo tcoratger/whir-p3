@@ -1,3 +1,4 @@
+use p3_matrix::Dimensions;
 use prover::Leafs;
 
 use crate::whir::prover::Proof;
@@ -17,6 +18,7 @@ pub mod verifier;
 pub struct WhirProof<F, const DIGEST_ELEMS: usize> {
     pub merkle_paths: Vec<(Leafs<F>, Proof<DIGEST_ELEMS>)>,
     pub statement_values_at_random_point: Vec<F>,
+    pub mmcs_dimensions: Vec<Dimensions>,
 }
 
 #[cfg(test)]
@@ -176,23 +178,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_whir() {
-        // let folding_factors = [1, 2, 3, 4];
-        // let soundness_type = [
-        //     SoundnessType::ConjectureList,
-        //     SoundnessType::ProvableList,
-        //     SoundnessType::UniqueDecoding,
-        // ];
-        // let fold_types = [FoldType::Naive, FoldType::ProverHelps];
-        // let num_points = [0, 1, 2];
-        // let pow_bits = [0, 5, 10];
-
-        let folding_factors = [1];
-        let soundness_type = [SoundnessType::ConjectureList];
-        let fold_types = [FoldType::Naive];
-        let num_points = [0];
-        let pow_bits = [0];
+        let folding_factors = [1, 2];
+        let soundness_type = [
+            SoundnessType::ConjectureList,
+            SoundnessType::ProvableList,
+            SoundnessType::UniqueDecoding,
+        ];
+        let fold_types = [FoldType::Naive, FoldType::ProverHelps];
+        let num_points = [0, 1, 2];
+        let pow_bits = [0, 5, 10];
 
         for folding_factor in folding_factors {
             let num_variables = folding_factor..=3 * folding_factor;

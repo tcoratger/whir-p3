@@ -1,5 +1,5 @@
 use p3_field::Field;
-use p3_matrix::dense::DenseMatrix;
+use p3_matrix::{Dimensions, dense::DenseMatrix};
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 
 use crate::poly::coeffs::CoefficientList;
@@ -26,4 +26,6 @@ pub struct Witness<F: Field, H, C, const DIGEST_ELEMS: usize> {
     pub(crate) ood_points: Vec<F>,
     /// The corresponding polynomial evaluations at the OOD challenge points.
     pub(crate) ood_answers: Vec<F>,
+    /// The dimensions of the matrix that is committed to the Merkle tree.
+    pub(crate) mmcs_dimensions: Dimensions,
 }

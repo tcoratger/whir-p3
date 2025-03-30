@@ -1,6 +1,6 @@
 use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, TwoAdicField};
-use p3_matrix::dense::RowMajorMatrix;
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -86,6 +86,7 @@ where
 
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
         let folded_matrix = RowMajorMatrix::new(folded_evals.clone(), fold_size);
+        let mmcs_dimensions = folded_matrix.dimensions();
 
         // Commit to the Merkle tree
         let merkle_tree =
@@ -111,6 +112,7 @@ where
             merkle_leaves: folded_evals,
             ood_points,
             ood_answers,
+            mmcs_dimensions,
         })
     }
 }

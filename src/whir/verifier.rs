@@ -2,7 +2,6 @@ use std::{fmt::Debug, iter};
 
 use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
-use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -145,22 +144,17 @@ where
                 .collect();
 
             // Verify Merkle openings using `verify_batch`
-            let dimensions = vec![
-                Dimensions {
-                    height: domain_size, // TODO: this is not correct (need to think about it)
-                    width: 1 << self.params.folding_factor.at_round(r),
-                };
-                answers.len()
-            ];
-
-            mmcs.verify_batch(
-                &prev_root,
-                &dimensions,
-                stir_challenges_indexes[0],
-                answers,
-                merkle_proof,
-            )
-            .map_err(|_| ProofError::InvalidProof)?;
+            let dimensions = vec![whir_proof.mmcs_dimensions[r]];
+            for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
+                mmcs.verify_batch(
+                    &prev_root,
+                    &dimensions,
+                    stir_challenges_index,
+                    &[answers[i].clone()],
+                    &merkle_proof[i],
+                )
+                .map_err(|_| ProofError::InvalidProof)?;
+            }
 
             if round_params.pow_bits > 0. {
                 verifier_state.challenge_pow::<PS>(round_params.pow_bits)?;
@@ -226,28 +220,20 @@ where
             .collect();
 
         // Final Merkle verification
-        let (final_answers, final_proof) =
+        let (final_randomness_answers, final_merkle_proof) =
             &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
 
-        let dimensions = vec![
-            Dimensions {
-                height: domain_size, // TODO: this is not correct (need to think about it)
-                width: 1 << self.params.folding_factor.at_round(self.params.n_rounds()),
-            };
-            final_answers.len()
-        ];
-
-        mmcs.verify_batch(
-            &prev_root,
-            &dimensions,
-            final_randomness_indexes[0],
-            final_answers,
-            final_proof,
-        )
-        .map_err(|e| {
-            println!("error : {e:?}");
-            ProofError::InvalidProof
-        })?;
+        let dimensions = vec![whir_proof.mmcs_dimensions.last().unwrap().clone()];
+        for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
+            mmcs.verify_batch(
+                &prev_root,
+                &dimensions,
+                stir_challenges_index,
+                &[final_randomness_answers[i].clone()],
+                &final_merkle_proof[i],
+            )
+            .map_err(|_| ProofError::InvalidProof)?;
+        }
 
         if self.params.final_pow_bits > 0. {
             verifier_state.challenge_pow::<PS>(self.params.final_pow_bits)?;
@@ -281,7 +267,7 @@ where
             final_folding_randomness: folding_randomness,
             final_randomness_indexes,
             final_randomness_points,
-            final_randomness_answers: final_answers.clone(),
+            final_randomness_answers: final_randomness_answers.clone(),
             final_sumcheck_rounds,
             final_sumcheck_randomness,
             final_coefficients,
@@ -430,6 +416,7 @@ where
                 if next_poly.sum_over_boolean_hypercube()
                     != current.0.evaluate_at_point(&current.1.into())
                 {
+                    println!("Problem with some sumchecks");
                     return Err(ProofError::InvalidProof);
                 }
                 current = (next_poly.clone(), *next_rand);
