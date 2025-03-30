@@ -223,7 +223,7 @@ where
         let (final_randomness_answers, final_merkle_proof) =
             &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
 
-        let dimensions = vec![whir_proof.mmcs_dimensions.last().unwrap().clone()];
+        let dimensions = vec![*whir_proof.mmcs_dimensions.last().unwrap()];
         for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
             mmcs.verify_batch(
                 &prev_root,

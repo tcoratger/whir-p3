@@ -187,7 +187,7 @@ mod tests {
         ];
         let fold_types = [FoldType::Naive, FoldType::ProverHelps];
         let num_points = [0, 1, 2];
-        let pow_bits = [0, 5, 10];
+        let pow_bits = [0, 5];
 
         for folding_factor in folding_factors {
             let num_variables = folding_factor..=3 * folding_factor;

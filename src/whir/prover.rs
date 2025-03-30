@@ -266,7 +266,7 @@ where
         // Collect Merkle proofs for stir queries
         let mut answers: Leafs<F> = Vec::new();
         let mut merkle_proof: Proof<DIGEST_ELEMS> = Vec::new();
-        for challenge in stir_challenges_indexes.iter() {
+        for challenge in &stir_challenges_indexes {
             let (leaf, proof) = round_state
                 .prev_merkle
                 .open_batch(*challenge, &round_state.prev_merkle_prover_data);
@@ -382,7 +382,7 @@ where
         // Every query requires opening these many in the previous Merkle tree
         let mut answers: Leafs<F> = Vec::new();
         let mut merkle_proof: Proof<DIGEST_ELEMS> = Vec::new();
-        for challenge in final_challenge_indexes.iter() {
+        for challenge in &final_challenge_indexes {
             let (leaf, proof) = round_state
                 .prev_merkle
                 .open_batch(*challenge, &round_state.prev_merkle_prover_data);
