@@ -224,7 +224,7 @@ where
         );
 
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
-        let folded_matrix = RowMajorMatrix::new(evals.clone(), 1 << folding_factor_next);
+        let folded_matrix = RowMajorMatrix::new(evals, 1 << folding_factor_next);
 
         let merkle_tree =
             MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
@@ -251,11 +251,11 @@ where
         )?;
 
         // Collect Merkle proofs for stir queries
-        let mmcs = MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
         let mut answers = Vec::new();
         let mut merkle_proof = Vec::new();
         for challenge in &stir_challenges_indexes {
-            let (leaf, proof) = mmcs.open_batch(*challenge, &round_state.prev_merkle_prover_data);
+            let (leaf, proof) =
+                merkle_tree.open_batch(*challenge, &round_state.prev_merkle_prover_data);
             answers.push(leaf[0].clone());
             merkle_proof.push(proof);
         }
@@ -297,7 +297,7 @@ where
                 let mut statement = Statement::new(folded_coefficients.num_variables());
 
                 for (point, eval) in stir_challenges.into_iter().zip(stir_evaluations) {
-                    let weights = Weights::evaluation(point.clone());
+                    let weights = Weights::evaluation(point);
                     statement.add_constraint(weights, eval);
                 }
                 SumcheckSingle::new(
