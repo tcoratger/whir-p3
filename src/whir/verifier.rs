@@ -2,6 +2,7 @@ use std::{fmt::Debug, iter};
 
 use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -121,6 +122,7 @@ where
         for r in 0..self.params.n_rounds() {
             let (answers, merkle_proof) = &whir_proof.merkle_paths[r];
             let round_params = &self.params.round_parameters[r];
+            let fold_r = self.params.folding_factor.at_round(r);
 
             let new_root = verifier_state.read_digest()?;
 
@@ -133,7 +135,7 @@ where
 
             let stir_challenges_indexes = get_challenge_stir_queries(
                 domain_size,
-                self.params.folding_factor.at_round(r),
+                fold_r,
                 round_params.num_queries,
                 verifier_state,
             )?;
@@ -144,7 +146,11 @@ where
                 .collect();
 
             // Verify Merkle openings using `verify_batch`
-            let dimensions = vec![whir_proof.mmcs_dimensions[r]];
+            let dimensions = vec![Dimensions {
+                height: domain_size >> fold_r,
+                width: 1 << fold_r,
+            }];
+
             for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
                 mmcs.verify_batch(
                     &prev_root,
@@ -208,9 +214,10 @@ where
         verifier_state.fill_next_scalars(&mut final_coefficients)?;
         let final_coefficients = CoefficientList::new(final_coefficients);
 
+        let fold_last = self.params.folding_factor.at_round(self.params.n_rounds());
         let final_randomness_indexes = get_challenge_stir_queries(
             domain_size,
-            self.params.folding_factor.at_round(self.params.n_rounds()),
+            fold_last,
             self.params.final_queries,
             verifier_state,
         )?;
@@ -223,7 +230,11 @@ where
         let (final_randomness_answers, final_merkle_proof) =
             &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
 
-        let dimensions = vec![*whir_proof.mmcs_dimensions.last().unwrap()];
+        let dimensions = vec![Dimensions {
+            width: 1 << fold_last,
+            height: domain_size >> fold_last,
+        }];
+
         for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
             mmcs.verify_batch(
                 &prev_root,

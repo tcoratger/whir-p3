@@ -1,6 +1,5 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_blake3::Blake3;
-use p3_matrix::Dimensions;
 use parameters::WhirConfig;
 use prover::{Leafs, Prover};
 use statement::{Statement, StatementVerifier, Weights};
@@ -28,7 +27,6 @@ pub mod verifier;
 pub struct WhirProof<F, const DIGEST_ELEMS: usize> {
     pub merkle_paths: Vec<(Leafs<F>, Proof<DIGEST_ELEMS>)>,
     pub statement_values_at_random_point: Vec<F>,
-    pub mmcs_dimensions: Vec<Dimensions>,
 }
 
 use p3_baby_bear::BabyBear;
@@ -73,7 +71,7 @@ pub fn make_whir_things(
     // Construct WHIR protocol parameters
     let whir_params = WhirParameters::<_, _> {
         initial_statement: true,
-        security_level: 16,
+        security_level: 32,
         pow_bits,
         folding_factor,
         merkle_hash,

@@ -1,9 +1,6 @@
 use p3_commit::Mmcs;
 use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
-use p3_matrix::{
-    Dimensions, Matrix,
-    dense::{DenseMatrix, RowMajorMatrix},
-};
+use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -51,7 +48,6 @@ where
     pub(crate) merkle_proofs: Vec<(Leafs<F>, Proof<DIGEST_ELEMS>)>,
     pub(crate) randomness_vec: Vec<F>,
     pub(crate) statement: Statement<F>,
-    pub(crate) mmcs_dimensions: Vec<Dimensions>,
 }
 
 #[derive(Debug)]
@@ -174,7 +170,6 @@ where
             merkle_proofs: vec![],
             randomness_vec,
             statement,
-            mmcs_dimensions: vec![witness.mmcs_dimensions],
         };
 
         self.round(prover_state, round_state)
@@ -230,7 +225,6 @@ where
 
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
         let folded_matrix = RowMajorMatrix::new(evals.clone(), 1 << folding_factor_next);
-        round_state.mmcs_dimensions.push(folded_matrix.dimensions());
 
         let merkle_tree =
             MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
@@ -340,7 +334,6 @@ where
             statement: round_state.statement,
             prev_merkle_prover_data: prover_data,
             merkle_proofs: round_state.merkle_proofs,
-            mmcs_dimensions: round_state.mmcs_dimensions,
         };
         self.round(prover_state, round_state)
     }
@@ -435,7 +428,6 @@ where
         Ok(WhirProof {
             merkle_paths: round_state.merkle_proofs,
             statement_values_at_random_point,
-            mmcs_dimensions: round_state.mmcs_dimensions,
         })
     }
 
