@@ -10,6 +10,7 @@ use super::{
     utils::DigestToUnitSerialize,
 };
 use crate::{
+    crypto::field::ExtensionDegree,
     domain::Domain,
     fiat_shamir::{
         codecs::traits::{FieldToUnitSerialize, UnitToField},
@@ -58,7 +59,7 @@ where
 
 impl<F, H, C, PS> Prover<F, H, C, PS>
 where
-    F: Field + TwoAdicField,
+    F: Field + TwoAdicField + ExtensionDegree,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
     PS: PowStrategy,
 {

@@ -3,6 +3,7 @@ use std::{f64::consts::LOG2_10, marker::PhantomData};
 use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
 
 use crate::{
+    crypto::field::ExtensionDegree,
     domain::Domain,
     parameters::{FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters},
 };
@@ -58,7 +59,7 @@ where
 
 impl<F, H, C, PowStrategy> WhirConfig<F, H, C, PowStrategy>
 where
-    F: Field + TwoAdicField,
+    F: Field + TwoAdicField + ExtensionDegree,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
     #[allow(clippy::too_many_lines)]
@@ -74,7 +75,7 @@ where
         let protocol_security_level = whir_parameters
             .security_level
             .saturating_sub(whir_parameters.pow_bits);
-        let field_size_bits = F::bits();
+        let field_size_bits = F::bits() * F::extension_degree();
         let mut log_inv_rate = whir_parameters.starting_log_inv_rate;
         let mut num_variables = mv_parameters.num_variables;
 

@@ -15,6 +15,7 @@ use super::{
     utils::{DigestToUnitDeserialize, get_challenge_stir_queries},
 };
 use crate::{
+    crypto::field::ExtensionDegree,
     fiat_shamir::{
         codecs::traits::{FieldToUnitDeserialize, UnitToField},
         errors::{ProofError, ProofResult},
@@ -38,7 +39,7 @@ where
 
 impl<'a, F, H, C, PS> Verifier<'a, F, H, C, PS>
 where
-    F: Field + TwoAdicField,
+    F: Field + TwoAdicField + ExtensionDegree,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
     PS: PowStrategy,
 {
