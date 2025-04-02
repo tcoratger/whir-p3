@@ -3,6 +3,7 @@ name = "whir-p3"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
+default-run = "main"
 
 [lints]
 rust.missing_debug_implementations = "warn"
@@ -59,6 +60,7 @@ zeroize = { version = "1.8", features = ["zeroize_derive"] }
 keccak = "0.1"
 blake3 = "1.5.4"
 num-bigint = "0.4"
+clap = { version = "4.4.17", features = ["derive"] }
 
 [dev-dependencies]
 criterion = "0.5"
