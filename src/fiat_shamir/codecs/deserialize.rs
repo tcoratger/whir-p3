@@ -1,4 +1,4 @@
-use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing, PrimeField32};
+use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing, PrimeField64};
 
 use super::{traits::FieldToUnitDeserialize, utils::bytes_modp};
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
 impl<F, H> FieldToUnitDeserialize<F> for VerifierState<'_, H>
 where
     F: Field + BasedVectorSpace<<F as PrimeCharacteristicRing>::PrimeSubfield> + ExtensionDegree,
-    F::PrimeSubfield: PrimeField32,
+    F::PrimeSubfield: PrimeField64,
     H: DuplexSpongeInterface,
 {
     fn fill_next_scalars(&mut self, output: &mut [F]) -> ProofResult<()> {
@@ -67,10 +67,14 @@ mod tests {
 
         // Step 2: Manually serialize the scalars to raw bytes in little-endian u32 format
         // This matches the encoding done in `public_scalars`
+
+        // How many bytes are needed to sample a single base field element
+        let num_bytes = F::bits().div_ceil(8);
+
         let mut raw_bytes = vec![];
         for x in &values {
-            let bytes = x.as_canonical_u32().to_le_bytes();
-            raw_bytes.extend_from_slice(&bytes);
+            let bytes = x.as_canonical_u64().to_le_bytes();
+            raw_bytes.extend_from_slice(&bytes[..num_bytes]);
         }
 
         // Step 3: Create a domain separator that commits to absorbing 2 scalars

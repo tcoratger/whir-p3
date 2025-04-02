@@ -1,5 +1,8 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_blake3::Blake3;
+use p3_field::PrimeCharacteristicRing;
+use p3_goldilocks::Goldilocks;
+use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher64};
 use parameters::WhirConfig;
 use prover::{Leafs, Prover};
 use statement::{Statement, StatementVerifier, Weights};
@@ -29,13 +32,9 @@ pub struct WhirProof<F, const DIGEST_ELEMS: usize> {
     pub statement_values_at_random_point: Vec<F>,
 }
 
-use p3_baby_bear::BabyBear;
-use p3_field::PrimeCharacteristicRing;
-use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32};
-
-type F = BabyBear;
+type F = Goldilocks;
 type ByteHash = Blake3;
-type FieldHash = SerializingHasher32<ByteHash>;
+type FieldHash = SerializingHasher64<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 
 /// Run a complete WHIR STARK proof lifecycle.
@@ -171,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_whir_end_to_end() {
-        let folding_factors = [1, 2];
+        let folding_factors = [1, 2, 3, 4];
         let soundness_type = [
             SoundnessType::ConjectureList,
             SoundnessType::ProvableList,
@@ -179,7 +178,7 @@ mod tests {
         ];
         let fold_types = [FoldType::Naive, FoldType::ProverHelps];
         let num_points = [0, 1, 2];
-        let pow_bits = [0, 5];
+        let pow_bits = [0, 5, 10];
 
         for folding_factor in folding_factors {
             let num_variables = folding_factor..=3 * folding_factor;

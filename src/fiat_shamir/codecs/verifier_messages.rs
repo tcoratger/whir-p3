@@ -1,4 +1,4 @@
-use p3_field::{BasedVectorSpace, Field, PrimeField32, PrimeField64};
+use p3_field::{BasedVectorSpace, Field, PrimeField64};
 
 use super::{
     traits::{CommonFieldToUnit, UnitToField},
@@ -48,7 +48,7 @@ where
 impl<T, F> CommonFieldToUnit<F> for T
 where
     F: Field + BasedVectorSpace<F::PrimeSubfield>,
-    F::PrimeSubfield: PrimeField32,
+    F::PrimeSubfield: PrimeField64,
     T: UnitTranscript<u8>,
 {
     type Repr = Vec<u8>;
@@ -57,6 +57,9 @@ where
         // Initialize a buffer to store the final serialized byte output
         let mut buf = Vec::new();
 
+        // How many bytes are needed to sample a single base field element
+        let num_bytes = F::PrimeSubfield::bits().div_ceil(8);
+
         // Loop over each scalar field element (could be base or extension field)
         for scalar in input {
             // Decompose the field element into its basis coefficients over the base field
@@ -64,10 +67,10 @@ where
             // For base fields, this is just [scalar]; for extensions, it's length-D array
             for coeff in scalar.as_basis_coefficients_slice() {
                 // Serialize each base field coefficient to 4 bytes (LE canonical form)
-                let bytes = coeff.as_canonical_u32().to_le_bytes();
+                let bytes = coeff.as_canonical_u64().to_le_bytes();
 
                 // Append the serialized bytes to the output buffer
-                buf.extend_from_slice(&bytes);
+                buf.extend_from_slice(&bytes[..num_bytes]);
             }
         }
 
@@ -84,6 +87,7 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_goldilocks::Goldilocks;
 
     use super::*;
     use crate::fiat_shamir::{
@@ -92,6 +96,9 @@ mod tests {
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
+
+    type G = Goldilocks;
+    type EG2 = BinomialExtensionField<G, 2>;
 
     #[test]
     fn scalar_challenge_single_basefield_case_1() {
@@ -247,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_common_field_to_unit_bytes() {
+    fn test_common_field_to_unit_bytes_babybear() {
         // Generate some random BabyBear values
         let values = [BabyBear::from_u64(111), BabyBear::from_u64(222)];
 
@@ -280,12 +287,83 @@ mod tests {
     }
 
     #[test]
-    fn test_common_field_to_unit_bytes_extension() {
+    fn test_common_field_to_unit_bytes_goldilocks() {
+        // Generate some random Goldilocks values
+        let values = [G::from_u64(111), G::from_u64(222)];
+
+        // Create a domain separator indicating we will absorb 2 public scalars
+        let domsep = <DomainSeparator as FieldDomainSeparator<G>>::add_scalars(
+            DomainSeparator::new("field"),
+            2,
+            "test",
+        );
+
+        // Create prover and serialize expected values manually
+        let expected_bytes = [111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0];
+
+        let mut prover = domsep.to_prover_state();
+        let actual = prover.public_scalars(&values).unwrap();
+
+        assert_eq!(
+            actual, expected_bytes,
+            "Public scalars should serialize to expected bytes"
+        );
+
+        // Determinism: same input, same transcript = same output
+        let mut prover2 = domsep.to_prover_state();
+        let actual2 = prover2.public_scalars(&values).unwrap();
+
+        assert_eq!(
+            actual, actual2,
+            "Transcript serialization should be deterministic"
+        );
+    }
+
+    #[test]
+    fn test_common_field_to_unit_bytes_babybear_extension() {
         // Construct two extension field elements using known u64 inputs
         let values = [EF4::from_u64(111), EF4::from_u64(222)];
 
         // Create a domain separator committing to 2 public scalars
         let domsep = <DomainSeparator as FieldDomainSeparator<EF4>>::add_scalars(
+            DomainSeparator::new("field"),
+            2,
+            "test",
+        );
+
+        // Compute expected bytes manually: serialize each coefficient of EF4
+        let expected_bytes = [
+            111, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0,
+        ];
+
+        // Use CommonFieldToUnit to serialize the values through the transcript
+        let mut prover = domsep.to_prover_state();
+        let actual = prover.public_scalars(&values).unwrap();
+
+        // Check that the actual bytes match expected ones
+        assert_eq!(
+            actual, expected_bytes,
+            "Public scalars should serialize to expected bytes"
+        );
+
+        // Check determinism: same input = same output
+        let mut prover2 = domsep.to_prover_state();
+        let actual2 = prover2.public_scalars(&values).unwrap();
+
+        assert_eq!(
+            actual, actual2,
+            "Transcript serialization should be deterministic"
+        );
+    }
+
+    #[test]
+    fn test_common_field_to_unit_bytes_goldilocks_extension() {
+        // Construct two extension field elements using known u64 inputs
+        let values = [EG2::from_u64(111), EG2::from_u64(222)];
+
+        // Create a domain separator committing to 2 public scalars
+        let domsep = <DomainSeparator as FieldDomainSeparator<EG2>>::add_scalars(
             DomainSeparator::new("field"),
             2,
             "test",
