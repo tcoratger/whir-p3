@@ -252,8 +252,8 @@ where
 
         // Collect Merkle proofs for stir queries
         let mmcs = MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
-        let mut answers: Leafs<F> = Vec::new();
-        let mut merkle_proof: Proof<DIGEST_ELEMS> = Vec::new();
+        let mut answers = Vec::new();
+        let mut merkle_proof = Vec::new();
         for challenge in &stir_challenges_indexes {
             let (leaf, proof) = mmcs.open_batch(*challenge, &round_state.prev_merkle_prover_data);
             answers.push(leaf[0].clone());
@@ -369,8 +369,8 @@ where
         // Every query requires opening these many in the previous Merkle tree
         let mmcs = MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
 
-        let mut answers: Leafs<F> = Vec::new();
-        let mut merkle_proof: Proof<DIGEST_ELEMS> = Vec::new();
+        let mut answers = Vec::new();
+        let mut merkle_proof = Vec::new();
         for challenge in final_challenge_indexes {
             let (leaf, proof) = mmcs.open_batch(challenge, &round_state.prev_merkle_prover_data);
             answers.push(leaf[0].clone());
