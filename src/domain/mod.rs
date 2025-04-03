@@ -150,30 +150,33 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_field::PrimeCharacteristicRing;
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 
     use super::*;
+
+    type F = BabyBear;
+    type EF4 = BinomialExtensionField<F, 4>;
 
     #[test]
     fn test_domain_creation_valid() {
         // We choose degree = 8 and log_rho_inv = 0, so the expected size is:
         // size = degree * 2^log_rho_inv = 8 * 2^0 = 8
-        let domain = Domain::<BabyBear, BabyBear>::new(8, 0).unwrap();
+        let domain = Domain::<F, F>::new(8, 0).unwrap();
         assert_eq!(domain.base_domain.as_ref().unwrap().size(), 8);
         assert_eq!(domain.backing_domain.size(), 8);
     }
 
     #[test]
     fn test_domain_creation_invalid() {
-        // We try to create a domain with size larger than BabyBear's TWO_ADICITY limit.
-        // BabyBear::TWO_ADICITY = 27, so we pick a size beyond 2^27.
-        let invalid_size = 1 << (BabyBear::TWO_ADICITY + 1);
-        assert!(Domain::<BabyBear, BabyBear>::new(invalid_size, 0).is_none());
+        // We try to create a domain with size larger than F's TWO_ADICITY limit.
+        // F::TWO_ADICITY = 27, so we pick a size beyond 2^27.
+        let invalid_size = 1 << (F::TWO_ADICITY + 1);
+        assert!(Domain::<F, F>::new(invalid_size, 0).is_none());
     }
 
     #[test]
     fn test_base_domain_conversion() {
-        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<F, F>::new(16, 0).unwrap();
         let base_domain = domain.base_domain.as_ref().unwrap();
 
         // Check the domain size
@@ -181,12 +184,12 @@ mod tests {
 
         // The generator should satisfy g^(size) = 1
         let group_gen = base_domain.group_gen();
-        assert_eq!(group_gen.exp_u64(16), BabyBear::ONE);
+        assert_eq!(group_gen.exp_u64(16), F::ONE);
     }
 
     #[test]
     fn test_backing_domain_conversion() {
-        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<F, F>::new(16, 0).unwrap();
         let base_domain = domain.base_domain.as_ref().unwrap();
         let backing_domain = &domain.backing_domain;
 
@@ -194,54 +197,51 @@ mod tests {
         assert_eq!(backing_domain.size(), base_domain.size());
         assert_eq!(
             backing_domain.group_gen(),
-            BabyBear::from_prime_subfield(base_domain.group_gen())
+            F::from_prime_subfield(base_domain.group_gen())
         );
 
         // Verify inverse generator relation: g * g⁻¹ = 1
         let g = backing_domain.group_gen();
         let g_inv = backing_domain.group_gen_inv();
-        assert_eq!(g * g_inv, BabyBear::ONE);
+        assert_eq!(g * g_inv, F::ONE);
     }
 
     #[test]
     fn test_coset_offsets() {
-        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<F, F>::new(16, 0).unwrap();
         let backing_domain = &domain.backing_domain;
 
         // Coset offset should be 1 in default case
-        assert_eq!(backing_domain.coset_offset(), BabyBear::ONE);
-        assert_eq!(backing_domain.coset_offset_inv(), BabyBear::ONE);
+        assert_eq!(backing_domain.coset_offset(), F::ONE);
+        assert_eq!(backing_domain.coset_offset_inv(), F::ONE);
 
         // Offset raised to size should be 1: offset^size = 1
         let offset = backing_domain.coset_offset();
-        assert_eq!(offset.exp_u64(backing_domain.size() as u64), BabyBear::ONE);
+        assert_eq!(offset.exp_u64(backing_domain.size() as u64), F::ONE);
     }
 
     #[test]
     fn test_size_as_field_element() {
-        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<F, F>::new(16, 0).unwrap();
         let backing_domain = &domain.backing_domain;
 
         // Check if size_as_field_element correctly converts the size to field representation
-        assert_eq!(
-            backing_domain.size_as_field_element(),
-            BabyBear::from_u64(16)
-        );
+        assert_eq!(backing_domain.size_as_field_element(), F::from_u64(16));
     }
 
     #[test]
     fn test_size_inv() {
-        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<F, F>::new(16, 0).unwrap();
         let backing_domain = &domain.backing_domain;
 
         // size_inv should be the multiplicative inverse of size in the field
         let size_inv = backing_domain.size_inv();
-        assert_eq!(size_inv * BabyBear::from_u64(16), BabyBear::ONE);
+        assert_eq!(size_inv * F::from_u64(16), F::ONE);
     }
 
     #[test]
     fn test_folded_size_valid() {
-        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<F, F>::new(16, 0).unwrap();
 
         // Folding factor = 2 → New size = size / (2^2) = 16 / 4 = 4
         assert_eq!(domain.folded_size(2), 4);
@@ -250,14 +250,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_folded_size_invalid() {
-        let domain = Domain::<BabyBear, BabyBear>::new(10, 0).unwrap();
+        let domain = Domain::<F, F>::new(10, 0).unwrap();
         // This should panic since 16 is not divisible by 5^2
         domain.folded_size(5);
     }
 
     #[test]
     fn test_scaling_preserves_structure() {
-        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<F, F>::new(16, 0).unwrap();
         let scaled_domain = domain.scale(2);
 
         // The scaled domain should have the size divided by 2.
@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_scale_generator_by_valid() {
-        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<F, F>::new(16, 0).unwrap();
         let scaled_domain = domain.scale_generator_by(2);
 
         // New size = size / power = 16 / 2 = 8
@@ -295,14 +295,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_scale_generator_by_invalid() {
-        let domain = Domain::<BabyBear, BabyBear>::new(10, 0).unwrap();
+        let domain = Domain::<F, F>::new(10, 0).unwrap();
         // This should panic since size is not divisible by 3
         domain.scale_generator_by(3);
     }
 
     #[test]
     fn test_offsets_after_scaling() {
-        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<F, F>::new(16, 0).unwrap();
         let scaled_domain = domain.scale_generator_by(2);
 
         // New domain size should be 16 / 2 = 8
@@ -326,11 +326,11 @@ mod tests {
 
     #[test]
     fn test_size_as_field_element_after_scaling() {
-        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<F, F>::new(16, 0).unwrap();
         let scaled_domain = domain.scale_generator_by(2);
 
         // New domain size should be 16 / 2 = 8
-        let expected_size_as_field_element = BabyBear::from_u64(8);
+        let expected_size_as_field_element = F::from_u64(8);
 
         // Check if size_as_field_element correctly represents the scaled size in the field
         assert_eq!(
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_log_size_of_group_after_scaling() {
-        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<F, F>::new(16, 0).unwrap();
         let scaled_domain = domain.scale_generator_by(2);
 
         // The original size is 16, so log_size_of_group should be log2(16) = 4.
@@ -350,5 +350,138 @@ mod tests {
         // After scaling by 2, the new size is 16 / 2 = 8, so log_size_of_group should be log2(8) =
         // 3.
         assert_eq!(scaled_domain.log_size_of_group(), 3);
+    }
+
+    #[test]
+    fn test_domain_creation_ef4_valid() {
+        // Creates a domain over EF4, but constructs it by lifting from a base domain in F.
+        // This ensures that to_extension_domain works properly.
+        let domain = Domain::<EF4, F>::new(8, 0).unwrap();
+
+        // Base and backing domains should both be of size 8.
+        assert_eq!(domain.base_domain.as_ref().unwrap().size(), 8);
+        assert_eq!(domain.backing_domain.size(), 8);
+    }
+
+    #[test]
+    fn test_domain_creation_ef4_invalid() {
+        // If the base domain cannot be created due to TWO_ADICITY limits, the constructor should fail.
+        let invalid_size = 1 << (F::TWO_ADICITY + 1);
+        assert!(Domain::<EF4, F>::new(invalid_size, 0).is_none());
+    }
+
+    #[test]
+    fn test_to_extension_domain_matches_structure() {
+        // We want to verify that all the components of a GeneralEvaluationDomain<F>
+        // are correctly lifted into the extension field EF4.
+        let base = GeneralEvaluationDomain::<F>::new(16).unwrap();
+        let ext = Domain::<EF4, F>::to_extension_domain(&base);
+
+        // The extension domain should have identical size and group generator structure,
+        // just lifted to EF4 via from_prime_subfield.
+        assert_eq!(ext.size(), base.size());
+        assert_eq!(ext.group_gen(), EF4::from_prime_subfield(base.group_gen()));
+        assert_eq!(
+            ext.coset_offset(),
+            EF4::from_prime_subfield(base.coset_offset())
+        );
+    }
+
+    #[test]
+    fn test_scaling_preserves_structure_ef4() {
+        // Scaling should preserve the multiplicative structure of the group in EF4.
+        let domain = Domain::<EF4, F>::new(16, 0).unwrap();
+        let scaled_domain = domain.scale(2); // Halve the size, square the generator
+
+        // Size should be halved
+        assert_eq!(scaled_domain.size(), 8);
+
+        // Generator should be squared
+        let expected_gen = domain.backing_domain.group_gen().exp_u64(2);
+        assert_eq!(scaled_domain.backing_domain.group_gen(), expected_gen);
+
+        // Inverse generator should be inverse of g²
+        assert_eq!(
+            scaled_domain.backing_domain.group_gen_inv(),
+            expected_gen.inverse()
+        );
+    }
+
+    #[test]
+    fn test_folded_size_ef4_valid() {
+        // Verify that the folded size logic works over EF4.
+        // 16 elements → fold by factor 4 → expect size 4
+        let domain = Domain::<EF4, F>::new(16, 0).unwrap();
+        assert_eq!(domain.folded_size(2), 4);
+    }
+
+    #[test]
+    fn test_scale_generator_by_valid_ef4() {
+        // We directly test the internal generator scaling function with EF4.
+        let domain = Domain::<EF4, F>::new(16, 0).unwrap();
+        let scaled = domain.scale_generator_by(2);
+
+        // Should result in domain of size 8
+        assert_eq!(scaled.size(), 8);
+
+        // The generator must be g² and the inverse g⁻²
+        let expected_gen = domain.backing_domain.group_gen().exp_u64(2);
+        assert_eq!(scaled.group_gen(), expected_gen);
+        assert_eq!(scaled.group_gen_inv(), expected_gen.inverse());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_scale_generator_by_invalid_ef4() {
+        // If the domain size is not divisible by the scaling factor,
+        // this should panic due to assertion.
+        let domain = Domain::<EF4, F>::new(10, 0).unwrap();
+        domain.scale_generator_by(3); // 10 not divisible by 3
+    }
+
+    #[test]
+    fn test_offsets_after_scaling_ef4() {
+        // This test ensures that the coset offset is scaled correctly along with the generator.
+        let domain = Domain::<EF4, F>::new(16, 0).unwrap();
+        let scaled = domain.scale_generator_by(2);
+
+        // offset' = offset^2, offset_inv' = offset_inv^2
+        let expected_offset = domain.backing_domain.coset_offset().exp_u64(2);
+        let expected_inv = domain.backing_domain.coset_offset_inv().exp_u64(2);
+
+        // offset_pow_size' = offset'^new_size
+        let expected_pow = expected_offset.exp_u64(8);
+
+        assert_eq!(scaled.coset_offset(), expected_offset);
+        assert_eq!(scaled.coset_offset_inv(), expected_inv);
+        assert_eq!(scaled.coset_offset_pow_size(), expected_pow);
+    }
+
+    #[test]
+    fn test_size_as_field_element_ef4() {
+        // The domain size as an EF4 field element should match the u64 conversion.
+        let domain = Domain::<EF4, F>::new(16, 0).unwrap();
+        assert_eq!(
+            domain.backing_domain.size_as_field_element(),
+            EF4::from_u64(16)
+        );
+    }
+
+    #[test]
+    fn test_size_inv_ef4() {
+        // size_inv should be the true multiplicative inverse of size in EF4.
+        let domain = Domain::<EF4, F>::new(16, 0).unwrap();
+        let inv = domain.backing_domain.size_inv();
+        assert_eq!(inv * EF4::from_u64(16), EF4::ONE);
+    }
+
+    #[test]
+    fn test_log_size_of_group_after_scaling_ef4() {
+        // The log of the domain size (in base 2) should decrease by 1 when scaling by 2.
+        let domain = Domain::<EF4, F>::new(16, 0).unwrap();
+        let scaled = domain.scale_generator_by(2);
+
+        assert_eq!(domain.backing_domain.log_size_of_group(), 4); // log2(16)
+        assert_eq!(scaled.log_size_of_group(), 3); // log2(8)
     }
 }
