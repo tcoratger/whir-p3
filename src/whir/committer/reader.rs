@@ -25,7 +25,7 @@ where
 
 impl<'a, EF, F, H, C, PS> CommitmentReader<'a, EF, F, H, C, PS>
 where
-    F: Field + TwoAdicField + Eq,
+    F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
 {
     pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {

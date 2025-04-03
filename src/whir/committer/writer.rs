@@ -33,7 +33,7 @@ where
 
 impl<EF, F, H, C, PS> CommitmentWriter<EF, F, H, C, PS>
 where
-    F: Field + TwoAdicField + Eq,
+    F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
 {
     pub const fn new(params: WhirConfig<EF, F, H, C, PS>) -> Self {
