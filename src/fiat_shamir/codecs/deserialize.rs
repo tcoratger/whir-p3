@@ -1,17 +1,14 @@
 use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing, PrimeField64};
 
 use super::{traits::FieldToUnitDeserialize, utils::bytes_modp};
-use crate::{
-    crypto::field::ExtensionDegree,
-    fiat_shamir::{
-        codecs::utils::from_le_bytes_mod_order, duplex_sponge::interface::DuplexSpongeInterface,
-        errors::ProofResult, traits::BytesToUnitDeserialize, verifier::VerifierState,
-    },
+use crate::fiat_shamir::{
+    codecs::utils::from_le_bytes_mod_order, duplex_sponge::interface::DuplexSpongeInterface,
+    errors::ProofResult, traits::BytesToUnitDeserialize, verifier::VerifierState,
 };
 
 impl<F, H> FieldToUnitDeserialize<F> for VerifierState<'_, H>
 where
-    F: Field + BasedVectorSpace<<F as PrimeCharacteristicRing>::PrimeSubfield> + ExtensionDegree,
+    F: Field + BasedVectorSpace<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     F::PrimeSubfield: PrimeField64,
     H: DuplexSpongeInterface,
 {
@@ -20,7 +17,7 @@ where
         let base_bytes = bytes_modp(F::PrimeSubfield::bits() as u32);
 
         // Number of coefficients (1 for base field, >1 for extension field)
-        let ext_degree = F::extension_degree();
+        let ext_degree = F::DIMENSION * F::PrimeSubfield::DIMENSION;
 
         // Size of full F element = D * base field size
         let scalar_size = ext_degree * base_bytes;
