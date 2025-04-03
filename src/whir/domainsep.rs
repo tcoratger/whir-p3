@@ -37,7 +37,7 @@ impl<EF, F, DomainSeparator, H, C> WhirDomainSeparator<EF, F, H, C> for DomainSe
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
-    DomainSeparator: ByteDomainSeparator + FieldDomainSeparator<F> + DigestDomainSeparator,
+    DomainSeparator: ByteDomainSeparator + FieldDomainSeparator<EF> + DigestDomainSeparator,
 {
     fn commit_statement<PowStrategy>(self, params: &WhirConfig<EF, F, H, C, PowStrategy>) -> Self {
         // TODO: Add params
