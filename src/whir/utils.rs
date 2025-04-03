@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use p3_field::{Field, TwoAdicField};
+use p3_field::Field;
 use p3_symmetric::Hash;
 
 use crate::{
@@ -89,7 +89,7 @@ pub trait DigestToUnitSerialize<MerkleInnerDigest> {
 
 impl<F, const DIGEST_ELEMS: usize> DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>> for ProverState
 where
-    F: Field + TwoAdicField,
+    F: Field,
 {
     fn add_digest(&mut self, digest: Hash<F, u8, DIGEST_ELEMS>) -> ProofResult<()> {
         self.add_bytes(digest.as_ref())
