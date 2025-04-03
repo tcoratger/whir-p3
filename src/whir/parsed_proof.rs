@@ -1,4 +1,4 @@
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::Field;
 
 use super::stir_evaluations::StirEvalContext;
 use crate::{
@@ -37,8 +37,7 @@ pub(crate) struct ParsedProof<F> {
 
 impl<F> ParsedProof<F>
 where
-    F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    F: Field,
 {
     pub(crate) fn compute_folds_helped(&self) -> Vec<Vec<F>> {
         let mut result = Vec::with_capacity(self.rounds.len() + 1);
