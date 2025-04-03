@@ -230,7 +230,7 @@ where
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
         let folded_matrix = RowMajorMatrix::new(evals, 1 << folding_factor_next);
 
-        let merkle_tree = ExtensionMmcs::<F, EF, _>::new(MerkleTreeMmcs::new(
+        let merkle_tree = ExtensionMmcs::new(MerkleTreeMmcs::new(
             self.0.merkle_hash.clone(),
             self.0.merkle_compress.clone(),
         ));
@@ -373,7 +373,7 @@ where
         )?;
 
         // Every query requires opening these many in the previous Merkle tree
-        let mmcs = ExtensionMmcs::<F, EF, _>::new(MerkleTreeMmcs::new(
+        let mmcs = ExtensionMmcs::new(MerkleTreeMmcs::new(
             self.0.merkle_hash.clone(),
             self.0.merkle_compress.clone(),
         ));

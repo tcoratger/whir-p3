@@ -88,7 +88,7 @@ where
         let folded_matrix = RowMajorMatrix::new(folded_evals, fold_size);
 
         // Commit to the Merkle tree
-        let merkle_tree = ExtensionMmcs::<F, EF, _>::new(MerkleTreeMmcs::new(
+        let merkle_tree = ExtensionMmcs::new(MerkleTreeMmcs::new(
             self.0.merkle_hash.clone(),
             self.0.merkle_compress.clone(),
         ));
@@ -98,7 +98,7 @@ where
         prover_state.add_digest(root)?;
 
         // Handle OOD (Out-Of-Domain) samples
-        let (ood_points, ood_answers) = sample_ood_points::<EF, _, _>(
+        let (ood_points, ood_answers) = sample_ood_points(
             prover_state,
             self.0.committment_ood_samples,
             self.0.mv_parameters.num_variables,

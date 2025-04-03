@@ -64,7 +64,7 @@ where
             + PoWChallenge
             + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
-        let mmcs = ExtensionMmcs::<F, EF, _>::new(MerkleTreeMmcs::new(
+        let mmcs = ExtensionMmcs::new(MerkleTreeMmcs::new(
             self.params.merkle_hash.clone(),
             self.params.merkle_compress.clone(),
         ));
