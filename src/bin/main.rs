@@ -88,7 +88,7 @@ fn main() {
 
     let num_coeffs = 1 << num_variables;
 
-    let mv_params = MultivariateParameters::<F>::new(num_variables);
+    let mv_params = MultivariateParameters::<EF>::new(num_variables);
 
     // Construct WHIR protocol parameters
     let whir_params = WhirParameters::<_, _> {
@@ -112,15 +112,15 @@ fn main() {
 
     // Sample `num_points` random multilinear points in the Boolean hypercube
     let points: Vec<_> = (0..num_evaluations)
-        .map(|_| MultilinearPoint((0..num_variables).map(|i| F::from_u64(i as u64)).collect()))
+        .map(|_| MultilinearPoint((0..num_variables).map(|i| EF::from_u64(i as u64)).collect()))
         .collect();
 
     // Construct a new statement with the correct number of variables
-    let mut statement = Statement::<F>::new(num_variables);
+    let mut statement = Statement::<EF>::new(num_variables);
 
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
-        let eval = polynomial.evaluate(point);
+        let eval = polynomial.evaluate_at_extension(point);
         let weights = Weights::evaluation(point.clone());
         statement.add_constraint(weights, eval);
     }
