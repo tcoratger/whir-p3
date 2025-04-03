@@ -85,7 +85,7 @@ where
         let fold_size = 1 << self.0.folding_factor.at_round(0);
 
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
-        let folded_matrix = RowMajorMatrix::new(folded_evals.clone(), fold_size);
+        let folded_matrix = RowMajorMatrix::new(folded_evals, fold_size);
 
         // Commit to the Merkle tree
         let merkle_tree = ExtensionMmcs::<F, EF, _>::new(MerkleTreeMmcs::new(
@@ -109,7 +109,6 @@ where
         Ok(Witness {
             polynomial: polynomial.to_extension(),
             prover_data,
-            merkle_leaves: folded_evals,
             ood_points,
             ood_answers,
         })
@@ -191,12 +190,6 @@ mod tests {
             .commit(&mut prover_state, polynomial.clone())
             .unwrap();
 
-        // Ensure Merkle leaves are correctly generated.
-        assert!(
-            !witness.merkle_leaves.is_empty(),
-            "Merkle leaves should not be empty"
-        );
-
         // Ensure OOD (out-of-domain) points are generated.
         assert!(
             !witness.ood_points.is_empty(),
@@ -269,14 +262,7 @@ mod tests {
         let mut prover_state = domainsep.to_prover_state();
 
         let committer = CommitmentWriter::new(params);
-        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
-
-        // Expansion factor is 2
-        assert_eq!(
-            witness.merkle_leaves.len(),
-            1024 * 2,
-            "Merkle tree should have expected number of leaves"
-        );
+        let _ = committer.commit(&mut prover_state, polynomial).unwrap();
     }
 
     #[test]
