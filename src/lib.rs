@@ -1,4 +1,3 @@
-pub mod crypto;
 pub mod domain;
 pub mod fiat_shamir;
 pub mod fs_utils;

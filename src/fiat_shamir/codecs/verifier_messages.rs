@@ -4,18 +4,15 @@ use super::{
     traits::{CommonFieldToUnit, UnitToField},
     utils::from_be_bytes_mod_order,
 };
-use crate::{
-    crypto::field::ExtensionDegree,
-    fiat_shamir::{
-        codecs::utils::bytes_uniform_modp,
-        errors::ProofResult,
-        traits::{CommonUnitToBytes, UnitToBytes, UnitTranscript},
-    },
+use crate::fiat_shamir::{
+    codecs::utils::bytes_uniform_modp,
+    errors::ProofResult,
+    traits::{CommonUnitToBytes, UnitToBytes, UnitTranscript},
 };
 
 impl<F, T> UnitToField<F> for T
 where
-    F: Field + BasedVectorSpace<F::PrimeSubfield> + ExtensionDegree,
+    F: Field + BasedVectorSpace<F::PrimeSubfield>,
     F::PrimeSubfield: PrimeField64,
     T: UnitTranscript<u8>,
 {
@@ -24,7 +21,7 @@ where
         let base_field_size = bytes_uniform_modp(F::PrimeSubfield::bits() as u32);
 
         // Total bytes needed for one F element = extension degree × base field size
-        let field_byte_len = F::extension_degree() * base_field_size;
+        let field_byte_len = F::DIMENSION * F::PrimeSubfield::DIMENSION * base_field_size;
 
         // Temporary buffer to hold bytes for each field element
         let mut buf = vec![0u8; field_byte_len];
