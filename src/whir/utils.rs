@@ -57,8 +57,7 @@ pub fn sample_ood_points<F, ProverState, E>(
     evaluate_fn: E,
 ) -> ProofResult<(Vec<F>, Vec<F>)>
 where
-    F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    F: Field,
     ProverState: FieldToUnitSerialize<F> + UnitToField<F>,
     E: Fn(&MultilinearPoint<F>) -> F,
 {
