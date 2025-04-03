@@ -74,7 +74,7 @@ where
 
     fn validate_witness<const DIGEST_ELEMS: usize>(
         &self,
-        witness: &Witness<EF, H, C, DIGEST_ELEMS>,
+        witness: &Witness<EF, DIGEST_ELEMS>,
     ) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
         if !self.0.initial_statement {
@@ -87,7 +87,7 @@ where
         &self,
         prover_state: &mut ProverState,
         mut statement: Statement<EF>,
-        witness: Witness<EF, H, C, DIGEST_ELEMS>,
+        witness: Witness<EF, DIGEST_ELEMS>,
     ) -> ProofResult<WhirProof<EF, DIGEST_ELEMS>>
     where
         H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,

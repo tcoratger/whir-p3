@@ -53,7 +53,7 @@ where
         &self,
         prover_state: &mut ProverState,
         polynomial: CoefficientList<F>,
-    ) -> ProofResult<Witness<EF, H, C, DIGEST_ELEMS>>
+    ) -> ProofResult<Witness<EF, DIGEST_ELEMS>>
     where
         H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
@@ -106,7 +106,6 @@ where
         // Return the witness containing the polynomial, Merkle tree, and OOD results.
         Ok(Witness {
             polynomial: polynomial.to_extension(),
-            merkle_tree,
             prover_data,
             merkle_leaves: folded_evals,
             ood_points,
