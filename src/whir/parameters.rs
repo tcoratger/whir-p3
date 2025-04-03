@@ -427,9 +427,12 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 
     use super::*;
-    use crate::merkle_tree::{Poseidon2Compression, Poseidon2Sponge};
+
+    type Poseidon2Compression<Perm16> = TruncatedPermutation<Perm16, 2, 8, 16>;
+    type Poseidon2Sponge<Perm24> = PaddingFreeSponge<Perm24, 24, 16, 8>;
 
     /// Generates default WHIR parameters
     fn default_whir_params() -> WhirParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
