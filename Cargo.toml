@@ -47,7 +47,6 @@ p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e"
 p3-monty-31 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
 p3-merkle-tree = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
 p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
-p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
 p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
 p3-commit = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
 p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
