@@ -1,4 +1,4 @@
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::Field;
 
 use crate::{
     parameters::FoldingFactor,
@@ -46,8 +46,7 @@ pub(crate) enum StirEvalContext<'a, F> {
 
 impl<F> StirEvalContext<'_, F>
 where
-    F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    F: Field,
 {
     /// Computes STIR evaluations based on the context strategy.
     ///
@@ -129,6 +128,7 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_field::PrimeCharacteristicRing;
 
     use super::*;
 
