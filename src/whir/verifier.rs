@@ -1,6 +1,6 @@
 use std::{fmt::Debug, iter};
 
-use p3_commit::Mmcs;
+use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -50,24 +50,24 @@ where
     fn parse_proof<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState,
-        parsed_commitment: &ParsedCommitment<EF, Hash<EF, u8, DIGEST_ELEMS>>,
+        parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
         statement_points_len: usize,
         whir_proof: &WhirProof<EF, DIGEST_ELEMS>,
     ) -> ProofResult<ParsedProof<EF>>
     where
-        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         VerifierState: UnitToBytes
             + UnitToField<EF>
             + FieldToUnitDeserialize<EF>
             + PoWChallenge
-            + DigestToUnitDeserialize<Hash<EF, u8, DIGEST_ELEMS>>,
+            + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
-        let mmcs = MerkleTreeMmcs::new(
+        let mmcs = ExtensionMmcs::<F, EF, _>::new(MerkleTreeMmcs::new(
             self.params.merkle_hash.clone(),
             self.params.merkle_compress.clone(),
-        );
+        ));
 
         let mut sumcheck_rounds = Vec::new();
         let mut folding_randomness;
@@ -288,7 +288,7 @@ where
 
     fn compute_w_poly<const DIGEST_ELEMS: usize>(
         &self,
-        parsed_commitment: &ParsedCommitment<EF, Hash<EF, u8, DIGEST_ELEMS>>,
+        parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
         statement: &StatementVerifier<EF>,
         proof: &ParsedProof<EF>,
     ) -> EF {
@@ -369,19 +369,19 @@ where
     pub fn verify<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState,
-        parsed_commitment: &ParsedCommitment<EF, Hash<EF, u8, DIGEST_ELEMS>>,
+        parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
         statement: &StatementVerifier<EF>,
         whir_proof: &WhirProof<EF, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
-        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         VerifierState: UnitToBytes
             + UnitToField<EF>
             + FieldToUnitDeserialize<EF>
             + PoWChallenge
-            + DigestToUnitDeserialize<Hash<EF, u8, DIGEST_ELEMS>>,
+            + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // First, derive all Fiat-Shamir challenges
         let evaluations: Vec<_> = statement

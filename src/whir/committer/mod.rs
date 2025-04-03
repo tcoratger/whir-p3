@@ -1,5 +1,5 @@
-use p3_field::Field;
-use p3_matrix::dense::DenseMatrix;
+use p3_field::{ExtensionField, Field};
+use p3_matrix::{dense::DenseMatrix, extension::FlatMatrixView};
 use p3_merkle_tree::MerkleTree;
 
 use crate::poly::coeffs::CoefficientList;
@@ -13,15 +13,15 @@ pub mod writer;
 /// including the polynomial itself, the Merkle tree used for commitment,
 /// and out-of-domain (OOD) evaluations.
 #[derive(Debug)]
-pub struct Witness<F: Field, const DIGEST_ELEMS: usize> {
+pub struct Witness<EF: ExtensionField<F>, F: Field, const DIGEST_ELEMS: usize> {
     /// The committed polynomial in coefficient form.
-    pub(crate) polynomial: CoefficientList<F>,
+    pub(crate) polynomial: CoefficientList<EF>,
     /// Prover data of the Merkle tree.
-    pub(crate) prover_data: MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
+    pub(crate) prover_data: MerkleTree<F, u8, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>,
     /// The leaves of the Merkle tree, derived from folded polynomial evaluations.
-    pub(crate) merkle_leaves: Vec<F>,
+    pub(crate) merkle_leaves: Vec<EF>,
     /// Out-of-domain challenge points used for polynomial verification.
-    pub(crate) ood_points: Vec<F>,
+    pub(crate) ood_points: Vec<EF>,
     /// The corresponding polynomial evaluations at the OOD challenge points.
-    pub(crate) ood_answers: Vec<F>,
+    pub(crate) ood_answers: Vec<EF>,
 }

@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use clap::Parser;
 use p3_blake3::Blake3;
-use p3_field::PrimeCharacteristicRing;
+use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher64};
 use whir_p3::{
@@ -23,7 +23,7 @@ use whir_p3::{
 };
 
 type F = Goldilocks;
-type EF = Goldilocks;
+type EF = BinomialExtensionField<F, 2>;
 type ByteHash = Blake3;
 type FieldHash = SerializingHasher64<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;

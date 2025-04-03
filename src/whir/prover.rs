@@ -1,6 +1,9 @@
-use p3_commit::Mmcs;
+use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
-use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
+use p3_matrix::{
+    dense::{DenseMatrix, RowMajorMatrix},
+    extension::FlatMatrixView,
+};
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -42,7 +45,8 @@ where
     pub(crate) sumcheck_prover: Option<SumcheckSingle<EF>>,
     pub(crate) folding_randomness: MultilinearPoint<EF>,
     pub(crate) coefficients: CoefficientList<EF>,
-    pub(crate) prev_merkle_prover_data: MerkleTree<EF, u8, DenseMatrix<EF>, DIGEST_ELEMS>,
+    pub(crate) prev_merkle_prover_data:
+        MerkleTree<F, u8, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>,
     /// - The first element is the opened leaf values
     /// - The second element is the Merkle proof (siblings)
     pub(crate) merkle_proofs: Vec<(Leafs<EF>, Proof<DIGEST_ELEMS>)>,
@@ -74,7 +78,7 @@ where
 
     fn validate_witness<const DIGEST_ELEMS: usize>(
         &self,
-        witness: &Witness<EF, DIGEST_ELEMS>,
+        witness: &Witness<EF, F, DIGEST_ELEMS>,
     ) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
         if !self.0.initial_statement {
@@ -87,17 +91,17 @@ where
         &self,
         prover_state: &mut ProverState,
         mut statement: Statement<EF>,
-        witness: Witness<EF, DIGEST_ELEMS>,
+        witness: Witness<EF, F, DIGEST_ELEMS>,
     ) -> ProofResult<WhirProof<EF, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<EF>
             + FieldToUnitSerialize<EF>
             + UnitToBytes
             + PoWChallenge
-            + DigestToUnitSerialize<Hash<EF, u8, DIGEST_ELEMS>>,
+            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Validate parameters
         assert!(
@@ -182,14 +186,14 @@ where
         mut round_state: RoundState<EF, F, DIGEST_ELEMS>,
     ) -> ProofResult<WhirProof<EF, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<EF>
             + UnitToBytes
             + FieldToUnitSerialize<EF>
             + PoWChallenge
-            + DigestToUnitSerialize<Hash<EF, u8, DIGEST_ELEMS>>,
+            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Fold the coefficients
         let folded_coefficients = round_state
@@ -226,8 +230,10 @@ where
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
         let folded_matrix = RowMajorMatrix::new(evals, 1 << folding_factor_next);
 
-        let merkle_tree =
-            MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+        let merkle_tree = ExtensionMmcs::<F, EF, _>::new(MerkleTreeMmcs::new(
+            self.0.merkle_hash.clone(),
+            self.0.merkle_compress.clone(),
+        ));
         let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger
@@ -345,14 +351,14 @@ where
         folded_coefficients: &CoefficientList<EF>,
     ) -> ProofResult<WhirProof<EF, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: UnitToField<EF>
             + UnitToBytes
             + FieldToUnitSerialize<EF>
             + PoWChallenge
-            + DigestToUnitSerialize<Hash<EF, u8, DIGEST_ELEMS>>,
+            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_scalars(folded_coefficients.coeffs())?;
@@ -367,7 +373,10 @@ where
         )?;
 
         // Every query requires opening these many in the previous Merkle tree
-        let mmcs = MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+        let mmcs = ExtensionMmcs::<F, EF, _>::new(MerkleTreeMmcs::new(
+            self.0.merkle_hash.clone(),
+            self.0.merkle_compress.clone(),
+        ));
 
         let mut answers = Vec::new();
         let mut merkle_proof = Vec::new();

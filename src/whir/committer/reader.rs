@@ -35,17 +35,17 @@ where
     pub fn parse_commitment<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState,
-    ) -> ProofResult<ParsedCommitment<F, Hash<F, u8, DIGEST_ELEMS>>>
+    ) -> ProofResult<ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>>
     where
         VerifierState: UnitToBytes
-            + FieldToUnitDeserialize<F>
-            + UnitToField<F>
+            + FieldToUnitDeserialize<EF>
+            + UnitToField<EF>
             + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         let root = verifier_state.read_digest()?;
 
-        let mut ood_points = vec![F::ZERO; self.0.committment_ood_samples];
-        let mut ood_answers = vec![F::ZERO; self.0.committment_ood_samples];
+        let mut ood_points = vec![EF::ZERO; self.0.committment_ood_samples];
+        let mut ood_answers = vec![EF::ZERO; self.0.committment_ood_samples];
         if self.0.committment_ood_samples > 0 {
             verifier_state.fill_challenge_scalars(&mut ood_points)?;
             verifier_state.fill_next_scalars(&mut ood_answers)?;

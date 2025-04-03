@@ -1,4 +1,4 @@
-use p3_commit::Mmcs;
+use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -53,14 +53,14 @@ where
         &self,
         prover_state: &mut ProverState,
         polynomial: CoefficientList<F>,
-    ) -> ProofResult<Witness<EF, DIGEST_ELEMS>>
+    ) -> ProofResult<Witness<EF, F, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         ProverState: FieldToUnitSerialize<EF>
             + UnitToField<EF>
-            + DigestToUnitSerialize<Hash<EF, u8, DIGEST_ELEMS>>,
+            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // Retrieve the base domain, ensuring it is set.
         let base_domain = self.0.starting_domain.base_domain.unwrap();
@@ -88,15 +88,17 @@ where
         let folded_matrix = RowMajorMatrix::new(folded_evals.clone(), fold_size);
 
         // Commit to the Merkle tree
-        let merkle_tree =
-            MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+        let merkle_tree = ExtensionMmcs::<F, EF, _>::new(MerkleTreeMmcs::new(
+            self.0.merkle_hash.clone(),
+            self.0.merkle_compress.clone(),
+        ));
         let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger
         prover_state.add_digest(root)?;
 
         // Handle OOD (Out-Of-Domain) samples
-        let (ood_points, ood_answers) = sample_ood_points(
+        let (ood_points, ood_answers) = sample_ood_points::<EF, _, _>(
             prover_state,
             self.0.committment_ood_samples,
             self.0.mv_parameters.num_variables,
