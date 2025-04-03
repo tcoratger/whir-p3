@@ -1,4 +1,4 @@
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use radix2::Radix2EvaluationDomain;
 
 use crate::domain::general::GeneralEvaluationDomain;
@@ -11,24 +11,24 @@ pub mod radix2;
 /// This domain is constructed over a multiplicative subgroup of a finite field, enabling
 /// efficient Fast Fourier Transforms (FFTs).
 #[derive(Debug, Clone)]
-pub struct Domain<F>
+pub struct Domain<EF, F>
 where
     F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
 {
     /// The domain defined over the base field, used for initial FFT operations.
     ///
     /// This is useful when operating in an extension field `F`, where `F::PrimeSubfield`
     /// represents the base field from which the extension was built.
-    pub base_domain: Option<GeneralEvaluationDomain<F::PrimeSubfield>>,
+    pub base_domain: Option<GeneralEvaluationDomain<F>>,
     /// The actual working domain used for FFT operations.
-    pub backing_domain: GeneralEvaluationDomain<F>,
+    pub backing_domain: GeneralEvaluationDomain<EF>,
 }
 
-impl<F> Domain<F>
+impl<EF, F> Domain<EF, F>
 where
     F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
 {
     /// Constructs a new evaluation domain for a polynomial of given `degree`.
     ///
@@ -85,18 +85,16 @@ where
     /// Converts a base field evaluation domain into an extended field domain.
     ///
     /// Maps elements from `F::PrimeSubfield` to `F`, preserving the subgroup structure.
-    fn to_extension_domain(
-        domain: &GeneralEvaluationDomain<F::PrimeSubfield>,
-    ) -> GeneralEvaluationDomain<F> {
-        let group_gen = F::from_prime_subfield(domain.group_gen());
-        let group_gen_inv = F::from_prime_subfield(domain.group_gen_inv());
+    fn to_extension_domain(domain: &GeneralEvaluationDomain<F>) -> GeneralEvaluationDomain<EF> {
+        let group_gen = EF::from_prime_subfield(domain.group_gen());
+        let group_gen_inv = EF::from_prime_subfield(domain.group_gen_inv());
         let size = domain.size() as u64;
         let log_size_of_group = domain.log_size_of_group();
-        let size_as_field_element = F::from_prime_subfield(domain.size_as_field_element());
-        let size_inv = F::from_prime_subfield(domain.size_inv());
-        let offset = F::from_prime_subfield(domain.coset_offset());
-        let offset_inv = F::from_prime_subfield(domain.coset_offset_inv());
-        let offset_pow_size = F::from_prime_subfield(domain.coset_offset_pow_size());
+        let size_as_field_element = EF::from_prime_subfield(domain.size_as_field_element());
+        let size_inv = EF::from_prime_subfield(domain.size_inv());
+        let offset = EF::from_prime_subfield(domain.coset_offset());
+        let offset_inv = EF::from_prime_subfield(domain.coset_offset_inv());
+        let offset_pow_size = EF::from_prime_subfield(domain.coset_offset_pow_size());
         match domain {
             GeneralEvaluationDomain::Radix2(_) => {
                 GeneralEvaluationDomain::Radix2(Radix2EvaluationDomain {
@@ -121,12 +119,12 @@ where
     /// new_size = size / power
     /// ```
     /// It ensures `size % power == 0` for a valid transformation.
-    fn scale_generator_by(&self, power: usize) -> GeneralEvaluationDomain<F> {
+    fn scale_generator_by(&self, power: usize) -> GeneralEvaluationDomain<EF> {
         let starting_size = self.size();
         assert_eq!(starting_size % power, 0);
         let new_size = starting_size / power;
         let log_size_of_group = new_size.trailing_zeros();
-        let size_as_field_element = F::from_u64(new_size as u64);
+        let size_as_field_element = EF::from_u64(new_size as u64);
 
         match self.backing_domain {
             GeneralEvaluationDomain::Radix2(r2) => {
@@ -152,6 +150,7 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_field::PrimeCharacteristicRing;
 
     use super::*;
 
@@ -159,7 +158,7 @@ mod tests {
     fn test_domain_creation_valid() {
         // We choose degree = 8 and log_rho_inv = 0, so the expected size is:
         // size = degree * 2^log_rho_inv = 8 * 2^0 = 8
-        let domain = Domain::<BabyBear>::new(8, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(8, 0).unwrap();
         assert_eq!(domain.base_domain.as_ref().unwrap().size(), 8);
         assert_eq!(domain.backing_domain.size(), 8);
     }
@@ -169,12 +168,12 @@ mod tests {
         // We try to create a domain with size larger than BabyBear's TWO_ADICITY limit.
         // BabyBear::TWO_ADICITY = 27, so we pick a size beyond 2^27.
         let invalid_size = 1 << (BabyBear::TWO_ADICITY + 1);
-        assert!(Domain::<BabyBear>::new(invalid_size, 0).is_none());
+        assert!(Domain::<BabyBear, BabyBear>::new(invalid_size, 0).is_none());
     }
 
     #[test]
     fn test_base_domain_conversion() {
-        let domain = Domain::<BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
         let base_domain = domain.base_domain.as_ref().unwrap();
 
         // Check the domain size
@@ -187,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_backing_domain_conversion() {
-        let domain = Domain::<BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
         let base_domain = domain.base_domain.as_ref().unwrap();
         let backing_domain = &domain.backing_domain;
 
@@ -206,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_coset_offsets() {
-        let domain = Domain::<BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
         let backing_domain = &domain.backing_domain;
 
         // Coset offset should be 1 in default case
@@ -220,7 +219,7 @@ mod tests {
 
     #[test]
     fn test_size_as_field_element() {
-        let domain = Domain::<BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
         let backing_domain = &domain.backing_domain;
 
         // Check if size_as_field_element correctly converts the size to field representation
@@ -232,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_size_inv() {
-        let domain = Domain::<BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
         let backing_domain = &domain.backing_domain;
 
         // size_inv should be the multiplicative inverse of size in the field
@@ -242,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_folded_size_valid() {
-        let domain = Domain::<BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
 
         // Folding factor = 2 → New size = size / (2^2) = 16 / 4 = 4
         assert_eq!(domain.folded_size(2), 4);
@@ -251,14 +250,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_folded_size_invalid() {
-        let domain = Domain::<BabyBear>::new(10, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(10, 0).unwrap();
         // This should panic since 16 is not divisible by 5^2
         domain.folded_size(5);
     }
 
     #[test]
     fn test_scaling_preserves_structure() {
-        let domain = Domain::<BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
         let scaled_domain = domain.scale(2);
 
         // The scaled domain should have the size divided by 2.
@@ -278,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_scale_generator_by_valid() {
-        let domain = Domain::<BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
         let scaled_domain = domain.scale_generator_by(2);
 
         // New size = size / power = 16 / 2 = 8
@@ -296,14 +295,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_scale_generator_by_invalid() {
-        let domain = Domain::<BabyBear>::new(10, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(10, 0).unwrap();
         // This should panic since size is not divisible by 3
         domain.scale_generator_by(3);
     }
 
     #[test]
     fn test_offsets_after_scaling() {
-        let domain = Domain::<BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
         let scaled_domain = domain.scale_generator_by(2);
 
         // New domain size should be 16 / 2 = 8
@@ -327,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_size_as_field_element_after_scaling() {
-        let domain = Domain::<BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
         let scaled_domain = domain.scale_generator_by(2);
 
         // New domain size should be 16 / 2 = 8
@@ -342,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_log_size_of_group_after_scaling() {
-        let domain = Domain::<BabyBear>::new(16, 0).unwrap();
+        let domain = Domain::<BabyBear, BabyBear>::new(16, 0).unwrap();
         let scaled_domain = domain.scale_generator_by(2);
 
         // The original size is 16, so log_size_of_group should be log2(16) = 4.

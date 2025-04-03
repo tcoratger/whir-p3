@@ -1,4 +1,4 @@
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_symmetric::Hash;
 
 use crate::{
@@ -18,17 +18,17 @@ pub struct ParsedCommitment<F, D> {
 }
 
 #[derive(Debug)]
-pub struct CommitmentReader<'a, F, H, C, PowStrategy>(&'a WhirConfig<F, H, C, PowStrategy>)
+pub struct CommitmentReader<'a, EF, F, H, C, PowStrategy>(&'a WhirConfig<EF, F, H, C, PowStrategy>)
 where
     F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField;
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>;
 
-impl<'a, F, H, C, PS> CommitmentReader<'a, F, H, C, PS>
+impl<'a, EF, F, H, C, PS> CommitmentReader<'a, EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + Eq,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
 {
-    pub const fn new(params: &'a WhirConfig<F, H, C, PS>) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {
         Self(params)
     }
 

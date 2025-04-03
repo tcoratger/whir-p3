@@ -1,5 +1,5 @@
 use p3_commit::Mmcs;
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
@@ -26,17 +26,17 @@ use crate::{
 ///
 /// It provides a commitment that can be used for proof generation and verification.
 #[derive(Debug)]
-pub struct CommitmentWriter<F, H, C, PowStrategy>(WhirConfig<F, H, C, PowStrategy>)
+pub struct CommitmentWriter<EF, F, H, C, PowStrategy>(WhirConfig<EF, F, H, C, PowStrategy>)
 where
     F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField;
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>;
 
-impl<F, H, C, PS> CommitmentWriter<F, H, C, PS>
+impl<EF, F, H, C, PS> CommitmentWriter<EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + Eq,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
 {
-    pub const fn new(params: WhirConfig<F, H, C, PS>) -> Self {
+    pub const fn new(params: WhirConfig<EF, F, H, C, PS>) -> Self {
         Self(params)
     }
 
@@ -52,15 +52,15 @@ where
     pub fn commit<ProverState, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
-        polynomial: CoefficientList<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-    ) -> ProofResult<Witness<F, H, C, DIGEST_ELEMS>>
+        polynomial: CoefficientList<F>,
+    ) -> ProofResult<Witness<EF, H, C, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState: FieldToUnitSerialize<F>
-            + UnitToField<F>
-            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
+        ProverState: FieldToUnitSerialize<EF>
+            + UnitToField<EF>
+            + DigestToUnitSerialize<Hash<EF, u8, DIGEST_ELEMS>>,
     {
         // Retrieve the base domain, ensuring it is set.
         let base_domain = self.0.starting_domain.base_domain.unwrap();
@@ -79,7 +79,7 @@ where
         );
 
         // Convert to extension field (for future rounds)
-        let folded_evals: Vec<_> = evals.into_iter().map(F::from_prime_subfield).collect();
+        let folded_evals: Vec<_> = evals.into_iter().map(EF::from_prime_subfield).collect();
 
         // Determine leaf size based on folding factor.
         let fold_size = 1 << self.0.folding_factor.at_round(0);
@@ -171,7 +171,8 @@ mod tests {
 
         // Define multivariate parameters for the polynomial.
         let mv_params = MultivariateParameters::new(num_variables);
-        let params = WhirConfig::<F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+        let params =
+            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = rand::rng();
@@ -257,7 +258,8 @@ mod tests {
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let params = WhirConfig::<F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+        let params =
+            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
         let mut rng = rand::rng();
         let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 1024]);
@@ -307,7 +309,7 @@ mod tests {
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
         let mut params =
-            WhirConfig::<F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
         // Explicitly set OOD samples to 0
         params.committment_ood_samples = 0;

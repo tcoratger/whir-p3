@@ -1,6 +1,6 @@
 use std::{fmt::Display, marker::PhantomData, str::FromStr};
 
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -94,16 +94,16 @@ impl FoldType {
     /// - If `ProverHelps`, assumes coefficients and evaluates directly at $\vec{r}$.
     ///
     /// This method is used by the prover when deriving folded polynomial values at queried points.
-    pub(crate) fn stir_evaluations_prover<F, const DIGEST_ELEMS: usize>(
+    pub(crate) fn stir_evaluations_prover<EF, F, const DIGEST_ELEMS: usize>(
         self,
-        round_state: &RoundState<F, DIGEST_ELEMS>,
+        round_state: &RoundState<EF, F, DIGEST_ELEMS>,
         stir_challenges_indexes: &[usize],
-        answers: &[Vec<F>],
+        answers: &[Vec<EF>],
         folding_factor: FoldingFactor,
-        stir_evaluations: &mut Vec<F>,
+        stir_evaluations: &mut Vec<EF>,
     ) where
         F: Field + TwoAdicField,
-        <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+        EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
     {
         let ctx = match self {
             Self::Naive => StirEvalContext::Naive {
@@ -133,14 +133,14 @@ impl FoldType {
     ///
     /// - If `Naive`, performs coset-based folding round by round.
     /// - If `ProverHelps`, reuses the precomputed coefficient evaluations.
-    pub(crate) fn stir_evaluations_verifier<F, H, C, PowStrategy>(
+    pub(crate) fn stir_evaluations_verifier<EF, F, H, C, PowStrategy>(
         self,
-        parsed: &ParsedProof<F>,
-        params: &WhirConfig<F, H, C, PowStrategy>,
-    ) -> Vec<Vec<F>>
+        parsed: &ParsedProof<EF>,
+        params: &WhirConfig<EF, F, H, C, PowStrategy>,
+    ) -> Vec<Vec<EF>>
     where
         F: Field + TwoAdicField,
-        <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+        EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
     {
         match self {
             Self::Naive => {

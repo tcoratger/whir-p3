@@ -1,5 +1,5 @@
 use p3_commit::Mmcs;
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
@@ -33,34 +33,34 @@ pub type Proof<const DIGEST_ELEMS: usize> = Vec<Vec<[u8; DIGEST_ELEMS]>>;
 pub type Leafs<F> = Vec<Vec<F>>;
 
 #[derive(Debug)]
-pub(crate) struct RoundState<F, const DIGEST_ELEMS: usize>
+pub(crate) struct RoundState<EF, F, const DIGEST_ELEMS: usize>
 where
     F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
 {
     pub(crate) round: usize,
-    pub(crate) domain: Domain<F>,
-    pub(crate) sumcheck_prover: Option<SumcheckSingle<F>>,
-    pub(crate) folding_randomness: MultilinearPoint<F>,
-    pub(crate) coefficients: CoefficientList<F>,
-    pub(crate) prev_merkle_prover_data: MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
+    pub(crate) domain: Domain<EF, F>,
+    pub(crate) sumcheck_prover: Option<SumcheckSingle<EF>>,
+    pub(crate) folding_randomness: MultilinearPoint<EF>,
+    pub(crate) coefficients: CoefficientList<EF>,
+    pub(crate) prev_merkle_prover_data: MerkleTree<EF, u8, DenseMatrix<EF>, DIGEST_ELEMS>,
     /// - The first element is the opened leaf values
     /// - The second element is the Merkle proof (siblings)
-    pub(crate) merkle_proofs: Vec<(Leafs<F>, Proof<DIGEST_ELEMS>)>,
-    pub(crate) randomness_vec: Vec<F>,
-    pub(crate) statement: Statement<F>,
+    pub(crate) merkle_proofs: Vec<(Leafs<EF>, Proof<DIGEST_ELEMS>)>,
+    pub(crate) randomness_vec: Vec<EF>,
+    pub(crate) statement: Statement<EF>,
 }
 
 #[derive(Debug)]
-pub struct Prover<F, H, C, PowStrategy>(pub WhirConfig<F, H, C, PowStrategy>)
+pub struct Prover<EF, F, H, C, PowStrategy>(pub WhirConfig<EF, F, H, C, PowStrategy>)
 where
     F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField;
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>;
 
-impl<F, H, C, PS> Prover<F, H, C, PS>
+impl<EF, F, H, C, PS> Prover<EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + ExtensionDegree,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F> + ExtensionDegree,
     PS: PowStrategy,
 {
     fn validate_parameters(&self) -> bool {
@@ -68,14 +68,14 @@ where
             == self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
     }
 
-    fn validate_statement(&self, statement: &Statement<F>) -> bool {
+    fn validate_statement(&self, statement: &Statement<EF>) -> bool {
         statement.num_variables() == self.0.mv_parameters.num_variables
             && (self.0.initial_statement || statement.constraints.is_empty())
     }
 
     fn validate_witness<const DIGEST_ELEMS: usize>(
         &self,
-        witness: &Witness<F, H, C, DIGEST_ELEMS>,
+        witness: &Witness<EF, H, C, DIGEST_ELEMS>,
     ) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
         if !self.0.initial_statement {
@@ -87,18 +87,18 @@ where
     pub fn prove<ProverState, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
-        mut statement: Statement<F>,
-        witness: Witness<F, H, C, DIGEST_ELEMS>,
-    ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
+        mut statement: Statement<EF>,
+        witness: Witness<EF, H, C, DIGEST_ELEMS>,
+    ) -> ProofResult<WhirProof<EF, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState: UnitToField<F>
-            + FieldToUnitSerialize<F>
+        ProverState: UnitToField<EF>
+            + FieldToUnitSerialize<EF>
             + UnitToBytes
             + PoWChallenge
-            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
+            + DigestToUnitSerialize<Hash<EF, u8, DIGEST_ELEMS>>,
     {
         // Validate parameters
         assert!(
@@ -149,7 +149,7 @@ where
             // If there is no initial statement, there is no need to run the
             // initial rounds of the sum-check, and the verifier directly sends
             // the initial folding randomnesses.
-            let mut folding_randomness = vec![F::ZERO; self.0.folding_factor.at_round(0)];
+            let mut folding_randomness = vec![EF::ZERO; self.0.folding_factor.at_round(0)];
             prover_state.fill_challenge_scalars(&mut folding_randomness)?;
 
             if self.0.starting_folding_pow_bits > 0. {
@@ -159,7 +159,7 @@ where
         };
         let mut randomness_vec = Vec::with_capacity(self.0.mv_parameters.num_variables);
         randomness_vec.extend(folding_randomness.0.iter().rev().copied());
-        randomness_vec.resize(self.0.mv_parameters.num_variables, F::ZERO);
+        randomness_vec.resize(self.0.mv_parameters.num_variables, EF::ZERO);
 
         let round_state = RoundState {
             domain: self.0.starting_domain.clone(),
@@ -180,17 +180,17 @@ where
     fn round<ProverState, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
-        mut round_state: RoundState<F, DIGEST_ELEMS>,
-    ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
+        mut round_state: RoundState<EF, F, DIGEST_ELEMS>,
+    ) -> ProofResult<WhirProof<EF, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState: UnitToField<F>
+        ProverState: UnitToField<EF>
             + UnitToBytes
-            + FieldToUnitSerialize<F>
+            + FieldToUnitSerialize<EF>
             + PoWChallenge
-            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
+            + DigestToUnitSerialize<Hash<EF, u8, DIGEST_ELEMS>>,
     {
         // Fold the coefficients
         let folded_coefficients = round_state
@@ -342,18 +342,18 @@ where
     fn final_round<ProverState, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
-        mut round_state: RoundState<F, DIGEST_ELEMS>,
-        folded_coefficients: &CoefficientList<F>,
-    ) -> ProofResult<WhirProof<F, DIGEST_ELEMS>>
+        mut round_state: RoundState<EF, F, DIGEST_ELEMS>,
+        folded_coefficients: &CoefficientList<EF>,
+    ) -> ProofResult<WhirProof<EF, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState: UnitToField<F>
+        ProverState: UnitToField<EF>
             + UnitToBytes
-            + FieldToUnitSerialize<F>
+            + FieldToUnitSerialize<EF>
             + PoWChallenge
-            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
+            + DigestToUnitSerialize<Hash<EF, u8, DIGEST_ELEMS>>,
     {
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_scalars(folded_coefficients.coeffs())?;
@@ -390,7 +390,11 @@ where
             let final_folding_randomness = round_state
                 .sumcheck_prover
                 .unwrap_or_else(|| {
-                    SumcheckSingle::new(folded_coefficients.clone(), &round_state.statement, F::ONE)
+                    SumcheckSingle::new(
+                        folded_coefficients.clone(),
+                        &round_state.statement,
+                        EF::ONE,
+                    )
                 })
                 .compute_sumcheck_polynomials::<PS, _>(
                     prover_state,
@@ -435,11 +439,11 @@ where
     fn compute_stir_queries<ProverState, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
-        round_state: &RoundState<F, DIGEST_ELEMS>,
+        round_state: &RoundState<EF, F, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig,
-        ood_points: Vec<F>,
-    ) -> ProofResult<(Vec<MultilinearPoint<F>>, Vec<usize>)>
+        ood_points: Vec<EF>,
+    ) -> ProofResult<(Vec<MultilinearPoint<EF>>, Vec<usize>)>
     where
         ProverState: UnitToBytes,
     {

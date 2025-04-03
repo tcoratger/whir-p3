@@ -1,7 +1,7 @@
 use std::{fmt::Debug, iter};
 
 use p3_commit::Mmcs;
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
@@ -29,21 +29,21 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Verifier<'a, F, H, C, PowStrategy>
+pub struct Verifier<'a, EF, F, H, C, PowStrategy>
 where
     F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
 {
-    params: &'a WhirConfig<F, H, C, PowStrategy>,
+    params: &'a WhirConfig<EF, F, H, C, PowStrategy>,
 }
 
-impl<'a, F, H, C, PS> Verifier<'a, F, H, C, PS>
+impl<'a, EF, F, H, C, PS> Verifier<'a, EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + ExtensionDegree,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F> + ExtensionDegree,
     PS: PowStrategy,
 {
-    pub const fn new(params: &'a WhirConfig<F, H, C, PS>) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {
         Self { params }
     }
 
@@ -51,19 +51,19 @@ where
     fn parse_proof<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState,
-        parsed_commitment: &ParsedCommitment<F, Hash<F, u8, DIGEST_ELEMS>>,
+        parsed_commitment: &ParsedCommitment<EF, Hash<EF, u8, DIGEST_ELEMS>>,
         statement_points_len: usize,
-        whir_proof: &WhirProof<F, DIGEST_ELEMS>,
-    ) -> ProofResult<ParsedProof<F>>
+        whir_proof: &WhirProof<EF, DIGEST_ELEMS>,
+    ) -> ProofResult<ParsedProof<EF>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         VerifierState: UnitToBytes
-            + UnitToField<F>
-            + FieldToUnitDeserialize<F>
+            + UnitToField<EF>
+            + FieldToUnitDeserialize<EF>
             + PoWChallenge
-            + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
+            + DigestToUnitDeserialize<Hash<EF, u8, DIGEST_ELEMS>>,
     {
         let mmcs = MerkleTreeMmcs::new(
             self.params.merkle_hash.clone(),
@@ -101,9 +101,9 @@ where
             assert_eq!(parsed_commitment.ood_points.len(), 0);
             assert_eq!(statement_points_len, 0);
 
-            initial_combination_randomness = vec![F::ONE];
+            initial_combination_randomness = vec![EF::ONE];
 
-            let mut folding_randomness_vec = vec![F::ZERO; self.params.folding_factor.at_round(0)];
+            let mut folding_randomness_vec = vec![EF::ZERO; self.params.folding_factor.at_round(0)];
             verifier_state.fill_challenge_scalars(&mut folding_randomness_vec)?;
             folding_randomness = MultilinearPoint(folding_randomness_vec);
 
@@ -127,8 +127,8 @@ where
 
             let new_root = verifier_state.read_digest()?;
 
-            let mut ood_points = vec![F::ZERO; round_params.ood_samples];
-            let mut ood_answers = vec![F::ZERO; round_params.ood_samples];
+            let mut ood_points = vec![EF::ZERO; round_params.ood_samples];
+            let mut ood_answers = vec![EF::ZERO; round_params.ood_samples];
             if round_params.ood_samples > 0 {
                 verifier_state.fill_challenge_scalars(&mut ood_points)?;
                 verifier_state.fill_next_scalars(&mut ood_answers)?;
@@ -211,7 +211,7 @@ where
             domain_size /= 2;
         }
 
-        let mut final_coefficients = vec![F::ZERO; 1 << self.params.final_sumcheck_rounds];
+        let mut final_coefficients = vec![EF::ZERO; 1 << self.params.final_sumcheck_rounds];
         verifier_state.fill_next_scalars(&mut final_coefficients)?;
         let final_coefficients = CoefficientList::new(final_coefficients);
 
@@ -289,10 +289,10 @@ where
 
     fn compute_w_poly<const DIGEST_ELEMS: usize>(
         &self,
-        parsed_commitment: &ParsedCommitment<F, Hash<F, u8, DIGEST_ELEMS>>,
-        statement: &StatementVerifier<F>,
-        proof: &ParsedProof<F>,
-    ) -> F {
+        parsed_commitment: &ParsedCommitment<EF, Hash<EF, u8, DIGEST_ELEMS>>,
+        statement: &StatementVerifier<EF>,
+        proof: &ParsedProof<EF>,
+    ) -> EF {
         let mut num_variables = self.params.mv_parameters.num_variables;
 
         let mut folding_randomness = MultilinearPoint(
@@ -355,7 +355,7 @@ where
                     // Maybe refactor outside
                 });
 
-            let sum_of_claims: F = stir_challenges
+            let sum_of_claims: EF = stir_challenges
                 .zip(&round_proof.combination_randomness)
                 .map(|(pt, &rand)| pt.eq_poly_outside(&folding_randomness) * rand)
                 .sum();
@@ -370,19 +370,19 @@ where
     pub fn verify<VerifierState, const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState,
-        parsed_commitment: &ParsedCommitment<F, Hash<F, u8, DIGEST_ELEMS>>,
-        statement: &StatementVerifier<F>,
-        whir_proof: &WhirProof<F, DIGEST_ELEMS>,
+        parsed_commitment: &ParsedCommitment<EF, Hash<EF, u8, DIGEST_ELEMS>>,
+        statement: &StatementVerifier<EF>,
+        whir_proof: &WhirProof<EF, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
+        H: CryptographicHasher<EF, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         VerifierState: UnitToBytes
-            + UnitToField<F>
-            + FieldToUnitDeserialize<F>
+            + UnitToField<EF>
+            + FieldToUnitDeserialize<EF>
             + PoWChallenge
-            + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
+            + DigestToUnitDeserialize<Hash<EF, u8, DIGEST_ELEMS>>,
     {
         // First, derive all Fiat-Shamir challenges
         let evaluations: Vec<_> = statement
@@ -449,13 +449,13 @@ where
 
             let prev_eval = prev_sumcheck
                 .as_ref()
-                .map_or(F::ZERO, |(p, r)| p.evaluate_at_point(&(*r).into()));
+                .map_or(EF::ZERO, |(p, r)| p.evaluate_at_point(&(*r).into()));
 
             let claimed_sum = prev_eval
                 + values
                     .zip(&round.combination_randomness)
                     .map(|(val, &rand)| val * rand)
-                    .sum::<F>();
+                    .sum::<EF>();
 
             if sumcheck_poly.sum_over_boolean_hypercube() != claimed_sum {
                 return Err(ProofError::InvalidProof);
@@ -492,7 +492,7 @@ where
         if self.params.final_sumcheck_rounds > 0 {
             let claimed_sum = prev_sumcheck
                 .as_ref()
-                .map_or(F::ZERO, |(p, r)| p.evaluate_at_point(&(*r).into()));
+                .map_or(EF::ZERO, |(p, r)| p.evaluate_at_point(&(*r).into()));
 
             let (sumcheck_poly, new_randomness) = &parsed.final_sumcheck_rounds[0];
 
@@ -515,8 +515,9 @@ where
         }
 
         // Final v · w Check
-        let prev_sumcheck_poly_eval =
-            prev_sumcheck.map_or(F::ZERO, |(poly, rand)| poly.evaluate_at_point(&rand.into()));
+        let prev_sumcheck_poly_eval = prev_sumcheck.map_or(EF::ZERO, |(poly, rand)| {
+            poly.evaluate_at_point(&rand.into())
+        });
 
         // Check the final sumcheck evaluation
         let evaluation_of_v_poly = self.compute_w_poly(parsed_commitment, statement, &parsed);

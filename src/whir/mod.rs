@@ -33,6 +33,7 @@ pub struct WhirProof<F, const DIGEST_ELEMS: usize> {
 }
 
 type F = Goldilocks;
+type EF = Goldilocks;
 type ByteHash = Blake3;
 type FieldHash = SerializingHasher64<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
@@ -81,7 +82,7 @@ pub fn make_whir_things(
     };
 
     // Combine protocol and polynomial parameters into a single config
-    let params = WhirConfig::<F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+    let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
     // Define a polynomial with all coefficients set to 1 (i.e., constant 1 polynomial)
     let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]);

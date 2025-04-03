@@ -23,6 +23,7 @@ use whir_p3::{
 };
 
 type F = Goldilocks;
+type EF = Goldilocks;
 type ByteHash = Blake3;
 type FieldHash = SerializingHasher64<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
@@ -102,7 +103,7 @@ fn main() {
         fold_optimisation,
     };
 
-    let params = WhirConfig::<F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+    let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
     dbg!(&params);
 

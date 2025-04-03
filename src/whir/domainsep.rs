@@ -1,4 +1,4 @@
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use super::parameters::WhirConfig;
 use crate::{
@@ -21,25 +21,25 @@ impl DigestDomainSeparator for DomainSeparator {
     }
 }
 
-pub trait WhirDomainSeparator<F, H, C>
+pub trait WhirDomainSeparator<EF, F, H, C>
 where
     F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
 {
     #[must_use]
-    fn commit_statement<PowStrategy>(self, params: &WhirConfig<F, H, C, PowStrategy>) -> Self;
+    fn commit_statement<PowStrategy>(self, params: &WhirConfig<EF, F, H, C, PowStrategy>) -> Self;
 
     #[must_use]
-    fn add_whir_proof<PowStrategy>(self, params: &WhirConfig<F, H, C, PowStrategy>) -> Self;
+    fn add_whir_proof<PowStrategy>(self, params: &WhirConfig<EF, F, H, C, PowStrategy>) -> Self;
 }
 
-impl<F, DomainSeparator, H, C> WhirDomainSeparator<F, H, C> for DomainSeparator
+impl<EF, F, DomainSeparator, H, C> WhirDomainSeparator<EF, F, H, C> for DomainSeparator
 where
     F: Field + TwoAdicField,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
     DomainSeparator: ByteDomainSeparator + FieldDomainSeparator<F> + DigestDomainSeparator,
 {
-    fn commit_statement<PowStrategy>(self, params: &WhirConfig<F, H, C, PowStrategy>) -> Self {
+    fn commit_statement<PowStrategy>(self, params: &WhirConfig<EF, F, H, C, PowStrategy>) -> Self {
         // TODO: Add params
         let mut this = self.add_digest("merkle_digest");
         if params.committment_ood_samples > 0 {
@@ -49,7 +49,10 @@ where
         this
     }
 
-    fn add_whir_proof<PowStrategy>(mut self, params: &WhirConfig<F, H, C, PowStrategy>) -> Self {
+    fn add_whir_proof<PowStrategy>(
+        mut self,
+        params: &WhirConfig<EF, F, H, C, PowStrategy>,
+    ) -> Self {
         // TODO: Add statement
         if params.initial_statement {
             self = self
