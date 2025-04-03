@@ -15,7 +15,6 @@ use super::{
     utils::{DigestToUnitDeserialize, get_challenge_stir_queries},
 };
 use crate::{
-    crypto::field::ExtensionDegree,
     fiat_shamir::{
         codecs::traits::{FieldToUnitDeserialize, UnitToField},
         errors::{ProofError, ProofResult},
@@ -39,8 +38,8 @@ where
 
 impl<'a, EF, F, H, C, PS> Verifier<'a, EF, F, H, C, PS>
 where
-    F: Field + TwoAdicField + ExtensionDegree,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F> + ExtensionDegree,
+    F: Field + TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
     PS: PowStrategy,
 {
     pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {

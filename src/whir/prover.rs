@@ -10,7 +10,6 @@ use super::{
     utils::DigestToUnitSerialize,
 };
 use crate::{
-    crypto::field::ExtensionDegree,
     domain::Domain,
     fiat_shamir::{
         codecs::traits::{FieldToUnitSerialize, UnitToField},
@@ -59,8 +58,8 @@ where
 
 impl<EF, F, H, C, PS> Prover<EF, F, H, C, PS>
 where
-    F: Field + TwoAdicField + ExtensionDegree,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F> + ExtensionDegree,
+    F: Field + TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
     PS: PowStrategy,
 {
     fn validate_parameters(&self) -> bool {
