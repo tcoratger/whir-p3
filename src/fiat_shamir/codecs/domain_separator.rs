@@ -1,17 +1,14 @@
-use p3_field::Field;
+use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing};
 
 use super::{traits::FieldDomainSeparator, utils::bytes_modp};
-use crate::{
-    crypto::field::ExtensionDegree,
-    fiat_shamir::{
-        codecs::utils::bytes_uniform_modp, domain_separator::DomainSeparator,
-        duplex_sponge::interface::DuplexSpongeInterface, traits::ByteDomainSeparator,
-    },
+use crate::fiat_shamir::{
+    codecs::utils::bytes_uniform_modp, domain_separator::DomainSeparator,
+    duplex_sponge::interface::DuplexSpongeInterface, traits::ByteDomainSeparator,
 };
 
 impl<F, H> FieldDomainSeparator<F> for DomainSeparator<H>
 where
-    F: Field + ExtensionDegree,
+    F: Field + BasedVectorSpace<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     H: DuplexSpongeInterface,
 {
     fn add_scalars(self, count: usize, label: &str) -> Self {
@@ -26,7 +23,10 @@ where
         // - `extension_degree` is the number of limbs (e.g., 4 for quartic extensions)
         // - `bytes_modp(bits)` gives the compressed byte length for the prime subfield
         self.add_bytes(
-            count * F::extension_degree() * bytes_modp(F::PrimeSubfield::bits() as u32),
+            count
+                * F::DIMENSION
+                * F::PrimeSubfield::DIMENSION
+                * bytes_modp(F::PrimeSubfield::bits() as u32),
             label,
         )
     }
@@ -41,7 +41,10 @@ where
         // where `bytes_uniform_modp` gives the number of bytes needed to sample uniformly
         // over the base field.
         self.challenge_bytes(
-            count * F::extension_degree() * bytes_uniform_modp(F::PrimeSubfield::bits() as u32),
+            count
+                * F::DIMENSION
+                * F::PrimeSubfield::DIMENSION
+                * bytes_uniform_modp(F::PrimeSubfield::bits() as u32),
             label,
         )
     }
