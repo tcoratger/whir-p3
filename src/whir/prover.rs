@@ -164,7 +164,7 @@ where
         randomness_vec.extend(folding_randomness.0.iter().rev().copied());
         randomness_vec.resize(self.0.mv_parameters.num_variables, EF::ZERO);
 
-        let round_state = RoundState {
+        let mut round_state = RoundState {
             domain: self.0.starting_domain.clone(),
             round: 0,
             sumcheck_prover,
@@ -176,15 +176,39 @@ where
             statement,
         };
 
-        self.round(prover_state, round_state)
+        // Run WHIR rounds
+        for _round in 0..=self.0.n_rounds() {
+            self.round(prover_state, &mut round_state)?;
+        }
+
+        // Extract WhirProof
+        let mut randomness_vec_rev = round_state.randomness_vec;
+        randomness_vec_rev.reverse();
+        let statement_values_at_random_point = round_state
+            .statement
+            .constraints
+            .iter()
+            .filter_map(|(weights, _)| {
+                if let Weights::Linear { weight } = weights {
+                    Some(weight.eval_extension(&MultilinearPoint(randomness_vec_rev.clone())))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(WhirProof {
+            merkle_paths: round_state.merkle_proofs,
+            statement_values_at_random_point,
+        })
     }
 
     #[allow(clippy::too_many_lines)]
     fn round<ProverState, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
-        mut round_state: RoundState<EF, F, DIGEST_ELEMS>,
-    ) -> ProofResult<WhirProof<EF, DIGEST_ELEMS>>
+        round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
+    ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
@@ -250,7 +274,7 @@ where
         // STIR Queries
         let (stir_challenges, stir_challenges_indexes) = self.compute_stir_queries(
             prover_state,
-            &round_state,
+            round_state,
             num_variables,
             round_params,
             ood_points,
@@ -269,7 +293,7 @@ where
         // Evaluate answers in the folding randomness.
         let mut stir_evaluations = ood_answers;
         self.0.fold_optimisation.stir_evaluations_prover(
-            &round_state,
+            round_state,
             &stir_challenges_indexes,
             &answers,
             self.0.folding_factor,
@@ -330,26 +354,23 @@ where
             *dst = *src;
         }
 
-        let round_state = RoundState {
-            round: round_state.round + 1,
-            domain: new_domain,
-            sumcheck_prover: Some(sumcheck_prover),
-            folding_randomness,
-            coefficients: folded_coefficients,
-            randomness_vec: round_state.randomness_vec,
-            statement: round_state.statement,
-            prev_merkle_prover_data: prover_data,
-            merkle_proofs: round_state.merkle_proofs,
-        };
-        self.round(prover_state, round_state)
+        // Update round state
+        round_state.round += 1;
+        round_state.domain = new_domain;
+        round_state.sumcheck_prover = Some(sumcheck_prover);
+        round_state.folding_randomness = folding_randomness;
+        round_state.coefficients = folded_coefficients;
+        round_state.prev_merkle_prover_data = prover_data;
+
+        Ok(())
     }
 
     fn final_round<ProverState, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
-        mut round_state: RoundState<EF, F, DIGEST_ELEMS>,
+        round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
-    ) -> ProofResult<WhirProof<EF, DIGEST_ELEMS>>
+    ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
@@ -397,6 +418,7 @@ where
         if self.0.final_sumcheck_rounds > 0 {
             let final_folding_randomness = round_state
                 .sumcheck_prover
+                .clone()
                 .unwrap_or_else(|| {
                     SumcheckSingle::new(
                         folded_coefficients.clone(),
@@ -422,26 +444,7 @@ where
             }
         }
 
-        let mut randomness_vec_rev = round_state.randomness_vec;
-        randomness_vec_rev.reverse();
-
-        let statement_values_at_random_point = round_state
-            .statement
-            .constraints
-            .iter()
-            .filter_map(|(weights, _)| {
-                if let Weights::Linear { weight } = weights {
-                    Some(weight.eval_extension(&MultilinearPoint(randomness_vec_rev.clone())))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Ok(WhirProof {
-            merkle_paths: round_state.merkle_proofs,
-            statement_values_at_random_point,
-        })
+        Ok(())
     }
 
     fn compute_stir_queries<ProverState, const DIGEST_ELEMS: usize>(
