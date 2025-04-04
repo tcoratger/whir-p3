@@ -82,11 +82,6 @@ where
         self.hash_state.ratchet()
     }
 
-    /// Return a reference to the random number generator associated to the protocol transcript.
-    pub fn rng(&mut self) -> &mut impl CryptoRng {
-        &mut self.rng
-    }
-
     /// Return the current protocol transcript.
     /// The protocol transcript does not have any information about the length or the type of the
     /// messages being read. This is because the information is considered pre-shared within the
@@ -169,48 +164,9 @@ pub(crate) struct ProverPrivateRng<R: RngCore + CryptoRng> {
     pub(crate) csrng: R,
 }
 
-impl<R: RngCore + CryptoRng> RngCore for ProverPrivateRng<R> {
-    fn next_u32(&mut self) -> u32 {
-        let mut buf = [0u8; 4];
-        self.fill_bytes(buf.as_mut());
-        u32::from_le_bytes(buf)
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        let mut buf = [0u8; 8];
-        self.fill_bytes(buf.as_mut());
-        u64::from_le_bytes(buf)
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        // Seed (at most) 32 bytes of randomness from the CSRNG
-        let len = usize::min(dest.len(), 32);
-        self.csrng.fill_bytes(&mut dest[..len]);
-        self.ds.absorb_unchecked(&dest[..len]);
-        // fill `dest` with the output of the sponge
-        self.ds.squeeze_unchecked(dest);
-        // erase the state from the sponge so that it can't be reverted
-        self.ds.ratchet_unchecked();
-    }
-}
-
-impl<R: RngCore + CryptoRng> CryptoRng for ProverPrivateRng<R> {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_prover_state_add_units_and_rng_differs() {
-        let domsep = DomainSeparator::<DefaultHash>::new("test").absorb(4, "data");
-        let mut pstate = ProverState::from(&domsep);
-
-        pstate.add_bytes(&[1, 2, 3, 4]).unwrap();
-
-        let mut buf = [0u8; 8];
-        pstate.rng().fill_bytes(&mut buf);
-        assert_ne!(buf, [0; 8]);
-    }
 
     #[test]
     fn test_prover_state_public_units_does_not_affect_narg() {
@@ -219,22 +175,6 @@ mod tests {
 
         pstate.public_units(&[1, 2, 3, 4]).unwrap();
         assert_eq!(pstate.narg_string(), b"");
-    }
-
-    #[test]
-    fn test_prover_state_ratcheting_changes_rng_output() {
-        let domsep = DomainSeparator::<DefaultHash>::new("test").ratchet();
-        let mut pstate = ProverState::from(&domsep);
-
-        let mut buf1 = [0u8; 4];
-        pstate.rng().fill_bytes(&mut buf1);
-
-        pstate.ratchet().unwrap();
-
-        let mut buf2 = [0u8; 4];
-        pstate.rng().fill_bytes(&mut buf2);
-
-        assert_ne!(buf1, buf2);
     }
 
     #[test]
@@ -287,22 +227,6 @@ mod tests {
         let mut out = [0u8; 8];
         let _ = pstate.fill_challenge_units(&mut out);
         assert_eq!(out, [77, 249, 17, 180, 176, 109, 121, 62]);
-    }
-
-    #[test]
-    fn test_rng_entropy_changes_with_transcript() {
-        let domsep = DomainSeparator::<DefaultHash>::new("t").absorb(3, "init");
-        let mut p1 = ProverState::from(&domsep);
-        let mut p2 = ProverState::from(&domsep);
-
-        let mut a = [0u8; 16];
-        let mut b = [0u8; 16];
-
-        p1.rng().fill_bytes(&mut a);
-        p2.add_units(&[1, 2, 3]).unwrap();
-        p2.rng().fill_bytes(&mut b);
-
-        assert_ne!(a, b);
     }
 
     #[test]
