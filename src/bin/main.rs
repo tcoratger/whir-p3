@@ -37,7 +37,7 @@ struct Args {
     #[arg(short = 'p', long)]
     pow_bits: Option<usize>,
 
-    #[arg(short = 'd', long, default_value = "20")]
+    #[arg(short = 'd', long, default_value = "24")]
     num_variables: usize,
 
     #[arg(short = 'e', long = "evaluations", default_value = "1")]
