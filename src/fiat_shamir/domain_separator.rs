@@ -100,12 +100,6 @@ impl<H: DuplexSpongeInterface<U>, U: Unit> DomainSeparator<H, U> {
         Self::from_string(self.io + SEP_BYTE + &format!("S{count}") + label)
     }
 
-    /// Ratchet the state.
-    #[must_use]
-    pub fn ratchet(self) -> Self {
-        Self::from_string(self.io + SEP_BYTE + "R")
-    }
-
     /// Return the IO Pattern as bytes.
     pub fn as_bytes(&self) -> &[u8] {
         self.io.as_bytes()
@@ -271,13 +265,6 @@ mod tests {
     }
 
     #[test]
-    fn test_domain_separator_ratcheting() {
-        let ds = DomainSeparator::<H>::new("session").ratchet();
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Ratchet]);
-    }
-
-    #[test]
     fn test_absorb_return_value_format() {
         let ds = DomainSeparator::<H>::new("proto").absorb(3, "input");
         let expected_str = "proto\0A3input"; // initial + SEP + absorb op + label
@@ -341,13 +328,6 @@ mod tests {
     }
 
     #[test]
-    fn test_consecutive_ratchets_preserved() {
-        let ds = DomainSeparator::<H>::new("r").ratchet().ratchet();
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Ratchet, Op::Ratchet]);
-    }
-
-    #[test]
     fn test_unicode_labels() {
         let ds = DomainSeparator::<H>::new("emoji")
             .absorb(1, "🦀")
@@ -387,8 +367,7 @@ mod tests {
     fn test_round_trip_operations() {
         let ds1 = DomainSeparator::<H>::new("foo")
             .absorb(2, "a")
-            .squeeze(3, "b")
-            .ratchet();
+            .squeeze(3, "b");
         let ops1 = ds1.finalize();
 
         let tag = std::str::from_utf8(ds1.as_bytes()).unwrap();
@@ -430,14 +409,6 @@ mod tests {
             .squeeze(2, "second");
         let expected_str = "proto\0S1first\0S2second";
         assert_eq!(ds.as_bytes(), expected_str.as_bytes());
-    }
-
-    #[test]
-    fn test_ratchet_returns_correct_self() {
-        let ds = DomainSeparator::<H>::new("proto");
-        let ratcheted = ds.ratchet();
-        let expected_str = "proto\0R";
-        assert_eq!(ratcheted.as_bytes(), expected_str.as_bytes());
     }
 
     #[test]
