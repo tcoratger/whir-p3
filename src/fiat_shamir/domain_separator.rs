@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
 use super::{
-    DefaultHash, DefaultRng,
+    DefaultHash,
     duplex_sponge::{Unit, interface::DuplexSpongeInterface},
     errors::DomainSeparatorMismatch,
     traits::ByteDomainSeparator,
@@ -177,7 +177,7 @@ impl<H: DuplexSpongeInterface<U>, U: Unit> DomainSeparator<H, U> {
     }
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
-    pub fn to_prover_state(&self) -> ProverState<H, U, DefaultRng> {
+    pub fn to_prover_state(&self) -> ProverState<H, U> {
         self.into()
     }
 

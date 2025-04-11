@@ -1,7 +1,5 @@
-use rand::{CryptoRng, RngCore};
-
 use super::{
-    DefaultHash, DefaultRng,
+    DefaultHash,
     domain_separator::DomainSeparator,
     duplex_sponge::{Unit, interface::DuplexSpongeInterface},
     errors::DomainSeparatorMismatch,
@@ -27,38 +25,32 @@ use crate::fiat_shamir::traits::BytesToUnitSerialize;
 /// Leaking the prover state *will* leak the prover's private coins and as such it will compromise
 /// the zero-knowledge property. [`ProverState`] does not implement [`Clone`] or [`Copy`] to prevent
 /// accidental leaks.
-pub struct ProverState<H = DefaultHash, U = u8, R = DefaultRng>
+pub struct ProverState<H = DefaultHash, U = u8>
 where
     U: Unit,
     H: DuplexSpongeInterface<U>,
-    R: RngCore + CryptoRng,
 {
-    /// The randomness state of the prover.
-    pub(crate) rng: ProverPrivateRng<R>,
+    /// The duplex sponge that is used to generate the random coins.
+    pub(crate) ds: Keccak,
     /// The public coins for the protocol
     pub(crate) hash_state: HashStateWithInstructions<H, U>,
     /// The encoded data.
     pub(crate) narg_string: Vec<u8>,
 }
 
-impl<H, U, R> ProverState<H, U, R>
+impl<H, U> ProverState<H, U>
 where
     H: DuplexSpongeInterface<U>,
-    R: RngCore + CryptoRng,
     U: Unit,
 {
-    pub fn new(domain_separator: &DomainSeparator<H, U>, csrng: R) -> Self {
+    pub fn new(domain_separator: &DomainSeparator<H, U>) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator);
 
         let mut duplex_sponge = Keccak::default();
         duplex_sponge.absorb_unchecked(domain_separator.as_bytes());
-        let rng = ProverPrivateRng {
-            ds: duplex_sponge,
-            csrng,
-        };
 
         Self {
-            rng,
+            ds: duplex_sponge,
             hash_state,
             narg_string: Vec::new(),
         }
@@ -72,7 +64,7 @@ where
         self.hash_state.absorb(input)?;
         // write never fails on Vec<u8>
         U::write(input, &mut self.narg_string).unwrap();
-        self.rng.ds.absorb_unchecked(&self.narg_string[old_len..]);
+        self.ds.absorb_unchecked(&self.narg_string[old_len..]);
 
         Ok(())
     }
@@ -88,11 +80,10 @@ where
     }
 }
 
-impl<H, U, R> UnitTranscript<U> for ProverState<H, U, R>
+impl<H, U> UnitTranscript<U> for ProverState<H, U>
 where
     U: Unit,
     H: DuplexSpongeInterface<U>,
-    R: RngCore + CryptoRng,
 {
     /// Add public messages to the protocol transcript.
     /// Messages input to this function are not added to the protocol transcript.
@@ -111,52 +102,33 @@ where
     }
 }
 
-impl<H, U, R> core::fmt::Debug for ProverState<H, U, R>
+impl<H, U> core::fmt::Debug for ProverState<H, U>
 where
     U: Unit,
     H: DuplexSpongeInterface<U>,
-    R: RngCore + CryptoRng,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.hash_state.fmt(f)
     }
 }
 
-impl<U, H> From<&DomainSeparator<H, U>> for ProverState<H, U, DefaultRng>
+impl<U, H> From<&DomainSeparator<H, U>> for ProverState<H, U>
 where
     U: Unit,
     H: DuplexSpongeInterface<U>,
 {
     fn from(domain_separator: &DomainSeparator<H, U>) -> Self {
-        Self::new(domain_separator, DefaultRng::default())
+        Self::new(domain_separator)
     }
 }
 
-impl<H, R> BytesToUnitSerialize for ProverState<H, u8, R>
+impl<H> BytesToUnitSerialize for ProverState<H, u8>
 where
     H: DuplexSpongeInterface<u8>,
-    R: RngCore + CryptoRng,
 {
     fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         self.add_units(input)
     }
-}
-
-/// A cryptographically-secure random number generator that is bound to the protocol transcript.
-///
-/// For most public-coin protocols it is *vital* not to have two different verifier messages for the
-/// same prover message. For this reason, we construct a Rng that will absorb whatever the verifier
-/// absorbs, and that in addition it is seeded by a cryptographic random number generator (by
-/// default, [`rand::rngs::OsRng`]).
-///
-/// Every time a challenge is being generated, the private prover sponge is ratcheted, so that it
-/// can't be inverted and the randomness recovered.
-#[derive(Debug)]
-pub(crate) struct ProverPrivateRng<R: RngCore + CryptoRng> {
-    /// The duplex sponge that is used to generate the random coins.
-    pub(crate) ds: Keccak,
-    /// The cryptographic random number generator that seeds the sponge.
-    pub(crate) csrng: R,
 }
 
 #[cfg(test)]
