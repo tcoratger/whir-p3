@@ -41,13 +41,6 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
         }
     }
 
-    /// Ratchet and return the sponge state.
-    pub fn preprocess(self) -> Result<&'static [U], DomainSeparatorMismatch> {
-        unimplemented!()
-        // self.ratchet()?;
-        // Ok(self.sponge.tag().clone())
-    }
-
     /// Perform secure absorption of the elements in `input`.
     ///
     /// Absorb calls can be batched together, or provided separately for streaming-friendly
