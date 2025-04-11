@@ -150,7 +150,7 @@ mod tests {
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_ok());
         assert_eq!(buf, *b"abc");
-        assert_eq!(*vs.hash_state.ds().absorbed.borrow(), b"abc");
+        assert_eq!(*vs.hash_state.ds.absorbed.borrow(), b"abc");
     }
 
     #[test]
@@ -167,7 +167,7 @@ mod tests {
         let ds = DomainSeparator::<DummySponge>::new("x").absorb(2, "public");
         let mut vs = VerifierState::<DummySponge>::new(&ds, b"..");
         assert!(vs.public_units(&[1, 2]).is_ok());
-        assert_eq!(*vs.hash_state.ds().absorbed.borrow(), &[1, 2]);
+        assert_eq!(*vs.hash_state.ds.absorbed.borrow(), &[1, 2]);
     }
 
     #[test]

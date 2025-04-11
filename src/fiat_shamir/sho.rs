@@ -15,7 +15,7 @@ where
     H: DuplexSpongeInterface<U>,
 {
     /// The internal duplex sponge used for absorbing and squeezing data.
-    ds: H,
+    pub(crate) ds: H,
     /// A stack of expected sponge operations.
     stack: VecDeque<Op>,
     /// Marker to associate the unit type `U` without storing a value.
@@ -113,11 +113,6 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
             stack,
             _unit: PhantomData,
         }
-    }
-
-    #[cfg(test)]
-    pub const fn ds(&self) -> &H {
-        &self.ds
     }
 }
 
