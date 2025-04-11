@@ -55,12 +55,6 @@ impl<'a, U: Unit, H: DuplexSpongeInterface<U>> VerifierState<'a, H, U> {
         self.hash_state.absorb(input)?;
         Ok(())
     }
-
-    /// Signals the end of the statement.
-    #[inline]
-    pub fn ratchet(&mut self) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.ratchet()
-    }
 }
 
 impl<H: DuplexSpongeInterface<U>, U: Unit> UnitTranscript<U> for VerifierState<'_, H, U> {
@@ -166,21 +160,6 @@ mod tests {
         let mut buf = [0u8; 4];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_err());
-    }
-
-    #[test]
-    fn test_ratcheting_success() {
-        let ds = DomainSeparator::<DummySponge>::new("x").ratchet();
-        let mut vs = VerifierState::<DummySponge>::new(&ds, &[]);
-        assert!(vs.ratchet().is_ok());
-        assert!(*vs.hash_state.ds().ratcheted.borrow());
-    }
-
-    #[test]
-    fn test_ratcheting_wrong_op_errors() {
-        let ds = DomainSeparator::<DummySponge>::new("x").absorb(1, "wrong");
-        let mut vs = VerifierState::<DummySponge>::new(&ds, b"z");
-        assert!(vs.ratchet().is_err());
     }
 
     #[test]

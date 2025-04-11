@@ -31,16 +31,6 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
         Self::unchecked_load_with_stack(tag, stack)
     }
 
-    /// Finish the block and compress the state.
-    pub fn ratchet(&mut self) -> Result<(), DomainSeparatorMismatch> {
-        if self.stack.pop_front().unwrap() == Op::Ratchet {
-            self.ds.ratchet_unchecked();
-            Ok(())
-        } else {
-            Err("Invalid tag".into())
-        }
-    }
-
     /// Perform secure absorption of the elements in `input`.
     ///
     /// Absorb calls can be batched together, or provided separately for streaming-friendly
@@ -258,26 +248,6 @@ mod tests {
         assert!(result.is_ok());
 
         assert_eq!(state.stack.front(), Some(&Op::Squeeze(2)));
-    }
-
-    #[test]
-    fn test_ratchet_correct_op() {
-        let domsep = DomainSeparator::<DummySponge>::new("test").ratchet();
-        let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
-
-        let result = state.ratchet();
-        assert!(result.is_ok());
-        assert_eq!(*state.ds.ratcheted.borrow(), true);
-    }
-
-    #[test]
-    fn test_ratchet_wrong_op_returns_error() {
-        let domsep = DomainSeparator::<DummySponge>::new("test").absorb(1, "oops");
-        let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
-
-        let result = state.ratchet();
-        assert!(result.is_err());
-        assert!(state.stack.is_empty());
     }
 
     #[test]
