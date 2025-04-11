@@ -25,6 +25,7 @@ use crate::fiat_shamir::traits::BytesToUnitSerialize;
 /// Leaking the prover state *will* leak the prover's private coins and as such it will compromise
 /// the zero-knowledge property. [`ProverState`] does not implement [`Clone`] or [`Copy`] to prevent
 /// accidental leaks.
+#[derive(Debug)]
 pub struct ProverState<H = DefaultHash, U = u8>
 where
     U: Unit,
@@ -99,16 +100,6 @@ where
     /// Fill a slice with uniformly-distributed challenges from the verifier.
     fn fill_challenge_units(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.squeeze(output)
-    }
-}
-
-impl<H, U> core::fmt::Debug for ProverState<H, U>
-where
-    U: Unit,
-    H: DuplexSpongeInterface<U>,
-{
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.hash_state.fmt(f)
     }
 }
 

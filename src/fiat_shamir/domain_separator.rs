@@ -35,7 +35,7 @@ const SEP_BYTE: &str = "\0";
 /// The struct [`DomainSeparator`] guarantees the creation of a valid IO Pattern string, whose
 /// lengths are coherent with the types described in the protocol. No information about the types
 /// themselves is stored in an IO Pattern. This means that [`ProverState`][`crate::ProverState`] or [`VerifierState`][`crate::VerifierState`] instances can generate successfully a protocol transcript respecting the length constraint but not the types. See [issue #6](https://github.com/arkworks-rs/spongefish/issues/6) for a discussion on the topic.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DomainSeparator<H = DefaultHash, U = u8>
 where
     U: Unit,
@@ -185,13 +185,6 @@ impl<H: DuplexSpongeInterface<U>, U: Unit> DomainSeparator<H, U> {
     /// (bytes).
     pub fn to_verifier_state<'a>(&self, transcript: &'a [u8]) -> VerifierState<'a, H, U> {
         VerifierState::new(self, transcript)
-    }
-}
-
-impl<U: Unit, H: DuplexSpongeInterface<U>> core::fmt::Debug for DomainSeparator<H, U> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // Ensure that the state isn't accidentally logged
-        write!(f, "DomainSeparator({:?})", self.io)
     }
 }
 

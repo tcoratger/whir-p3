@@ -8,7 +8,7 @@ use super::{
 };
 
 /// A stateful hash object that interfaces with duplex interfaces.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct HashStateWithInstructions<H, U = u8>
 where
     U: Unit,
@@ -153,18 +153,6 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> Drop for HashStateWithInstructions<H,
         }
         // XXX. is the compiler going to optimize this out?
         self.ds.zeroize();
-    }
-}
-
-impl<U: Unit, H: DuplexSpongeInterface<U>> std::fmt::Debug for HashStateWithInstructions<H, U> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Ensure that the state isn't accidentally logged,
-        // but provide the remaining IO Pattern for debugging.
-        write!(
-            f,
-            "Sponge in duplex mode with committed verifier operations: {:?}",
-            self.stack
-        )
     }
 }
 
