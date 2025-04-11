@@ -1,5 +1,5 @@
 use crate::fiat_shamir::{
-    duplex_sponge::{Unit, interface::DuplexSpongeInterface},
+    duplex_sponge::interface::DuplexSpongeInterface,
     errors::{ProofError, ProofResult},
     prover::ProverState,
     traits::{ByteDomainSeparator, BytesToUnitDeserialize, BytesToUnitSerialize, UnitToBytes},
@@ -88,10 +88,9 @@ where
     }
 }
 
-impl<H, U> PoWChallenge for ProverState<H, U>
+impl<H> PoWChallenge for ProverState<H>
 where
-    U: Unit,
-    H: DuplexSpongeInterface<U>,
+    H: DuplexSpongeInterface<u8>,
     Self: BytesToUnitSerialize + UnitToBytes,
 {
     fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
@@ -104,10 +103,9 @@ where
     }
 }
 
-impl<H, U> PoWChallenge for VerifierState<'_, H, U>
+impl<H> PoWChallenge for VerifierState<'_, H>
 where
-    U: Unit,
-    H: DuplexSpongeInterface<U>,
+    H: DuplexSpongeInterface<u8>,
     Self: BytesToUnitDeserialize + UnitToBytes,
 {
     fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {

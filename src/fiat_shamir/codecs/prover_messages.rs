@@ -6,7 +6,7 @@ use crate::fiat_shamir::{
     errors::ProofResult, prover::ProverState,
 };
 
-impl<F, H> FieldToUnitSerialize<F> for ProverState<H, u8>
+impl<F, H> FieldToUnitSerialize<F> for ProverState<H>
 where
     F: Field + BasedVectorSpace<F::PrimeSubfield>,
     F::PrimeSubfield: PrimeField64,

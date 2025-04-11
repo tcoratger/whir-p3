@@ -26,25 +26,23 @@ use crate::fiat_shamir::traits::BytesToUnitSerialize;
 /// the zero-knowledge property. [`ProverState`] does not implement [`Clone`] or [`Copy`] to prevent
 /// accidental leaks.
 #[derive(Debug)]
-pub struct ProverState<H = DefaultHash, U = u8>
+pub struct ProverState<H = DefaultHash>
 where
-    U: Unit,
-    H: DuplexSpongeInterface<U>,
+    H: DuplexSpongeInterface<u8>,
 {
     /// The duplex sponge that is used to generate the random coins.
     pub(crate) ds: Keccak,
     /// The public coins for the protocol
-    pub(crate) hash_state: HashStateWithInstructions<H, U>,
+    pub(crate) hash_state: HashStateWithInstructions<H>,
     /// The encoded data.
     pub(crate) narg_string: Vec<u8>,
 }
 
-impl<H, U> ProverState<H, U>
+impl<H> ProverState<H>
 where
-    H: DuplexSpongeInterface<U>,
-    U: Unit,
+    H: DuplexSpongeInterface<u8>,
 {
-    pub fn new(domain_separator: &DomainSeparator<H, U>) -> Self {
+    pub fn new(domain_separator: &DomainSeparator<H>) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator);
 
         let mut duplex_sponge = Keccak::default();
@@ -60,11 +58,11 @@ where
     /// Add a slice `[U]` to the protocol transcript.
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
-    pub fn add_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn add_units(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         let old_len = self.narg_string.len();
         self.hash_state.absorb(input)?;
         // write never fails on Vec<u8>
-        U::write(input, &mut self.narg_string).unwrap();
+        u8::write(input, &mut self.narg_string).unwrap();
         self.ds.absorb_unchecked(&self.narg_string[old_len..]);
 
         Ok(())
@@ -81,16 +79,15 @@ where
     }
 }
 
-impl<H, U> UnitTranscript<U> for ProverState<H, U>
+impl<H> UnitTranscript<u8> for ProverState<H>
 where
-    U: Unit,
-    H: DuplexSpongeInterface<U>,
+    H: DuplexSpongeInterface<u8>,
 {
     /// Add public messages to the protocol transcript.
     /// Messages input to this function are not added to the protocol transcript.
     /// They are however absorbed into the verifier's sponge for Fiat-Shamir, and used to re-seed
     /// the prover state.
-    fn public_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
+    fn public_units(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         let len = self.narg_string.len();
         self.add_units(input)?;
         self.narg_string.truncate(len);
@@ -98,22 +95,21 @@ where
     }
 
     /// Fill a slice with uniformly-distributed challenges from the verifier.
-    fn fill_challenge_units(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+    fn fill_challenge_units(&mut self, output: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.squeeze(output)
     }
 }
 
-impl<U, H> From<&DomainSeparator<H, U>> for ProverState<H, U>
+impl<H> From<&DomainSeparator<H>> for ProverState<H>
 where
-    U: Unit,
-    H: DuplexSpongeInterface<U>,
+    H: DuplexSpongeInterface<u8>,
 {
-    fn from(domain_separator: &DomainSeparator<H, U>) -> Self {
+    fn from(domain_separator: &DomainSeparator<H>) -> Self {
         Self::new(domain_separator)
     }
 }
 
-impl<H> BytesToUnitSerialize for ProverState<H, u8>
+impl<H> BytesToUnitSerialize for ProverState<H>
 where
     H: DuplexSpongeInterface<u8>,
 {

@@ -14,16 +14,15 @@ use super::{
 /// de-serialize elements from the NARG string and make them available to the zero-knowledge
 /// verifier.
 #[derive(Debug)]
-pub struct VerifierState<'a, H = DefaultHash, U = u8>
+pub struct VerifierState<'a, H = DefaultHash>
 where
-    H: DuplexSpongeInterface<U>,
-    U: Unit,
+    H: DuplexSpongeInterface<u8>,
 {
-    pub(crate) hash_state: HashStateWithInstructions<H, U>,
+    pub(crate) hash_state: HashStateWithInstructions<H>,
     pub(crate) narg_string: &'a [u8],
 }
 
-impl<'a, U: Unit, H: DuplexSpongeInterface<U>> VerifierState<'a, H, U> {
+impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
     /// Creates a new [`VerifierState`] instance with the given sponge and IO Pattern.
     ///
     /// The resulting object will act as the verifier in a zero-knowledge protocol.
@@ -40,7 +39,7 @@ impl<'a, U: Unit, H: DuplexSpongeInterface<U>> VerifierState<'a, H, U> {
     /// assert!(challenge.is_ok());
     /// assert_ne!(challenge.unwrap(), [0; 32]);
     /// ```
-    pub fn new(domain_separator: &DomainSeparator<H, U>, narg_string: &'a [u8]) -> Self {
+    pub fn new(domain_separator: &DomainSeparator<H>, narg_string: &'a [u8]) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator);
         Self {
             hash_state,
@@ -50,28 +49,28 @@ impl<'a, U: Unit, H: DuplexSpongeInterface<U>> VerifierState<'a, H, U> {
 
     /// Read `input.len()` elements from the NARG string.
     #[inline]
-    pub fn fill_next_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
-        U::read(&mut self.narg_string, input)?;
+    pub fn fill_next_units(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
+        u8::read(&mut self.narg_string, input)?;
         self.hash_state.absorb(input)?;
         Ok(())
     }
 }
 
-impl<H: DuplexSpongeInterface<U>, U: Unit> UnitTranscript<U> for VerifierState<'_, H, U> {
+impl<H: DuplexSpongeInterface<u8>> UnitTranscript<u8> for VerifierState<'_, H> {
     /// Add native elements to the sponge without writing them to the NARG string.
     #[inline]
-    fn public_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
+    fn public_units(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.absorb(input)
     }
 
     /// Fill `input` with units sampled uniformly at random.
     #[inline]
-    fn fill_challenge_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+    fn fill_challenge_units(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.squeeze(input)
     }
 }
 
-impl<H: DuplexSpongeInterface<u8>> BytesToUnitDeserialize for VerifierState<'_, H, u8> {
+impl<H: DuplexSpongeInterface<u8>> BytesToUnitDeserialize for VerifierState<'_, H> {
     /// Read the next `input.len()` bytes from the NARG string and return them.
     #[inline]
     fn fill_next_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {

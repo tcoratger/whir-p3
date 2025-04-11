@@ -2,30 +2,29 @@ use std::{collections::VecDeque, marker::PhantomData};
 
 use super::{
     domain_separator::{DomainSeparator, Op},
-    duplex_sponge::{Unit, interface::DuplexSpongeInterface},
+    duplex_sponge::interface::DuplexSpongeInterface,
     errors::DomainSeparatorMismatch,
     keccak::Keccak,
 };
 
 /// A stateful hash object that interfaces with duplex interfaces.
 #[derive(Clone, Debug)]
-pub struct HashStateWithInstructions<H, U = u8>
+pub struct HashStateWithInstructions<H>
 where
-    U: Unit,
-    H: DuplexSpongeInterface<U>,
+    H: DuplexSpongeInterface<u8>,
 {
     /// The internal duplex sponge used for absorbing and squeezing data.
     pub(crate) ds: H,
     /// A stack of expected sponge operations.
     stack: VecDeque<Op>,
     /// Marker to associate the unit type `U` without storing a value.
-    _unit: PhantomData<U>,
+    _unit: PhantomData<u8>,
 }
 
-impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
+impl<H: DuplexSpongeInterface<u8>> HashStateWithInstructions<H> {
     /// Initialise a stateful hash object,
     /// setting up the state of the sponge function and parsing the tag string.
-    pub fn new(domain_separator: &DomainSeparator<H, U>) -> Self {
+    pub fn new(domain_separator: &DomainSeparator<H>) -> Self {
         let stack = domain_separator.finalize();
         let tag = Self::generate_tag(domain_separator.as_bytes());
         Self::unchecked_load_with_stack(tag, stack)
@@ -35,7 +34,7 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
     ///
     /// Absorb calls can be batched together, or provided separately for streaming-friendly
     /// protocols.
-    pub fn absorb(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn absorb(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         match self.stack.pop_front() {
             Some(Op::Absorb(length)) if length >= input.len() => {
                 if length > input.len() {
@@ -69,7 +68,7 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
     /// For byte-oriented sponges, this operation is equivalent to the squeeze operation.
     /// However, for algebraic hashes, this operation is non-trivial.
     /// This function provides no guarantee of streaming-friendliness.
-    pub fn squeeze(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn squeeze(&mut self, output: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
         match self.stack.pop_front() {
             Some(Op::Squeeze(length)) if output.len() <= length => {
                 self.ds.squeeze_unchecked(output);
@@ -116,7 +115,7 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> HashStateWithInstructions<H, U> {
     }
 }
 
-impl<U: Unit, H: DuplexSpongeInterface<U>> Drop for HashStateWithInstructions<H, U> {
+impl<H: DuplexSpongeInterface<u8>> Drop for HashStateWithInstructions<H> {
     /// Destroy the sponge state.
     fn drop(&mut self) {
         // it's a bit violent to panic here,
@@ -134,8 +133,8 @@ impl<U: Unit, H: DuplexSpongeInterface<U>> Drop for HashStateWithInstructions<H,
     }
 }
 
-impl<U: Unit, H: DuplexSpongeInterface<U>, B: core::borrow::Borrow<DomainSeparator<H, U>>> From<B>
-    for HashStateWithInstructions<H, U>
+impl<H: DuplexSpongeInterface<u8>, B: core::borrow::Borrow<DomainSeparator<H>>> From<B>
+    for HashStateWithInstructions<H>
 {
     fn from(value: B) -> Self {
         Self::new(value.borrow())

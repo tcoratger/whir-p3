@@ -1,9 +1,7 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
 use super::{
-    DefaultHash,
-    duplex_sponge::{Unit, interface::DuplexSpongeInterface},
-    errors::DomainSeparatorMismatch,
+    DefaultHash, duplex_sponge::interface::DuplexSpongeInterface, errors::DomainSeparatorMismatch,
     traits::ByteDomainSeparator,
 };
 use crate::fiat_shamir::{prover::ProverState, verifier::VerifierState};
@@ -36,16 +34,15 @@ const SEP_BYTE: &str = "\0";
 /// lengths are coherent with the types described in the protocol. No information about the types
 /// themselves is stored in an IO Pattern. This means that [`ProverState`][`crate::ProverState`] or [`VerifierState`][`crate::VerifierState`] instances can generate successfully a protocol transcript respecting the length constraint but not the types. See [issue #6](https://github.com/arkworks-rs/spongefish/issues/6) for a discussion on the topic.
 #[derive(Clone, Debug)]
-pub struct DomainSeparator<H = DefaultHash, U = u8>
+pub struct DomainSeparator<H = DefaultHash>
 where
-    U: Unit,
-    H: DuplexSpongeInterface<U>,
+    H: DuplexSpongeInterface<u8>,
 {
     io: String,
-    _hash: PhantomData<(H, U)>,
+    _hash: PhantomData<H>,
 }
 
-impl<H: DuplexSpongeInterface<U>, U: Unit> DomainSeparator<H, U> {
+impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     pub const fn from_string(io: String) -> Self {
         Self {
             io,
@@ -171,13 +168,13 @@ impl<H: DuplexSpongeInterface<U>, U: Unit> DomainSeparator<H, U> {
     }
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
-    pub fn to_prover_state(&self) -> ProverState<H, U> {
+    pub fn to_prover_state(&self) -> ProverState<H> {
         self.into()
     }
 
     /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript
     /// (bytes).
-    pub fn to_verifier_state<'a>(&self, transcript: &'a [u8]) -> VerifierState<'a, H, U> {
+    pub fn to_verifier_state<'a>(&self, transcript: &'a [u8]) -> VerifierState<'a, H> {
         VerifierState::new(self, transcript)
     }
 }
