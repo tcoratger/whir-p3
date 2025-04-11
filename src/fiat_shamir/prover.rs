@@ -7,7 +7,6 @@ use super::{
     sho::HashStateWithInstructions,
     traits::UnitTranscript,
 };
-use crate::fiat_shamir::traits::BytesToUnitSerialize;
 
 /// [`ProverState`] is the prover state of an interactive proof (IP) system.
 ///
@@ -77,6 +76,10 @@ where
     pub fn narg_string(&self) -> &[u8] {
         self.narg_string.as_slice()
     }
+
+    pub fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+        self.add_units(input)
+    }
 }
 
 impl<H> UnitTranscript<u8> for ProverState<H>
@@ -106,15 +109,6 @@ where
 {
     fn from(domain_separator: &DomainSeparator<H>) -> Self {
         Self::new(domain_separator)
-    }
-}
-
-impl<H> BytesToUnitSerialize for ProverState<H>
-where
-    H: DuplexSpongeInterface<u8>,
-{
-    fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
-        self.add_units(input)
     }
 }
 

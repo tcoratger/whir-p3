@@ -2,7 +2,7 @@ use crate::fiat_shamir::{
     duplex_sponge::interface::DuplexSpongeInterface,
     errors::{ProofError, ProofResult},
     prover::ProverState,
-    traits::{ByteDomainSeparator, BytesToUnitSerialize, UnitToBytes},
+    traits::{ByteDomainSeparator, UnitToBytes},
     verifier::VerifierState,
 };
 
@@ -91,7 +91,7 @@ where
 impl<H> PoWChallenge for ProverState<H>
 where
     H: DuplexSpongeInterface<u8>,
-    Self: BytesToUnitSerialize + UnitToBytes,
+    Self: UnitToBytes,
 {
     fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
         let challenge = self.challenge_bytes()?;

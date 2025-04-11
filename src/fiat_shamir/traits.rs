@@ -48,10 +48,6 @@ pub trait UnitToBytes {
 /// for more details.
 pub trait ByteTranscript: CommonUnitToBytes + UnitToBytes {}
 
-pub trait BytesToUnitSerialize {
-    fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch>;
-}
-
 /// Methods for adding bytes to the [`DomainSeparator`](crate::DomainSeparator), properly counting
 /// group elements.
 pub trait ByteDomainSeparator {
