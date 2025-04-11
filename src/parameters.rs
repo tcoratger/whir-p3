@@ -341,7 +341,7 @@ impl FoldingFactor {
 
 /// Configuration parameters for WHIR proofs.
 #[derive(Clone, Debug)]
-pub struct WhirParameters<H, C> {
+pub struct ProtocolParameters<H, C> {
     /// Whether the initial statement is included in the proof.
     pub initial_statement: bool,
     /// The logarithmic inverse rate for sampling.
@@ -362,7 +362,7 @@ pub struct WhirParameters<H, C> {
     pub merkle_compress: C,
 }
 
-impl<H, C> Display for WhirParameters<H, C> {
+impl<H, C> Display for ProtocolParameters<H, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,

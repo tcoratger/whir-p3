@@ -126,7 +126,7 @@ mod tests {
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         parameters::{
-            FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters,
+            FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, SoundnessType,
         },
         poly::multilinear::MultilinearPoint,
         whir::domainsep::WhirDomainSeparator,
@@ -152,7 +152,7 @@ mod tests {
 
         let compress = MyCompress::new(byte_hash);
 
-        let whir_params = WhirParameters::<FieldHash, MyCompress> {
+        let whir_params = ProtocolParameters::<FieldHash, MyCompress> {
             initial_statement: true,
             security_level,
             pow_bits,
@@ -236,7 +236,7 @@ mod tests {
 
         let compress = MyCompress::new(byte_hash);
 
-        let whir_params = WhirParameters {
+        let whir_params = ProtocolParameters {
             initial_statement: true,
             security_level,
             pow_bits,
@@ -279,7 +279,7 @@ mod tests {
 
         let compress = MyCompress::new(byte_hash);
 
-        let whir_params = WhirParameters {
+        let whir_params = ProtocolParameters {
             initial_statement: true,
             security_level,
             pow_bits,

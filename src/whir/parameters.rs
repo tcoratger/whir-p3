@@ -4,7 +4,9 @@ use p3_field::{BasedVectorSpace, ExtensionField, Field, TwoAdicField};
 
 use crate::{
     domain::Domain,
-    parameters::{FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters},
+    parameters::{
+        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, SoundnessType,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -64,7 +66,7 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn new(
         mv_parameters: MultivariateParameters<EF>,
-        whir_parameters: WhirParameters<H, C>,
+        whir_parameters: ProtocolParameters<H, C>,
     ) -> Self {
         whir_parameters
             .folding_factor
@@ -434,8 +436,8 @@ mod tests {
     type Poseidon2Sponge<Perm24> = PaddingFreeSponge<Perm24, 24, 16, 8>;
 
     /// Generates default WHIR parameters
-    fn default_whir_params() -> WhirParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
-        WhirParameters {
+    fn default_whir_params() -> ProtocolParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
+        ProtocolParameters {
             initial_statement: true,
             security_level: 100,
             pow_bits: 20,

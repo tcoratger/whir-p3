@@ -8,7 +8,7 @@ use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher64};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
-        FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters,
+        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, SoundnessType,
         default_max_pow,
     },
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
@@ -91,7 +91,7 @@ fn main() {
     let mv_params = MultivariateParameters::<EF>::new(num_variables);
 
     // Construct WHIR protocol parameters
-    let whir_params = WhirParameters::<_, _> {
+    let whir_params = ProtocolParameters::<_, _> {
         initial_statement: true,
         security_level,
         pow_bits,

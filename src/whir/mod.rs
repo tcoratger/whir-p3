@@ -10,7 +10,9 @@ use verifier::Verifier;
 
 use crate::{
     fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
-    parameters::{FoldType, FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters},
+    parameters::{
+        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, SoundnessType,
+    },
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{domainsep::WhirDomainSeparator, prover::Proof},
 };
@@ -69,7 +71,7 @@ pub fn make_whir_things(
     let mv_params = MultivariateParameters::<F>::new(num_variables);
 
     // Construct WHIR protocol parameters
-    let whir_params = WhirParameters::<_, _> {
+    let whir_params = ProtocolParameters::<_, _> {
         initial_statement: true,
         security_level: 32,
         pow_bits,
