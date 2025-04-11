@@ -77,11 +77,6 @@ where
         Ok(())
     }
 
-    /// Ratchet the verifier's state.
-    pub fn ratchet(&mut self) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.ratchet()
-    }
-
     /// Return the current protocol transcript.
     /// The protocol transcript does not have any information about the length or the type of the
     /// messages being read. This is because the information is considered pre-shared within the
@@ -194,20 +189,6 @@ mod tests {
 
         let result = pstate.add_units(&[1, 2, 3]);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_ratchet_works_when_expected() {
-        let domsep = DomainSeparator::<DefaultHash>::new("test").ratchet();
-        let mut pstate = ProverState::from(&domsep);
-        assert!(pstate.ratchet().is_ok());
-    }
-
-    #[test]
-    fn test_ratchet_fails_when_not_expected() {
-        let domsep = DomainSeparator::<DefaultHash>::new("test").absorb(1, "bad");
-        let mut pstate = ProverState::from(&domsep);
-        assert!(pstate.ratchet().is_err());
     }
 
     #[test]
