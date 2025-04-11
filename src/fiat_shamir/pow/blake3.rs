@@ -207,7 +207,7 @@ mod tests {
         DefaultHash,
         domain_separator::DomainSeparator,
         pow::traits::{PoWChallenge, PoWDomainSeparator},
-        traits::{ByteDomainSeparator, BytesToUnitDeserialize, BytesToUnitSerialize},
+        traits::{ByteDomainSeparator, BytesToUnitSerialize},
     };
 
     fn sample_challenges() -> Vec<[u8; 32]> {

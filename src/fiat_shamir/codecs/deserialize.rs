@@ -3,7 +3,7 @@ use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing, PrimeField64};
 use super::{traits::FieldToUnitDeserialize, utils::bytes_modp};
 use crate::fiat_shamir::{
     codecs::utils::from_le_bytes_mod_order, duplex_sponge::interface::DuplexSpongeInterface,
-    errors::ProofResult, traits::BytesToUnitDeserialize, verifier::VerifierState,
+    errors::ProofResult, verifier::VerifierState,
 };
 
 impl<F, H> FieldToUnitDeserialize<F> for VerifierState<'_, H>

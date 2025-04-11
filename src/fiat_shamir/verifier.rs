@@ -4,7 +4,7 @@ use super::{
     duplex_sponge::{Unit, interface::DuplexSpongeInterface},
     errors::DomainSeparatorMismatch,
     sho::HashStateWithInstructions,
-    traits::{BytesToUnitDeserialize, UnitTranscript},
+    traits::UnitTranscript,
 };
 
 /// [`VerifierState`] is the verifier state.
@@ -54,6 +54,18 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
         self.hash_state.absorb(input)?;
         Ok(())
     }
+
+    /// Read the next `input.len()` bytes from the NARG string and return them.
+    #[inline]
+    pub fn fill_next_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
+        self.fill_next_units(input)
+    }
+
+    pub fn next_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
+        let mut input = [0u8; N];
+        self.fill_next_bytes(&mut input)?;
+        Ok(input)
+    }
 }
 
 impl<H: DuplexSpongeInterface<u8>> UnitTranscript<u8> for VerifierState<'_, H> {
@@ -67,14 +79,6 @@ impl<H: DuplexSpongeInterface<u8>> UnitTranscript<u8> for VerifierState<'_, H> {
     #[inline]
     fn fill_challenge_units(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.squeeze(input)
-    }
-}
-
-impl<H: DuplexSpongeInterface<u8>> BytesToUnitDeserialize for VerifierState<'_, H> {
-    /// Read the next `input.len()` bytes from the NARG string and return them.
-    #[inline]
-    fn fill_next_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
-        self.fill_next_units(input)
     }
 }
 
