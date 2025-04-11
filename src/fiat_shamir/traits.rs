@@ -41,13 +41,6 @@ pub trait UnitToBytes {
     }
 }
 
-/// A trait for absorbing and squeezing bytes from a sponge.
-///
-/// While this trait is trivial for byte-oriented sponges, non-algebraic hashes are tricky.
-/// We point the curious reader to the documentation of [`CommonUnitToBytes`] and [`UnitToBytes`]
-/// for more details.
-pub trait ByteTranscript: CommonUnitToBytes + UnitToBytes {}
-
 /// Methods for adding bytes to the [`DomainSeparator`](crate::DomainSeparator), properly counting
 /// group elements.
 pub trait ByteDomainSeparator {
