@@ -1,4 +1,4 @@
-use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing, PrimeField64};
+use p3_field::{BasedVectorSpace, Field, PrimeField64};
 
 use super::{traits::FieldToUnitDeserialize, utils::bytes_modp};
 use crate::fiat_shamir::{
@@ -8,7 +8,7 @@ use crate::fiat_shamir::{
 
 impl<F, H> FieldToUnitDeserialize<F> for VerifierState<'_, H>
 where
-    F: Field + BasedVectorSpace<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+    F: Field + BasedVectorSpace<F::PrimeSubfield>,
     F::PrimeSubfield: PrimeField64,
     H: DuplexSpongeInterface,
 {
@@ -44,7 +44,7 @@ where
 #[allow(clippy::unreadable_literal)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_field::extension::BinomialExtensionField;
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 
     use super::*;
     use crate::fiat_shamir::{

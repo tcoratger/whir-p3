@@ -1,4 +1,4 @@
-use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing};
+use p3_field::{BasedVectorSpace, Field};
 
 use super::{traits::FieldDomainSeparator, utils::bytes_modp};
 use crate::fiat_shamir::{
@@ -8,7 +8,7 @@ use crate::fiat_shamir::{
 
 impl<F, H> FieldDomainSeparator<F> for DomainSeparator<H>
 where
-    F: Field + BasedVectorSpace<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+    F: Field + BasedVectorSpace<F::PrimeSubfield>,
     H: DuplexSpongeInterface,
 {
     fn add_scalars(self, count: usize, label: &str) -> Self {
