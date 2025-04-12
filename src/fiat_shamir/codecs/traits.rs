@@ -3,7 +3,7 @@ use p3_field::Field;
 use crate::fiat_shamir::errors::ProofResult;
 
 /// Absorb and squeeze field elements to the IO pattern.
-pub trait FieldDomainSeparator<F: Field> {
+pub trait FieldDomainSeparator<F> {
     #[must_use]
     fn add_scalars(self, count: usize, label: &str) -> Self;
     #[must_use]
@@ -25,13 +25,13 @@ pub trait UnitToField<F: Field> {
 }
 
 /// Add field elements as shared public information.
-pub trait CommonFieldToUnit<F: Field> {
+pub trait CommonFieldToUnit<F> {
     type Repr;
     fn public_scalars(&mut self, input: &[F]) -> ProofResult<Self::Repr>;
 }
 
 /// Add field elements to the protocol transcript.
-pub trait FieldToUnitSerialize<F: Field>: CommonFieldToUnit<F> {
+pub trait FieldToUnitSerialize<F>: CommonFieldToUnit<F> {
     fn add_scalars(&mut self, input: &[F]) -> ProofResult<()>;
 }
 
