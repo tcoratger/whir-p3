@@ -8,7 +8,7 @@ use crate::fiat_shamir::{
 
 impl<F, H> FieldDomainSeparator<F> for DomainSeparator<H>
 where
-    F: Field + BasedVectorSpace<F::PrimeSubfield>,
+    F: Field,
     H: DuplexSpongeInterface,
 {
     fn add_scalars(self, count: usize, label: &str) -> Self {
