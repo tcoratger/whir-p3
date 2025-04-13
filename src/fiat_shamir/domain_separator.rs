@@ -661,7 +661,7 @@ mod tests {
         // - bits = 31 → bytes_modp(31) = 4
         // - 2 scalars * 1 * 4 = 8 bytes absorbed
         // - "A" indicates absorption in the domain separator
-        let domsep: DomainSeparator<H> = DomainSeparator::new("bb");
+        let domsep: DomainSeparator<H> = DomainSeparator::new("babybear");
         let sep = domsep.add_scalars::<F>(2, "foo");
         let expected = b"babybear\0A8foo";
         assert_eq!(sep.as_bytes(), expected);
