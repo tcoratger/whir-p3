@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, marker::PhantomData};
+use std::{collections::VecDeque, fmt::Write, marker::PhantomData};
 
 use p3_field::{BasedVectorSpace, ExtensionField, Field, TwoAdicField};
 
@@ -82,7 +82,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         );
 
         self.io += SEP_BYTE;
-        self.io += &format!("A{count}{label}");
+        write!(self.io, "A{count}{label}").expect("writing to String cannot fail");
     }
 
     /// Squeeze `count` native elements.
@@ -101,7 +101,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         );
 
         self.io += SEP_BYTE;
-        self.io += &format!("S{count}{label}");
+        write!(self.io, "S{count}{label}").expect("writing to String cannot fail");
     }
 
     /// Return the IO Pattern as bytes.
