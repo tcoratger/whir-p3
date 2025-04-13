@@ -185,11 +185,6 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         VerifierState::new(self, transcript)
     }
 
-    #[inline]
-    pub fn add_bytes(&mut self, count: usize, label: &str) {
-        self.absorb(count, label);
-    }
-
     pub fn add_ood<F>(&mut self, num_samples: usize)
     where
         F: Field + BasedVectorSpace<F::PrimeSubfield>,
@@ -265,7 +260,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     }
 
     pub fn add_digest(&mut self, label: &str) {
-        self.add_bytes(32, label);
+        self.absorb(32, label);
     }
 
     /// Performs `folding_factor` rounds of sumcheck interaction with the transcript.
@@ -295,7 +290,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     pub fn challenge_pow(&mut self, label: &str) {
         // 16 bytes challenge and 16 bytes nonce (that will be written)
         self.squeeze(32, label);
-        self.add_bytes(8, "pow-nonce");
+        self.absorb(8, "pow-nonce");
     }
 
     pub fn add_scalars<F>(&mut self, count: usize, label: &str)
@@ -312,7 +307,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         // - `count` is the number of scalar values
         // - `extension_degree` is the number of limbs (e.g., 4 for quartic extensions)
         // - `bytes_modp(bits)` gives the compressed byte length for the prime subfield
-        self.add_bytes(
+        self.absorb(
             count
                 * F::DIMENSION
                 * F::PrimeSubfield::DIMENSION
@@ -469,7 +464,7 @@ mod tests {
     #[test]
     fn test_byte_domain_separator_trait_impl() {
         let mut ds = DomainSeparator::<H>::new("x");
-        ds.add_bytes(1, "a");
+        ds.absorb(1, "a");
         ds.squeeze(2, "b");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(1), Op::Squeeze(2)]);
