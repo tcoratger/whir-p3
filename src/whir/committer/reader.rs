@@ -1,13 +1,9 @@
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::Hash;
 
 use crate::{
-    fiat_shamir::{
-        codecs::traits::{FieldToUnitDeserialize, UnitToField},
-        errors::ProofResult,
-        traits::UnitToBytes,
-    },
-    whir::{parameters::WhirConfig, utils::DigestToUnitDeserialize},
+    fiat_shamir::{errors::ProofResult, verifier::VerifierState},
+    whir::parameters::WhirConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -25,23 +21,17 @@ where
 
 impl<'a, EF, F, H, C, PS> CommitmentReader<'a, EF, F, H, C, PS>
 where
-    F: Field + TwoAdicField,
+    F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
 {
     pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {
         Self(params)
     }
 
-    pub fn parse_commitment<VerifierState, const DIGEST_ELEMS: usize>(
+    pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState,
-    ) -> ProofResult<ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>>
-    where
-        VerifierState: UnitToBytes
-            + FieldToUnitDeserialize<EF>
-            + UnitToField<EF>
-            + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
-    {
+        verifier_state: &mut VerifierState<'_>,
+    ) -> ProofResult<ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>> {
         let root = verifier_state.read_digest()?;
 
         let mut ood_points = vec![EF::ZERO; self.0.committment_ood_samples];

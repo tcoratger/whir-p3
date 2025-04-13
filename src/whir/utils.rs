@@ -1,11 +1,8 @@
 use itertools::Itertools;
 use p3_field::{BasedVectorSpace, Field, PrimeField64};
-use p3_symmetric::Hash;
 
 use crate::{
-    fiat_shamir::{
-        errors::ProofResult, prover::ProverState, traits::UnitToBytes, verifier::VerifierState,
-    },
+    fiat_shamir::{errors::ProofResult, prover::ProverState, verifier::VerifierState},
     poly::multilinear::MultilinearPoint,
 };
 
@@ -15,15 +12,12 @@ use crate::{
 /// - Computes the folded domain size: `folded_domain_size = domain_size / 2^folding_factor`.
 /// - Derives query indices from random transcript bytes.
 /// - Deduplicates indices while preserving order.
-pub fn get_challenge_stir_queries_tmp<T>(
+pub fn get_challenge_stir_queries_verifier(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
-    narg_string: &mut T,
-) -> ProofResult<Vec<usize>>
-where
-    T: UnitToBytes,
-{
+    narg_string: &mut VerifierState<'_>,
+) -> ProofResult<Vec<usize>> {
     let folded_domain_size = domain_size >> folding_factor;
     // Compute required bytes per index: `domain_size_bytes = ceil(log2(folded_domain_size) / 8)`
     let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
@@ -49,7 +43,7 @@ where
 /// - Computes the folded domain size: `folded_domain_size = domain_size / 2^folding_factor`.
 /// - Derives query indices from random transcript bytes.
 /// - Deduplicates indices while preserving order.
-pub fn get_challenge_stir_queries(
+pub fn get_challenge_stir_queries_prover(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
@@ -108,18 +102,4 @@ where
     }
 
     Ok((ood_points, ood_answers))
-}
-
-pub trait DigestToUnitDeserialize<MerkleInnerDigest> {
-    fn read_digest(&mut self) -> ProofResult<MerkleInnerDigest>;
-}
-
-impl<F: Field, const DIGEST_ELEMS: usize> DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>
-    for VerifierState<'_>
-{
-    fn read_digest(&mut self) -> ProofResult<Hash<F, u8, DIGEST_ELEMS>> {
-        let mut digest = [0u8; DIGEST_ELEMS];
-        self.fill_next_bytes(&mut digest)?;
-        Ok(digest.into())
-    }
 }

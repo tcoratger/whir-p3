@@ -6,7 +6,6 @@ pub mod keccak;
 pub mod pow;
 pub mod prover;
 pub mod sho;
-pub mod traits;
 pub mod verifier;
 
 /// Default hash function used ([`keccak::Keccak`]).

@@ -1,10 +1,3 @@
-use crate::fiat_shamir::{
-    duplex_sponge::interface::DuplexSpongeInterface,
-    errors::{ProofError, ProofResult},
-    traits::UnitToBytes,
-    verifier::VerifierState,
-};
-
 /// [`spongefish::DomainSeparator`] for proof-of-work challenges.
 pub trait PoWDomainSeparator {
     /// Adds a [`PoWChallenge`] to the [`spongefish::DomainSeparator`].
@@ -68,27 +61,6 @@ pub trait PowStrategy: Clone + Sync {
         match global_min.load(Ordering::SeqCst) {
             u64::MAX => self.check(u64::MAX).then_some(u64::MAX),
             nonce => Some(nonce),
-        }
-    }
-}
-
-pub trait PoWChallenge {
-    /// Extension trait for generating a proof-of-work challenge.
-    fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()>;
-}
-
-impl<H> PoWChallenge for VerifierState<'_, H>
-where
-    H: DuplexSpongeInterface<u8>,
-    Self: UnitToBytes,
-{
-    fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
-        let challenge = self.challenge_bytes()?;
-        let nonce = u64::from_be_bytes(self.next_bytes()?);
-        if S::new(challenge, bits).check(nonce) {
-            Ok(())
-        } else {
-            Err(ProofError::InvalidProof)
         }
     }
 }

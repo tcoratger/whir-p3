@@ -1,7 +1,7 @@
 use std::{fmt::Debug, iter};
 
 use p3_commit::{ExtensionMmcs, Mmcs};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
@@ -12,14 +12,13 @@ use super::{
     committer::reader::ParsedCommitment,
     parsed_proof::ParsedRound,
     statement::{StatementVerifier, VerifierWeights},
-    utils::{DigestToUnitDeserialize, get_challenge_stir_queries_tmp},
+    utils::get_challenge_stir_queries_verifier,
 };
 use crate::{
     fiat_shamir::{
-        codecs::traits::{FieldToUnitDeserialize, UnitToField},
         errors::{ProofError, ProofResult},
-        pow::traits::{PoWChallenge, PowStrategy},
-        traits::UnitToBytes,
+        pow::traits::PowStrategy,
+        verifier::VerifierState,
     },
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
@@ -38,7 +37,7 @@ where
 
 impl<'a, EF, F, H, C, PS> Verifier<'a, EF, F, H, C, PS>
 where
-    F: Field + TwoAdicField,
+    F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
     PS: PowStrategy,
 {
@@ -47,9 +46,9 @@ where
     }
 
     #[allow(clippy::too_many_lines)]
-    fn parse_proof<VerifierState, const DIGEST_ELEMS: usize>(
+    fn parse_proof<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState,
+        verifier_state: &mut VerifierState<'_>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
         statement_points_len: usize,
         whir_proof: &WhirProof<EF, DIGEST_ELEMS>,
@@ -58,11 +57,6 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        VerifierState: UnitToBytes
-            + UnitToField<EF>
-            + FieldToUnitDeserialize<EF>
-            + PoWChallenge
-            + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         let mmcs = ExtensionMmcs::new(MerkleTreeMmcs::new(
             self.params.merkle_hash.clone(),
@@ -133,7 +127,7 @@ where
                 verifier_state.fill_next_scalars(&mut ood_answers)?;
             }
 
-            let stir_challenges_indexes = get_challenge_stir_queries_tmp(
+            let stir_challenges_indexes = get_challenge_stir_queries_verifier(
                 domain_size,
                 fold_r,
                 round_params.num_queries,
@@ -215,7 +209,7 @@ where
         let final_coefficients = CoefficientList::new(final_coefficients);
 
         let fold_last = self.params.folding_factor.at_round(self.params.n_rounds());
-        let final_randomness_indexes = get_challenge_stir_queries_tmp(
+        let final_randomness_indexes = get_challenge_stir_queries_verifier(
             domain_size,
             fold_last,
             self.params.final_queries,
@@ -366,9 +360,9 @@ where
     }
 
     #[allow(clippy::too_many_lines)]
-    pub fn verify<VerifierState, const DIGEST_ELEMS: usize>(
+    pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState,
+        verifier_state: &mut VerifierState<'_>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
         statement: &StatementVerifier<EF>,
         whir_proof: &WhirProof<EF, DIGEST_ELEMS>,
@@ -377,11 +371,6 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        VerifierState: UnitToBytes
-            + UnitToField<EF>
-            + FieldToUnitDeserialize<EF>
-            + PoWChallenge
-            + DigestToUnitDeserialize<Hash<F, u8, DIGEST_ELEMS>>,
     {
         // First, derive all Fiat-Shamir challenges
         let evaluations: Vec<_> = statement

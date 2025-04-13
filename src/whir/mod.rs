@@ -147,7 +147,7 @@ pub fn make_whir_things(
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
-        .parse_commitment::<_, 32>(&mut verifier_state)
+        .parse_commitment::<32>(&mut verifier_state)
         .unwrap();
 
     // Verify that the generated proof satisfies the statement

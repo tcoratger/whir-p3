@@ -171,7 +171,7 @@ fn main() {
 
         // Parse the commitment
         let parsed_commitment = commitment_reader
-            .parse_commitment::<_, 32>(&mut verifier_state)
+            .parse_commitment::<32>(&mut verifier_state)
             .unwrap();
 
         assert!(
