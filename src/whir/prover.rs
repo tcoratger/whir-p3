@@ -1,25 +1,17 @@
 use p3_commit::{ExtensionMmcs, Mmcs};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::{
     dense::{DenseMatrix, RowMajorMatrix},
     extension::FlatMatrixView,
 };
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
-use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
-use super::{
-    WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement,
-    utils::DigestToUnitSerialize,
-};
+use super::{WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     domain::Domain,
-    fiat_shamir::{
-        codecs::traits::{FieldToUnitSerialize, UnitToField},
-        errors::ProofResult,
-        pow::traits::{PoWChallenge, PowStrategy},
-        traits::UnitToBytes,
-    },
+    fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
     ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
@@ -87,7 +79,7 @@ where
         witness.polynomial.num_variables() == self.0.mv_parameters.num_variables
     }
 
-    pub fn prove<ProverState, const DIGEST_ELEMS: usize>(
+    pub fn prove<const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
         mut statement: Statement<EF>,
@@ -97,11 +89,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState: UnitToField<EF>
-            + FieldToUnitSerialize<EF>
-            + UnitToBytes
-            + PoWChallenge
-            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
+        F: PrimeField64,
     {
         // Validate parameters
         assert!(
@@ -140,7 +128,7 @@ where
             );
 
             // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS, _>(
+            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS>(
                 prover_state,
                 self.0.folding_factor.at_round(0),
                 self.0.starting_folding_pow_bits,
@@ -204,7 +192,7 @@ where
     }
 
     #[allow(clippy::too_many_lines)]
-    fn round<ProverState, const DIGEST_ELEMS: usize>(
+    fn round<const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
@@ -213,11 +201,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState: UnitToField<EF>
-            + UnitToBytes
-            + FieldToUnitSerialize<EF>
-            + PoWChallenge
-            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
+        F: PrimeField64,
     {
         // Fold the coefficients
         let folded_coefficients = round_state
@@ -337,7 +321,7 @@ where
                 )
             });
 
-        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS, _>(
+        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS>(
             prover_state,
             folding_factor_next,
             round_params.folding_pow_bits,
@@ -365,7 +349,7 @@ where
         Ok(())
     }
 
-    fn final_round<ProverState, const DIGEST_ELEMS: usize>(
+    fn final_round<const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
@@ -375,14 +359,10 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState: UnitToField<EF>
-            + UnitToBytes
-            + FieldToUnitSerialize<EF>
-            + PoWChallenge
-            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
+        F: PrimeField64,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        prover_state.add_scalars(folded_coefficients.coeffs())?;
+        prover_state.add_scalars::<EF>(folded_coefficients.coeffs())?;
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
             // The size of the original domain before folding
@@ -426,7 +406,7 @@ where
                         EF::ONE,
                     )
                 })
-                .compute_sumcheck_polynomials::<PS, _>(
+                .compute_sumcheck_polynomials::<PS>(
                     prover_state,
                     self.0.final_sumcheck_rounds,
                     self.0.final_folding_pow_bits,
@@ -447,17 +427,14 @@ where
         Ok(())
     }
 
-    fn compute_stir_queries<ProverState, const DIGEST_ELEMS: usize>(
+    fn compute_stir_queries<const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
         round_state: &RoundState<EF, F, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig,
         ood_points: Vec<EF>,
-    ) -> ProofResult<(Vec<MultilinearPoint<EF>>, Vec<usize>)>
-    where
-        ProverState: UnitToBytes,
-    {
+    ) -> ProofResult<(Vec<MultilinearPoint<EF>>, Vec<usize>)> {
         let stir_challenges_indexes = get_challenge_stir_queries(
             round_state.domain.size(),
             self.0.folding_factor.at_round(round_state.round),

@@ -1,14 +1,10 @@
-use p3_field::Field;
+use p3_field::{BasedVectorSpace, Field, PrimeField64};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
-    fiat_shamir::{
-        codecs::traits::{FieldToUnitSerialize, UnitToField},
-        errors::ProofResult,
-        pow::traits::{PoWChallenge, PowStrategy},
-    },
+    fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::eval_eq,
     whir::statement::Statement,
@@ -191,22 +187,23 @@ where
     /// - Samples random values to progressively reduce the polynomial.
     /// - Applies proof-of-work grinding if required.
     /// - Returns the sampled folding randomness values used in each reduction step.
-    pub fn compute_sumcheck_polynomials<S, ProverState>(
+    pub fn compute_sumcheck_polynomials<S>(
         &mut self,
         prover_state: &mut ProverState,
         folding_factor: usize,
         pow_bits: f64,
     ) -> ProofResult<MultilinearPoint<F>>
     where
-        ProverState: FieldToUnitSerialize<F> + UnitToField<F> + PoWChallenge,
+        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+        F::PrimeSubfield: PrimeField64,
         S: PowStrategy,
     {
         let mut res = Vec::with_capacity(folding_factor);
 
         for _ in 0..folding_factor {
             let sumcheck_poly = self.compute_sumcheck_polynomial();
-            prover_state.add_scalars(sumcheck_poly.evaluations())?;
-            let [folding_randomness] = prover_state.challenge_scalars()?;
+            prover_state.add_scalars::<F>(sumcheck_poly.evaluations())?;
+            let [folding_randomness]: [F; 1] = prover_state.challenge_scalars()?;
             res.push(folding_randomness);
 
             // Do PoW if needed
@@ -1048,11 +1045,7 @@ mod tests {
 
         // Compute sumcheck polynomials
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
-                &mut prover_state,
-                folding_factor,
-                pow_bits,
-            )
+            .compute_sumcheck_polynomials::<Blake3PoW>(&mut prover_state, folding_factor, pow_bits)
             .unwrap();
 
         // The result should contain `folding_factor` elements
@@ -1093,11 +1086,7 @@ mod tests {
         let mut prover_state = domsep.to_prover_state();
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
-                &mut prover_state,
-                folding_factor,
-                pow_bits,
-            )
+            .compute_sumcheck_polynomials::<Blake3PoW>(&mut prover_state, folding_factor, pow_bits)
             .unwrap();
 
         // Ensure we get `folding_factor` sampled randomness values
@@ -1143,11 +1132,7 @@ mod tests {
         let mut prover_state = domsep.to_prover_state();
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
-                &mut prover_state,
-                folding_factor,
-                pow_bits,
-            )
+            .compute_sumcheck_polynomials::<Blake3PoW>(&mut prover_state, folding_factor, pow_bits)
             .unwrap();
 
         assert_eq!(result.0.len(), folding_factor);
@@ -1174,11 +1159,7 @@ mod tests {
         let mut prover_state = domsep.to_prover_state();
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
-                &mut prover_state,
-                folding_factor,
-                pow_bits,
-            )
+            .compute_sumcheck_polynomials::<Blake3PoW>(&mut prover_state, folding_factor, pow_bits)
             .unwrap();
 
         assert_eq!(result.0.len(), 0);

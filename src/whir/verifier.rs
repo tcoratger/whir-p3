@@ -12,7 +12,7 @@ use super::{
     committer::reader::ParsedCommitment,
     parsed_proof::ParsedRound,
     statement::{StatementVerifier, VerifierWeights},
-    utils::{DigestToUnitDeserialize, get_challenge_stir_queries},
+    utils::{DigestToUnitDeserialize, get_challenge_stir_queries_tmp},
 };
 use crate::{
     fiat_shamir::{
@@ -133,7 +133,7 @@ where
                 verifier_state.fill_next_scalars(&mut ood_answers)?;
             }
 
-            let stir_challenges_indexes = get_challenge_stir_queries(
+            let stir_challenges_indexes = get_challenge_stir_queries_tmp(
                 domain_size,
                 fold_r,
                 round_params.num_queries,
@@ -215,7 +215,7 @@ where
         let final_coefficients = CoefficientList::new(final_coefficients);
 
         let fold_last = self.params.folding_factor.at_round(self.params.n_rounds());
-        let final_randomness_indexes = get_challenge_stir_queries(
+        let final_randomness_indexes = get_challenge_stir_queries_tmp(
             domain_size,
             fold_last,
             self.params.final_queries,

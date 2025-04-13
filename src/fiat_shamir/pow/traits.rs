@@ -1,7 +1,6 @@
 use crate::fiat_shamir::{
     duplex_sponge::interface::DuplexSpongeInterface,
     errors::{ProofError, ProofResult},
-    prover::ProverState,
     traits::UnitToBytes,
     verifier::VerifierState,
 };
@@ -76,21 +75,6 @@ pub trait PowStrategy: Clone + Sync {
 pub trait PoWChallenge {
     /// Extension trait for generating a proof-of-work challenge.
     fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()>;
-}
-
-impl<H> PoWChallenge for ProverState<H>
-where
-    H: DuplexSpongeInterface<u8>,
-    Self: UnitToBytes,
-{
-    fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
-        let challenge = self.challenge_bytes()?;
-        let nonce = S::new(challenge, bits)
-            .solve()
-            .ok_or(ProofError::InvalidProof)?;
-        self.add_bytes(&nonce.to_be_bytes())?;
-        Ok(())
-    }
 }
 
 impl<H> PoWChallenge for VerifierState<'_, H>

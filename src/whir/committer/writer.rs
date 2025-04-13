@@ -1,22 +1,16 @@
 use p3_commit::{ExtensionMmcs, Mmcs};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
 use super::Witness;
 use crate::{
-    fiat_shamir::{
-        codecs::traits::{FieldToUnitSerialize, UnitToField},
-        errors::ProofResult,
-    },
+    fiat_shamir::{errors::ProofResult, prover::ProverState},
     ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
-    whir::{
-        parameters::WhirConfig,
-        utils::{DigestToUnitSerialize, sample_ood_points},
-    },
+    whir::{parameters::WhirConfig, utils::sample_ood_points},
 };
 
 /// Responsible for committing polynomials using a Merkle-based scheme.
@@ -49,7 +43,7 @@ where
     /// - Constructs a Merkle tree from the evaluations.
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
-    pub fn commit<ProverState, const DIGEST_ELEMS: usize>(
+    pub fn commit<const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState,
         polynomial: CoefficientList<F>,
@@ -58,9 +52,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        ProverState: FieldToUnitSerialize<EF>
-            + UnitToField<EF>
-            + DigestToUnitSerialize<Hash<F, u8, DIGEST_ELEMS>>,
+        F: PrimeField64,
     {
         // Retrieve the base domain, ensuring it is set.
         let base_domain = self.0.starting_domain.base_domain.unwrap();
