@@ -50,12 +50,12 @@ where
 }
 
 impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
-    pub const fn from_string(io: String) -> Self {
-        Self {
-            io,
-            _hash: PhantomData,
-        }
-    }
+    // pub const fn from_string(io: String) -> Self {
+    //     Self {
+    //         io,
+    //         _hash: PhantomData,
+    //     }
+    // }
 
     /// Create a new DomainSeparator with the domain separator.
     pub fn new(session_identifier: &str) -> Self {
@@ -63,7 +63,10 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
             !session_identifier.contains(SEP_BYTE),
             "Domain separator cannot contain the separator BYTE."
         );
-        Self::from_string(session_identifier.to_string())
+        Self {
+            io: session_identifier.to_string(),
+            _hash: PhantomData,
+        }
     }
 
     /// Absorb `count` native elements.
@@ -463,7 +466,7 @@ mod tests {
     #[test]
     fn test_parse_domsep_multiple_ops() {
         let tag = "main\0A1x\0A2y\0S3z\0R\0S2w";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<H>::new(tag);
         let ops = ds.finalize();
         assert_eq!(
             ops,
@@ -510,7 +513,7 @@ mod tests {
     fn test_malformed_tag_parsing_fails() {
         // Missing count
         let broken = "proto\0Ax";
-        let ds = DomainSeparator::<H>::from_string(broken.to_string());
+        let ds = DomainSeparator::<H>::new(broken);
         let res = DomainSeparator::<H>::parse_domsep(ds.as_bytes());
         assert!(res.is_err());
     }
@@ -518,7 +521,7 @@ mod tests {
     #[test]
     fn test_simplify_stack_keeps_unlike_ops() {
         let tag = "test\0A2x\0S3y\0A1z";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<H>::new(tag);
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(2), Op::Squeeze(3), Op::Absorb(1)]);
     }
@@ -531,7 +534,7 @@ mod tests {
         let ops1 = ds1.finalize();
 
         let tag = std::str::from_utf8(ds1.as_bytes()).unwrap();
-        let ds2 = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds2 = DomainSeparator::<H>::new(tag);
         let ops2 = ds2.finalize();
 
         assert_eq!(ops1, ops2);
@@ -575,7 +578,7 @@ mod tests {
     #[test]
     fn test_finalize_mixed_ops_order_preserved() {
         let tag = "zkp\0A1a\0S1b\0A2c\0S3d\0R\0A4e\0S1f";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<H>::new(tag);
         let ops = ds.finalize();
         assert_eq!(
             ops,
@@ -594,7 +597,7 @@ mod tests {
     #[test]
     fn test_finalize_large_values_and_merge() {
         let tag = "main\0A5a\0A10b\0S8c\0S2d";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<H>::new(tag);
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(15), Op::Squeeze(10)]);
     }
@@ -602,7 +605,7 @@ mod tests {
     #[test]
     fn test_finalize_merge_and_breaks() {
         let tag = "example\0A2x\0A1y\0R\0A3z\0S4u\0S1v";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<H>::new(tag);
         let ops = ds.finalize();
         assert_eq!(
             ops,
@@ -613,7 +616,7 @@ mod tests {
     #[test]
     fn test_finalize_only_ratchets() {
         let tag = "onlyratchets\0R\0R\0R";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<H>::new(tag);
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Ratchet, Op::Ratchet, Op::Ratchet]);
     }
@@ -621,7 +624,7 @@ mod tests {
     #[test]
     fn test_finalize_complex_merge_boundaries() {
         let tag = "demo\0A1a\0A1b\0S2c\0S2d\0A3e\0S1f";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<H>::new(tag);
         let ops = ds.finalize();
         assert_eq!(
             ops,

@@ -2,7 +2,7 @@ use p3_field::{BasedVectorSpace, Field, PrimeField64};
 use p3_symmetric::Hash;
 
 use super::{
-    DefaultHash,
+    DefaultHash, UnitToBytes,
     domain_separator::DomainSeparator,
     duplex_sponge::{Unit, interface::DuplexSpongeInterface},
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
@@ -69,15 +69,6 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
     #[inline]
     pub fn public_units(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.absorb(input)
-    }
-
-    /// Fill `input` with units sampled uniformly at random.
-    #[inline]
-    pub fn fill_challenge_bytes(
-        &mut self,
-        input: &mut [u8],
-    ) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.squeeze(input)
     }
 
     pub fn fill_next_scalars<F>(&mut self, output: &mut [F]) -> ProofResult<()>
@@ -222,6 +213,13 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
 
         // Return the serialized byte representation
         Ok(buf)
+    }
+}
+
+impl<H: DuplexSpongeInterface<u8>> UnitToBytes for VerifierState<'_, H> {
+    #[inline]
+    fn fill_challenge_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
+        self.hash_state.squeeze(input)
     }
 }
 

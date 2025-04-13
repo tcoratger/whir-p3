@@ -19,7 +19,7 @@ use crate::{
     whir::{
         parameters::RoundConfig,
         statement::Weights,
-        utils::{get_challenge_stir_queries_prover, sample_ood_points},
+        utils::{get_challenge_stir_queries, sample_ood_points},
     },
 };
 
@@ -364,7 +364,7 @@ where
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_scalars::<EF>(folded_coefficients.coeffs())?;
         // Final verifier queries and answers. The indices are over the folded domain.
-        let final_challenge_indexes = get_challenge_stir_queries_prover(
+        let final_challenge_indexes = get_challenge_stir_queries(
             // The size of the original domain before folding
             round_state.domain.size(),
             // The folding factor we used to fold the previous polynomial
@@ -435,7 +435,7 @@ where
         round_params: &RoundConfig,
         ood_points: Vec<EF>,
     ) -> ProofResult<(Vec<MultilinearPoint<EF>>, Vec<usize>)> {
-        let stir_challenges_indexes = get_challenge_stir_queries_prover(
+        let stir_challenges_indexes = get_challenge_stir_queries(
             round_state.domain.size(),
             self.0.folding_factor.at_round(round_state.round),
             round_params.num_queries,

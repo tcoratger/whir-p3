@@ -2,7 +2,7 @@ use p3_field::{BasedVectorSpace, Field, PrimeField64};
 use p3_symmetric::Hash;
 
 use super::{
-    DefaultHash,
+    DefaultHash, UnitToBytes,
     domain_separator::DomainSeparator,
     duplex_sponge::{Unit, interface::DuplexSpongeInterface},
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
@@ -139,14 +139,6 @@ where
         Ok(())
     }
 
-    /// Fill a slice with uniformly-distributed challenges from the verifier.
-    pub fn fill_challenge_bytes(
-        &mut self,
-        output: &mut [u8],
-    ) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.squeeze(output)
-    }
-
     pub fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
         let challenge = self.challenge_bytes()?;
         let nonce = S::new(challenge, bits)
@@ -210,6 +202,15 @@ where
         let mut output = [F::default(); N];
         self.fill_challenge_scalars(&mut output)?;
         Ok(output)
+    }
+}
+
+impl<H> UnitToBytes for ProverState<H>
+where
+    H: DuplexSpongeInterface<u8>,
+{
+    fn fill_challenge_bytes(&mut self, output: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
+        self.hash_state.squeeze(output)
     }
 }
 
