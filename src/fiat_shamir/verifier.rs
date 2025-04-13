@@ -53,16 +53,10 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
 
     /// Read `input.len()` elements from the NARG string.
     #[inline]
-    pub fn fill_next_units(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn fill_next_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
         u8::read(&mut self.narg_string, input)?;
         self.hash_state.absorb(input)?;
         Ok(())
-    }
-
-    /// Read the next `input.len()` bytes from the NARG string and return them.
-    #[inline]
-    pub fn fill_next_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
-        self.fill_next_units(input)
     }
 
     pub fn next_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
@@ -321,7 +315,7 @@ mod tests {
         ds.absorb(3, "input");
         let mut vs = VerifierState::<DummySponge>::new(&ds, b"abc");
         let mut buf = [0u8; 3];
-        let res = vs.fill_next_units(&mut buf);
+        let res = vs.fill_next_bytes(&mut buf);
         assert!(res.is_ok());
         assert_eq!(buf, *b"abc");
         assert_eq!(*vs.hash_state.ds.absorbed.borrow(), b"abc");
@@ -333,7 +327,7 @@ mod tests {
         ds.absorb(4, "fail");
         let mut vs = VerifierState::<DummySponge>::new(&ds, b"xy");
         let mut buf = [0u8; 4];
-        let res = vs.fill_next_units(&mut buf);
+        let res = vs.fill_next_bytes(&mut buf);
         assert!(res.is_err());
     }
 
