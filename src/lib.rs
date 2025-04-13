@@ -1,6 +1,5 @@
 pub mod domain;
 pub mod fiat_shamir;
-pub mod fs_utils;
 pub mod ntt;
 pub mod parameters;
 pub mod poly;

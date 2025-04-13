@@ -705,4 +705,43 @@ mod tests {
         let expected = b"ext2\0S76b";
         assert_eq!(sep.as_bytes(), expected);
     }
+
+    #[test]
+    fn test_add_ood() {
+        let iop: DomainSeparator = DomainSeparator::new("test_protocol");
+
+        // Apply OOD query addition
+        let updated_iop = iop.clone().add_ood::<BabyBear>(3);
+
+        // Convert to a string for inspection
+        let pattern_str = String::from_utf8(updated_iop.as_bytes().to_vec()).unwrap();
+
+        // Check if "ood_query" and "ood_ans" were correctly appended
+        assert!(pattern_str.contains("ood_query"));
+        assert!(pattern_str.contains("ood_ans"));
+
+        // Test case where num_samples = 0 (should not modify anything)
+        let unchanged_iop = iop.add_ood::<BabyBear>(0);
+        let unchanged_str = String::from_utf8(unchanged_iop.as_bytes().to_vec()).unwrap();
+        assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
+    }
+
+    #[test]
+    fn test_pow() {
+        let iop: DomainSeparator = DomainSeparator::new("test_protocol");
+
+        // Apply PoW challenge
+        let updated_iop = iop.clone().pow(10.0);
+
+        // Convert to a string for inspection
+        let pattern_str = String::from_utf8(updated_iop.as_bytes().to_vec()).unwrap();
+
+        // Check if "pow_queries" was correctly added
+        assert!(pattern_str.contains("pow_queries"));
+
+        // Test case where bits = 0 (should not modify anything)
+        let unchanged_iop = iop.pow(0.0);
+        let unchanged_str = String::from_utf8(unchanged_iop.as_bytes().to_vec()).unwrap();
+        assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
+    }
 }
