@@ -61,7 +61,7 @@ where
     /// Add a slice `[U]` to the protocol transcript.
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
-    pub fn add_units(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         let old_len = self.narg_string.len();
         self.hash_state.absorb(input)?;
         // write never fails on Vec<u8>
@@ -79,10 +79,6 @@ where
     /// messages.
     pub fn narg_string(&self) -> &[u8] {
         self.narg_string.as_slice()
-    }
-
-    pub fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
-        self.add_units(input)
     }
 
     pub fn add_scalars<F>(&mut self, input: &[F]) -> ProofResult<()>
@@ -138,7 +134,7 @@ where
     /// the prover state.
     pub fn public_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         let len = self.narg_string.len();
-        self.add_units(input)?;
+        self.add_bytes(input)?;
         self.narg_string.truncate(len);
         Ok(())
     }
@@ -267,7 +263,7 @@ mod tests {
         let mut pstate = ProverState::from(&domsep);
         let input = [42, 43, 44];
 
-        assert!(pstate.add_units(&input).is_ok());
+        assert!(pstate.add_bytes(&input).is_ok());
         assert_eq!(pstate.narg_string(), &input);
     }
 
@@ -277,7 +273,7 @@ mod tests {
         domsep.absorb(2, "short");
         let mut pstate = ProverState::from(&domsep);
 
-        let result = pstate.add_units(&[1, 2, 3]);
+        let result = pstate.add_bytes(&[1, 2, 3]);
         assert!(result.is_err());
     }
 
@@ -309,8 +305,8 @@ mod tests {
         domsep.absorb(3, "b");
         let mut p = ProverState::from(&domsep);
 
-        p.add_units(&[10, 11]).unwrap();
-        p.add_units(&[20, 21, 22]).unwrap();
+        p.add_bytes(&[10, 11]).unwrap();
+        p.add_bytes(&[20, 21, 22]).unwrap();
 
         assert_eq!(p.narg_string(), &[10, 11, 20, 21, 22]);
     }
@@ -322,7 +318,7 @@ mod tests {
         let mut p = ProverState::from(&domsep);
 
         let msg = b"zkp42";
-        p.add_units(msg).unwrap();
+        p.add_bytes(msg).unwrap();
 
         let encoded = p.narg_string();
         assert_eq!(encoded, msg);
