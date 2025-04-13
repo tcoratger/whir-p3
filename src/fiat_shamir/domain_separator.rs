@@ -337,24 +337,13 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         }
     }
 
+    /// Extension for generating a proof-of-work challenge.
     #[must_use]
     pub fn challenge_pow(self, label: &str) -> Self {
         // 16 bytes challenge and 16 bytes nonce (that will be written)
         self.challenge_bytes(32, label).add_bytes(8, "pow-nonce")
     }
 }
-
-// impl<H: DuplexSpongeInterface> ByteDomainSeparator for DomainSeparator<H> {
-//     #[inline]
-//     fn add_bytes(self, count: usize, label: &str) -> Self {
-//         self.absorb(count, label)
-//     }
-
-//     #[inline]
-//     fn challenge_bytes(self, count: usize, label: &str) -> Self {
-//         self.squeeze(count, label)
-//     }
-// }
 
 /// Sponge operations.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

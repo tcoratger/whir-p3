@@ -2,7 +2,7 @@ use crate::fiat_shamir::{
     duplex_sponge::interface::DuplexSpongeInterface,
     errors::{ProofError, ProofResult},
     prover::ProverState,
-    traits::{ByteDomainSeparator, UnitToBytes},
+    traits::UnitToBytes,
     verifier::VerifierState,
 };
 
@@ -76,16 +76,6 @@ pub trait PowStrategy: Clone + Sync {
 pub trait PoWChallenge {
     /// Extension trait for generating a proof-of-work challenge.
     fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()>;
-}
-
-impl<DomainSeparator> PoWDomainSeparator for DomainSeparator
-where
-    DomainSeparator: ByteDomainSeparator,
-{
-    fn challenge_pow(self, label: &str) -> Self {
-        // 16 bytes challenge and 16 bytes nonce (that will be written)
-        self.challenge_bytes(32, label).add_bytes(8, "pow-nonce")
-    }
 }
 
 impl<H> PoWChallenge for ProverState<H>
