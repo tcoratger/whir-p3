@@ -1,6 +1,6 @@
 use p3_field::Field;
 
-use crate::fiat_shamir::{codecs::traits::FieldDomainSeparator, pow::traits::PoWDomainSeparator};
+use crate::fiat_shamir::pow::traits::PoWDomainSeparator;
 
 /// Trait for adding out-of-domain (OOD) queries and their responses to an DomainSeparator.
 ///
@@ -16,20 +16,20 @@ pub trait OODDomainSeparator<F: Field> {
     fn add_ood(self, num_samples: usize) -> Self;
 }
 
-impl<F, DomainSeparator> OODDomainSeparator<F> for DomainSeparator
-where
-    F: Field,
-    DomainSeparator: FieldDomainSeparator<F>,
-{
-    fn add_ood(self, num_samples: usize) -> Self {
-        if num_samples > 0 {
-            self.challenge_scalars(num_samples, "ood_query")
-                .add_scalars(num_samples, "ood_ans")
-        } else {
-            self
-        }
-    }
-}
+// impl<F, DomainSeparator> OODDomainSeparator<F> for DomainSeparator
+// where
+//     F: Field,
+//     DomainSeparator: FieldDomainSeparator<F>,
+// {
+//     fn add_ood(self, num_samples: usize) -> Self {
+//         if num_samples > 0 {
+//             self.challenge_scalars(num_samples, "ood_query")
+//                 .add_scalars(num_samples, "ood_ans")
+//         } else {
+//             self
+//         }
+//     }
+// }
 
 /// Trait for adding a Proof-of-Work (PoW) challenge to an DomainSeparator.
 ///
@@ -60,7 +60,6 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
 
-    use super::*;
     use crate::fiat_shamir::domain_separator::DomainSeparator;
 
     #[test]
@@ -68,8 +67,7 @@ mod tests {
         let iop: DomainSeparator = DomainSeparator::new("test_protocol");
 
         // Apply OOD query addition
-        let updated_iop =
-            <DomainSeparator as OODDomainSeparator<BabyBear>>::add_ood(iop.clone(), 3);
+        let updated_iop = iop.clone().add_ood::<BabyBear>(3);
 
         // Convert to a string for inspection
         let pattern_str = String::from_utf8(updated_iop.as_bytes().to_vec()).unwrap();
@@ -79,7 +77,7 @@ mod tests {
         assert!(pattern_str.contains("ood_ans"));
 
         // Test case where num_samples = 0 (should not modify anything)
-        let unchanged_iop = <DomainSeparator as OODDomainSeparator<BabyBear>>::add_ood(iop, 0);
+        let unchanged_iop = iop.add_ood::<BabyBear>(0);
         let unchanged_str = String::from_utf8(unchanged_iop.as_bytes().to_vec()).unwrap();
         assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
     }

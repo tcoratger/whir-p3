@@ -47,9 +47,9 @@ mod tests {
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 
     use super::*;
-    use crate::fiat_shamir::{
-        codecs::traits::FieldDomainSeparator, domain_separator::DomainSeparator,
-    };
+    use crate::fiat_shamir::{DefaultHash, domain_separator::DomainSeparator};
+
+    type H = DefaultHash;
 
     /// Base field: BabyBear
     type F = BabyBear;
@@ -76,11 +76,8 @@ mod tests {
 
         // Step 3: Create a domain separator that commits to absorbing 2 scalars
         // The label "scalars" is just metadata to distinguish this absorb phase
-        let domsep = <DomainSeparator as FieldDomainSeparator<F>>::add_scalars(
-            DomainSeparator::new("test"),
-            values.len(),
-            "scalars",
-        );
+        let domsep: DomainSeparator<H> = DomainSeparator::new("test");
+        let domsep = domsep.add_scalars::<F>(values.len(), "scalars");
 
         // Step 4: Create a verifier from the domain separator, loaded with the raw bytes
         let mut verifier = domsep.to_verifier_state(&raw_bytes);
@@ -135,11 +132,8 @@ mod tests {
         ];
 
         // Step 4: Create a domain separator for absorbing 2 EF4 values
-        let domsep = <DomainSeparator as FieldDomainSeparator<EF4>>::add_scalars(
-            DomainSeparator::new("ext"),
-            values.len(),
-            "ext-scalars",
-        );
+        let domsep: DomainSeparator<H> = DomainSeparator::new("ext");
+        let domsep = domsep.add_scalars::<EF4>(values.len(), "ext-scalars");
 
         // Step 5: Construct a verifier state from the domain separator and raw byte input
         let mut verifier = domsep.to_verifier_state(&raw_bytes);

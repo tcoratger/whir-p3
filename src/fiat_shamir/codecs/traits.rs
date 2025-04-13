@@ -2,13 +2,13 @@ use p3_field::Field;
 
 use crate::fiat_shamir::errors::ProofResult;
 
-/// Absorb and squeeze field elements to the IO pattern.
-pub trait FieldDomainSeparator<F> {
-    #[must_use]
-    fn add_scalars(self, count: usize, label: &str) -> Self;
-    #[must_use]
-    fn challenge_scalars(self, count: usize, label: &str) -> Self;
-}
+// /// Absorb and squeeze field elements to the IO pattern.
+// pub trait FieldDomainSeparator<F> {
+//     #[must_use]
+//     fn add_scalars(self, count: usize, label: &str) -> Self;
+//     #[must_use]
+//     fn challenge_scalars(self, count: usize, label: &str) -> Self;
+// }
 
 /// Interpret verifier messages as uniformly distributed field elements.
 ///

@@ -326,10 +326,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::{
-            DefaultHash, codecs::traits::FieldDomainSeparator, domain_separator::DomainSeparator,
-            pow::blake3::Blake3PoW,
-        },
+        fiat_shamir::{DefaultHash, domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
         whir::statement::Weights,
     };
@@ -1038,13 +1035,10 @@ mod tests {
         let domsep: DomainSeparator<DefaultHash> = DomainSeparator::new("test");
 
         // Step 2: Register the fact that we’re about to absorb 3 field elements
-        let domsep =
-            <DomainSeparator as FieldDomainSeparator<BabyBear>>::add_scalars(domsep, 3, "test");
+        let domsep = domsep.add_scalars::<BabyBear>(3, "test");
 
         // Step 3: Sample 1 challenge scalar from the transcript
-        let domsep = <DomainSeparator as FieldDomainSeparator<BabyBear>>::challenge_scalars(
-            domsep, 1, "test",
-        );
+        let domsep = domsep.challenge_scalars::<BabyBear>(1, "test");
 
         // Convert the domain separator to a prover state
         let mut prover_state = domsep.to_prover_state();
@@ -1086,13 +1080,10 @@ mod tests {
         // For each folding round, we must absorb values, sample challenge, and apply PoW
         for _ in 0..folding_factor {
             // Absorb 3 field elements (evaluations of sumcheck polynomial)
-            domsep =
-                <DomainSeparator as FieldDomainSeparator<BabyBear>>::add_scalars(domsep, 3, "tag");
+            domsep = domsep.add_scalars::<BabyBear>(3, "tag");
 
             // Sample 1 challenge scalar from the Fiat-Shamir transcript
-            domsep = <DomainSeparator as FieldDomainSeparator<BabyBear>>::challenge_scalars(
-                domsep, 1, "tag",
-            );
+            domsep = domsep.challenge_scalars::<BabyBear>(1, "tag");
 
             // Apply optional PoW grinding to ensure randomness
             domsep = domsep.challenge_pow("tag");
@@ -1139,13 +1130,10 @@ mod tests {
         // Register interactions with the transcript for each round
         for _ in 0..folding_factor {
             // Absorb 3 field values (sumcheck evaluations at X = 0, 1, 2)
-            domsep =
-                <DomainSeparator as FieldDomainSeparator<BabyBear>>::add_scalars(domsep, 3, "tag");
+            domsep = domsep.add_scalars::<BabyBear>(3, "tag");
 
             // Sample 1 field challenge (folding randomness)
-            domsep = <DomainSeparator as FieldDomainSeparator<BabyBear>>::challenge_scalars(
-                domsep, 1, "tag",
-            );
+            domsep = domsep.challenge_scalars::<BabyBear>(1, "tag");
 
             // Apply challenge PoW (grinding) to enhance soundness
             domsep = domsep.challenge_pow("tag");

@@ -3,8 +3,10 @@ use std::{collections::VecDeque, marker::PhantomData};
 use p3_field::{BasedVectorSpace, ExtensionField, Field, TwoAdicField};
 
 use super::{
-    DefaultHash, codecs::traits::FieldDomainSeparator,
-    duplex_sponge::interface::DuplexSpongeInterface, errors::DomainSeparatorMismatch,
+    DefaultHash,
+    codecs::utils::{bytes_modp, bytes_uniform_modp},
+    duplex_sponge::interface::DuplexSpongeInterface,
+    errors::DomainSeparatorMismatch,
 };
 use crate::{
     fiat_shamir::{prover::ProverState, verifier::VerifierState},
@@ -201,13 +203,8 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         F: Field + BasedVectorSpace<F::PrimeSubfield>,
     {
         if num_samples > 0 {
-            let domsep = <Self as FieldDomainSeparator<F>>::challenge_scalars(
-                self,
-                num_samples,
-                "ood_query",
-            );
-
-            <Self as FieldDomainSeparator<F>>::add_scalars(domsep, num_samples, "ood_ans")
+            self.challenge_scalars::<F>(num_samples, "ood_query")
+                .add_scalars::<F>(num_samples, "ood_ans")
         } else {
             self
         }
@@ -242,24 +239,16 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     {
         // TODO: Add statement
         if params.initial_statement {
-            self = <Self as FieldDomainSeparator<EF>>::challenge_scalars(
-                self,
-                1,
-                "initial_combination_randomness",
-            );
-
-            self = self.add_sumcheck::<EF>(
-                params.folding_factor.at_round(0),
-                params.starting_folding_pow_bits,
-            );
+            self = self
+                .challenge_scalars::<EF>(1, "initial_combination_randomness")
+                .add_sumcheck::<EF>(
+                    params.folding_factor.at_round(0),
+                    params.starting_folding_pow_bits,
+                );
         } else {
-            self = <Self as FieldDomainSeparator<EF>>::challenge_scalars(
-                self,
-                params.folding_factor.at_round(0),
-                "folding_randomness",
-            );
-
-            self = self.pow(params.starting_folding_pow_bits);
+            self = self
+                .challenge_scalars::<EF>(params.folding_factor.at_round(0), "folding_randomness")
+                .pow(params.starting_folding_pow_bits);
         }
 
         let mut domain_size = params.starting_domain.size();
@@ -271,11 +260,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
                 .add_ood::<EF>(r.ood_samples)
                 .challenge_bytes(r.num_queries * domain_size_bytes, "stir_queries")
                 .pow(r.pow_bits);
-            self = <Self as FieldDomainSeparator<EF>>::challenge_scalars(
-                self,
-                1,
-                "combination_randomness",
-            );
+            self = self.challenge_scalars::<EF>(1, "combination_randomness");
 
             self = self.add_sumcheck::<EF>(
                 params.folding_factor.at_round(round + 1),
@@ -290,11 +275,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
                 .at_round(params.round_parameters.len());
         let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
-        self = <Self as FieldDomainSeparator<EF>>::add_scalars(
-            self,
-            1 << params.final_sumcheck_rounds,
-            "final_coeffs",
-        );
+        self = self.add_scalars::<EF>(1 << params.final_sumcheck_rounds, "final_coeffs");
 
         self.challenge_bytes(domain_size_bytes * params.final_queries, "final_queries")
             .pow(params.final_pow_bits)
@@ -318,12 +299,10 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         F: Field + BasedVectorSpace<F::PrimeSubfield>,
     {
         for _ in 0..folding_factor {
-            self = <Self as FieldDomainSeparator<F>>::add_scalars(self, 3, "sumcheck_poly");
-
-            self =
-                <Self as FieldDomainSeparator<F>>::challenge_scalars(self, 1, "folding_randomness");
-
-            self = self.pow(pow_bits);
+            self = self
+                .add_scalars::<F>(3, "sumcheck_poly")
+                .challenge_scalars::<F>(1, "folding_randomness")
+                .pow(pow_bits);
         }
         self
     }
@@ -342,6 +321,52 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     pub fn challenge_pow(self, label: &str) -> Self {
         // 16 bytes challenge and 16 bytes nonce (that will be written)
         self.challenge_bytes(32, label).add_bytes(8, "pow-nonce")
+    }
+
+    #[must_use]
+    pub fn add_scalars<F>(self, count: usize, label: &str) -> Self
+    where
+        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+    {
+        // Absorb `count` scalars into the transcript using an "absorb" tag.
+        //
+        // The total number of bytes to absorb is calculated as:
+        //
+        //     count × extension_degree × bytes_modp(bits)
+        //
+        // where:
+        // - `count` is the number of scalar values
+        // - `extension_degree` is the number of limbs (e.g., 4 for quartic extensions)
+        // - `bytes_modp(bits)` gives the compressed byte length for the prime subfield
+        self.add_bytes(
+            count
+                * F::DIMENSION
+                * F::PrimeSubfield::DIMENSION
+                * bytes_modp(F::PrimeSubfield::bits() as u32),
+            label,
+        )
+    }
+
+    #[must_use]
+    pub fn challenge_scalars<F>(self, count: usize, label: &str) -> Self
+    where
+        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+    {
+        // Squeeze `count` scalars from the transcript using a "challenge" tag.
+        //
+        // The total number of bytes to squeeze is calculated as:
+        //
+        //     count × extension_degree × bytes_uniform_modp(bits)
+        //
+        // where `bytes_uniform_modp` gives the number of bytes needed to sample uniformly
+        // over the base field.
+        self.challenge_bytes(
+            count
+                * F::DIMENSION
+                * F::PrimeSubfield::DIMENSION
+                * bytes_uniform_modp(F::PrimeSubfield::bits() as u32),
+            label,
+        )
     }
 }
 
@@ -379,9 +404,14 @@ impl Op {
 
 #[cfg(test)]
 mod tests {
+    use p3_baby_bear::BabyBear;
+    use p3_field::extension::BinomialExtensionField;
+
     use super::*;
 
     type H = DefaultHash;
+    type F = BabyBear;
+    type EF4 = BinomialExtensionField<F, 4>;
 
     #[test]
     fn test_op_new_invalid_cases() {
@@ -622,5 +652,57 @@ mod tests {
                 Op::Squeeze(1), // S1f
             ]
         );
+    }
+
+    #[test]
+    fn test_add_scalars_babybear() {
+        // Test absorption of scalar field elements (BabyBear).
+        // - BabyBear is a base field with extension degree = 1
+        // - bits = 31 → bytes_modp(31) = 4
+        // - 2 scalars * 1 * 4 = 8 bytes absorbed
+        // - "A" indicates absorption in the domain separator
+        let domsep: DomainSeparator<H> = DomainSeparator::new("bb");
+        let sep = domsep.add_scalars::<F>(2, "foo");
+        let expected = b"babybear\0A8foo";
+        assert_eq!(sep.as_bytes(), expected);
+    }
+
+    #[test]
+    fn test_challenge_scalars_babybear() {
+        // Test squeezing scalar field elements (BabyBear).
+        // - BabyBear has extension degree = 1
+        // - bits = 31 → bytes_uniform_modp(31) = 5
+        // - 3 scalars * 1 * 5 = 15 bytes squeezed
+        // - "S" indicates squeezing in the domain separator
+        let domsep: DomainSeparator<H> = DomainSeparator::new("bb");
+        let sep = domsep.challenge_scalars::<F>(3, "bar");
+        let expected = b"bb\0S57bar";
+        assert_eq!(sep.as_bytes(), expected);
+    }
+
+    #[test]
+    fn test_add_scalars_quartic_ext_field() {
+        // Test absorption of scalars from a quartic extension field EF4.
+        // - EF4 has extension degree = 4
+        // - Base field bits = 31 → bytes_modp(31) = 4
+        // - 2 scalars * 4 * 4 = 32 bytes absorbed
+        let domsep: DomainSeparator<H> = DomainSeparator::new("ext");
+        let sep = domsep.add_scalars::<EF4>(2, "a");
+        let expected = b"ext\0A32a";
+        assert_eq!(sep.as_bytes(), expected);
+    }
+
+    #[test]
+    fn test_challenge_scalars_quartic_ext_field() {
+        // Test squeezing of scalars from a quartic extension field EF4.
+        // - EF4 has extension degree = 4
+        // - Base field bits = 31 → bytes_uniform_modp(31) = 19
+        // - 1 scalar * 4 * 19 = 76 bytes squeezed
+        // - "S" indicates squeezing in the domain separator
+        let domsep: DomainSeparator<H> = DomainSeparator::new("ext2");
+        let sep = domsep.challenge_scalars::<EF4>(1, "b");
+
+        let expected = b"ext2\0S76b";
+        assert_eq!(sep.as_bytes(), expected);
     }
 }
