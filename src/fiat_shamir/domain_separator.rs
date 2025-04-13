@@ -187,12 +187,12 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
 
     #[inline]
     pub fn add_bytes(&mut self, count: usize, label: &str) {
-        self.absorb(count, label)
+        self.absorb(count, label);
     }
 
     #[inline]
     pub fn challenge_bytes(&mut self, count: usize, label: &str) {
-        self.squeeze(count, label)
+        self.squeeze(count, label);
     }
 
     pub fn add_ood<F>(&mut self, num_samples: usize)
@@ -266,11 +266,11 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
 
         self.challenge_bytes(domain_size_bytes * params.final_queries, "final_queries");
         self.pow(params.final_pow_bits);
-        self.add_sumcheck::<EF>(params.final_sumcheck_rounds, params.final_folding_pow_bits)
+        self.add_sumcheck::<EF>(params.final_sumcheck_rounds, params.final_folding_pow_bits);
     }
 
     pub fn add_digest(&mut self, label: &str) {
-        self.add_bytes(32, label)
+        self.add_bytes(32, label);
     }
 
     /// Performs `folding_factor` rounds of sumcheck interaction with the transcript.
@@ -292,7 +292,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
 
     pub fn pow(&mut self, bits: f64) {
         if bits > 0. {
-            self.challenge_pow("pow_queries")
+            self.challenge_pow("pow_queries");
         }
     }
 
@@ -323,7 +323,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
                 * F::PrimeSubfield::DIMENSION
                 * bytes_modp(F::PrimeSubfield::bits() as u32),
             label,
-        )
+        );
     }
 
     pub fn challenge_scalars<F>(&mut self, count: usize, label: &str)
@@ -344,7 +344,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
                 * F::PrimeSubfield::DIMENSION
                 * bytes_uniform_modp(F::PrimeSubfield::bits() as u32),
             label,
-        )
+        );
     }
 }
 
@@ -434,19 +434,19 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_absorb_zero_panics() {
-        let _ = DomainSeparator::<H>::new("x").absorb(0, "label");
+        DomainSeparator::<H>::new("x").absorb(0, "label");
     }
 
     #[test]
     #[should_panic]
     fn test_label_with_separator_byte_panics() {
-        let _ = DomainSeparator::<H>::new("x").absorb(1, "bad\0label");
+        DomainSeparator::<H>::new("x").absorb(1, "bad\0label");
     }
 
     #[test]
     #[should_panic]
     fn test_label_starts_with_digit_panics() {
-        let _ = DomainSeparator::<H>::new("x").absorb(1, "1label");
+        DomainSeparator::<H>::new("x").absorb(1, "1label");
     }
 
     #[test]
@@ -548,19 +548,19 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_squeeze_zero_count_panics() {
-        let _ = DomainSeparator::<H>::new("proto").squeeze(0, "label");
+        DomainSeparator::<H>::new("proto").squeeze(0, "label");
     }
 
     #[test]
     #[should_panic]
     fn test_squeeze_label_with_null_byte_panics() {
-        let _ = DomainSeparator::<H>::new("proto").squeeze(2, "bad\0label");
+        DomainSeparator::<H>::new("proto").squeeze(2, "bad\0label");
     }
 
     #[test]
     #[should_panic]
     fn test_squeeze_label_starts_with_digit_panics() {
-        let _ = DomainSeparator::<H>::new("proto").squeeze(2, "1invalid");
+        DomainSeparator::<H>::new("proto").squeeze(2, "1invalid");
     }
 
     #[test]
@@ -690,7 +690,7 @@ mod tests {
     fn test_add_ood() {
         let iop: DomainSeparator = DomainSeparator::new("test_protocol");
         let mut updated_iop = iop.clone();
-        let mut unchanged_iop = iop.clone();
+        let mut unchanged_iop = iop;
 
         // Apply OOD query addition
         updated_iop.add_ood::<BabyBear>(3);
@@ -712,7 +712,7 @@ mod tests {
     fn test_pow() {
         let iop: DomainSeparator = DomainSeparator::new("test_protocol");
         let mut updated_iop = iop.clone();
-        let mut unchanged_iop = iop.clone();
+        let mut unchanged_iop = iop;
 
         // Apply PoW challenge
         updated_iop.pow(10.0);
