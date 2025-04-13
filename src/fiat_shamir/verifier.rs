@@ -73,7 +73,7 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
 
     /// Fill `input` with units sampled uniformly at random.
     #[inline]
-    pub fn fill_challenge_units(
+    pub fn fill_challenge_bytes(
         &mut self,
         input: &mut [u8],
     ) -> Result<(), DomainSeparatorMismatch> {
@@ -140,14 +140,6 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
         let mut digest = [0u8; DIGEST_ELEMS];
         self.fill_next_bytes(&mut digest)?;
         Ok(digest.into())
-    }
-
-    #[inline]
-    pub fn fill_challenge_bytes(
-        &mut self,
-        output: &mut [u8],
-    ) -> Result<(), DomainSeparatorMismatch> {
-        self.fill_challenge_units(output)
     }
 
     pub fn challenge_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
@@ -341,12 +333,12 @@ mod tests {
     }
 
     #[test]
-    fn test_unit_transcript_fill_challenge_units() {
+    fn test_unit_transcript_fill_challenge_bytes() {
         let mut ds = DomainSeparator::<DummySponge>::new("x");
         ds.squeeze(4, "c");
         let mut vs = VerifierState::<DummySponge>::new(&ds, b"abcd");
         let mut out = [0u8; 4];
-        assert!(vs.fill_challenge_units(&mut out).is_ok());
+        assert!(vs.fill_challenge_bytes(&mut out).is_ok());
         assert_eq!(out, [0, 1, 2, 3]);
     }
 
