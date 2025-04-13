@@ -3,14 +3,12 @@ use p3_symmetric::Hash;
 
 use super::{
     DefaultHash,
-    codecs::utils::{
-        bytes_modp, bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order,
-    },
     domain_separator::DomainSeparator,
     duplex_sponge::{Unit, interface::DuplexSpongeInterface},
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
     sho::HashStateWithInstructions,
+    utils::{bytes_modp, bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
 };
 
 /// [`VerifierState`] is the verifier state.

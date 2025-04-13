@@ -4,9 +4,9 @@ use p3_field::{BasedVectorSpace, ExtensionField, Field, TwoAdicField};
 
 use super::{
     DefaultHash,
-    codecs::utils::{bytes_modp, bytes_uniform_modp},
     duplex_sponge::interface::DuplexSpongeInterface,
     errors::DomainSeparatorMismatch,
+    utils::{bytes_modp, bytes_uniform_modp},
 };
 use crate::{
     fiat_shamir::{prover::ProverState, verifier::VerifierState},
