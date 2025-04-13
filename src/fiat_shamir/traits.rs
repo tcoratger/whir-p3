@@ -41,15 +41,6 @@ pub trait UnitToBytes {
     }
 }
 
-/// Methods for adding bytes to the [`DomainSeparator`](crate::DomainSeparator), properly counting
-/// group elements.
-pub trait ByteDomainSeparator {
-    #[must_use]
-    fn add_bytes(self, count: usize, label: &str) -> Self;
-    #[must_use]
-    fn challenge_bytes(self, count: usize, label: &str) -> Self;
-}
-
 impl<T: UnitTranscript<u8>> CommonUnitToBytes for T {
     #[inline]
     fn public_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
