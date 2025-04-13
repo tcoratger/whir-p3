@@ -13,8 +13,11 @@ pub mod verifier;
 /// Default hash function used ([`keccak::Keccak`]).
 pub type DefaultHash = keccak::Keccak;
 
+/// A Fiat-Shamir transcript.
 #[derive(Debug)]
 pub enum FiatShamir<'a> {
-    Prover(ProverState),
-    Verifier(VerifierState<'a>),
+    /// The prover state.
+    Prover(Box<ProverState>),
+    /// The verifier state.
+    Verifier(Box<VerifierState<'a>>),
 }

@@ -140,7 +140,7 @@ where
     }
 
     /// Fill a slice with uniformly-distributed challenges from the verifier.
-    pub fn fill_challenge_units(
+    pub fn fill_challenge_bytes(
         &mut self,
         output: &mut [u8],
     ) -> Result<(), DomainSeparatorMismatch> {
@@ -154,14 +154,6 @@ where
             .ok_or(ProofError::InvalidProof)?;
         self.add_bytes(&nonce.to_be_bytes())?;
         Ok(())
-    }
-
-    #[inline]
-    pub fn fill_challenge_bytes(
-        &mut self,
-        output: &mut [u8],
-    ) -> Result<(), DomainSeparatorMismatch> {
-        self.fill_challenge_units(output)
     }
 
     pub fn challenge_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
@@ -231,6 +223,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::unreadable_literal)]
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
@@ -294,7 +287,7 @@ mod tests {
         let mut pstate = ProverState::from(&domsep);
 
         let mut out = [0u8; 8];
-        let _ = pstate.fill_challenge_units(&mut out);
+        let _ = pstate.fill_challenge_bytes(&mut out);
         assert_eq!(out, [77, 249, 17, 180, 176, 109, 121, 62]);
     }
 
