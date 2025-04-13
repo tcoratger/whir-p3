@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, TwoAdicField};
 
 use super::{
     DefaultHash, codecs::traits::FieldDomainSeparator,
@@ -198,7 +198,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     #[must_use]
     pub fn add_ood<F>(self, num_samples: usize) -> Self
     where
-        F: Field,
+        F: Field + BasedVectorSpace<F::PrimeSubfield>,
     {
         if num_samples > 0 {
             let domsep = <Self as FieldDomainSeparator<F>>::challenge_scalars(
@@ -315,7 +315,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     #[must_use]
     pub fn add_sumcheck<F>(mut self, folding_factor: usize, pow_bits: f64) -> Self
     where
-        F: Field,
+        F: Field + BasedVectorSpace<F::PrimeSubfield>,
     {
         for _ in 0..folding_factor {
             self = <Self as FieldDomainSeparator<F>>::add_scalars(self, 3, "sumcheck_poly");
