@@ -14,11 +14,10 @@ use crate::{
         FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, SoundnessType,
     },
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{domainsep::WhirDomainSeparator, prover::Proof},
+    whir::prover::Proof,
 };
 
 pub mod committer;
-pub mod domainsep;
 pub mod parameters;
 pub mod parsed_proof;
 pub mod prover;

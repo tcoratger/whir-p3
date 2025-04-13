@@ -1,10 +1,15 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
+use p3_field::{ExtensionField, Field, TwoAdicField};
+
 use super::{
-    DefaultHash, duplex_sponge::interface::DuplexSpongeInterface, errors::DomainSeparatorMismatch,
-    traits::ByteDomainSeparator,
+    DefaultHash, codecs::traits::FieldDomainSeparator,
+    duplex_sponge::interface::DuplexSpongeInterface, errors::DomainSeparatorMismatch,
 };
-use crate::fiat_shamir::{prover::ProverState, verifier::VerifierState};
+use crate::{
+    fiat_shamir::{prover::ProverState, verifier::VerifierState},
+    whir::parameters::WhirConfig,
+};
 
 /// This is the separator between operations in the IO Pattern
 /// and as such is the only forbidden character in labels.
@@ -177,19 +182,179 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     pub fn to_verifier_state<'a>(&self, transcript: &'a [u8]) -> VerifierState<'a, H> {
         VerifierState::new(self, transcript)
     }
-}
 
-impl<H: DuplexSpongeInterface> ByteDomainSeparator for DomainSeparator<H> {
     #[inline]
-    fn add_bytes(self, count: usize, label: &str) -> Self {
+    #[must_use]
+    pub fn add_bytes(self, count: usize, label: &str) -> Self {
         self.absorb(count, label)
     }
 
     #[inline]
-    fn challenge_bytes(self, count: usize, label: &str) -> Self {
+    #[must_use]
+    pub fn challenge_bytes(self, count: usize, label: &str) -> Self {
         self.squeeze(count, label)
     }
+
+    #[must_use]
+    pub fn add_ood<F>(self, num_samples: usize) -> Self
+    where
+        F: Field,
+    {
+        if num_samples > 0 {
+            let domsep = <Self as FieldDomainSeparator<F>>::challenge_scalars(
+                self,
+                num_samples,
+                "ood_query",
+            );
+
+            <Self as FieldDomainSeparator<F>>::add_scalars(domsep, num_samples, "ood_ans")
+        } else {
+            self
+        }
+    }
+
+    #[must_use]
+    pub fn commit_statement<PowStrategy, EF, F, HC, C>(
+        self,
+        params: &WhirConfig<EF, F, HC, C, PowStrategy>,
+    ) -> Self
+    where
+        F: Field + TwoAdicField,
+        EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    {
+        // TODO: Add params
+        let mut this = self.add_digest("merkle_digest");
+        if params.committment_ood_samples > 0 {
+            assert!(params.initial_statement);
+            this = this.add_ood::<EF>(params.committment_ood_samples);
+        }
+        this
+    }
+
+    #[must_use]
+    pub fn add_whir_proof<PowStrategy, EF, F, HC, C>(
+        mut self,
+        params: &WhirConfig<EF, F, HC, C, PowStrategy>,
+    ) -> Self
+    where
+        F: Field + TwoAdicField,
+        EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    {
+        // TODO: Add statement
+        if params.initial_statement {
+            self = <Self as FieldDomainSeparator<EF>>::challenge_scalars(
+                self,
+                1,
+                "initial_combination_randomness",
+            );
+
+            self = self.add_sumcheck::<EF>(
+                params.folding_factor.at_round(0),
+                params.starting_folding_pow_bits,
+            );
+        } else {
+            self = <Self as FieldDomainSeparator<EF>>::challenge_scalars(
+                self,
+                params.folding_factor.at_round(0),
+                "folding_randomness",
+            );
+
+            self = self.pow(params.starting_folding_pow_bits);
+        }
+
+        let mut domain_size = params.starting_domain.size();
+        for (round, r) in params.round_parameters.iter().enumerate() {
+            let folded_domain_size = domain_size >> params.folding_factor.at_round(round);
+            let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
+            self = self
+                .add_digest("merkle_digest")
+                .add_ood::<EF>(r.ood_samples)
+                .challenge_bytes(r.num_queries * domain_size_bytes, "stir_queries")
+                .pow(r.pow_bits);
+            self = <Self as FieldDomainSeparator<EF>>::challenge_scalars(
+                self,
+                1,
+                "combination_randomness",
+            );
+
+            self = self.add_sumcheck::<EF>(
+                params.folding_factor.at_round(round + 1),
+                r.folding_pow_bits,
+            );
+            domain_size >>= 1;
+        }
+
+        let folded_domain_size = domain_size
+            >> params
+                .folding_factor
+                .at_round(params.round_parameters.len());
+        let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
+
+        self = <Self as FieldDomainSeparator<EF>>::add_scalars(
+            self,
+            1 << params.final_sumcheck_rounds,
+            "final_coeffs",
+        );
+
+        self.challenge_bytes(domain_size_bytes * params.final_queries, "final_queries")
+            .pow(params.final_pow_bits)
+            .add_sumcheck::<EF>(params.final_sumcheck_rounds, params.final_folding_pow_bits)
+    }
+
+    #[must_use]
+    pub fn add_digest(self, label: &str) -> Self {
+        self.add_bytes(32, label)
+    }
+
+    /// Performs `folding_factor` rounds of sumcheck interaction with the transcript.
+    ///
+    /// In each round:
+    /// - Samples 3 scalars for the sumcheck polynomial.
+    /// - Samples 1 scalar for folding randomness.
+    /// - Optionally performs a PoW challenge if `pow_bits > 0`.
+    #[must_use]
+    pub fn add_sumcheck<F>(mut self, folding_factor: usize, pow_bits: f64) -> Self
+    where
+        F: Field,
+    {
+        for _ in 0..folding_factor {
+            self = <Self as FieldDomainSeparator<F>>::add_scalars(self, 3, "sumcheck_poly");
+
+            self =
+                <Self as FieldDomainSeparator<F>>::challenge_scalars(self, 1, "folding_randomness");
+
+            self = self.pow(pow_bits);
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn pow(self, bits: f64) -> Self {
+        if bits > 0. {
+            self.challenge_pow("pow_queries")
+        } else {
+            self
+        }
+    }
+
+    #[must_use]
+    pub fn challenge_pow(self, label: &str) -> Self {
+        // 16 bytes challenge and 16 bytes nonce (that will be written)
+        self.challenge_bytes(32, label).add_bytes(8, "pow-nonce")
+    }
 }
+
+// impl<H: DuplexSpongeInterface> ByteDomainSeparator for DomainSeparator<H> {
+//     #[inline]
+//     fn add_bytes(self, count: usize, label: &str) -> Self {
+//         self.absorb(count, label)
+//     }
+
+//     #[inline]
+//     fn challenge_bytes(self, count: usize, label: &str) -> Self {
+//         self.squeeze(count, label)
+//     }
+// }
 
 /// Sponge operations.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

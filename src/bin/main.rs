@@ -14,7 +14,6 @@ use whir_p3::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
-        domainsep::WhirDomainSeparator,
         parameters::WhirConfig,
         prover::Prover,
         statement::{Statement, StatementVerifier, Weights},

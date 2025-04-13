@@ -3,7 +3,7 @@ use p3_field::{BasedVectorSpace, Field};
 use super::{traits::FieldDomainSeparator, utils::bytes_modp};
 use crate::fiat_shamir::{
     codecs::utils::bytes_uniform_modp, domain_separator::DomainSeparator,
-    duplex_sponge::interface::DuplexSpongeInterface, traits::ByteDomainSeparator,
+    duplex_sponge::interface::DuplexSpongeInterface,
 };
 
 impl<F, H> FieldDomainSeparator<F> for DomainSeparator<H>

@@ -204,10 +204,7 @@ mod tests {
 
     use super::*;
     use crate::fiat_shamir::{
-        DefaultHash,
-        domain_separator::DomainSeparator,
-        pow::traits::{PoWChallenge, PoWDomainSeparator},
-        traits::ByteDomainSeparator,
+        DefaultHash, domain_separator::DomainSeparator, pow::traits::PoWChallenge,
     };
 
     fn sample_challenges() -> Vec<[u8; 32]> {

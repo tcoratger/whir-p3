@@ -327,10 +327,8 @@ mod tests {
     use super::*;
     use crate::{
         fiat_shamir::{
-            DefaultHash,
-            codecs::traits::FieldDomainSeparator,
-            domain_separator::DomainSeparator,
-            pow::{blake3::Blake3PoW, traits::PoWDomainSeparator},
+            DefaultHash, codecs::traits::FieldDomainSeparator, domain_separator::DomainSeparator,
+            pow::blake3::Blake3PoW,
         },
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
         whir::statement::Weights,

@@ -129,7 +129,6 @@ mod tests {
             FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, SoundnessType,
         },
         poly::multilinear::MultilinearPoint,
-        whir::domainsep::WhirDomainSeparator,
     };
 
     type F = BabyBear;
