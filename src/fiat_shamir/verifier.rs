@@ -446,7 +446,7 @@ mod tests {
         // Generate a domain separator with known tag and one challenge scalar
         let mut domsep: DomainSeparator<H> = DomainSeparator::new("chal");
         domsep.challenge_scalars::<F>(1, "tag");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_verifier_state(&[]);
 
         // Sample a single scalar
         let mut out = [F::ZERO; 1];
@@ -460,7 +460,7 @@ mod tests {
     fn scalar_challenge_single_basefield_case_2() {
         let mut domsep: DomainSeparator<H> = DomainSeparator::new("chal2");
         domsep.challenge_scalars::<F>(1, "tag");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_verifier_state(&[]);
 
         let mut out = [F::ZERO; 1];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -472,7 +472,7 @@ mod tests {
     fn scalar_challenge_multiple_basefield_scalars() {
         let mut domsep: DomainSeparator<H> = DomainSeparator::new("chal");
         domsep.challenge_scalars::<F>(10, "tag");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_verifier_state(&[]);
 
         let mut out = [F::ZERO; 10];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -498,7 +498,7 @@ mod tests {
     fn scalar_challenge_single_extension_scalar() {
         let mut domsep: DomainSeparator<H> = DomainSeparator::new("chal");
         domsep.challenge_scalars::<EF4>(1, "tag");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_verifier_state(&[]);
 
         let mut out = [EF4::ZERO; 1];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -520,7 +520,7 @@ mod tests {
     fn scalar_challenge_multiple_extension_scalars() {
         let mut domsep: DomainSeparator<H> = DomainSeparator::new("chal");
         domsep.challenge_scalars::<EF4>(5, "tag");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_verifier_state(&[]);
 
         let mut out = [EF4::ZERO; 5];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -591,7 +591,7 @@ mod tests {
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 222, 0, 0, 0];
 
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_verifier_state(&[]);
         let actual = prover.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -600,7 +600,7 @@ mod tests {
         );
 
         // Determinism: same input, same transcript = same output
-        let mut prover2 = domsep.to_prover_state();
+        let mut prover2 = domsep.to_verifier_state(&[]);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -621,7 +621,7 @@ mod tests {
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0];
 
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_verifier_state(&[]);
         let actual = prover.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -630,7 +630,7 @@ mod tests {
         );
 
         // Determinism: same input, same transcript = same output
-        let mut prover2 = domsep.to_prover_state();
+        let mut prover2 = domsep.to_verifier_state(&[]);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -655,7 +655,7 @@ mod tests {
         ];
 
         // Serialize the values through the transcript
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_verifier_state(&[]);
         let actual = prover.public_scalars(&values).unwrap();
 
         // Check that the actual bytes match expected ones
@@ -665,7 +665,7 @@ mod tests {
         );
 
         // Check determinism: same input = same output
-        let mut prover2 = domsep.to_prover_state();
+        let mut prover2 = domsep.to_verifier_state(&[]);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -690,7 +690,7 @@ mod tests {
         ];
 
         // Serialize the values through the transcript
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_verifier_state(&[]);
         let actual = prover.public_scalars(&values).unwrap();
 
         // Check that the actual bytes match expected ones
@@ -700,7 +700,7 @@ mod tests {
         );
 
         // Check determinism: same input = same output
-        let mut prover2 = domsep.to_prover_state();
+        let mut prover2 = domsep.to_verifier_state(&[]);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -721,14 +721,14 @@ mod tests {
         let mut domsep: DomainSeparator<H> = DomainSeparator::new("mixed");
         domsep.add_scalars::<BabyBear>(values.len(), "mix");
 
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_verifier_state(&[]);
         let actual = prover.public_scalars(&values).unwrap();
 
         let expected = vec![0, 0, 0, 0, 1, 0, 0, 0, 64, 226, 1, 0, 67, 104, 120, 0];
 
         assert_eq!(actual, expected, "Mixed values should serialize correctly");
 
-        let mut prover2 = domsep.to_prover_state();
+        let mut prover2 = domsep.to_verifier_state(&[]);
         assert_eq!(
             actual,
             prover2.public_scalars(&values).unwrap(),
