@@ -286,7 +286,17 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         }
     }
 
-    /// Extension for generating a proof-of-work challenge.
+    /// Adds a [`PoWChallenge`] to the [`spongefish::DomainSeparator`].
+    ///
+    /// In order to squeeze a proof-of-work challenge, we extract a 32-byte challenge using
+    /// the byte interface, and then we find a 16-byte nonce that satisfies the proof-of-work.
+    /// The nonce a 64-bit integer encoded as an unsigned integer and written in big-endian and
+    /// added to the protocol transcript as the nonce for the proof-of-work.
+    ///
+    /// The number of bits used for the proof of work are **not** encoded within the
+    /// [`spongefish::DomainSeparator`]. It is up to the implementor to change the domain
+    /// separator or the label in order to reflect changes in the proof in order to preserve
+    /// simulation extractability.
     pub fn challenge_pow(&mut self, label: &str) {
         // 16 bytes challenge and 16 bytes nonce (that will be written)
         self.squeeze(32, label);

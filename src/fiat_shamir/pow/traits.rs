@@ -1,20 +1,3 @@
-/// [`spongefish::DomainSeparator`] for proof-of-work challenges.
-pub trait PoWDomainSeparator {
-    /// Adds a [`PoWChallenge`] to the [`spongefish::DomainSeparator`].
-    ///
-    /// In order to squeeze a proof-of-work challenge, we extract a 32-byte challenge using
-    /// the byte interface, and then we find a 16-byte nonce that satisfies the proof-of-work.
-    /// The nonce a 64-bit integer encoded as an unsigned integer and written in big-endian and
-    /// added to the protocol transcript as the nonce for the proof-of-work.
-    ///
-    /// The number of bits used for the proof of work are **not** encoded within the
-    /// [`spongefish::DomainSeparator`]. It is up to the implementor to change the domain
-    /// separator or the label in order to reflect changes in the proof in order to preserve
-    /// simulation extractability.
-    #[must_use]
-    fn challenge_pow(self, label: &str) -> Self;
-}
-
 pub trait PowStrategy: Clone + Sync {
     /// Creates a new proof-of-work challenge.
     /// The `challenge` is a 32-byte array that represents the challenge.
