@@ -190,11 +190,6 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         self.absorb(count, label);
     }
 
-    #[inline]
-    pub fn challenge_bytes(&mut self, count: usize, label: &str) {
-        self.squeeze(count, label);
-    }
-
     pub fn add_ood<F>(&mut self, num_samples: usize)
     where
         F: Field + BasedVectorSpace<F::PrimeSubfield>,
@@ -245,7 +240,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
             let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
             self.add_digest("merkle_digest");
             self.add_ood::<EF>(r.ood_samples);
-            self.challenge_bytes(r.num_queries * domain_size_bytes, "stir_queries");
+            self.squeeze(r.num_queries * domain_size_bytes, "stir_queries");
             self.pow(r.pow_bits);
             self.challenge_scalars::<EF>(1, "combination_randomness");
 
@@ -264,7 +259,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
 
         self.add_scalars::<EF>(1 << params.final_sumcheck_rounds, "final_coeffs");
 
-        self.challenge_bytes(domain_size_bytes * params.final_queries, "final_queries");
+        self.squeeze(domain_size_bytes * params.final_queries, "final_queries");
         self.pow(params.final_pow_bits);
         self.add_sumcheck::<EF>(params.final_sumcheck_rounds, params.final_folding_pow_bits);
     }
@@ -299,7 +294,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     /// Extension for generating a proof-of-work challenge.
     pub fn challenge_pow(&mut self, label: &str) {
         // 16 bytes challenge and 16 bytes nonce (that will be written)
-        self.challenge_bytes(32, label);
+        self.squeeze(32, label);
         self.add_bytes(8, "pow-nonce");
     }
 
@@ -338,7 +333,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         //
         // where `bytes_uniform_modp` gives the number of bytes needed to sample uniformly
         // over the base field.
-        self.challenge_bytes(
+        self.squeeze(
             count
                 * F::DIMENSION
                 * F::PrimeSubfield::DIMENSION
@@ -475,7 +470,7 @@ mod tests {
     fn test_byte_domain_separator_trait_impl() {
         let mut ds = DomainSeparator::<H>::new("x");
         ds.add_bytes(1, "a");
-        ds.challenge_bytes(2, "b");
+        ds.squeeze(2, "b");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(1), Op::Squeeze(2)]);
     }
