@@ -670,7 +670,7 @@ mod tests {
             0, 0, 0, 0,
         ];
 
-        // Use CommonFieldToUnit to serialize the values through the transcript
+        // Serialize the values through the transcript
         let mut prover = domsep.to_prover_state();
         let actual = prover.public_scalars(&values).unwrap();
 
@@ -705,7 +705,7 @@ mod tests {
             0, 0, 0, 0,
         ];
 
-        // Use CommonFieldToUnit to serialize the values through the transcript
+        // Serialize the values through the transcript
         let mut prover = domsep.to_prover_state();
         let actual = prover.public_scalars(&values).unwrap();
 

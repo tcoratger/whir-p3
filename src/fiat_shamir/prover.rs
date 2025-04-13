@@ -90,7 +90,7 @@ where
         F: Field + BasedVectorSpace<F::PrimeSubfield>,
         F::PrimeSubfield: PrimeField64,
     {
-        // Serialize the input scalars to bytes using the CommonFieldToUnit trait
+        // Serialize the input scalars to bytes
         let serialized = self.public_scalars(input)?;
 
         // Append the serialized bytes to the internal transcript byte buffer
