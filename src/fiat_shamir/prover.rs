@@ -132,16 +132,11 @@ where
         Ok(buf)
     }
 
-    #[inline]
-    pub fn public_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
-        self.public_units(input)
-    }
-
     /// Add public messages to the protocol transcript.
     /// Messages input to this function are not added to the protocol transcript.
     /// They are however absorbed into the verifier's sponge for Fiat-Shamir, and used to re-seed
     /// the prover state.
-    pub fn public_units(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn public_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         let len = self.narg_string.len();
         self.add_units(input)?;
         self.narg_string.truncate(len);
@@ -261,7 +256,7 @@ mod tests {
         domsep.absorb(4, "data");
         let mut pstate = ProverState::from(&domsep);
 
-        pstate.public_units(&[1, 2, 3, 4]).unwrap();
+        pstate.public_bytes(&[1, 2, 3, 4]).unwrap();
         assert_eq!(pstate.narg_string(), b"");
     }
 
@@ -291,7 +286,7 @@ mod tests {
         let mut domsep = DomainSeparator::<DefaultHash>::new("test");
         domsep.absorb(2, "p");
         let mut pstate = ProverState::from(&domsep);
-        let _ = pstate.public_units(&[0xaa, 0xbb]);
+        let _ = pstate.public_bytes(&[0xaa, 0xbb]);
 
         assert_eq!(pstate.narg_string(), b"");
     }
