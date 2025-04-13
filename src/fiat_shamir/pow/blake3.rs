@@ -221,9 +221,10 @@ mod tests {
     fn test_pow_blake3() {
         const BITS: f64 = 10.0;
 
-        let domain_separator = DomainSeparator::<DefaultHash>::new("the proof of work lottery 🎰")
-            .add_bytes(1, "something")
-            .challenge_pow("rolling dices");
+        let mut domain_separator =
+            DomainSeparator::<DefaultHash>::new("the proof of work lottery 🎰");
+        domain_separator.add_bytes(1, "something");
+        domain_separator.challenge_pow("rolling dices");
 
         let mut prover = domain_separator.to_prover_state();
         prover.add_bytes(b"\0").expect("Invalid DomainSeparator");

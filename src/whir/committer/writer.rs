@@ -178,9 +178,9 @@ mod tests {
         let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let domainsep: DomainSeparator = DomainSeparator::new("🌪️")
-            .commit_statement(&params)
-            .add_whir_proof(&params);
+        let mut domainsep: DomainSeparator = DomainSeparator::new("🌪️");
+        domainsep.commit_statement(&params);
+        domainsep.add_whir_proof(&params);
         let mut prover_state = domainsep.to_prover_state();
 
         // Run the Commitment Phase
@@ -257,7 +257,9 @@ mod tests {
         let mut rng = rand::rng();
         let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 1024]);
 
-        let domainsep = DomainSeparator::new("🌪️").commit_statement(&params);
+        let mut domainsep = DomainSeparator::new("🌪️");
+        domainsep.commit_statement(&params);
+
         let mut prover_state = domainsep.to_prover_state();
 
         let committer = CommitmentWriter::new(params);
@@ -303,7 +305,8 @@ mod tests {
         let mut rng = rand::rng();
         let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        let domainsep = DomainSeparator::new("🌪️").commit_statement(&params);
+        let mut domainsep = DomainSeparator::new("🌪️");
+        domainsep.commit_statement(&params);
         let mut prover_state = domainsep.to_prover_state();
 
         let committer = CommitmentWriter::new(params);

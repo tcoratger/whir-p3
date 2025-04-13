@@ -118,7 +118,8 @@ mod tests {
 
     #[test]
     fn test_prover_state_public_units_does_not_affect_narg() {
-        let domsep = DomainSeparator::<DefaultHash>::new("test").absorb(4, "data");
+        let mut domsep = DomainSeparator::<DefaultHash>::new("test");
+        domsep.absorb(4, "data");
         let mut pstate = ProverState::from(&domsep);
 
         pstate.public_units(&[1, 2, 3, 4]).unwrap();
@@ -127,7 +128,8 @@ mod tests {
 
     #[test]
     fn test_add_units_appends_to_narg_string() {
-        let domsep = DomainSeparator::<DefaultHash>::new("test").absorb(3, "msg");
+        let mut domsep = DomainSeparator::<DefaultHash>::new("test");
+        domsep.absorb(3, "msg");
         let mut pstate = ProverState::from(&domsep);
         let input = [42, 43, 44];
 
@@ -137,7 +139,8 @@ mod tests {
 
     #[test]
     fn test_add_units_too_many_elements_should_error() {
-        let domsep = DomainSeparator::<DefaultHash>::new("test").absorb(2, "short");
+        let mut domsep = DomainSeparator::<DefaultHash>::new("test");
+        domsep.absorb(2, "short");
         let mut pstate = ProverState::from(&domsep);
 
         let result = pstate.add_units(&[1, 2, 3]);
@@ -146,7 +149,8 @@ mod tests {
 
     #[test]
     fn test_public_units_does_not_update_transcript() {
-        let domsep = DomainSeparator::<DefaultHash>::new("test").absorb(2, "p");
+        let mut domsep = DomainSeparator::<DefaultHash>::new("test");
+        domsep.absorb(2, "p");
         let mut pstate = ProverState::from(&domsep);
         let _ = pstate.public_units(&[0xaa, 0xbb]);
 
@@ -155,7 +159,8 @@ mod tests {
 
     #[test]
     fn test_fill_challenge_units() {
-        let domsep = DomainSeparator::<DefaultHash>::new("test").squeeze(8, "ch");
+        let mut domsep = DomainSeparator::<DefaultHash>::new("test");
+        domsep.squeeze(8, "ch");
         let mut pstate = ProverState::from(&domsep);
 
         let mut out = [0u8; 8];
@@ -165,9 +170,9 @@ mod tests {
 
     #[test]
     fn test_add_units_multiple_accumulates() {
-        let domsep = DomainSeparator::<DefaultHash>::new("t")
-            .absorb(2, "a")
-            .absorb(3, "b");
+        let mut domsep = DomainSeparator::<DefaultHash>::new("t");
+        domsep.absorb(2, "a");
+        domsep.absorb(3, "b");
         let mut p = ProverState::from(&domsep);
 
         p.add_units(&[10, 11]).unwrap();
@@ -178,7 +183,8 @@ mod tests {
 
     #[test]
     fn test_narg_string_round_trip_check() {
-        let domsep = DomainSeparator::<DefaultHash>::new("t").absorb(5, "data");
+        let mut domsep = DomainSeparator::<DefaultHash>::new("t");
+        domsep.absorb(5, "data");
         let mut p = ProverState::from(&domsep);
 
         let msg = b"zkp42";

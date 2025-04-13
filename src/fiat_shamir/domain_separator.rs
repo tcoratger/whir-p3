@@ -67,8 +67,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     }
 
     /// Absorb `count` native elements.
-    #[must_use]
-    pub fn absorb(self, count: usize, label: &str) -> Self {
+    pub fn absorb(&mut self, count: usize, label: &str) {
         assert!(count > 0, "Count must be positive.");
         assert!(
             !label.contains(SEP_BYTE),
@@ -82,12 +81,12 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
             "Label cannot start with a digit."
         );
 
-        Self::from_string(self.io + SEP_BYTE + &format!("A{count}") + label)
+        self.io += SEP_BYTE;
+        self.io += &format!("A{count}{label}");
     }
 
     /// Squeeze `count` native elements.
-    #[must_use]
-    pub fn squeeze(self, count: usize, label: &str) -> Self {
+    pub fn squeeze(&mut self, count: usize, label: &str) {
         assert!(count > 0, "Count must be positive.");
         assert!(
             !label.contains(SEP_BYTE),
@@ -101,7 +100,8 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
             "Label cannot start with a digit."
         );
 
-        Self::from_string(self.io + SEP_BYTE + &format!("S{count}") + label)
+        self.io += SEP_BYTE;
+        self.io += &format!("S{count}{label}");
     }
 
     /// Return the IO Pattern as bytes.
@@ -186,83 +186,70 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     }
 
     #[inline]
-    #[must_use]
-    pub fn add_bytes(self, count: usize, label: &str) -> Self {
+    pub fn add_bytes(&mut self, count: usize, label: &str) {
         self.absorb(count, label)
     }
 
     #[inline]
-    #[must_use]
-    pub fn challenge_bytes(self, count: usize, label: &str) -> Self {
+    pub fn challenge_bytes(&mut self, count: usize, label: &str) {
         self.squeeze(count, label)
     }
 
-    #[must_use]
-    pub fn add_ood<F>(self, num_samples: usize) -> Self
+    pub fn add_ood<F>(&mut self, num_samples: usize)
     where
         F: Field + BasedVectorSpace<F::PrimeSubfield>,
     {
         if num_samples > 0 {
-            self.challenge_scalars::<F>(num_samples, "ood_query")
-                .add_scalars::<F>(num_samples, "ood_ans")
-        } else {
-            self
+            self.challenge_scalars::<F>(num_samples, "ood_query");
+            self.add_scalars::<F>(num_samples, "ood_ans");
         }
     }
 
-    #[must_use]
     pub fn commit_statement<PowStrategy, EF, F, HC, C>(
-        self,
+        &mut self,
         params: &WhirConfig<EF, F, HC, C, PowStrategy>,
-    ) -> Self
-    where
+    ) where
         F: Field + TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
     {
         // TODO: Add params
-        let mut this = self.add_digest("merkle_digest");
+        self.add_digest("merkle_digest");
         if params.committment_ood_samples > 0 {
             assert!(params.initial_statement);
-            this = this.add_ood::<EF>(params.committment_ood_samples);
+            self.add_ood::<EF>(params.committment_ood_samples);
         }
-        this
     }
 
-    #[must_use]
     pub fn add_whir_proof<PowStrategy, EF, F, HC, C>(
-        mut self,
+        &mut self,
         params: &WhirConfig<EF, F, HC, C, PowStrategy>,
-    ) -> Self
-    where
+    ) where
         F: Field + TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
     {
         // TODO: Add statement
         if params.initial_statement {
-            self = self
-                .challenge_scalars::<EF>(1, "initial_combination_randomness")
-                .add_sumcheck::<EF>(
-                    params.folding_factor.at_round(0),
-                    params.starting_folding_pow_bits,
-                );
+            self.challenge_scalars::<EF>(1, "initial_combination_randomness");
+            self.add_sumcheck::<EF>(
+                params.folding_factor.at_round(0),
+                params.starting_folding_pow_bits,
+            );
         } else {
-            self = self
-                .challenge_scalars::<EF>(params.folding_factor.at_round(0), "folding_randomness")
-                .pow(params.starting_folding_pow_bits);
+            self.challenge_scalars::<EF>(params.folding_factor.at_round(0), "folding_randomness");
+            self.pow(params.starting_folding_pow_bits);
         }
 
         let mut domain_size = params.starting_domain.size();
         for (round, r) in params.round_parameters.iter().enumerate() {
             let folded_domain_size = domain_size >> params.folding_factor.at_round(round);
             let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
-            self = self
-                .add_digest("merkle_digest")
-                .add_ood::<EF>(r.ood_samples)
-                .challenge_bytes(r.num_queries * domain_size_bytes, "stir_queries")
-                .pow(r.pow_bits);
-            self = self.challenge_scalars::<EF>(1, "combination_randomness");
+            self.add_digest("merkle_digest");
+            self.add_ood::<EF>(r.ood_samples);
+            self.challenge_bytes(r.num_queries * domain_size_bytes, "stir_queries");
+            self.pow(r.pow_bits);
+            self.challenge_scalars::<EF>(1, "combination_randomness");
 
-            self = self.add_sumcheck::<EF>(
+            self.add_sumcheck::<EF>(
                 params.folding_factor.at_round(round + 1),
                 r.folding_pow_bits,
             );
@@ -275,15 +262,14 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
                 .at_round(params.round_parameters.len());
         let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
-        self = self.add_scalars::<EF>(1 << params.final_sumcheck_rounds, "final_coeffs");
+        self.add_scalars::<EF>(1 << params.final_sumcheck_rounds, "final_coeffs");
 
-        self.challenge_bytes(domain_size_bytes * params.final_queries, "final_queries")
-            .pow(params.final_pow_bits)
-            .add_sumcheck::<EF>(params.final_sumcheck_rounds, params.final_folding_pow_bits)
+        self.challenge_bytes(domain_size_bytes * params.final_queries, "final_queries");
+        self.pow(params.final_pow_bits);
+        self.add_sumcheck::<EF>(params.final_sumcheck_rounds, params.final_folding_pow_bits)
     }
 
-    #[must_use]
-    pub fn add_digest(self, label: &str) -> Self {
+    pub fn add_digest(&mut self, label: &str) {
         self.add_bytes(32, label)
     }
 
@@ -293,38 +279,31 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     /// - Samples 3 scalars for the sumcheck polynomial.
     /// - Samples 1 scalar for folding randomness.
     /// - Optionally performs a PoW challenge if `pow_bits > 0`.
-    #[must_use]
-    pub fn add_sumcheck<F>(mut self, folding_factor: usize, pow_bits: f64) -> Self
+    pub fn add_sumcheck<F>(&mut self, folding_factor: usize, pow_bits: f64)
     where
         F: Field + BasedVectorSpace<F::PrimeSubfield>,
     {
         for _ in 0..folding_factor {
-            self = self
-                .add_scalars::<F>(3, "sumcheck_poly")
-                .challenge_scalars::<F>(1, "folding_randomness")
-                .pow(pow_bits);
+            self.add_scalars::<F>(3, "sumcheck_poly");
+            self.challenge_scalars::<F>(1, "folding_randomness");
+            self.pow(pow_bits);
         }
-        self
     }
 
-    #[must_use]
-    pub fn pow(self, bits: f64) -> Self {
+    pub fn pow(&mut self, bits: f64) {
         if bits > 0. {
             self.challenge_pow("pow_queries")
-        } else {
-            self
         }
     }
 
     /// Extension for generating a proof-of-work challenge.
-    #[must_use]
-    pub fn challenge_pow(self, label: &str) -> Self {
+    pub fn challenge_pow(&mut self, label: &str) {
         // 16 bytes challenge and 16 bytes nonce (that will be written)
-        self.challenge_bytes(32, label).add_bytes(8, "pow-nonce")
+        self.challenge_bytes(32, label);
+        self.add_bytes(8, "pow-nonce");
     }
 
-    #[must_use]
-    pub fn add_scalars<F>(self, count: usize, label: &str) -> Self
+    pub fn add_scalars<F>(&mut self, count: usize, label: &str)
     where
         F: Field + BasedVectorSpace<F::PrimeSubfield>,
     {
@@ -347,8 +326,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         )
     }
 
-    #[must_use]
-    pub fn challenge_scalars<F>(self, count: usize, label: &str) -> Self
+    pub fn challenge_scalars<F>(&mut self, count: usize, label: &str)
     where
         F: Field + BasedVectorSpace<F::PrimeSubfield>,
     {
@@ -438,16 +416,17 @@ mod tests {
 
     #[test]
     fn test_domain_separator_absorb_and_squeeze() {
-        let ds = DomainSeparator::<H>::new("proto")
-            .absorb(2, "input")
-            .squeeze(1, "challenge");
+        let mut ds = DomainSeparator::<H>::new("proto");
+        ds.absorb(2, "input");
+        ds.squeeze(1, "challenge");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(2), Op::Squeeze(1)]);
     }
 
     #[test]
     fn test_absorb_return_value_format() {
-        let ds = DomainSeparator::<H>::new("proto").absorb(3, "input");
+        let mut ds = DomainSeparator::<H>::new("proto");
+        ds.absorb(3, "input");
         let expected_str = "proto\0A3input"; // initial + SEP + absorb op + label
         assert_eq!(ds.as_bytes(), expected_str.as_bytes());
     }
@@ -472,11 +451,11 @@ mod tests {
 
     #[test]
     fn test_merge_consecutive_absorbs_and_squeezes() {
-        let ds = DomainSeparator::<H>::new("merge")
-            .absorb(1, "a")
-            .absorb(2, "b")
-            .squeeze(3, "c")
-            .squeeze(1, "d");
+        let mut ds = DomainSeparator::<H>::new("merge");
+        ds.absorb(1, "a");
+        ds.absorb(2, "b");
+        ds.squeeze(3, "c");
+        ds.squeeze(1, "d");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(3), Op::Squeeze(4)]);
     }
@@ -494,9 +473,9 @@ mod tests {
 
     #[test]
     fn test_byte_domain_separator_trait_impl() {
-        let ds = DomainSeparator::<H>::new("x")
-            .add_bytes(1, "a")
-            .challenge_bytes(2, "b");
+        let mut ds = DomainSeparator::<H>::new("x");
+        ds.add_bytes(1, "a");
+        ds.challenge_bytes(2, "b");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(1), Op::Squeeze(2)]);
     }
@@ -510,9 +489,9 @@ mod tests {
 
     #[test]
     fn test_unicode_labels() {
-        let ds = DomainSeparator::<H>::new("emoji")
-            .absorb(1, "🦀")
-            .squeeze(1, "🎯");
+        let mut ds = DomainSeparator::<H>::new("emoji");
+        ds.absorb(1, "🦀");
+        ds.squeeze(1, "🎯");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(1), Op::Squeeze(1)]);
     }
@@ -520,9 +499,9 @@ mod tests {
     #[test]
     fn test_large_counts_and_labels() {
         let label = "x".repeat(100);
-        let ds = DomainSeparator::<H>::new("big")
-            .absorb(12345, &label)
-            .squeeze(54321, &label);
+        let mut ds = DomainSeparator::<H>::new("big");
+        ds.absorb(12345, &label);
+        ds.squeeze(54321, &label);
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(12345), Op::Squeeze(54321)]);
     }
@@ -546,9 +525,9 @@ mod tests {
 
     #[test]
     fn test_round_trip_operations() {
-        let ds1 = DomainSeparator::<H>::new("foo")
-            .absorb(2, "a")
-            .squeeze(3, "b");
+        let mut ds1 = DomainSeparator::<H>::new("foo");
+        ds1.absorb(2, "a");
+        ds1.squeeze(3, "b");
         let ops1 = ds1.finalize();
 
         let tag = std::str::from_utf8(ds1.as_bytes()).unwrap();
@@ -560,7 +539,8 @@ mod tests {
 
     #[test]
     fn test_squeeze_returns_correct_string() {
-        let ds = DomainSeparator::<H>::new("proto").squeeze(4, "challenge");
+        let mut ds = DomainSeparator::<H>::new("proto");
+        ds.squeeze(4, "challenge");
         let expected_str = "proto\0S4challenge";
         assert_eq!(ds.as_bytes(), expected_str.as_bytes());
     }
@@ -585,9 +565,9 @@ mod tests {
 
     #[test]
     fn test_multiple_squeeze_chaining() {
-        let ds = DomainSeparator::<H>::new("proto")
-            .squeeze(1, "first")
-            .squeeze(2, "second");
+        let mut ds = DomainSeparator::<H>::new("proto");
+        ds.squeeze(1, "first");
+        ds.squeeze(2, "second");
         let expected_str = "proto\0S1first\0S2second";
         assert_eq!(ds.as_bytes(), expected_str.as_bytes());
     }
@@ -661,10 +641,10 @@ mod tests {
         // - bits = 31 → bytes_modp(31) = 4
         // - 2 scalars * 1 * 4 = 8 bytes absorbed
         // - "A" indicates absorption in the domain separator
-        let domsep: DomainSeparator<H> = DomainSeparator::new("babybear");
-        let sep = domsep.add_scalars::<F>(2, "foo");
+        let mut domsep: DomainSeparator<H> = DomainSeparator::new("babybear");
+        domsep.add_scalars::<F>(2, "foo");
         let expected = b"babybear\0A8foo";
-        assert_eq!(sep.as_bytes(), expected);
+        assert_eq!(domsep.as_bytes(), expected);
     }
 
     #[test]
@@ -674,10 +654,10 @@ mod tests {
         // - bits = 31 → bytes_uniform_modp(31) = 5
         // - 3 scalars * 1 * 5 = 15 bytes squeezed
         // - "S" indicates squeezing in the domain separator
-        let domsep: DomainSeparator<H> = DomainSeparator::new("bb");
-        let sep = domsep.challenge_scalars::<F>(3, "bar");
+        let mut domsep: DomainSeparator<H> = DomainSeparator::new("bb");
+        domsep.challenge_scalars::<F>(3, "bar");
         let expected = b"bb\0S57bar";
-        assert_eq!(sep.as_bytes(), expected);
+        assert_eq!(domsep.as_bytes(), expected);
     }
 
     #[test]
@@ -686,10 +666,10 @@ mod tests {
         // - EF4 has extension degree = 4
         // - Base field bits = 31 → bytes_modp(31) = 4
         // - 2 scalars * 4 * 4 = 32 bytes absorbed
-        let domsep: DomainSeparator<H> = DomainSeparator::new("ext");
-        let sep = domsep.add_scalars::<EF4>(2, "a");
+        let mut domsep: DomainSeparator<H> = DomainSeparator::new("ext");
+        domsep.add_scalars::<EF4>(2, "a");
         let expected = b"ext\0A32a";
-        assert_eq!(sep.as_bytes(), expected);
+        assert_eq!(domsep.as_bytes(), expected);
     }
 
     #[test]
@@ -699,19 +679,21 @@ mod tests {
         // - Base field bits = 31 → bytes_uniform_modp(31) = 19
         // - 1 scalar * 4 * 19 = 76 bytes squeezed
         // - "S" indicates squeezing in the domain separator
-        let domsep: DomainSeparator<H> = DomainSeparator::new("ext2");
-        let sep = domsep.challenge_scalars::<EF4>(1, "b");
+        let mut domsep: DomainSeparator<H> = DomainSeparator::new("ext2");
+        domsep.challenge_scalars::<EF4>(1, "b");
 
         let expected = b"ext2\0S76b";
-        assert_eq!(sep.as_bytes(), expected);
+        assert_eq!(domsep.as_bytes(), expected);
     }
 
     #[test]
     fn test_add_ood() {
         let iop: DomainSeparator = DomainSeparator::new("test_protocol");
+        let mut updated_iop = iop.clone();
+        let mut unchanged_iop = iop.clone();
 
         // Apply OOD query addition
-        let updated_iop = iop.clone().add_ood::<BabyBear>(3);
+        updated_iop.add_ood::<BabyBear>(3);
 
         // Convert to a string for inspection
         let pattern_str = String::from_utf8(updated_iop.as_bytes().to_vec()).unwrap();
@@ -721,7 +703,7 @@ mod tests {
         assert!(pattern_str.contains("ood_ans"));
 
         // Test case where num_samples = 0 (should not modify anything)
-        let unchanged_iop = iop.add_ood::<BabyBear>(0);
+        unchanged_iop.add_ood::<BabyBear>(0);
         let unchanged_str = String::from_utf8(unchanged_iop.as_bytes().to_vec()).unwrap();
         assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
     }
@@ -729,9 +711,11 @@ mod tests {
     #[test]
     fn test_pow() {
         let iop: DomainSeparator = DomainSeparator::new("test_protocol");
+        let mut updated_iop = iop.clone();
+        let mut unchanged_iop = iop.clone();
 
         // Apply PoW challenge
-        let updated_iop = iop.clone().pow(10.0);
+        updated_iop.pow(10.0);
 
         // Convert to a string for inspection
         let pattern_str = String::from_utf8(updated_iop.as_bytes().to_vec()).unwrap();
@@ -740,7 +724,7 @@ mod tests {
         assert!(pattern_str.contains("pow_queries"));
 
         // Test case where bits = 0 (should not modify anything)
-        let unchanged_iop = iop.pow(0.0);
+        unchanged_iop.pow(0.0);
         let unchanged_str = String::from_utf8(unchanged_iop.as_bytes().to_vec()).unwrap();
         assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
     }

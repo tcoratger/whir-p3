@@ -147,7 +147,8 @@ mod tests {
 
     #[test]
     fn test_fill_next_units_reads_and_absorbs() {
-        let ds = DomainSeparator::<DummySponge>::new("x").absorb(3, "input");
+        let mut ds = DomainSeparator::<DummySponge>::new("x");
+        ds.absorb(3, "input");
         let mut vs = VerifierState::<DummySponge>::new(&ds, b"abc");
         let mut buf = [0u8; 3];
         let res = vs.fill_next_units(&mut buf);
@@ -158,7 +159,8 @@ mod tests {
 
     #[test]
     fn test_fill_next_units_with_insufficient_data_errors() {
-        let ds = DomainSeparator::<DummySponge>::new("x").absorb(4, "fail");
+        let mut ds = DomainSeparator::<DummySponge>::new("x");
+        ds.absorb(4, "fail");
         let mut vs = VerifierState::<DummySponge>::new(&ds, b"xy");
         let mut buf = [0u8; 4];
         let res = vs.fill_next_units(&mut buf);
@@ -167,7 +169,8 @@ mod tests {
 
     #[test]
     fn test_unit_transcript_public_units() {
-        let ds = DomainSeparator::<DummySponge>::new("x").absorb(2, "public");
+        let mut ds = DomainSeparator::<DummySponge>::new("x");
+        ds.absorb(2, "public");
         let mut vs = VerifierState::<DummySponge>::new(&ds, b"..");
         assert!(vs.public_units(&[1, 2]).is_ok());
         assert_eq!(*vs.hash_state.ds.absorbed.borrow(), &[1, 2]);
@@ -175,7 +178,8 @@ mod tests {
 
     #[test]
     fn test_unit_transcript_fill_challenge_units() {
-        let ds = DomainSeparator::<DummySponge>::new("x").squeeze(4, "c");
+        let mut ds = DomainSeparator::<DummySponge>::new("x");
+        ds.squeeze(4, "c");
         let mut vs = VerifierState::<DummySponge>::new(&ds, b"abcd");
         let mut out = [0u8; 4];
         assert!(vs.fill_challenge_units(&mut out).is_ok());
@@ -184,7 +188,8 @@ mod tests {
 
     #[test]
     fn test_fill_next_bytes_impl() {
-        let ds = DomainSeparator::<DummySponge>::new("x").absorb(3, "byte");
+        let mut ds = DomainSeparator::<DummySponge>::new("x");
+        ds.absorb(3, "byte");
         let mut vs = VerifierState::<DummySponge>::new(&ds, b"xyz");
         let mut out = [0u8; 3];
         assert!(vs.fill_next_bytes(&mut out).is_ok());

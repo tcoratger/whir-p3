@@ -44,11 +44,11 @@ mod tests {
     #[test]
     fn test_add_scalars_babybear() {
         // Step 1: Create a domain separator with the label "test"
-        let domsep: DomainSeparator<H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<H> = DomainSeparator::new("test");
 
         // Step 2: Add an "absorb scalars" tag for 3 scalars, with label "com"
         // This ensures deterministic transcript layout
-        let domsep = domsep.add_scalars::<F>(3, "com");
+        domsep.add_scalars::<F>(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let mut prover_state = domsep.to_prover_state();
@@ -87,11 +87,11 @@ mod tests {
     #[test]
     fn test_add_scalars_goldilocks() {
         // Step 1: Create a domain separator with the label "test"
-        let domsep: DomainSeparator<H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<H> = DomainSeparator::new("test");
 
         // Step 2: Add an "absorb scalars" tag for 3 scalars, with label "com"
         // This ensures deterministic transcript layout
-        let domsep = domsep.add_scalars::<G>(3, "com");
+        domsep.add_scalars::<G>(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let mut prover_state = domsep.to_prover_state();
@@ -130,10 +130,10 @@ mod tests {
     #[test]
     fn test_add_scalars_extension_babybear() {
         // Step 1: Create a domain separator with the label "test"
-        let domsep: DomainSeparator<H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<H> = DomainSeparator::new("test");
 
         // Step 2: Add absorb-scalar tag for EF4 type and 3 values
-        let domsep = domsep.add_scalars::<EF4>(3, "com");
+        domsep.add_scalars::<EF4>(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let mut prover_state = domsep.to_prover_state();
@@ -178,10 +178,10 @@ mod tests {
     #[test]
     fn test_add_scalars_extension_goldilocks() {
         // Step 1: Create a domain separator with the label "test"
-        let domsep: DomainSeparator<H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<H> = DomainSeparator::new("test");
 
         // Step 2: Add absorb-scalar tag for EG2 type and 3 values
-        let domsep = domsep.add_scalars::<EG2>(3, "com");
+        domsep.add_scalars::<EG2>(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let mut prover_state = domsep.to_prover_state();

@@ -199,7 +199,8 @@ mod tests {
 
     #[test]
     fn test_absorb_works_and_modifies_stack() {
-        let domsep = DomainSeparator::<DummySponge>::new("test").absorb(2, "x");
+        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        domsep.absorb(2, "x");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
         assert_eq!(state.stack.len(), 1);
@@ -214,7 +215,8 @@ mod tests {
 
     #[test]
     fn test_absorb_too_much_returns_error() {
-        let domsep = DomainSeparator::<DummySponge>::new("test").absorb(2, "x");
+        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        domsep.absorb(2, "x");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
         let result = state.absorb(&[1, 2, 3]);
@@ -223,7 +225,8 @@ mod tests {
 
     #[test]
     fn test_squeeze_works() {
-        let domsep = DomainSeparator::<DummySponge>::new("test").squeeze(3, "y");
+        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        domsep.squeeze(3, "y");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
         let mut out = [0u8; 3];
@@ -234,7 +237,8 @@ mod tests {
 
     #[test]
     fn test_squeeze_with_leftover_updates_stack() {
-        let domsep = DomainSeparator::<DummySponge>::new("test").squeeze(4, "z");
+        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        domsep.squeeze(4, "z");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
         let mut out = [0u8; 2];
@@ -246,7 +250,8 @@ mod tests {
 
     #[test]
     fn test_multiple_absorbs_deplete_stack_properly() {
-        let domsep = DomainSeparator::<DummySponge>::new("test").absorb(5, "a");
+        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        domsep.absorb(5, "a");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
         let res1 = state.absorb(&[1, 2]);
@@ -262,7 +267,8 @@ mod tests {
 
     #[test]
     fn test_multiple_squeeze_deplete_stack_properly() {
-        let domsep = DomainSeparator::<DummySponge>::new("test").squeeze(5, "z");
+        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        domsep.squeeze(5, "z");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
         let mut out1 = [0u8; 2];
@@ -277,7 +283,8 @@ mod tests {
 
     #[test]
     fn test_absorb_then_wrong_squeeze_clears_stack() {
-        let domsep = DomainSeparator::<DummySponge>::new("test").absorb(3, "in");
+        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        domsep.absorb(3, "in");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
         let mut out = [0u8; 1];
@@ -288,7 +295,8 @@ mod tests {
 
     #[test]
     fn test_absorb_exact_then_too_much() {
-        let domsep = DomainSeparator::<DummySponge>::new("test").absorb(2, "x");
+        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        domsep.absorb(2, "x");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
         assert!(state.absorb(&[10, 20]).is_ok());
@@ -298,7 +306,8 @@ mod tests {
 
     #[test]
     fn test_from_impl_constructs_hash_state() {
-        let domsep = DomainSeparator::<DummySponge>::new("from").absorb(1, "in");
+        let mut domsep = DomainSeparator::<DummySponge>::new("from");
+        domsep.absorb(1, "in");
         let state = HashStateWithInstructions::<DummySponge>::from(&domsep);
 
         assert_eq!(state.stack.len(), 1);
@@ -307,8 +316,10 @@ mod tests {
 
     #[test]
     fn test_generate_tag_is_deterministic() {
-        let ds1 = DomainSeparator::<DummySponge>::new("session1").absorb(1, "x");
-        let ds2 = DomainSeparator::<DummySponge>::new("session1").absorb(1, "x");
+        let mut ds1 = DomainSeparator::<DummySponge>::new("session1");
+        ds1.absorb(1, "x");
+        let mut ds2 = DomainSeparator::<DummySponge>::new("session1");
+        ds2.absorb(1, "x");
 
         let tag1 = HashStateWithInstructions::<DummySponge>::new(&ds1);
         let tag2 = HashStateWithInstructions::<DummySponge>::new(&ds2);
