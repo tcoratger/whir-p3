@@ -15,11 +15,11 @@ pub mod writer;
 #[derive(Debug)]
 pub struct Witness<EF: ExtensionField<F>, F: Field, const DIGEST_ELEMS: usize> {
     /// The committed polynomial in coefficient form.
-    pub(crate) polynomial: CoefficientList<EF>,
+    pub polynomial: CoefficientList<EF>,
     /// Prover data of the Merkle tree.
-    pub(crate) prover_data: MerkleTree<F, u8, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>,
+    pub prover_data: MerkleTree<F, u8, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>,
     /// Out-of-domain challenge points used for polynomial verification.
-    pub(crate) ood_points: Vec<EF>,
+    pub ood_points: Vec<EF>,
     /// The corresponding polynomial evaluations at the OOD challenge points.
-    pub(crate) ood_answers: Vec<EF>,
+    pub ood_answers: Vec<EF>,
 }
