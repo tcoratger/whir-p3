@@ -5,6 +5,7 @@ use p3_goldilocks::Goldilocks;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher64};
 use parameters::WhirConfig;
 use prover::{Leafs, Prover};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use statement::{Statement, StatementVerifier, Weights};
 use verifier::Verifier;
 
@@ -27,7 +28,11 @@ pub mod utils;
 pub mod verifier;
 
 // Only includes the authentication paths
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "F: Serialize, [u8; DIGEST_ELEMS]: Serialize",
+    deserialize = "F: DeserializeOwned, [u8; DIGEST_ELEMS]: DeserializeOwned"
+))]
 pub struct WhirProof<F, const DIGEST_ELEMS: usize> {
     pub merkle_paths: Vec<(Leafs<F>, Proof<DIGEST_ELEMS>)>,
     pub statement_values_at_random_point: Vec<F>,
