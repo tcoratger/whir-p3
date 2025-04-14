@@ -201,7 +201,6 @@ impl Blake3PoW {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::fiat_shamir::{DefaultHash, domain_separator::DomainSeparator};
 
