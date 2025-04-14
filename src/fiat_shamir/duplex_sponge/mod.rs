@@ -108,17 +108,6 @@ impl<U: Unit + Zeroize, C: Permutation<U = U>> DuplexSpongeInterface<U> for Dupl
         self.squeeze_pos += chunk_len;
         self.squeeze_unchecked(rest)
     }
-
-    fn ratchet_unchecked(&mut self) -> &mut Self {
-        self.permutation.permute();
-        // set to zero the state up to rate
-        // XXX. is the compiler really going to do this?
-        self.permutation.as_mut()[..C::R]
-            .iter_mut()
-            .for_each(Zeroize::zeroize);
-        self.squeeze_pos = C::R;
-        self
-    }
 }
 
 #[cfg(test)]
@@ -289,26 +278,5 @@ mod tests {
         assert_eq!(*sponge.permutation.permuted.borrow(), 1);
         // Resumed from beginning
         assert_eq!(sponge.squeeze_pos, 1);
-    }
-
-    #[test]
-    fn test_ratchet_zeros_state_and_permute() {
-        let mut sponge = Sponge::new([0u8; 32]);
-        // Set up dummy state
-        sponge.permutation.state[0] = DummyUnit(99);
-        sponge.permutation.state[1] = DummyUnit(100);
-
-        // Permute not called yet
-        assert_eq!(*sponge.permutation.permuted.borrow(), 0);
-
-        sponge.ratchet_unchecked();
-
-        // Permute called
-        assert_eq!(*sponge.permutation.permuted.borrow(), 1);
-        // State zeroed
-        assert_eq!(sponge.permutation.state[0], DummyUnit(0));
-        assert_eq!(sponge.permutation.state[1], DummyUnit(0));
-        // Reset squeeze_pos
-        assert_eq!(sponge.squeeze_pos, DummyPermutation::R);
     }
 }

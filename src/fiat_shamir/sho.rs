@@ -190,11 +190,6 @@ mod tests {
             self.squeezed.borrow_mut().extend_from_slice(output);
             self
         }
-
-        fn ratchet_unchecked(&mut self) -> &mut Self {
-            *self.ratcheted.borrow_mut() = true;
-            self
-        }
     }
 
     #[test]

@@ -21,17 +21,6 @@ where
 
     /// Squeezes out new elements.
     fn squeeze_unchecked(&mut self, output: &mut [U]) -> &mut Self;
-
-    /// Ratcheting.
-    ///
-    /// This operations makes sure that different elements are processed in different blocks.
-    /// Right now, this is done by:
-    /// - permuting the state.
-    /// - zero rate elements.
-    ///
-    /// This has the effect that state holds no information about the elements absorbed so far.
-    /// The resulting state is compressed.
-    fn ratchet_unchecked(&mut self) -> &mut Self;
 }
 
 impl Unit for u8 {
