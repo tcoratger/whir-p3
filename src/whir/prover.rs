@@ -49,12 +49,12 @@ where
 #[derive(Debug)]
 pub struct Prover<EF, F, H, C, PowStrategy>(pub WhirConfig<EF, F, H, C, PowStrategy>)
 where
-    F: Field + TwoAdicField,
+    F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>;
 
 impl<EF, F, H, C, PS> Prover<EF, F, H, C, PS>
 where
-    F: Field + TwoAdicField,
+    F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
     PS: PowStrategy,
 {
@@ -89,7 +89,6 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        F: PrimeField64,
     {
         // Validate parameters
         assert!(
@@ -201,7 +200,6 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        F: PrimeField64,
     {
         // Fold the coefficients
         let folded_coefficients = round_state
@@ -359,7 +357,6 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        F: PrimeField64,
     {
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_scalars::<EF>(folded_coefficients.coeffs())?;
