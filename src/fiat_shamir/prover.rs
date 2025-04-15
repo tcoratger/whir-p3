@@ -36,9 +36,7 @@ use super::{
 pub struct ProverState<EF, F, H = DefaultHash>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F>
-        + TwoAdicField<PrimeSubfield = F>
-        + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF: ExtensionField<F> + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
     F: Field + TwoAdicField,
 {
     /// The duplex sponge that is used to generate the random coins.
@@ -208,9 +206,7 @@ where
 impl<EF, F, H> UnitToBytes for ProverState<EF, F, H>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F>
-        + TwoAdicField<PrimeSubfield = F>
-        + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF: ExtensionField<F> + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
     F: Field + TwoAdicField,
 {
     fn fill_challenge_bytes(&mut self, output: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {

@@ -25,9 +25,7 @@ use super::{
 pub struct VerifierState<'a, EF, F, H = DefaultHash>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F>
-        + TwoAdicField<PrimeSubfield = F>
-        + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF: ExtensionField<F> + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
     F: Field + TwoAdicField,
 {
     /// Internal sponge transcript that tracks the domain separator state and absorbs values.
@@ -235,9 +233,7 @@ where
 impl<EF, F, H> UnitToBytes for VerifierState<'_, EF, F, H>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F>
-        + TwoAdicField<PrimeSubfield = F>
-        + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF: ExtensionField<F> + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
     F: Field + TwoAdicField,
 {
     #[inline]
