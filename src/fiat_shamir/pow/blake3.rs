@@ -201,8 +201,12 @@ impl Blake3PoW {
 
 #[cfg(test)]
 mod tests {
+    use p3_baby_bear::BabyBear;
+
     use super::*;
     use crate::fiat_shamir::{DefaultHash, domain_separator::DomainSeparator};
+
+    type F = BabyBear;
 
     fn sample_challenges() -> Vec<[u8; 32]> {
         vec![
@@ -219,7 +223,7 @@ mod tests {
         const BITS: f64 = 10.0;
 
         let mut domain_separator =
-            DomainSeparator::<DefaultHash>::new("the proof of work lottery 🎰");
+            DomainSeparator::<F, F, DefaultHash>::new("the proof of work lottery 🎰");
         domain_separator.absorb(1, "something");
         domain_separator.challenge_pow("rolling dices");
 

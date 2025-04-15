@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField64};
+use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField};
 
 use crate::{
     fiat_shamir::{UnitToBytes, errors::ProofResult, prover::ProverState},
@@ -44,22 +44,23 @@ where
 ///
 /// This should be used on the prover side.
 pub fn sample_ood_points<F, E>(
-    prover_state: &mut ProverState,
+    prover_state: &mut ProverState<F, F::PrimeSubfield>,
     num_samples: usize,
     num_variables: usize,
     evaluate_fn: E,
 ) -> ProofResult<(Vec<F>, Vec<F>)>
 where
-    F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+    F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField,
     F::PrimeSubfield: PrimeField64,
     E: Fn(&MultilinearPoint<F>) -> F,
+    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
     let mut ood_points = vec![F::ZERO; num_samples];
     let mut ood_answers = Vec::with_capacity(num_samples);
 
     if num_samples > 0 {
         // Generate OOD points from ProverState randomness
-        prover_state.fill_challenge_scalars::<F>(&mut ood_points)?;
+        prover_state.fill_challenge_scalars(&mut ood_points)?;
 
         // Evaluate the function at each OOD point
         ood_answers.extend(ood_points.iter().map(|ood_point| {

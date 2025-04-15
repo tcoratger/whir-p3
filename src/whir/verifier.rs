@@ -48,7 +48,7 @@ where
     #[allow(clippy::too_many_lines)]
     fn parse_proof<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_>,
+        verifier_state: &mut VerifierState<'_, EF, F>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
         statement_points_len: usize,
         whir_proof: &WhirProof<EF, DIGEST_ELEMS>,
@@ -362,7 +362,7 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_>,
+        verifier_state: &mut VerifierState<'_, EF, F>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
         statement: &StatementVerifier<EF>,
         whir_proof: &WhirProof<EF, DIGEST_ELEMS>,

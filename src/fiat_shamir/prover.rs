@@ -1,4 +1,8 @@
-use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, PrimeField64};
+use std::marker::PhantomData;
+
+use p3_field::{
+    BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField,
+};
 use p3_symmetric::Hash;
 
 use super::{
@@ -29,9 +33,14 @@ use super::{
 /// the zero-knowledge property. [`ProverState`] does not implement [`Clone`] or [`Copy`] to prevent
 /// accidental leaks.
 #[derive(Debug)]
-pub struct ProverState<H = DefaultHash>
+pub struct ProverState<EF, F, H = DefaultHash>
 where
     H: DuplexSpongeInterface<u8>,
+    EF: ExtensionField<F>
+        + TwoAdicField<PrimeSubfield = F>
+        + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF::PrimeSubfield: PrimeField64,
+    F: Field + TwoAdicField,
 {
     /// The duplex sponge that is used to generate the random coins.
     pub(crate) ds: Keccak,
@@ -39,13 +48,20 @@ where
     pub(crate) hash_state: HashStateWithInstructions<H>,
     /// The encoded data.
     pub(crate) narg_string: Vec<u8>,
+    _field: PhantomData<F>,
+    _extension_field: PhantomData<EF>,
 }
 
-impl<H> ProverState<H>
+impl<EF, F, H> ProverState<EF, F, H>
 where
     H: DuplexSpongeInterface<u8>,
+    EF: ExtensionField<F>
+        + TwoAdicField<PrimeSubfield = F>
+        + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF::PrimeSubfield: PrimeField64,
+    F: Field + TwoAdicField,
 {
-    pub fn new(domain_separator: &DomainSeparator<H>) -> Self {
+    pub fn new(domain_separator: &DomainSeparator<EF, F, H>) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator);
 
         let mut duplex_sponge = Keccak::default();
@@ -55,6 +71,8 @@ where
             ds: duplex_sponge,
             hash_state,
             narg_string: Vec::new(),
+            _field: PhantomData,
+            _extension_field: PhantomData,
         }
     }
 
@@ -81,11 +99,7 @@ where
         self.narg_string.as_slice()
     }
 
-    pub fn add_scalars<EF>(&mut self, input: &[EF]) -> ProofResult<()>
-    where
-        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-        EF::PrimeSubfield: PrimeField64,
-    {
+    pub fn add_scalars(&mut self, input: &[EF]) -> ProofResult<()> {
         // Serialize the input scalars to bytes
         let serialized = self.public_scalars(input)?;
 
@@ -96,11 +110,7 @@ where
         Ok(())
     }
 
-    pub fn public_scalars<EF>(&mut self, input: &[EF]) -> ProofResult<Vec<u8>>
-    where
-        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-        EF::PrimeSubfield: PrimeField64,
-    {
+    pub fn public_scalars(&mut self, input: &[EF]) -> ProofResult<Vec<u8>> {
         // Initialize a buffer to store the final serialized byte output
         let mut buf = Vec::new();
 
@@ -154,22 +164,15 @@ where
         Ok(output)
     }
 
-    pub fn add_digest<F, const DIGEST_ELEMS: usize>(
+    pub fn add_digest<const DIGEST_ELEMS: usize>(
         &mut self,
         digest: Hash<F, u8, DIGEST_ELEMS>,
-    ) -> ProofResult<()>
-    where
-        F: Field,
-    {
+    ) -> ProofResult<()> {
         self.add_bytes(digest.as_ref())
             .map_err(ProofError::InvalidDomainSeparator)
     }
 
-    pub fn fill_challenge_scalars<EF>(&mut self, output: &mut [EF]) -> ProofResult<()>
-    where
-        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-        EF::PrimeSubfield: PrimeField64,
-    {
+    pub fn fill_challenge_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // How many bytes are needed to sample a single base field element
         let base_field_size = bytes_uniform_modp(EF::PrimeSubfield::bits() as u32);
 
@@ -194,20 +197,21 @@ where
         Ok(())
     }
 
-    pub fn challenge_scalars<EF, const N: usize>(&mut self) -> ProofResult<[EF; N]>
-    where
-        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-        EF::PrimeSubfield: PrimeField64,
-    {
+    pub fn challenge_scalars<const N: usize>(&mut self) -> ProofResult<[EF; N]> {
         let mut output = [EF::default(); N];
         self.fill_challenge_scalars(&mut output)?;
         Ok(output)
     }
 }
 
-impl<H> UnitToBytes for ProverState<H>
+impl<EF, F, H> UnitToBytes for ProverState<EF, F, H>
 where
     H: DuplexSpongeInterface<u8>,
+    EF: ExtensionField<F>
+        + TwoAdicField<PrimeSubfield = F>
+        + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF::PrimeSubfield: PrimeField64,
+    F: Field + TwoAdicField,
 {
     fn fill_challenge_bytes(&mut self, output: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.squeeze(output)
@@ -233,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_prover_state_public_units_does_not_affect_narg() {
-        let mut domsep = DomainSeparator::<DefaultHash>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("test");
         domsep.absorb(4, "data");
         let mut pstate = domsep.to_prover_state();
 
@@ -243,7 +247,7 @@ mod tests {
 
     #[test]
     fn test_add_units_appends_to_narg_string() {
-        let mut domsep = DomainSeparator::<DefaultHash>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("test");
         domsep.absorb(3, "msg");
         let mut pstate = domsep.to_prover_state();
         let input = [42, 43, 44];
@@ -254,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_add_units_too_many_elements_should_error() {
-        let mut domsep = DomainSeparator::<DefaultHash>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("test");
         domsep.absorb(2, "short");
         let mut pstate = domsep.to_prover_state();
 
@@ -264,7 +268,7 @@ mod tests {
 
     #[test]
     fn test_public_units_does_not_update_transcript() {
-        let mut domsep = DomainSeparator::<DefaultHash>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("test");
         domsep.absorb(2, "p");
         let mut pstate = domsep.to_prover_state();
         let _ = pstate.public_bytes(&[0xaa, 0xbb]);
@@ -274,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_fill_challenge_units() {
-        let mut domsep = DomainSeparator::<DefaultHash>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("test");
         domsep.squeeze(8, "ch");
         let mut pstate = domsep.to_prover_state();
 
@@ -285,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_add_units_multiple_accumulates() {
-        let mut domsep = DomainSeparator::<DefaultHash>::new("t");
+        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("t");
         domsep.absorb(2, "a");
         domsep.absorb(3, "b");
         let mut p = domsep.to_prover_state();
@@ -298,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_narg_string_round_trip_check() {
-        let mut domsep = DomainSeparator::<DefaultHash>::new("t");
+        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("t");
         domsep.absorb(5, "data");
         let mut p = domsep.to_prover_state();
 
@@ -312,11 +316,11 @@ mod tests {
     #[test]
     fn test_add_scalars_babybear() {
         // Step 1: Create a domain separator with the label "test"
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("test");
 
         // Step 2: Add an "absorb scalars" tag for 3 scalars, with label "com"
         // This ensures deterministic transcript layout
-        domsep.add_scalars::<F>(3, "com");
+        domsep.add_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let mut prover_state = domsep.to_prover_state();
@@ -355,11 +359,11 @@ mod tests {
     #[test]
     fn test_add_scalars_goldilocks() {
         // Step 1: Create a domain separator with the label "test"
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<G, G, H> = DomainSeparator::new("test");
 
         // Step 2: Add an "absorb scalars" tag for 3 scalars, with label "com"
         // This ensures deterministic transcript layout
-        domsep.add_scalars::<G>(3, "com");
+        domsep.add_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let mut prover_state = domsep.to_prover_state();
@@ -398,10 +402,10 @@ mod tests {
     #[test]
     fn test_add_scalars_extension_babybear() {
         // Step 1: Create a domain separator with the label "test"
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("test");
 
         // Step 2: Add absorb-scalar tag for EF4 type and 3 values
-        domsep.add_scalars::<EF4>(3, "com");
+        domsep.add_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let mut prover_state = domsep.to_prover_state();
@@ -446,10 +450,10 @@ mod tests {
     #[test]
     fn test_add_scalars_extension_goldilocks() {
         // Step 1: Create a domain separator with the label "test"
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<EG2, G, H> = DomainSeparator::new("test");
 
         // Step 2: Add absorb-scalar tag for EG2 type and 3 values
-        domsep.add_scalars::<EG2>(3, "com");
+        domsep.add_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let mut prover_state = domsep.to_prover_state();
@@ -493,8 +497,8 @@ mod tests {
     #[test]
     fn scalar_challenge_single_basefield_case_1() {
         // Generate a domain separator with known tag and one challenge scalar
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("chal");
-        domsep.challenge_scalars::<F>(1, "tag");
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("chal");
+        domsep.challenge_scalars(1, "tag");
         let mut prover = domsep.to_prover_state();
 
         // Sample a single scalar
@@ -507,8 +511,8 @@ mod tests {
 
     #[test]
     fn scalar_challenge_single_basefield_case_2() {
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("chal2");
-        domsep.challenge_scalars::<F>(1, "tag");
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("chal2");
+        domsep.challenge_scalars(1, "tag");
         let mut prover = domsep.to_prover_state();
 
         let mut out = [F::ZERO; 1];
@@ -519,8 +523,8 @@ mod tests {
 
     #[test]
     fn scalar_challenge_multiple_basefield_scalars() {
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("chal");
-        domsep.challenge_scalars::<F>(10, "tag");
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("chal");
+        domsep.challenge_scalars(10, "tag");
         let mut prover = domsep.to_prover_state();
 
         let mut out = [F::ZERO; 10];
@@ -545,8 +549,8 @@ mod tests {
 
     #[test]
     fn scalar_challenge_single_extension_scalar() {
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("chal");
-        domsep.challenge_scalars::<EF4>(1, "tag");
+        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("chal");
+        domsep.challenge_scalars(1, "tag");
         let mut prover = domsep.to_prover_state();
 
         let mut out = [EF4::ZERO; 1];
@@ -567,8 +571,8 @@ mod tests {
 
     #[test]
     fn scalar_challenge_multiple_extension_scalars() {
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("chal");
-        domsep.challenge_scalars::<EF4>(5, "tag");
+        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("chal");
+        domsep.challenge_scalars(5, "tag");
         let mut prover = domsep.to_prover_state();
 
         let mut out = [EF4::ZERO; 5];
@@ -634,8 +638,8 @@ mod tests {
         let values = [BabyBear::from_u64(111), BabyBear::from_u64(222)];
 
         // Create a domain separator indicating we will absorb 2 public scalars
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("field");
-        domsep.add_scalars::<BabyBear>(2, "test");
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("field");
+        domsep.add_scalars(2, "test");
 
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 222, 0, 0, 0];
@@ -664,8 +668,8 @@ mod tests {
         let values = [G::from_u64(111), G::from_u64(222)];
 
         // Create a domain separator indicating we will absorb 2 public scalars
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("field");
-        domsep.add_scalars::<G>(2, "test");
+        let mut domsep: DomainSeparator<G, G, H> = DomainSeparator::new("field");
+        domsep.add_scalars(2, "test");
 
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0];
@@ -694,8 +698,8 @@ mod tests {
         let values = [EF4::from_u64(111), EF4::from_u64(222)];
 
         // Create a domain separator committing to 2 public scalars
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("field");
-        domsep.add_scalars::<EF4>(2, "test");
+        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("field");
+        domsep.add_scalars(2, "test");
 
         // Compute expected bytes manually: serialize each coefficient of EF4
         let expected_bytes = [
@@ -729,8 +733,8 @@ mod tests {
         let values = [EG2::from_u64(111), EG2::from_u64(222)];
 
         // Create a domain separator committing to 2 public scalars
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("field");
-        domsep.add_scalars::<EG2>(2, "test");
+        let mut domsep: DomainSeparator<EG2, G, H> = DomainSeparator::new("field");
+        domsep.add_scalars(2, "test");
 
         // Compute expected bytes manually: serialize each coefficient of EF4
         let expected_bytes = [
@@ -767,8 +771,8 @@ mod tests {
             BabyBear::from_u64(7891011),
         ];
 
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("mixed");
-        domsep.add_scalars::<BabyBear>(values.len(), "mix");
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("mixed");
+        domsep.add_scalars(values.len(), "mix");
 
         let mut prover = domsep.to_prover_state();
         let actual = prover.public_scalars(&values).unwrap();

@@ -1,5 +1,7 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+
 use super::{
     domain_separator::{DomainSeparator, Op},
     duplex_sponge::interface::DuplexSpongeInterface,
@@ -24,7 +26,11 @@ where
 impl<H: DuplexSpongeInterface<u8>> HashStateWithInstructions<H> {
     /// Initialise a stateful hash object,
     /// setting up the state of the sponge function and parsing the tag string.
-    pub fn new(domain_separator: &DomainSeparator<H>) -> Self {
+    pub fn new<EF, F>(domain_separator: &DomainSeparator<EF, F, H>) -> Self
+    where
+        EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+        F: Field + TwoAdicField + PrimeField64,
+    {
         let stack = domain_separator.finalize();
         let tag = Self::generate_tag(domain_separator.as_bytes());
         Self::unchecked_load_with_stack(tag, stack)
@@ -133,20 +139,24 @@ impl<H: DuplexSpongeInterface<u8>> Drop for HashStateWithInstructions<H> {
     }
 }
 
-impl<H: DuplexSpongeInterface<u8>, B: core::borrow::Borrow<DomainSeparator<H>>> From<B>
-    for HashStateWithInstructions<H>
-{
-    fn from(value: B) -> Self {
-        Self::new(value.borrow())
-    }
-}
+// impl<H: DuplexSpongeInterface<u8>, B: core::borrow::Borrow<DomainSeparator<H>>> From<B>
+//     for HashStateWithInstructions<H>
+// {
+//     fn from(value: B) -> Self {
+//         Self::new(value.borrow())
+//     }
+// }
 
 #[cfg(test)]
 #[allow(clippy::bool_assert_comparison)]
 mod tests {
     use std::{cell::RefCell, rc::Rc};
 
+    use p3_baby_bear::BabyBear;
+
     use super::*;
+
+    type F = BabyBear;
 
     #[derive(Default, Clone)]
     struct DummySponge {
@@ -194,7 +204,7 @@ mod tests {
 
     #[test]
     fn test_absorb_works_and_modifies_stack() {
-        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DummySponge>::new("test");
         domsep.absorb(2, "x");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
@@ -210,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_absorb_too_much_returns_error() {
-        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DummySponge>::new("test");
         domsep.absorb(2, "x");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
@@ -220,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_squeeze_works() {
-        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DummySponge>::new("test");
         domsep.squeeze(3, "y");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
@@ -232,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_squeeze_with_leftover_updates_stack() {
-        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DummySponge>::new("test");
         domsep.squeeze(4, "z");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
@@ -245,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_multiple_absorbs_deplete_stack_properly() {
-        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DummySponge>::new("test");
         domsep.absorb(5, "a");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
@@ -262,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_multiple_squeeze_deplete_stack_properly() {
-        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DummySponge>::new("test");
         domsep.squeeze(5, "z");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
@@ -278,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_absorb_then_wrong_squeeze_clears_stack() {
-        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DummySponge>::new("test");
         domsep.absorb(3, "in");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
@@ -290,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_absorb_exact_then_too_much() {
-        let mut domsep = DomainSeparator::<DummySponge>::new("test");
+        let mut domsep = DomainSeparator::<F, F, DummySponge>::new("test");
         domsep.absorb(2, "x");
         let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
@@ -301,9 +311,9 @@ mod tests {
 
     #[test]
     fn test_from_impl_constructs_hash_state() {
-        let mut domsep = DomainSeparator::<DummySponge>::new("from");
+        let mut domsep = DomainSeparator::<F, F, DummySponge>::new("from");
         domsep.absorb(1, "in");
-        let state = HashStateWithInstructions::<DummySponge>::from(&domsep);
+        let state = HashStateWithInstructions::<DummySponge>::new(&domsep);
 
         assert_eq!(state.stack.len(), 1);
         assert_eq!(state.stack.front(), Some(&Op::Absorb(1)));
@@ -311,9 +321,9 @@ mod tests {
 
     #[test]
     fn test_generate_tag_is_deterministic() {
-        let mut ds1 = DomainSeparator::<DummySponge>::new("session1");
+        let mut ds1 = DomainSeparator::<F, F, DummySponge>::new("session1");
         ds1.absorb(1, "x");
-        let mut ds2 = DomainSeparator::<DummySponge>::new("session1");
+        let mut ds2 = DomainSeparator::<F, F, DummySponge>::new("session1");
         ds2.absorb(1, "x");
 
         let tag1 = HashStateWithInstructions::<DummySponge>::new(&ds1);

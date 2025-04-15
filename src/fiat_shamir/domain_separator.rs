@@ -1,6 +1,8 @@
 use std::{collections::VecDeque, fmt::Write, marker::PhantomData};
 
-use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField};
+use p3_field::{
+    BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField,
+};
 
 use super::{
     DefaultHash,
@@ -41,19 +43,34 @@ const SEP_BYTE: &str = "\0";
 /// lengths are coherent with the types described in the protocol. No information about the types
 /// themselves is stored in an IO Pattern. This means that [`ProverState`][`crate::ProverState`] or [`VerifierState`][`crate::VerifierState`] instances can generate successfully a protocol transcript respecting the length constraint but not the types. See [issue #6](https://github.com/arkworks-rs/spongefish/issues/6) for a discussion on the topic.
 #[derive(Clone, Debug)]
-pub struct DomainSeparator<H = DefaultHash>
+pub struct DomainSeparator<EF, F, H = DefaultHash>
 where
     H: DuplexSpongeInterface<u8>,
+    EF: ExtensionField<F>
+        + TwoAdicField<PrimeSubfield = F>
+        + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    F: Field + TwoAdicField + PrimeField64,
 {
     io: String,
     _hash: PhantomData<H>,
+    _field: PhantomData<F>,
+    _extension_field: PhantomData<EF>,
 }
 
-impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
+impl<EF, F, H> DomainSeparator<EF, F, H>
+where
+    H: DuplexSpongeInterface<u8>,
+    EF: ExtensionField<F>
+        + TwoAdicField<PrimeSubfield = F>
+        + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    F: Field + TwoAdicField + PrimeField64,
+{
     pub const fn from_string(io: String) -> Self {
         Self {
             io,
             _hash: PhantomData,
+            _field: PhantomData,
+            _extension_field: PhantomData,
         }
     }
 
@@ -175,57 +192,48 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     }
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
-    pub fn to_prover_state(&self) -> ProverState<H> {
+    pub fn to_prover_state(&self) -> ProverState<EF, F, H> {
         ProverState::new(self)
     }
 
     /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript
     /// (bytes).
-    pub fn to_verifier_state<'a>(&self, transcript: &'a [u8]) -> VerifierState<'a, H> {
+    pub fn to_verifier_state<'a>(&self, transcript: &'a [u8]) -> VerifierState<'a, EF, F, H> {
         VerifierState::new(self, transcript)
     }
 
-    pub fn add_ood<EF>(&mut self, num_samples: usize)
-    where
-        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-    {
+    pub fn add_ood(&mut self, num_samples: usize) {
         if num_samples > 0 {
-            self.challenge_scalars::<EF>(num_samples, "ood_query");
-            self.add_scalars::<EF>(num_samples, "ood_ans");
+            self.challenge_scalars(num_samples, "ood_query");
+            self.add_scalars(num_samples, "ood_ans");
         }
     }
 
-    pub fn commit_statement<PowStrategy, EF, F, HC, C>(
+    pub fn commit_statement<PowStrategy, HC, C>(
         &mut self,
         params: &WhirConfig<EF, F, HC, C, PowStrategy>,
-    ) where
-        F: Field + TwoAdicField,
-        EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
-    {
+    ) {
         // TODO: Add params
         self.add_digest("merkle_digest");
         if params.committment_ood_samples > 0 {
             assert!(params.initial_statement);
-            self.add_ood::<EF>(params.committment_ood_samples);
+            self.add_ood(params.committment_ood_samples);
         }
     }
 
-    pub fn add_whir_proof<PowStrategy, EF, F, HC, C>(
+    pub fn add_whir_proof<PowStrategy, HC, C>(
         &mut self,
         params: &WhirConfig<EF, F, HC, C, PowStrategy>,
-    ) where
-        F: Field + TwoAdicField,
-        EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
-    {
+    ) {
         // TODO: Add statement
         if params.initial_statement {
-            self.challenge_scalars::<EF>(1, "initial_combination_randomness");
-            self.add_sumcheck::<EF>(
+            self.challenge_scalars(1, "initial_combination_randomness");
+            self.add_sumcheck(
                 params.folding_factor.at_round(0),
                 params.starting_folding_pow_bits,
             );
         } else {
-            self.challenge_scalars::<EF>(params.folding_factor.at_round(0), "folding_randomness");
+            self.challenge_scalars(params.folding_factor.at_round(0), "folding_randomness");
             self.pow(params.starting_folding_pow_bits);
         }
 
@@ -234,12 +242,12 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
             let folded_domain_size = domain_size >> params.folding_factor.at_round(round);
             let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
             self.add_digest("merkle_digest");
-            self.add_ood::<EF>(r.ood_samples);
+            self.add_ood(r.ood_samples);
             self.squeeze(r.num_queries * domain_size_bytes, "stir_queries");
             self.pow(r.pow_bits);
-            self.challenge_scalars::<EF>(1, "combination_randomness");
+            self.challenge_scalars(1, "combination_randomness");
 
-            self.add_sumcheck::<EF>(
+            self.add_sumcheck(
                 params.folding_factor.at_round(round + 1),
                 r.folding_pow_bits,
             );
@@ -252,11 +260,11 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
                 .at_round(params.round_parameters.len());
         let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
-        self.add_scalars::<EF>(1 << params.final_sumcheck_rounds, "final_coeffs");
+        self.add_scalars(1 << params.final_sumcheck_rounds, "final_coeffs");
 
         self.squeeze(domain_size_bytes * params.final_queries, "final_queries");
         self.pow(params.final_pow_bits);
-        self.add_sumcheck::<EF>(params.final_sumcheck_rounds, params.final_folding_pow_bits);
+        self.add_sumcheck(params.final_sumcheck_rounds, params.final_folding_pow_bits);
     }
 
     pub fn add_digest(&mut self, label: &str) {
@@ -269,13 +277,10 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     /// - Samples 3 scalars for the sumcheck polynomial.
     /// - Samples 1 scalar for folding randomness.
     /// - Optionally performs a PoW challenge if `pow_bits > 0`.
-    pub fn add_sumcheck<EF>(&mut self, folding_factor: usize, pow_bits: f64)
-    where
-        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-    {
+    pub fn add_sumcheck(&mut self, folding_factor: usize, pow_bits: f64) {
         for _ in 0..folding_factor {
-            self.add_scalars::<EF>(3, "sumcheck_poly");
-            self.challenge_scalars::<EF>(1, "folding_randomness");
+            self.add_scalars(3, "sumcheck_poly");
+            self.challenge_scalars(1, "folding_randomness");
             self.pow(pow_bits);
         }
     }
@@ -303,10 +308,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         self.absorb(8, "pow-nonce");
     }
 
-    pub fn add_scalars<EF>(&mut self, count: usize, label: &str)
-    where
-        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-    {
+    pub fn add_scalars(&mut self, count: usize, label: &str) {
         // Absorb `count` scalars into the transcript using an "absorb" tag.
         //
         // The total number of bytes to absorb is calculated as:
@@ -326,10 +328,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         );
     }
 
-    pub fn challenge_scalars<EF>(&mut self, count: usize, label: &str)
-    where
-        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-    {
+    pub fn challenge_scalars(&mut self, count: usize, label: &str) {
         // Squeeze `count` scalars from the transcript using a "challenge" tag.
         //
         // The total number of bytes to squeeze is calculated as:
@@ -403,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_domain_separator_new_and_bytes() {
-        let ds = DomainSeparator::<H>::new("session");
+        let ds = DomainSeparator::<EF4, F, H>::new("session");
         assert_eq!(ds.as_bytes(), b"session");
     }
 
@@ -411,12 +410,12 @@ mod tests {
     #[should_panic]
     fn test_new_with_separator_byte_panics() {
         // This should panic because "\0" is forbidden in the session identifier.
-        let _ = DomainSeparator::<H>::new("invalid\0session");
+        let _ = DomainSeparator::<EF4, F, H>::new("invalid\0session");
     }
 
     #[test]
     fn test_domain_separator_absorb_and_squeeze() {
-        let mut ds = DomainSeparator::<H>::new("proto");
+        let mut ds = DomainSeparator::<EF4, F, H>::new("proto");
         ds.absorb(2, "input");
         ds.squeeze(1, "challenge");
         let ops = ds.finalize();
@@ -425,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_absorb_return_value_format() {
-        let mut ds = DomainSeparator::<H>::new("proto");
+        let mut ds = DomainSeparator::<EF4, F, H>::new("proto");
         ds.absorb(3, "input");
         let expected_str = "proto\0A3input"; // initial + SEP + absorb op + label
         assert_eq!(ds.as_bytes(), expected_str.as_bytes());
@@ -434,24 +433,24 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_absorb_zero_panics() {
-        DomainSeparator::<H>::new("x").absorb(0, "label");
+        DomainSeparator::<EF4, F, H>::new("x").absorb(0, "label");
     }
 
     #[test]
     #[should_panic]
     fn test_label_with_separator_byte_panics() {
-        DomainSeparator::<H>::new("x").absorb(1, "bad\0label");
+        DomainSeparator::<EF4, F, H>::new("x").absorb(1, "bad\0label");
     }
 
     #[test]
     #[should_panic]
     fn test_label_starts_with_digit_panics() {
-        DomainSeparator::<H>::new("x").absorb(1, "1label");
+        DomainSeparator::<EF4, F, H>::new("x").absorb(1, "1label");
     }
 
     #[test]
     fn test_merge_consecutive_absorbs_and_squeezes() {
-        let mut ds = DomainSeparator::<H>::new("merge");
+        let mut ds = DomainSeparator::<EF4, F, H>::new("merge");
         ds.absorb(1, "a");
         ds.absorb(2, "b");
         ds.squeeze(3, "c");
@@ -463,7 +462,7 @@ mod tests {
     #[test]
     fn test_parse_domsep_multiple_ops() {
         let tag = "main\0A1x\0A2y\0S3z\0R\0S2w";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(
             ops,
@@ -473,7 +472,7 @@ mod tests {
 
     #[test]
     fn test_byte_domain_separator_trait_impl() {
-        let mut ds = DomainSeparator::<H>::new("x");
+        let mut ds = DomainSeparator::<EF4, F, H>::new("x");
         ds.absorb(1, "a");
         ds.squeeze(2, "b");
         let ops = ds.finalize();
@@ -482,14 +481,14 @@ mod tests {
 
     #[test]
     fn test_empty_operations() {
-        let ds = DomainSeparator::<H>::new("tag");
+        let ds = DomainSeparator::<EF4, F, H>::new("tag");
         let ops = ds.finalize();
         assert!(ops.is_empty());
     }
 
     #[test]
     fn test_unicode_labels() {
-        let mut ds = DomainSeparator::<H>::new("emoji");
+        let mut ds = DomainSeparator::<EF4, F, H>::new("emoji");
         ds.absorb(1, "🦀");
         ds.squeeze(1, "🎯");
         let ops = ds.finalize();
@@ -499,7 +498,7 @@ mod tests {
     #[test]
     fn test_large_counts_and_labels() {
         let label = "x".repeat(100);
-        let mut ds = DomainSeparator::<H>::new("big");
+        let mut ds = DomainSeparator::<EF4, F, H>::new("big");
         ds.absorb(12345, &label);
         ds.squeeze(54321, &label);
         let ops = ds.finalize();
@@ -510,28 +509,28 @@ mod tests {
     fn test_malformed_tag_parsing_fails() {
         // Missing count
         let broken = "proto\0Ax";
-        let ds = DomainSeparator::<H>::from_string(broken.to_string());
-        let res = DomainSeparator::<H>::parse_domsep(ds.as_bytes());
+        let ds = DomainSeparator::<EF4, F, H>::from_string(broken.to_string());
+        let res = DomainSeparator::<EF4, F, H>::parse_domsep(ds.as_bytes());
         assert!(res.is_err());
     }
 
     #[test]
     fn test_simplify_stack_keeps_unlike_ops() {
         let tag = "test\0A2x\0S3y\0A1z";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(2), Op::Squeeze(3), Op::Absorb(1)]);
     }
 
     #[test]
     fn test_round_trip_operations() {
-        let mut ds1 = DomainSeparator::<H>::new("foo");
+        let mut ds1 = DomainSeparator::<EF4, F, H>::new("foo");
         ds1.absorb(2, "a");
         ds1.squeeze(3, "b");
         let ops1 = ds1.finalize();
 
         let tag = std::str::from_utf8(ds1.as_bytes()).unwrap();
-        let ds2 = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds2 = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops2 = ds2.finalize();
 
         assert_eq!(ops1, ops2);
@@ -539,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_squeeze_returns_correct_string() {
-        let mut ds = DomainSeparator::<H>::new("proto");
+        let mut ds = DomainSeparator::<EF4, F, H>::new("proto");
         ds.squeeze(4, "challenge");
         let expected_str = "proto\0S4challenge";
         assert_eq!(ds.as_bytes(), expected_str.as_bytes());
@@ -548,24 +547,24 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_squeeze_zero_count_panics() {
-        DomainSeparator::<H>::new("proto").squeeze(0, "label");
+        DomainSeparator::<EF4, F, H>::new("proto").squeeze(0, "label");
     }
 
     #[test]
     #[should_panic]
     fn test_squeeze_label_with_null_byte_panics() {
-        DomainSeparator::<H>::new("proto").squeeze(2, "bad\0label");
+        DomainSeparator::<EF4, F, H>::new("proto").squeeze(2, "bad\0label");
     }
 
     #[test]
     #[should_panic]
     fn test_squeeze_label_starts_with_digit_panics() {
-        DomainSeparator::<H>::new("proto").squeeze(2, "1invalid");
+        DomainSeparator::<EF4, F, H>::new("proto").squeeze(2, "1invalid");
     }
 
     #[test]
     fn test_multiple_squeeze_chaining() {
-        let mut ds = DomainSeparator::<H>::new("proto");
+        let mut ds = DomainSeparator::<EF4, F, H>::new("proto");
         ds.squeeze(1, "first");
         ds.squeeze(2, "second");
         let expected_str = "proto\0S1first\0S2second";
@@ -575,7 +574,7 @@ mod tests {
     #[test]
     fn test_finalize_mixed_ops_order_preserved() {
         let tag = "zkp\0A1a\0S1b\0A2c\0S3d\0R\0A4e\0S1f";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(
             ops,
@@ -594,7 +593,7 @@ mod tests {
     #[test]
     fn test_finalize_large_values_and_merge() {
         let tag = "main\0A5a\0A10b\0S8c\0S2d";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(15), Op::Squeeze(10)]);
     }
@@ -602,7 +601,7 @@ mod tests {
     #[test]
     fn test_finalize_merge_and_breaks() {
         let tag = "example\0A2x\0A1y\0R\0A3z\0S4u\0S1v";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(
             ops,
@@ -613,7 +612,7 @@ mod tests {
     #[test]
     fn test_finalize_only_ratchets() {
         let tag = "onlyratchets\0R\0R\0R";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Ratchet, Op::Ratchet, Op::Ratchet]);
     }
@@ -621,7 +620,7 @@ mod tests {
     #[test]
     fn test_finalize_complex_merge_boundaries() {
         let tag = "demo\0A1a\0A1b\0S2c\0S2d\0A3e\0S1f";
-        let ds = DomainSeparator::<H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(
             ops,
@@ -641,8 +640,8 @@ mod tests {
         // - bits = 31 → bytes_modp(31) = 4
         // - 2 scalars * 1 * 4 = 8 bytes absorbed
         // - "A" indicates absorption in the domain separator
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("babybear");
-        domsep.add_scalars::<F>(2, "foo");
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("babybear");
+        domsep.add_scalars(2, "foo");
         let expected = b"babybear\0A8foo";
         assert_eq!(domsep.as_bytes(), expected);
     }
@@ -654,8 +653,8 @@ mod tests {
         // - bits = 31 → bytes_uniform_modp(31) = 5
         // - 3 scalars * 1 * 5 = 15 bytes squeezed
         // - "S" indicates squeezing in the domain separator
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("bb");
-        domsep.challenge_scalars::<F>(3, "bar");
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("bb");
+        domsep.challenge_scalars(3, "bar");
         let expected = b"bb\0S57bar";
         assert_eq!(domsep.as_bytes(), expected);
     }
@@ -666,8 +665,8 @@ mod tests {
         // - EF4 has extension degree = 4
         // - Base field bits = 31 → bytes_modp(31) = 4
         // - 2 scalars * 4 * 4 = 32 bytes absorbed
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("ext");
-        domsep.add_scalars::<EF4>(2, "a");
+        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("ext");
+        domsep.add_scalars(2, "a");
         let expected = b"ext\0A32a";
         assert_eq!(domsep.as_bytes(), expected);
     }
@@ -679,8 +678,8 @@ mod tests {
         // - Base field bits = 31 → bytes_uniform_modp(31) = 19
         // - 1 scalar * 4 * 19 = 76 bytes squeezed
         // - "S" indicates squeezing in the domain separator
-        let mut domsep: DomainSeparator<H> = DomainSeparator::new("ext2");
-        domsep.challenge_scalars::<EF4>(1, "b");
+        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("ext2");
+        domsep.challenge_scalars(1, "b");
 
         let expected = b"ext2\0S76b";
         assert_eq!(domsep.as_bytes(), expected);
@@ -688,12 +687,12 @@ mod tests {
 
     #[test]
     fn test_add_ood() {
-        let iop: DomainSeparator = DomainSeparator::new("test_protocol");
+        let iop: DomainSeparator<F, F, H> = DomainSeparator::new("test_protocol");
         let mut updated_iop = iop.clone();
         let mut unchanged_iop = iop;
 
         // Apply OOD query addition
-        updated_iop.add_ood::<BabyBear>(3);
+        updated_iop.add_ood(3);
 
         // Convert to a string for inspection
         let pattern_str = String::from_utf8(updated_iop.as_bytes().to_vec()).unwrap();
@@ -703,14 +702,14 @@ mod tests {
         assert!(pattern_str.contains("ood_ans"));
 
         // Test case where num_samples = 0 (should not modify anything)
-        unchanged_iop.add_ood::<BabyBear>(0);
+        unchanged_iop.add_ood(0);
         let unchanged_str = String::from_utf8(unchanged_iop.as_bytes().to_vec()).unwrap();
         assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
     }
 
     #[test]
     fn test_pow() {
-        let iop: DomainSeparator = DomainSeparator::new("test_protocol");
+        let iop: DomainSeparator<F, F, H> = DomainSeparator::new("test_protocol");
         let mut updated_iop = iop.clone();
         let mut unchanged_iop = iop;
 

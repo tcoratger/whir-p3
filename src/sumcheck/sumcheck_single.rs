@@ -1,4 +1,4 @@
-use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField64};
+use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -189,20 +189,21 @@ where
     /// - Returns the sampled folding randomness values used in each reduction step.
     pub fn compute_sumcheck_polynomials<S>(
         &mut self,
-        prover_state: &mut ProverState,
+        prover_state: &mut ProverState<F, F::PrimeSubfield>,
         folding_factor: usize,
         pow_bits: f64,
     ) -> ProofResult<MultilinearPoint<F>>
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField,
         F::PrimeSubfield: PrimeField64,
         S: PowStrategy,
+        <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
     {
         let mut res = Vec::with_capacity(folding_factor);
 
         for _ in 0..folding_factor {
             let sumcheck_poly = self.compute_sumcheck_polynomial();
-            prover_state.add_scalars::<F>(sumcheck_poly.evaluations())?;
+            prover_state.add_scalars(sumcheck_poly.evaluations())?;
             let [folding_randomness]: [F; 1] = prover_state.challenge_scalars()?;
             res.push(folding_randomness);
 
@@ -1029,13 +1030,14 @@ mod tests {
 
         // Domain separator setup
         // Step 1: Initialize domain separator with a context label
-        let mut domsep: DomainSeparator<DefaultHash> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<BabyBear, BabyBear, DefaultHash> =
+            DomainSeparator::new("test");
 
         // Step 2: Register the fact that we’re about to absorb 3 field elements
-        domsep.add_scalars::<BabyBear>(3, "test");
+        domsep.add_scalars(3, "test");
 
         // Step 3: Sample 1 challenge scalar from the transcript
-        domsep.challenge_scalars::<BabyBear>(1, "test");
+        domsep.challenge_scalars(1, "test");
 
         // Convert the domain separator to a prover state
         let mut prover_state = domsep.to_prover_state();
@@ -1068,15 +1070,16 @@ mod tests {
         let pow_bits = 1.; // Minimal grinding
 
         // Setup the domain separator
-        let mut domsep: DomainSeparator<DefaultHash> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<BabyBear, BabyBear, DefaultHash> =
+            DomainSeparator::new("test");
 
         // For each folding round, we must absorb values, sample challenge, and apply PoW
         for _ in 0..folding_factor {
             // Absorb 3 field elements (evaluations of sumcheck polynomial)
-            domsep.add_scalars::<BabyBear>(3, "tag");
+            domsep.add_scalars(3, "tag");
 
             // Sample 1 challenge scalar from the Fiat-Shamir transcript
-            domsep.challenge_scalars::<BabyBear>(1, "tag");
+            domsep.challenge_scalars(1, "tag");
 
             // Apply optional PoW grinding to ensure randomness
             domsep.challenge_pow("tag");
@@ -1114,15 +1117,16 @@ mod tests {
         let pow_bits = 2.;
 
         // Setup the domain separator
-        let mut domsep: DomainSeparator<DefaultHash> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<BabyBear, BabyBear, DefaultHash> =
+            DomainSeparator::new("test");
 
         // Register interactions with the transcript for each round
         for _ in 0..folding_factor {
             // Absorb 3 field values (sumcheck evaluations at X = 0, 1, 2)
-            domsep.add_scalars::<BabyBear>(3, "tag");
+            domsep.add_scalars(3, "tag");
 
             // Sample 1 field challenge (folding randomness)
-            domsep.challenge_scalars::<BabyBear>(1, "tag");
+            domsep.challenge_scalars(1, "tag");
 
             // Apply challenge PoW (grinding) to enhance soundness
             domsep.challenge_pow("tag");
@@ -1155,7 +1159,7 @@ mod tests {
         let pow_bits = 1.;
 
         // No domain separator logic needed since we don't fold
-        let domsep: DomainSeparator<DefaultHash> = DomainSeparator::new("test");
+        let domsep: DomainSeparator<BabyBear, BabyBear, DefaultHash> = DomainSeparator::new("test");
         let mut prover_state = domsep.to_prover_state();
 
         let result = prover

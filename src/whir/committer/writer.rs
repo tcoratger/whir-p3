@@ -45,7 +45,7 @@ where
     /// - Returns a `Witness` containing the commitment data.
     pub fn commit<const DIGEST_ELEMS: usize>(
         &self,
-        prover_state: &mut ProverState,
+        prover_state: &mut ProverState<EF, F>,
         polynomial: CoefficientList<F>,
     ) -> ProofResult<Witness<EF, F, DIGEST_ELEMS>>
     where
@@ -170,7 +170,7 @@ mod tests {
         let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let mut domainsep: DomainSeparator = DomainSeparator::new("🌪️");
+        let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new("🌪️");
         domainsep.commit_statement(&params);
         domainsep.add_whir_proof(&params);
         let mut prover_state = domainsep.to_prover_state();

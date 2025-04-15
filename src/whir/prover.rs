@@ -81,7 +81,7 @@ where
 
     pub fn prove<const DIGEST_ELEMS: usize>(
         &self,
-        prover_state: &mut ProverState,
+        prover_state: &mut ProverState<EF, F>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, DIGEST_ELEMS>,
     ) -> ProofResult<WhirProof<EF, DIGEST_ELEMS>>
@@ -193,7 +193,7 @@ where
     #[allow(clippy::too_many_lines)]
     fn round<const DIGEST_ELEMS: usize>(
         &self,
-        prover_state: &mut ProverState,
+        prover_state: &mut ProverState<EF, F>,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
@@ -349,7 +349,7 @@ where
 
     fn final_round<const DIGEST_ELEMS: usize>(
         &self,
-        prover_state: &mut ProverState,
+        prover_state: &mut ProverState<EF, F>,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
     ) -> ProofResult<()>
@@ -359,7 +359,7 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        prover_state.add_scalars::<EF>(folded_coefficients.coeffs())?;
+        prover_state.add_scalars(folded_coefficients.coeffs())?;
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
             // The size of the original domain before folding
@@ -426,7 +426,7 @@ where
 
     fn compute_stir_queries<const DIGEST_ELEMS: usize>(
         &self,
-        prover_state: &mut ProverState,
+        prover_state: &mut ProverState<EF, F>,
         round_state: &RoundState<EF, F, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig,

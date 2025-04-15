@@ -30,7 +30,7 @@ where
 
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_>,
+        verifier_state: &mut VerifierState<'_, EF, F>,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>> {
         let root = verifier_state.read_digest()?;
 
