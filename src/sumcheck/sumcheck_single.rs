@@ -1,4 +1,4 @@
-use p3_field::{BasedVectorSpace, Field, PrimeField64};
+use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField64};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -194,7 +194,7 @@ where
         pow_bits: f64,
     ) -> ProofResult<MultilinearPoint<F>>
     where
-        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
         F::PrimeSubfield: PrimeField64,
         S: PowStrategy,
     {

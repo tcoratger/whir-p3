@@ -1,4 +1,4 @@
-use p3_field::{BasedVectorSpace, Field, PrimeField64};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, PrimeField64};
 use p3_symmetric::Hash;
 
 use super::{
@@ -73,7 +73,7 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
 
     pub fn fill_next_scalars<F>(&mut self, output: &mut [F]) -> ProofResult<()>
     where
-        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
         F::PrimeSubfield: PrimeField64,
     {
         // Size of one base field element in bytes
@@ -104,7 +104,7 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
 
     pub fn next_scalars<F, const N: usize>(&mut self) -> ProofResult<[F; N]>
     where
-        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
         F::PrimeSubfield: PrimeField64,
     {
         let mut output = [F::default(); N];
@@ -146,7 +146,7 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
 
     pub fn fill_challenge_scalars<F>(&mut self, output: &mut [F]) -> ProofResult<()>
     where
-        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
         F::PrimeSubfield: PrimeField64,
     {
         // How many bytes are needed to sample a single base field element
@@ -175,7 +175,7 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
 
     pub fn challenge_scalars<F, const N: usize>(&mut self) -> ProofResult<[F; N]>
     where
-        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
         F::PrimeSubfield: PrimeField64,
     {
         let mut output = [F::default(); N];
@@ -185,7 +185,7 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
 
     pub fn public_scalars<F>(&mut self, input: &[F]) -> ProofResult<Vec<u8>>
     where
-        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
         F::PrimeSubfield: PrimeField64,
     {
         // Initialize a buffer to store the final serialized byte output

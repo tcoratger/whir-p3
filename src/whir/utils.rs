@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use p3_field::{BasedVectorSpace, Field, PrimeField64};
+use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField64};
 
 use crate::{
     fiat_shamir::{UnitToBytes, errors::ProofResult, prover::ProverState},
@@ -50,7 +50,7 @@ pub fn sample_ood_points<F, E>(
     evaluate_fn: E,
 ) -> ProofResult<(Vec<F>, Vec<F>)>
 where
-    F: Field + BasedVectorSpace<F::PrimeSubfield>,
+    F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     F::PrimeSubfield: PrimeField64,
     E: Fn(&MultilinearPoint<F>) -> F,
 {

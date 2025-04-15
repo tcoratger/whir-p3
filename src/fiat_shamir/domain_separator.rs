@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, fmt::Write, marker::PhantomData};
 
-use p3_field::{BasedVectorSpace, ExtensionField, Field, TwoAdicField};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField};
 
 use super::{
     DefaultHash,
@@ -187,7 +187,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
 
     pub fn add_ood<F>(&mut self, num_samples: usize)
     where
-        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     {
         if num_samples > 0 {
             self.challenge_scalars::<F>(num_samples, "ood_query");
@@ -271,7 +271,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     /// - Optionally performs a PoW challenge if `pow_bits > 0`.
     pub fn add_sumcheck<F>(&mut self, folding_factor: usize, pow_bits: f64)
     where
-        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     {
         for _ in 0..folding_factor {
             self.add_scalars::<F>(3, "sumcheck_poly");
@@ -305,7 +305,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
 
     pub fn add_scalars<F>(&mut self, count: usize, label: &str)
     where
-        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     {
         // Absorb `count` scalars into the transcript using an "absorb" tag.
         //
@@ -328,7 +328,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
 
     pub fn challenge_scalars<F>(&mut self, count: usize, label: &str)
     where
-        F: Field + BasedVectorSpace<F::PrimeSubfield>,
+        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     {
         // Squeeze `count` scalars from the transcript using a "challenge" tag.
         //
