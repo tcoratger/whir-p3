@@ -23,8 +23,6 @@ use super::{
 pub struct VerifierState<'a, EF, F, H = DefaultHash>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F>,
-    F: Field,
 {
     /// Internal sponge transcript that tracks the domain separator state and absorbs values.
     ///

@@ -34,8 +34,6 @@ use super::{
 pub struct ProverState<EF, F, H = DefaultHash>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F>,
-    F: Field,
 {
     /// The duplex sponge that is used to generate the random coins.
     pub(crate) ds: Keccak,
