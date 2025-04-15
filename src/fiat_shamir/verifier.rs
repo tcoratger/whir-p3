@@ -71,16 +71,16 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
         self.hash_state.absorb(input)
     }
 
-    pub fn fill_next_scalars<F>(&mut self, output: &mut [F]) -> ProofResult<()>
+    pub fn fill_next_scalars<EF>(&mut self, output: &mut [EF]) -> ProofResult<()>
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        F::PrimeSubfield: PrimeField64,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF::PrimeSubfield: PrimeField64,
     {
         // Size of one base field element in bytes
-        let base_bytes = bytes_modp(F::PrimeSubfield::bits() as u32);
+        let base_bytes = bytes_modp(EF::PrimeSubfield::bits() as u32);
 
         // Number of coefficients (1 for base field, >1 for extension field)
-        let ext_degree = F::DIMENSION * F::PrimeSubfield::DIMENSION;
+        let ext_degree = EF::DIMENSION * EF::PrimeSubfield::DIMENSION;
 
         // Size of full F element = D * base field size
         let scalar_size = ext_degree * base_bytes;
@@ -96,18 +96,18 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
             let coeffs = buf.chunks(base_bytes).map(from_le_bytes_mod_order);
 
             // Reconstruct the field element from its base field coefficients
-            *out = F::from_basis_coefficients_iter(coeffs);
+            *out = EF::from_basis_coefficients_iter(coeffs);
         }
 
         Ok(())
     }
 
-    pub fn next_scalars<F, const N: usize>(&mut self) -> ProofResult<[F; N]>
+    pub fn next_scalars<EF, const N: usize>(&mut self) -> ProofResult<[EF; N]>
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        F::PrimeSubfield: PrimeField64,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF::PrimeSubfield: PrimeField64,
     {
-        let mut output = [F::default(); N];
+        let mut output = [EF::default(); N];
         self.fill_next_scalars(&mut output)?;
         Ok(output)
     }
@@ -144,16 +144,16 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
         self.public_units(input)
     }
 
-    pub fn fill_challenge_scalars<F>(&mut self, output: &mut [F]) -> ProofResult<()>
+    pub fn fill_challenge_scalars<EF>(&mut self, output: &mut [EF]) -> ProofResult<()>
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        F::PrimeSubfield: PrimeField64,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF::PrimeSubfield: PrimeField64,
     {
         // How many bytes are needed to sample a single base field element
-        let base_field_size = bytes_uniform_modp(F::PrimeSubfield::bits() as u32);
+        let base_field_size = bytes_uniform_modp(EF::PrimeSubfield::bits() as u32);
 
-        // Total bytes needed for one F element = extension degree × base field size
-        let field_byte_len = F::DIMENSION * F::PrimeSubfield::DIMENSION * base_field_size;
+        // Total bytes needed for one EF element = extension degree × base field size
+        let field_byte_len = EF::DIMENSION * EF::PrimeSubfield::DIMENSION * base_field_size;
 
         // Temporary buffer to hold bytes for each field element
         let mut buf = vec![0u8; field_byte_len];
@@ -167,32 +167,32 @@ impl<'a, H: DuplexSpongeInterface<u8>> VerifierState<'a, H> {
             let base_coeffs = buf.chunks(base_field_size).map(from_be_bytes_mod_order);
 
             // Reconstruct the full field element using canonical basis
-            *o = F::from_basis_coefficients_iter(base_coeffs);
+            *o = EF::from_basis_coefficients_iter(base_coeffs);
         }
 
         Ok(())
     }
 
-    pub fn challenge_scalars<F, const N: usize>(&mut self) -> ProofResult<[F; N]>
+    pub fn challenge_scalars<EF, const N: usize>(&mut self) -> ProofResult<[EF; N]>
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        F::PrimeSubfield: PrimeField64,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF::PrimeSubfield: PrimeField64,
     {
-        let mut output = [F::default(); N];
+        let mut output = [EF::default(); N];
         self.fill_challenge_scalars(&mut output)?;
         Ok(output)
     }
 
-    pub fn public_scalars<F>(&mut self, input: &[F]) -> ProofResult<Vec<u8>>
+    pub fn public_scalars<EF>(&mut self, input: &[EF]) -> ProofResult<Vec<u8>>
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        F::PrimeSubfield: PrimeField64,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF::PrimeSubfield: PrimeField64,
     {
         // Initialize a buffer to store the final serialized byte output
         let mut buf = Vec::new();
 
         // How many bytes are needed to sample a single base field element
-        let num_bytes = F::PrimeSubfield::bits().div_ceil(8);
+        let num_bytes = EF::PrimeSubfield::bits().div_ceil(8);
 
         // Loop over each scalar field element (could be base or extension field)
         for scalar in input {

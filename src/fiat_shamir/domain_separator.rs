@@ -185,13 +185,13 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         VerifierState::new(self, transcript)
     }
 
-    pub fn add_ood<F>(&mut self, num_samples: usize)
+    pub fn add_ood<EF>(&mut self, num_samples: usize)
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
     {
         if num_samples > 0 {
-            self.challenge_scalars::<F>(num_samples, "ood_query");
-            self.add_scalars::<F>(num_samples, "ood_ans");
+            self.challenge_scalars::<EF>(num_samples, "ood_query");
+            self.add_scalars::<EF>(num_samples, "ood_ans");
         }
     }
 
@@ -269,13 +269,13 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
     /// - Samples 3 scalars for the sumcheck polynomial.
     /// - Samples 1 scalar for folding randomness.
     /// - Optionally performs a PoW challenge if `pow_bits > 0`.
-    pub fn add_sumcheck<F>(&mut self, folding_factor: usize, pow_bits: f64)
+    pub fn add_sumcheck<EF>(&mut self, folding_factor: usize, pow_bits: f64)
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
     {
         for _ in 0..folding_factor {
-            self.add_scalars::<F>(3, "sumcheck_poly");
-            self.challenge_scalars::<F>(1, "folding_randomness");
+            self.add_scalars::<EF>(3, "sumcheck_poly");
+            self.challenge_scalars::<EF>(1, "folding_randomness");
             self.pow(pow_bits);
         }
     }
@@ -303,9 +303,9 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         self.absorb(8, "pow-nonce");
     }
 
-    pub fn add_scalars<F>(&mut self, count: usize, label: &str)
+    pub fn add_scalars<EF>(&mut self, count: usize, label: &str)
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
     {
         // Absorb `count` scalars into the transcript using an "absorb" tag.
         //
@@ -319,16 +319,16 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         // - `bytes_modp(bits)` gives the compressed byte length for the prime subfield
         self.absorb(
             count
-                * F::DIMENSION
-                * F::PrimeSubfield::DIMENSION
-                * bytes_modp(F::PrimeSubfield::bits() as u32),
+                * EF::DIMENSION
+                * EF::PrimeSubfield::DIMENSION
+                * bytes_modp(EF::PrimeSubfield::bits() as u32),
             label,
         );
     }
 
-    pub fn challenge_scalars<F>(&mut self, count: usize, label: &str)
+    pub fn challenge_scalars<EF>(&mut self, count: usize, label: &str)
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
     {
         // Squeeze `count` scalars from the transcript using a "challenge" tag.
         //
@@ -340,9 +340,9 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
         // over the base field.
         self.squeeze(
             count
-                * F::DIMENSION
-                * F::PrimeSubfield::DIMENSION
-                * bytes_uniform_modp(F::PrimeSubfield::bits() as u32),
+                * EF::DIMENSION
+                * EF::PrimeSubfield::DIMENSION
+                * bytes_uniform_modp(EF::PrimeSubfield::bits() as u32),
             label,
         );
     }

@@ -81,10 +81,10 @@ where
         self.narg_string.as_slice()
     }
 
-    pub fn add_scalars<F>(&mut self, input: &[F]) -> ProofResult<()>
+    pub fn add_scalars<EF>(&mut self, input: &[EF]) -> ProofResult<()>
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        F::PrimeSubfield: PrimeField64,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF::PrimeSubfield: PrimeField64,
     {
         // Serialize the input scalars to bytes
         let serialized = self.public_scalars(input)?;
@@ -96,16 +96,16 @@ where
         Ok(())
     }
 
-    pub fn public_scalars<F>(&mut self, input: &[F]) -> ProofResult<Vec<u8>>
+    pub fn public_scalars<EF>(&mut self, input: &[EF]) -> ProofResult<Vec<u8>>
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        F::PrimeSubfield: PrimeField64,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF::PrimeSubfield: PrimeField64,
     {
         // Initialize a buffer to store the final serialized byte output
         let mut buf = Vec::new();
 
         // How many bytes are needed to sample a single base field element
-        let num_bytes = F::PrimeSubfield::bits().div_ceil(8);
+        let num_bytes = EF::PrimeSubfield::bits().div_ceil(8);
 
         // Loop over each scalar field element (could be base or extension field)
         for scalar in input {
@@ -165,16 +165,16 @@ where
             .map_err(ProofError::InvalidDomainSeparator)
     }
 
-    pub fn fill_challenge_scalars<F>(&mut self, output: &mut [F]) -> ProofResult<()>
+    pub fn fill_challenge_scalars<EF>(&mut self, output: &mut [EF]) -> ProofResult<()>
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        F::PrimeSubfield: PrimeField64,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF::PrimeSubfield: PrimeField64,
     {
         // How many bytes are needed to sample a single base field element
-        let base_field_size = bytes_uniform_modp(F::PrimeSubfield::bits() as u32);
+        let base_field_size = bytes_uniform_modp(EF::PrimeSubfield::bits() as u32);
 
-        // Total bytes needed for one F element = extension degree × base field size
-        let field_byte_len = F::DIMENSION * F::PrimeSubfield::DIMENSION * base_field_size;
+        // Total bytes needed for one EF element = extension degree × base field size
+        let field_byte_len = EF::DIMENSION * EF::PrimeSubfield::DIMENSION * base_field_size;
 
         // Temporary buffer to hold bytes for each field element
         let mut buf = vec![0u8; field_byte_len];
@@ -188,18 +188,18 @@ where
             let base_coeffs = buf.chunks(base_field_size).map(from_be_bytes_mod_order);
 
             // Reconstruct the full field element using canonical basis
-            *o = F::from_basis_coefficients_iter(base_coeffs);
+            *o = EF::from_basis_coefficients_iter(base_coeffs);
         }
 
         Ok(())
     }
 
-    pub fn challenge_scalars<F, const N: usize>(&mut self) -> ProofResult<[F; N]>
+    pub fn challenge_scalars<EF, const N: usize>(&mut self) -> ProofResult<[EF; N]>
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        F::PrimeSubfield: PrimeField64,
+        EF: Field + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF::PrimeSubfield: PrimeField64,
     {
-        let mut output = [F::default(); N];
+        let mut output = [EF::default(); N];
         self.fill_challenge_scalars(&mut output)?;
         Ok(output)
     }
