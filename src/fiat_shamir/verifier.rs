@@ -230,7 +230,7 @@ impl<EF, F, H> UnitToBytes for VerifierState<'_, EF, F, H>
 where
     H: DuplexSpongeInterface<u8>,
     EF: ExtensionField<F>,
-    F: Field + TwoAdicField,
+    F: Field,
 {
     #[inline]
     fn fill_challenge_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {

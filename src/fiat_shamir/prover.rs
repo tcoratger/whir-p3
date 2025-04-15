@@ -203,7 +203,7 @@ impl<EF, F, H> UnitToBytes for ProverState<EF, F, H>
 where
     H: DuplexSpongeInterface<u8>,
     EF: ExtensionField<F>,
-    F: Field + TwoAdicField,
+    F: Field,
 {
     fn fill_challenge_bytes(&mut self, output: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.squeeze(output)
