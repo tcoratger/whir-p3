@@ -1,7 +1,5 @@
 use errors::DomainSeparatorMismatch;
 
-use crate::fiat_shamir::{prover::ProverState, verifier::VerifierState};
-
 pub mod domain_separator;
 pub mod duplex_sponge;
 pub mod errors;
@@ -14,15 +12,6 @@ pub mod verifier;
 
 /// Default hash function used ([`keccak::Keccak`]).
 pub type DefaultHash = keccak::Keccak;
-
-/// A Fiat-Shamir transcript.
-#[derive(Debug)]
-pub enum FiatShamir<'a> {
-    /// The prover state.
-    Prover(Box<ProverState>),
-    /// The verifier state.
-    Verifier(Box<VerifierState<'a>>),
-}
 
 /// Squeezing bytes from the sponge.
 ///
