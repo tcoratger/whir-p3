@@ -26,7 +26,7 @@ pub struct VerifierState<'a, EF, F, H = DefaultHash>
 where
     H: DuplexSpongeInterface<u8>,
     EF: ExtensionField<F> + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-    F: Field + TwoAdicField,
+    F: Field,
 {
     /// Internal sponge transcript that tracks the domain separator state and absorbs values.
     ///
