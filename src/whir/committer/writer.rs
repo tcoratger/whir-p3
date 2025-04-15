@@ -22,12 +22,12 @@ use crate::{
 #[derive(Debug)]
 pub struct CommitmentWriter<EF, F, H, C, PowStrategy>(WhirConfig<EF, F, H, C, PowStrategy>)
 where
-    F: Field + TwoAdicField,
+    F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>;
 
 impl<EF, F, H, C, PS> CommitmentWriter<EF, F, H, C, PS>
 where
-    F: Field + TwoAdicField,
+    F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
 {
     pub const fn new(params: WhirConfig<EF, F, H, C, PS>) -> Self {
@@ -52,7 +52,6 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        F: PrimeField64,
     {
         // Retrieve the base domain, ensuring it is set.
         let base_domain = self.0.starting_domain.base_domain.unwrap();
