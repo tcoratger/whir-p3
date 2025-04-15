@@ -139,14 +139,6 @@ impl<H: DuplexSpongeInterface<u8>> Drop for HashStateWithInstructions<H> {
     }
 }
 
-// impl<H: DuplexSpongeInterface<u8>, B: core::borrow::Borrow<DomainSeparator<H>>> From<B>
-//     for HashStateWithInstructions<H>
-// {
-//     fn from(value: B) -> Self {
-//         Self::new(value.borrow())
-//     }
-// }
-
 #[cfg(test)]
 #[allow(clippy::bool_assert_comparison)]
 mod tests {
