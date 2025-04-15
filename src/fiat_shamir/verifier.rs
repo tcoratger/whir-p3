@@ -28,7 +28,6 @@ where
     EF: ExtensionField<F>
         + TwoAdicField<PrimeSubfield = F>
         + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-    EF::PrimeSubfield: PrimeField64,
     F: Field + TwoAdicField,
 {
     /// Internal sponge transcript that tracks the domain separator state and absorbs values.
@@ -239,7 +238,6 @@ where
     EF: ExtensionField<F>
         + TwoAdicField<PrimeSubfield = F>
         + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-    EF::PrimeSubfield: PrimeField64,
     F: Field + TwoAdicField,
 {
     #[inline]

@@ -39,7 +39,6 @@ where
     EF: ExtensionField<F>
         + TwoAdicField<PrimeSubfield = F>
         + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-    EF::PrimeSubfield: PrimeField64,
     F: Field + TwoAdicField,
 {
     /// The duplex sponge that is used to generate the random coins.
@@ -212,7 +211,6 @@ where
     EF: ExtensionField<F>
         + TwoAdicField<PrimeSubfield = F>
         + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-    EF::PrimeSubfield: PrimeField64,
     F: Field + TwoAdicField,
 {
     fn fill_challenge_bytes(&mut self, output: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
