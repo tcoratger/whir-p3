@@ -44,8 +44,6 @@ const SEP_BYTE: &str = "\0";
 pub struct DomainSeparator<EF, F, H = DefaultHash>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F>,
-    F: Field + TwoAdicField + PrimeField64,
 {
     /// The internal IOPattern string representation.
     ///
