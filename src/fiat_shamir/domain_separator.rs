@@ -176,7 +176,7 @@ impl<H: DuplexSpongeInterface<u8>> DomainSeparator<H> {
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
     pub fn to_prover_state(&self) -> ProverState<H> {
-        self.into()
+        ProverState::new(self)
     }
 
     /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript

@@ -214,15 +214,6 @@ where
     }
 }
 
-impl<H> From<&DomainSeparator<H>> for ProverState<H>
-where
-    H: DuplexSpongeInterface<u8>,
-{
-    fn from(domain_separator: &DomainSeparator<H>) -> Self {
-        Self::new(domain_separator)
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::unreadable_literal)]
 mod tests {
@@ -244,7 +235,7 @@ mod tests {
     fn test_prover_state_public_units_does_not_affect_narg() {
         let mut domsep = DomainSeparator::<DefaultHash>::new("test");
         domsep.absorb(4, "data");
-        let mut pstate = ProverState::from(&domsep);
+        let mut pstate = domsep.to_prover_state();
 
         pstate.public_bytes(&[1, 2, 3, 4]).unwrap();
         assert_eq!(pstate.narg_string(), b"");
@@ -254,7 +245,7 @@ mod tests {
     fn test_add_units_appends_to_narg_string() {
         let mut domsep = DomainSeparator::<DefaultHash>::new("test");
         domsep.absorb(3, "msg");
-        let mut pstate = ProverState::from(&domsep);
+        let mut pstate = domsep.to_prover_state();
         let input = [42, 43, 44];
 
         assert!(pstate.add_bytes(&input).is_ok());
@@ -265,7 +256,7 @@ mod tests {
     fn test_add_units_too_many_elements_should_error() {
         let mut domsep = DomainSeparator::<DefaultHash>::new("test");
         domsep.absorb(2, "short");
-        let mut pstate = ProverState::from(&domsep);
+        let mut pstate = domsep.to_prover_state();
 
         let result = pstate.add_bytes(&[1, 2, 3]);
         assert!(result.is_err());
@@ -275,7 +266,7 @@ mod tests {
     fn test_public_units_does_not_update_transcript() {
         let mut domsep = DomainSeparator::<DefaultHash>::new("test");
         domsep.absorb(2, "p");
-        let mut pstate = ProverState::from(&domsep);
+        let mut pstate = domsep.to_prover_state();
         let _ = pstate.public_bytes(&[0xaa, 0xbb]);
 
         assert_eq!(pstate.narg_string(), b"");
@@ -285,7 +276,7 @@ mod tests {
     fn test_fill_challenge_units() {
         let mut domsep = DomainSeparator::<DefaultHash>::new("test");
         domsep.squeeze(8, "ch");
-        let mut pstate = ProverState::from(&domsep);
+        let mut pstate = domsep.to_prover_state();
 
         let mut out = [0u8; 8];
         let _ = pstate.fill_challenge_bytes(&mut out);
@@ -297,7 +288,7 @@ mod tests {
         let mut domsep = DomainSeparator::<DefaultHash>::new("t");
         domsep.absorb(2, "a");
         domsep.absorb(3, "b");
-        let mut p = ProverState::from(&domsep);
+        let mut p = domsep.to_prover_state();
 
         p.add_bytes(&[10, 11]).unwrap();
         p.add_bytes(&[20, 21, 22]).unwrap();
@@ -309,7 +300,7 @@ mod tests {
     fn test_narg_string_round_trip_check() {
         let mut domsep = DomainSeparator::<DefaultHash>::new("t");
         domsep.absorb(5, "data");
-        let mut p = ProverState::from(&domsep);
+        let mut p = domsep.to_prover_state();
 
         let msg = b"zkp42";
         p.add_bytes(msg).unwrap();
