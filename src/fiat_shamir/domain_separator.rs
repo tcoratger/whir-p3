@@ -51,9 +51,31 @@ where
         + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
     F: Field + TwoAdicField + PrimeField64,
 {
+    /// The internal IOPattern string representation.
+    ///
+    /// This string encodes a sequence of transcript actions such as absorptions, squeezes,
+    /// and ratchets, in the format: `domain\0A32label\0S16challenge\0R...`.
+    ///
+    /// It is constructed incrementally by calling methods like `absorb`, `squeeze`, etc.,
+    /// and is later parsed into a queue of [`Op`] instructions by `finalize()`.
     io: String,
+
+    /// Phantom type marker for the hash function used (e.g., Poseidon, Keccak).
+    ///
+    /// Used to enforce that this domain separator is compatible with the hash function
+    /// required by the prover/verifier state or proof system.
     _hash: PhantomData<H>,
+
+    /// Phantom marker for the base field type `F`.
+    ///
+    /// Ensures that field operations (e.g., `bytes_modp`, `as_basis_coefficients_slice`) are
+    /// computed correctly for the given field implementation.
     _field: PhantomData<F>,
+
+    /// Phantom marker for the extension field type `EF`.
+    ///
+    /// Provides type-level tracking of the extension degree and element structure used in
+    /// challenge generation and scalar absorption.
     _extension_field: PhantomData<EF>,
 }
 

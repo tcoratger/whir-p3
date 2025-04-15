@@ -48,7 +48,9 @@ where
     pub(crate) hash_state: HashStateWithInstructions<H>,
     /// The encoded data.
     pub(crate) narg_string: Vec<u8>,
+    /// Marker for the field.
     _field: PhantomData<F>,
+    /// Marker for the extension field.
     _extension_field: PhantomData<EF>,
 }
 

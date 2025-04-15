@@ -31,9 +31,28 @@ where
     EF::PrimeSubfield: PrimeField64,
     F: Field + TwoAdicField,
 {
+    /// Internal sponge transcript that tracks the domain separator state and absorbs values.
+    ///
+    /// This manages the full Fiat-Shamir interaction logic, such as absorbing inputs and
+    /// squeezing challenges. It also stores the domain separator instructions to enforce
+    /// consistency between prover and verifier.
     pub(crate) hash_state: HashStateWithInstructions<H>,
+
+    /// The "NARG" string: raw serialized input provided by the prover.
+    ///
+    /// This byte slice contains encoded values (scalars, digests, etc.) that are deserialized
+    /// during verification. Each call to `next_bytes`, `fill_next_scalars`, etc., reads from this.
     pub(crate) narg_string: &'a [u8],
+
+    /// Marker for the base field `F`.
+    ///
+    /// This field is never read or written; it ensures type correctness for field-level operations.
     _field: PhantomData<F>,
+
+    /// Marker for the extension field `EF`.
+    ///
+    /// Like `_field`, this is only for type-level bookkeeping. The extension field is used
+    /// to deserialize and operate on scalars in high-dimensional protocols.
     _extension_field: PhantomData<EF>,
 }
 
