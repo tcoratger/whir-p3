@@ -1,8 +1,6 @@
 use std::{collections::VecDeque, fmt::Write, marker::PhantomData};
 
-use p3_field::{
-    BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField,
-};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeField64, TwoAdicField};
 
 use super::{
     DefaultHash,
@@ -46,7 +44,7 @@ const SEP_BYTE: &str = "\0";
 pub struct DomainSeparator<EF, F, H = DefaultHash>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F> + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF: ExtensionField<F>,
     F: Field + TwoAdicField + PrimeField64,
 {
     /// The internal IOPattern string representation.
@@ -80,9 +78,7 @@ where
 impl<EF, F, H> DomainSeparator<EF, F, H>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F>
-        + TwoAdicField<PrimeSubfield = F>
-        + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
     F: Field + TwoAdicField + PrimeField64,
 {
     pub const fn from_string(io: String) -> Self {

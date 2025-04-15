@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
 
-use p3_field::{
-    BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField,
-};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::Hash;
 
 use super::{
@@ -25,7 +23,7 @@ use super::{
 pub struct VerifierState<'a, EF, F, H = DefaultHash>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F> + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF: ExtensionField<F>,
     F: Field,
 {
     /// Internal sponge transcript that tracks the domain separator state and absorbs values.
@@ -56,9 +54,7 @@ where
 impl<'a, EF, F, H> VerifierState<'a, EF, F, H>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F>
-        + TwoAdicField<PrimeSubfield = F>
-        + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
     EF::PrimeSubfield: PrimeField64,
     F: Field + TwoAdicField,
 {
@@ -233,7 +229,7 @@ where
 impl<EF, F, H> UnitToBytes for VerifierState<'_, EF, F, H>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F> + ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF: ExtensionField<F>,
     F: Field + TwoAdicField,
 {
     #[inline]
