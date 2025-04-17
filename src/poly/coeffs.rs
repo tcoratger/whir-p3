@@ -1,4 +1,4 @@
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 #[cfg(feature = "parallel")]
 use {
     rayon::{join, prelude::*},
@@ -107,12 +107,9 @@ where
     /// which the polynomial `self` is defined.
     ///
     /// Note that we only support the case where F is a prime field.
-    pub fn evaluate_at_extension<E: Field<PrimeSubfield = F>>(
-        &self,
-        point: &MultilinearPoint<E>,
-    ) -> E {
+    pub fn evaluate_at_extension<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables, point.num_variables());
-        eval_extension(&self.coeffs, &point.0, E::ONE)
+        eval_extension(&self.coeffs, &point.0, EF::ONE)
     }
 }
 
@@ -222,13 +219,11 @@ impl<F> CoefficientList<F> {
     /// extension of F.
     ///
     /// Note that this is currently restricted to the case where F is a prime field.
-    pub fn to_extension<E: Field<PrimeSubfield = F>>(self) -> CoefficientList<E> {
-        CoefficientList::new(
-            self.coeffs
-                .into_iter()
-                .map(E::from_prime_subfield)
-                .collect(),
-        )
+    pub fn to_extension<E: ExtensionField<F>>(self) -> CoefficientList<E>
+    where
+        F: Field,
+    {
+        CoefficientList::new(self.coeffs.into_iter().map(E::from).collect())
     }
 }
 
@@ -257,7 +252,7 @@ where
 fn eval_extension<F, E>(coeff: &[F], eval: &[E], scalar: E) -> E
 where
     F: Field,
-    E: Field<PrimeSubfield = F>,
+    E: ExtensionField<F>,
 {
     debug_assert_eq!(coeff.len(), 1 << eval.len());
 
@@ -279,7 +274,7 @@ where
         // Default non-parallel execution
         eval_extension(low, tail, scalar) + eval_extension(high, tail, scalar * x)
     } else {
-        scalar * E::from_prime_subfield(coeff[0])
+        scalar * E::from(coeff[0])
     }
 }
 

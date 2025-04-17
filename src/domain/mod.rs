@@ -18,7 +18,7 @@ where
 {
     /// The domain defined over the base field, used for initial FFT operations.
     ///
-    /// This is useful when operating in an extension field `F`, where `F::PrimeSubfield`
+    /// This is useful when operating in an extension field `EF`, where `F`
     /// represents the base field from which the extension was built.
     pub base_domain: Option<GeneralEvaluationDomain<F>>,
     /// The actual working domain used for FFT operations.
@@ -28,7 +28,7 @@ where
 impl<EF, F> Domain<EF, F>
 where
     F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    EF: ExtensionField<F> + TwoAdicField,
 {
     /// Constructs a new evaluation domain for a polynomial of given `degree`.
     ///
@@ -84,17 +84,17 @@ where
 
     /// Converts a base field evaluation domain into an extended field domain.
     ///
-    /// Maps elements from `F::PrimeSubfield` to `F`, preserving the subgroup structure.
+    /// Maps elements from `F` to `EF`, preserving the subgroup structure.
     fn to_extension_domain(domain: &GeneralEvaluationDomain<F>) -> GeneralEvaluationDomain<EF> {
-        let group_gen = EF::from_prime_subfield(domain.group_gen());
-        let group_gen_inv = EF::from_prime_subfield(domain.group_gen_inv());
+        let group_gen = EF::from(domain.group_gen());
+        let group_gen_inv = EF::from(domain.group_gen_inv());
         let size = domain.size() as u64;
         let log_size_of_group = domain.log_size_of_group();
-        let size_as_field_element = EF::from_prime_subfield(domain.size_as_field_element());
-        let size_inv = EF::from_prime_subfield(domain.size_inv());
-        let offset = EF::from_prime_subfield(domain.coset_offset());
-        let offset_inv = EF::from_prime_subfield(domain.coset_offset_inv());
-        let offset_pow_size = EF::from_prime_subfield(domain.coset_offset_pow_size());
+        let size_as_field_element = EF::from(domain.size_as_field_element());
+        let size_inv = EF::from(domain.size_inv());
+        let offset = EF::from(domain.coset_offset());
+        let offset_inv = EF::from(domain.coset_offset_inv());
+        let offset_pow_size = EF::from(domain.coset_offset_pow_size());
         match domain {
             GeneralEvaluationDomain::Radix2(_) => {
                 GeneralEvaluationDomain::Radix2(Radix2EvaluationDomain {

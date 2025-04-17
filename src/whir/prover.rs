@@ -30,11 +30,11 @@ pub type Leafs<F> = Vec<Vec<F>>;
 pub(crate) struct RoundState<EF, F, const DIGEST_ELEMS: usize>
 where
     F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    EF: ExtensionField<F> + TwoAdicField,
 {
     pub(crate) round: usize,
     pub(crate) domain: Domain<EF, F>,
-    pub(crate) sumcheck_prover: Option<SumcheckSingle<EF>>,
+    pub(crate) sumcheck_prover: Option<SumcheckSingle<F, EF>>,
     pub(crate) folding_randomness: MultilinearPoint<EF>,
     pub(crate) coefficients: CoefficientList<EF>,
     pub(crate) prev_merkle_prover_data:
@@ -50,12 +50,12 @@ where
 pub struct Prover<EF, F, H, C, PowStrategy>(pub WhirConfig<EF, F, H, C, PowStrategy>)
 where
     F: Field + TwoAdicField + PrimeField64,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>;
+    EF: ExtensionField<F> + TwoAdicField;
 
 impl<EF, F, H, C, PS> Prover<EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
 {
     fn validate_parameters(&self) -> bool {

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::Hash;
 
 use super::{
@@ -52,9 +52,8 @@ where
 impl<'a, EF, F, H> VerifierState<'a, EF, F, H>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
-    EF::PrimeSubfield: PrimeField64,
-    F: Field + TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+    F: PrimeField64 + TwoAdicField,
 {
     /// Creates a new [`VerifierState`] instance with the given sponge and IO Pattern.
     ///
@@ -104,10 +103,10 @@ where
 
     pub fn fill_next_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // Size of one base field element in bytes
-        let base_bytes = bytes_modp(EF::PrimeSubfield::bits() as u32);
+        let base_bytes = bytes_modp(F::bits() as u32);
 
         // Number of coefficients (1 for base field, >1 for extension field)
-        let ext_degree = EF::DIMENSION * EF::PrimeSubfield::DIMENSION;
+        let ext_degree = EF::DIMENSION;
 
         // Size of full F element = D * base field size
         let scalar_size = ext_degree * base_bytes;
@@ -166,10 +165,10 @@ where
 
     pub fn fill_challenge_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // How many bytes are needed to sample a single base field element
-        let base_field_size = bytes_uniform_modp(EF::PrimeSubfield::bits() as u32);
+        let base_field_size = bytes_uniform_modp(F::bits() as u32);
 
         // Total bytes needed for one EF element = extension degree × base field size
-        let field_byte_len = EF::DIMENSION * EF::PrimeSubfield::DIMENSION * base_field_size;
+        let field_byte_len = EF::DIMENSION * base_field_size;
 
         // Temporary buffer to hold bytes for each field element
         let mut buf = vec![0u8; field_byte_len];
@@ -200,7 +199,7 @@ where
         let mut buf = Vec::new();
 
         // How many bytes are needed to sample a single base field element
-        let num_bytes = EF::PrimeSubfield::bits().div_ceil(8);
+        let num_bytes = F::bits().div_ceil(8);
 
         // Loop over each scalar field element (could be base or extension field)
         for scalar in input {
@@ -242,7 +241,7 @@ mod tests {
     use std::{cell::RefCell, rc::Rc};
 
     use p3_baby_bear::BabyBear;
-    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_goldilocks::Goldilocks;
 
     use super::*;

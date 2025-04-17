@@ -23,12 +23,12 @@ use crate::{
 pub struct CommitmentWriter<EF, F, H, C, PowStrategy>(WhirConfig<EF, F, H, C, PowStrategy>)
 where
     F: Field + TwoAdicField + PrimeField64,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>;
+    EF: ExtensionField<F> + TwoAdicField;
 
 impl<EF, F, H, C, PS> CommitmentWriter<EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    EF: ExtensionField<F> + TwoAdicField,
 {
     pub const fn new(params: WhirConfig<EF, F, H, C, PS>) -> Self {
         Self(params)
@@ -70,7 +70,7 @@ where
         );
 
         // Convert to extension field (for future rounds)
-        let folded_evals: Vec<_> = evals.into_iter().map(EF::from_prime_subfield).collect();
+        let folded_evals: Vec<_> = evals.into_iter().map(EF::from).collect();
 
         // Determine leaf size based on folding factor.
         let fold_size = 1 << self.0.folding_factor.at_round(0);

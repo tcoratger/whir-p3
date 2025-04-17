@@ -30,7 +30,7 @@ use crate::{
 pub struct Verifier<'a, EF, F, H, C, PowStrategy>
 where
     F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    EF: ExtensionField<F> + TwoAdicField,
 {
     params: &'a WhirConfig<EF, F, H, C, PowStrategy>,
 }
@@ -38,7 +38,7 @@ where
 impl<'a, EF, F, H, C, PS> Verifier<'a, EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
 {
     pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {
