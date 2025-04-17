@@ -75,14 +75,6 @@ rayon = ["dep:rayon"]
 inherits = "release"
 debug = true
 
-# [[bench]]
-# name = "transpose_square_swap"
-# harness = false
-
-# [[bench]]
-# name = "transpose_copy"
-# harness = false
-
 [[bench]]
 name = "whir"
 harness = false

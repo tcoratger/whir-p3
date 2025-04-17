@@ -32,7 +32,7 @@ pub fn transpose<F: Sized + Copy + Send>(matrix: &mut [F], rows: usize, cols: us
 /// Transpose and swap two square size matrices (parallel version).
 ///
 /// The size must be a power of two.
-pub fn transpose_square_swap<F: Sized + Send>(mut a: MatrixMut<'_, F>, mut b: MatrixMut<'_, F>) {
+fn transpose_square_swap<F: Sized + Send>(mut a: MatrixMut<'_, F>, mut b: MatrixMut<'_, F>) {
     debug_assert!(a.is_square());
     debug_assert_eq!(a.rows(), b.cols());
     debug_assert_eq!(a.cols(), b.rows());
@@ -140,7 +140,7 @@ fn transpose_square<F: Sized + Send>(mut m: MatrixMut<'_, F>) {
 ///
 /// Uses cache-friendly recursive decomposition and direct pointer manipulation for maximum
 /// performance.
-pub fn transpose_copy<F: Copy + Send>(src: MatrixMut<'_, F>, mut dst: MatrixMut<'_, F>) {
+fn transpose_copy<F: Copy + Send>(src: MatrixMut<'_, F>, mut dst: MatrixMut<'_, F>) {
     assert_eq!(src.rows(), dst.cols());
     assert_eq!(src.cols(), dst.rows());
 
