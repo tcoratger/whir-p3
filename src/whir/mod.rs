@@ -1,6 +1,6 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_blake3::Blake3;
-use p3_field::PrimeCharacteristicRing;
+use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher64};
 use parameters::WhirConfig;
@@ -39,7 +39,7 @@ pub struct WhirProof<F, const DIGEST_ELEMS: usize> {
 }
 
 type F = Goldilocks;
-type EF = Goldilocks;
+type EF = BinomialExtensionField<F, 2>;
 type ByteHash = Blake3;
 type FieldHash = SerializingHasher64<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
@@ -72,7 +72,7 @@ pub fn make_whir_things(
     let merkle_compress = MyCompress::new(byte_hash);
 
     // Set the multivariate polynomial parameters
-    let mv_params = MultivariateParameters::<F>::new(num_variables);
+    let mv_params = MultivariateParameters::<EF>::new(num_variables);
 
     // Construct WHIR protocol parameters
     let whir_params = ProtocolParameters::<_, _> {
@@ -95,21 +95,21 @@ pub fn make_whir_things(
 
     // Sample `num_points` random multilinear points in the Boolean hypercube
     let points: Vec<_> = (0..num_points)
-        .map(|_| MultilinearPoint((0..num_variables).map(|i| F::from_u64(i as u64)).collect()))
+        .map(|_| MultilinearPoint((0..num_variables).map(|i| EF::from_u64(i as u64)).collect()))
         .collect();
 
     // Construct a new statement with the correct number of variables
-    let mut statement = Statement::<F>::new(num_variables);
+    let mut statement = Statement::<EF>::new(num_variables);
 
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
-        let eval = polynomial.evaluate(point);
+        let eval = polynomial.evaluate_at_extension(point);
         let weights = Weights::evaluation(point.clone());
         statement.add_constraint(weights, eval);
     }
 
     // Construct a linear constraint to test sumcheck
-    let input = CoefficientList::new((0..1 << num_variables).map(F::from_u64).collect());
+    let input = CoefficientList::new((0..1 << num_variables).map(EF::from_u64).collect());
     let linear_claim_weight = Weights::linear(input.into());
 
     // Convert the polynomial to extension form for weighted evaluation
