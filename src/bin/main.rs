@@ -153,7 +153,7 @@ fn main() {
     // Generate a proof using the prover
     let prover = Prover(params.clone());
 
-    let dft_prover = Radix2DitParallel::<EF>::default();
+    let dft_prover = Radix2DitParallel::<F>::default();
 
     // Generate a STARK proof for the given statement and witness
     let proof = prover

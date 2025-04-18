@@ -91,7 +91,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        D: TwoAdicSubgroupDft<EF>,
+        D: TwoAdicSubgroupDft<F>,
     {
         // Validate parameters
         assert!(
@@ -204,7 +204,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        D: TwoAdicSubgroupDft<EF>,
+        D: TwoAdicSubgroupDft<F>,
     {
         // Fold the coefficients
         let folded_coefficients = round_state

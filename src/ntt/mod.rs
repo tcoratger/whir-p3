@@ -2,7 +2,7 @@
 
 use cooley_tukey::ntt_batch;
 use p3_dft::TwoAdicSubgroupDft;
-use p3_field::{Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -57,9 +57,10 @@ pub fn expand_from_coeff<F: Field + TwoAdicField>(coeffs: &[F], expansion: usize
 }
 
 /// RS encode at a rate 1/`expansion`
-pub fn expand_from_coeff_plonky3<F, D>(dft: &D, coeffs: &[F], expansion: usize) -> Vec<F>
+pub fn expand_from_coeff_plonky3<F, EF, D>(dft: &D, coeffs: &[EF], expansion: usize) -> Vec<EF>
 where
     F: Field + TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
     D: TwoAdicSubgroupDft<F>,
 {
     let engine = cooley_tukey::NttEngine::<F>::new_from_cache();
@@ -98,7 +99,7 @@ where
             })
     }));
 
-    dft.dft_batch(RowMajorMatrix::new(result, n).transpose())
+    dft.dft_algebra_batch(RowMajorMatrix::new(result, n).transpose())
         .to_row_major_matrix()
         .values
 }

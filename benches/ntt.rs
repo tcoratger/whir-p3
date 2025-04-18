@@ -1,10 +1,9 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
-use p3_dft::Radix2DitParallel;
 use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_monty_31::dft::RecursiveDft;
 use rand::{Rng, rng};
-use whir_p3::ntt::{expand_from_coeff, expand_from_coeff_plonky3};
+use whir_p3::ntt::expand_from_coeff_plonky3;
 
 type F = BabyBear;
 type EF4 = BinomialExtensionField<F, 4>;
@@ -22,6 +21,7 @@ fn generate_random_coeffs(size: usize) -> Vec<EF4> {
                 ]
                 .into_iter(),
             )
+            .unwrap()
         })
         .collect()
 }
@@ -34,8 +34,7 @@ fn bench_expand_from_coeff(c: &mut Criterion) {
         let n = 1 << log_n;
         let coeffs = generate_random_coeffs(n);
 
-        // let dft = RecursiveDft::<EF4>::default();
-        let dft = Radix2DitParallel::<EF4>::default();
+        let dft = RecursiveDft::<F>::default();
 
         for &expansion in &[4, 8] {
             group.bench_with_input(
@@ -43,7 +42,6 @@ fn bench_expand_from_coeff(c: &mut Criterion) {
                 &expansion,
                 |b, &e| {
                     b.iter(|| {
-                        // let _ = expand_from_coeff(&coeffs, e);
                         let _ = expand_from_coeff_plonky3(&dft, &coeffs, e);
                     });
                 },
