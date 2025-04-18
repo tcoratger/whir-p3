@@ -94,9 +94,6 @@ where
                 let coset_generator_inv =
                     domain_gen_inv.exp_u64((domain_size / coset_domain_size) as u64);
 
-                // Precompute inverse of 2
-                let two_inv = F::TWO.inverse();
-
                 // Evaluate folded values for each challenge index
                 stir_evaluations.extend(stir_challenges_indexes.iter().zip(answers).map(
                     |(index, answers)| {
@@ -109,7 +106,6 @@ where
                             &folding_randomness.0,
                             coset_offset_inv,
                             coset_generator_inv,
-                            two_inv,
                             folding_factor.at_round(*round),
                         )
                     },
@@ -251,12 +247,11 @@ mod tests {
         // folding step:
         //   g = (f0 + f1 + r * (f0 - f1) * offset⁻¹ * g⁰⁻¹) / 2
         //     = (f0 + f1 + r * (f0 - f1) * offset⁻¹) / 2
-        let two_inv = BabyBear::from_u64(2).inverse();
         let diff = f0 - f1;
         let offset_inv = domain_gen_inv.exp_u64(1);
         let left = f0 + f1;
         let right = r * diff * offset_inv;
-        let expected = two_inv * (left + right);
+        let expected = (left + right).halve();
 
         let context = StirEvalContext::Naive {
             domain_size,

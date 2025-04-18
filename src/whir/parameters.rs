@@ -22,7 +22,7 @@ pub struct RoundConfig {
 pub struct WhirConfig<EF, F, H, C, PowStrategy>
 where
     F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    EF: ExtensionField<F> + TwoAdicField,
 {
     pub mv_parameters: MultivariateParameters<EF>,
     pub soundness_type: SoundnessType,
@@ -61,7 +61,7 @@ where
 impl<EF, F, H, C, PowStrategy> WhirConfig<EF, F, H, C, PowStrategy>
 where
     F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    EF: ExtensionField<F> + TwoAdicField,
 {
     #[allow(clippy::too_many_lines)]
     pub fn new(

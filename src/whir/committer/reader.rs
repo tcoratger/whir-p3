@@ -17,12 +17,12 @@ pub struct ParsedCommitment<F, D> {
 pub struct CommitmentReader<'a, EF, F, H, C, PowStrategy>(&'a WhirConfig<EF, F, H, C, PowStrategy>)
 where
     F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>;
+    EF: ExtensionField<F> + TwoAdicField;
 
 impl<'a, EF, F, H, C, PS> CommitmentReader<'a, EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    EF: ExtensionField<F> + TwoAdicField,
 {
     pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {
         Self(params)

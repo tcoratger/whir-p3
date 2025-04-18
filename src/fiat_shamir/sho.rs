@@ -28,7 +28,7 @@ impl<H: DuplexSpongeInterface<u8>> HashStateWithInstructions<H> {
     /// setting up the state of the sponge function and parsing the tag string.
     pub fn new<EF, F>(domain_separator: &DomainSeparator<EF, F, H>) -> Self
     where
-        EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+        EF: ExtensionField<F> + TwoAdicField,
         F: Field + TwoAdicField + PrimeField64,
     {
         let stack = domain_separator.finalize();

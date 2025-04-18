@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, fmt::Write, marker::PhantomData};
 
-use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
 use super::{
     DefaultHash,
@@ -76,7 +76,7 @@ where
 impl<EF, F, H> DomainSeparator<EF, F, H>
 where
     H: DuplexSpongeInterface<u8>,
-    EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+    EF: ExtensionField<F> + TwoAdicField,
     F: Field + TwoAdicField + PrimeField64,
 {
     pub const fn from_string(io: String) -> Self {
@@ -333,13 +333,7 @@ where
         // - `count` is the number of scalar values
         // - `extension_degree` is the number of limbs (e.g., 4 for quartic extensions)
         // - `bytes_modp(bits)` gives the compressed byte length for the prime subfield
-        self.absorb(
-            count
-                * EF::DIMENSION
-                * EF::PrimeSubfield::DIMENSION
-                * bytes_modp(EF::PrimeSubfield::bits() as u32),
-            label,
-        );
+        self.absorb(count * EF::DIMENSION * bytes_modp(F::bits() as u32), label);
     }
 
     pub fn challenge_scalars(&mut self, count: usize, label: &str) {
@@ -352,10 +346,7 @@ where
         // where `bytes_uniform_modp` gives the number of bytes needed to sample uniformly
         // over the base field.
         self.squeeze(
-            count
-                * EF::DIMENSION
-                * EF::PrimeSubfield::DIMENSION
-                * bytes_uniform_modp(EF::PrimeSubfield::bits() as u32),
+            count * EF::DIMENSION * bytes_uniform_modp(F::bits() as u32),
             label,
         );
     }

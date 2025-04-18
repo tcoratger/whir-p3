@@ -34,13 +34,7 @@ where
         Self(
             (0..num_variables)
                 .rev()
-                .map(|i| {
-                    if (point.0 >> i) & 1 == 1 {
-                        F::ONE
-                    } else {
-                        F::ZERO
-                    }
-                })
+                .map(|i| F::from_bool((point.0 >> i) & 1 == 1))
                 .collect(),
         )
     }
@@ -130,7 +124,9 @@ where
         let mut acc = F::ONE;
 
         for (&l, &r) in self.0.iter().zip(&point.0) {
-            acc *= l * r + (F::ONE - l) * (F::ONE - r);
+            // l * r + (1 - l) * (1 - r) = 1 + 2 * l * r - l - r
+            // +/- much cheaper than multiplication.
+            acc *= F::ONE + l * r.double() - l - r;
         }
 
         acc
@@ -148,9 +144,6 @@ where
     /// ```
     /// Uses precomputed values to reduce redundant operations.
     pub fn eq_poly3(&self, mut point: usize) -> F {
-        let two = F::TWO;
-        let two_inv = two.inverse();
-
         let n_variables = self.num_variables();
         assert!(point < 3usize.pow(n_variables as u32));
 
@@ -159,12 +152,12 @@ where
         // Iterate in **little-endian** order and adjust using big-endian convention.
         for &val in self.0.iter().rev() {
             let val_minus_one = val - F::ONE;
-            let val_minus_two = val - two;
+            let val_minus_two = val - F::TWO;
 
             acc *= match point % 3 {
-                0 => val_minus_one * val_minus_two * two_inv, // (val - 1)(val - 2) / 2
-                1 => val * val_minus_two * (-F::ONE),         // val (val - 2)(-1)
-                2 => val * val_minus_one * two_inv,           // val (val - 1) / 2
+                0 => val_minus_one * val_minus_two.halve(), // (val - 1)(val - 2) / 2
+                1 => -val * val_minus_two,                  // val (val - 2)(-1)
+                2 => val * val_minus_one.halve(),           // val (val - 1) / 2
                 _ => unreachable!(),
             };
             point /= 3;

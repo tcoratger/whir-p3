@@ -103,7 +103,7 @@ impl FoldType {
         stir_evaluations: &mut Vec<EF>,
     ) where
         F: Field + TwoAdicField,
-        EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+        EF: ExtensionField<F> + TwoAdicField,
     {
         let ctx = match self {
             Self::Naive => StirEvalContext::Naive {
@@ -140,7 +140,7 @@ impl FoldType {
     ) -> Vec<Vec<EF>>
     where
         F: Field + TwoAdicField,
-        EF: ExtensionField<F> + TwoAdicField<PrimeSubfield = F>,
+        EF: ExtensionField<F> + TwoAdicField,
     {
         match self {
             Self::Naive => {

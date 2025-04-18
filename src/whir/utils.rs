@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
 
 use crate::{
     fiat_shamir::{UnitToBytes, errors::ProofResult, prover::ProverState},
@@ -43,19 +43,18 @@ where
 /// A utility function to sample Out-of-Domain (OOD) points and evaluate them.
 ///
 /// This should be used on the prover side.
-pub fn sample_ood_points<F, E>(
-    prover_state: &mut ProverState<F, F::PrimeSubfield>,
+pub fn sample_ood_points<F, EF, E>(
+    prover_state: &mut ProverState<EF, F>,
     num_samples: usize,
     num_variables: usize,
     evaluate_fn: E,
-) -> ProofResult<(Vec<F>, Vec<F>)>
+) -> ProofResult<(Vec<EF>, Vec<EF>)>
 where
-    F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField,
-    F::PrimeSubfield: PrimeField64,
-    E: Fn(&MultilinearPoint<F>) -> F,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    F: PrimeField64 + TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+    E: Fn(&MultilinearPoint<EF>) -> EF,
 {
-    let mut ood_points = vec![F::ZERO; num_samples];
+    let mut ood_points = vec![EF::ZERO; num_samples];
     let mut ood_answers = Vec::with_capacity(num_samples);
 
     if num_samples > 0 {

@@ -1,4 +1,4 @@
-use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -30,18 +30,20 @@ use crate::{
 ///
 /// The sumcheck protocol ensures that the claimed sum is correct.
 #[derive(Debug, Clone)]
-pub struct SumcheckSingle<F> {
+pub struct SumcheckSingle<F, EF> {
     /// Evaluations of the polynomial `p(X)`.
-    evaluation_of_p: EvaluationsList<F>,
+    evaluation_of_p: EvaluationsList<EF>,
     /// Evaluations of the equality polynomial used for enforcing constraints.
-    weights: EvaluationsList<F>,
+    weights: EvaluationsList<EF>,
     /// Accumulated sum incorporating equality constraints.
-    sum: F,
+    sum: EF,
+    phantom: std::marker::PhantomData<F>,
 }
 
-impl<F> SumcheckSingle<F>
+impl<F, EF> SumcheckSingle<F, EF>
 where
     F: Field,
+    EF: ExtensionField<F>,
 {
     /// Constructs a new `SumcheckSingle` instance from polynomial coefficients.
     ///
@@ -52,15 +54,16 @@ where
     ///
     /// The provided `Statement` encodes constraints that contribute to the final sumcheck equation.
     pub fn new(
-        coeffs: CoefficientList<F>,
-        statement: &Statement<F>,
-        combination_randomness: F,
+        coeffs: CoefficientList<EF>,
+        statement: &Statement<EF>,
+        combination_randomness: EF,
     ) -> Self {
         let (weights, sum) = statement.combine(combination_randomness);
         Self {
             evaluation_of_p: coeffs.into(),
             weights,
             sum,
+            phantom: std::marker::PhantomData,
         }
     }
 
@@ -88,9 +91,9 @@ where
     /// where `w_{z_i}(X)` represents the constraint encoding at point `z_i`.
     pub fn add_new_equality(
         &mut self,
-        points: &[MultilinearPoint<F>],
-        evaluations: &[F],
-        combination_randomness: &[F],
+        points: &[MultilinearPoint<EF>],
+        evaluations: &[EF],
+        combination_randomness: &[EF],
     ) {
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(combination_randomness.len(), evaluations.len());
@@ -117,7 +120,7 @@ where
     /// - `b` represents points in `{0,1,2}^1`.
     /// - `w(b, X)` are the generic weights applied to `p(b, X)`.
     /// - `h(X)` is a quadratic polynomial.
-    pub fn compute_sumcheck_polynomial(&self) -> SumcheckPolynomial<F> {
+    pub fn compute_sumcheck_polynomial(&self) -> SumcheckPolynomial<EF> {
         assert!(self.num_variables() >= 1);
 
         #[cfg(feature = "parallel")]
@@ -135,7 +138,7 @@ where
                 (p_0 * eq_0, p_1 * eq_1)
             })
             .reduce(
-                || (F::ZERO, F::ZERO),
+                || (EF::ZERO, EF::ZERO),
                 |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
             );
 
@@ -153,7 +156,9 @@ where
                 // Now we need to add the contribution of p(x) * eq(x)
                 (p_0 * eq_0, p_1 * eq_1)
             })
-            .fold((F::ZERO, F::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2));
+            .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
+                (a0 + b0, a2 + b2)
+            });
 
         // Compute the middle coefficient using sum rule: sum = 2 * c0 + c1 + c2
         let c1 = self.sum - c0.double() - c2;
@@ -189,22 +194,21 @@ where
     /// - Returns the sampled folding randomness values used in each reduction step.
     pub fn compute_sumcheck_polynomials<S>(
         &mut self,
-        prover_state: &mut ProverState<F, F::PrimeSubfield>,
+        prover_state: &mut ProverState<EF, F>,
         folding_factor: usize,
         pow_bits: f64,
-    ) -> ProofResult<MultilinearPoint<F>>
+    ) -> ProofResult<MultilinearPoint<EF>>
     where
-        F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField,
-        F::PrimeSubfield: PrimeField64,
+        F: PrimeField64 + TwoAdicField,
+        EF: ExtensionField<F> + TwoAdicField,
         S: PowStrategy,
-        <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
     {
         let mut res = Vec::with_capacity(folding_factor);
 
         for _ in 0..folding_factor {
             let sumcheck_poly = self.compute_sumcheck_polynomial();
             prover_state.add_scalars(sumcheck_poly.evaluations())?;
-            let [folding_randomness]: [F; 1] = prover_state.challenge_scalars()?;
+            let [folding_randomness]: [EF; 1] = prover_state.challenge_scalars()?;
             res.push(folding_randomness);
 
             // Do PoW if needed
@@ -212,7 +216,7 @@ where
                 prover_state.challenge_pow::<S>(pow_bits)?;
             }
 
-            self.compress(F::ONE, &folding_randomness.into(), &sumcheck_poly);
+            self.compress(EF::ONE, &folding_randomness.into(), &sumcheck_poly);
         }
 
         res.reverse();
@@ -242,16 +246,16 @@ where
     /// - Updates `sum` using `sumcheck_poly`.
     pub fn compress(
         &mut self,
-        combination_randomness: F, // Scale the initial point
-        folding_randomness: &MultilinearPoint<F>,
-        sumcheck_poly: &SumcheckPolynomial<F>,
+        combination_randomness: EF, // Scale the initial point
+        folding_randomness: &MultilinearPoint<EF>,
+        sumcheck_poly: &SumcheckPolynomial<EF>,
     ) {
         assert_eq!(folding_randomness.num_variables(), 1);
         assert!(self.num_variables() >= 1);
 
         let randomness = folding_randomness.0[0];
 
-        let fold_chunk = |slice: &[F]| -> F { (slice[1] - slice[0]) * randomness + slice[0] };
+        let fold_chunk = |slice: &[EF]| -> EF { (slice[1] - slice[0]) * randomness + slice[0] };
 
         #[cfg(feature = "parallel")]
         let (evaluations_of_p, evaluations_of_eq) = {
