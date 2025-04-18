@@ -156,7 +156,9 @@ where
                 // Now we need to add the contribution of p(x) * eq(x)
                 (p_0 * eq_0, p_1 * eq_1)
             })
-            .fold((F::ZERO, F::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2));
+            .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
+                (a0 + b0, a2 + b2)
+            });
 
         // Compute the middle coefficient using sum rule: sum = 2 * c0 + c1 + c2
         let c1 = self.sum - c0.double() - c2;
