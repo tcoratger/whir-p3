@@ -1,6 +1,7 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_baby_bear::BabyBear;
 use p3_blake3::Blake3;
+use p3_dft::Radix2DitParallel;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_monty_31::dft::RecursiveDft;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher64};
@@ -143,7 +144,7 @@ pub fn make_whir_things(
     // Extract verifier-side version of the statement (only public data)
     let statement_verifier = StatementVerifier::from_statement(&statement);
 
-    let dft_prover = RecursiveDft::<F>::default();
+    let dft_prover = Radix2DitParallel::<F>::default();
 
     // Generate a STARK proof for the given statement and witness
     let proof = prover

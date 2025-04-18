@@ -81,6 +81,6 @@ debug = true
 name = "whir"
 harness = false
 
-# [[bench]]
-# name = "ntt"
-# harness = false
+[[bench]]
+name = "ntt"
+harness = false
