@@ -1,4 +1,5 @@
 use p3_commit::{ExtensionMmcs, Mmcs};
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::{
     dense::{DenseMatrix, RowMajorMatrix},
@@ -12,7 +13,7 @@ use super::{WhirProof, committer::Witness, parameters::WhirConfig, statement::St
 use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
-    ntt::expand_from_coeff,
+    ntt::expand_from_coeff_plonky3,
     poly::{coeffs::CoefficientList, fold::transform_evaluations, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     utils::expand_randomness,
@@ -79,8 +80,9 @@ where
         witness.polynomial.num_variables() == self.0.mv_parameters.num_variables
     }
 
-    pub fn prove<const DIGEST_ELEMS: usize>(
+    pub fn prove<D, const DIGEST_ELEMS: usize>(
         &self,
+        dft: &D,
         prover_state: &mut ProverState<EF, F>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, DIGEST_ELEMS>,
@@ -89,6 +91,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        D: TwoAdicSubgroupDft<EF>,
     {
         // Validate parameters
         assert!(
@@ -165,7 +168,7 @@ where
 
         // Run WHIR rounds
         for _round in 0..=self.0.n_rounds() {
-            self.round(prover_state, &mut round_state)?;
+            self.round(dft, prover_state, &mut round_state)?;
         }
 
         // Extract WhirProof
@@ -191,8 +194,9 @@ where
     }
 
     #[allow(clippy::too_many_lines)]
-    fn round<const DIGEST_ELEMS: usize>(
+    fn round<D, const DIGEST_ELEMS: usize>(
         &self,
+        dft: &D,
         prover_state: &mut ProverState<EF, F>,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
     ) -> ProofResult<()>
@@ -200,6 +204,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        D: TwoAdicSubgroupDft<EF>,
     {
         // Fold the coefficients
         let folded_coefficients = round_state
@@ -224,7 +229,7 @@ where
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
-        let mut evals = expand_from_coeff(folded_coefficients.coeffs(), expansion);
+        let mut evals = expand_from_coeff_plonky3(dft, folded_coefficients.coeffs(), expansion);
         transform_evaluations(
             &mut evals,
             self.0.fold_optimisation,

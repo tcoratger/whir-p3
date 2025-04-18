@@ -1,4 +1,5 @@
 use p3_commit::{ExtensionMmcs, Mmcs};
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -8,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::Witness;
 use crate::{
     fiat_shamir::{errors::ProofResult, prover::ProverState},
-    ntt::expand_from_coeff,
+    ntt::expand_from_coeff_plonky3,
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
     whir::{parameters::WhirConfig, utils::sample_ood_points},
 };
@@ -43,8 +44,9 @@ where
     /// - Constructs a Merkle tree from the evaluations.
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
-    pub fn commit<const DIGEST_ELEMS: usize>(
+    pub fn commit<D, const DIGEST_ELEMS: usize>(
         &self,
+        dft: &D,
         prover_state: &mut ProverState<EF, F>,
         polynomial: CoefficientList<F>,
     ) -> ProofResult<Witness<EF, F, DIGEST_ELEMS>>
@@ -52,6 +54,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        D: TwoAdicSubgroupDft<F>,
     {
         // Retrieve the base domain, ensuring it is set.
         let base_domain = self.0.starting_domain.base_domain.unwrap();
@@ -60,7 +63,7 @@ where
         let expansion = base_domain.size() / polynomial.num_coeffs();
 
         // Expand polynomial coefficients into evaluations over the domain
-        let mut evals = expand_from_coeff(polynomial.coeffs(), expansion);
+        let mut evals = expand_from_coeff_plonky3(dft, polynomial.coeffs(), expansion);
         transform_evaluations(
             &mut evals,
             self.0.fold_optimisation,
@@ -109,6 +112,7 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_dft::Radix2DitParallel;
     use p3_keccak::Keccak256Hash;
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32};
     use rand::Rng;
@@ -176,8 +180,9 @@ mod tests {
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(params.clone());
+        let dft_committer = Radix2DitParallel::<F>::default();
         let witness = committer
-            .commit(&mut prover_state, polynomial.clone())
+            .commit(&dft_committer, &mut prover_state, polynomial.clone())
             .unwrap();
 
         // Ensure OOD (out-of-domain) points are generated.
@@ -253,8 +258,11 @@ mod tests {
 
         let mut prover_state = domainsep.to_prover_state();
 
+        let dft_committer = Radix2DitParallel::<F>::default();
         let committer = CommitmentWriter::new(params);
-        let _ = committer.commit(&mut prover_state, polynomial).unwrap();
+        let _ = committer
+            .commit(&dft_committer, &mut prover_state, polynomial)
+            .unwrap();
     }
 
     #[test]
@@ -300,8 +308,11 @@ mod tests {
         domainsep.commit_statement(&params);
         let mut prover_state = domainsep.to_prover_state();
 
+        let dft_committer = Radix2DitParallel::<F>::default();
         let committer = CommitmentWriter::new(params);
-        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
+        let witness = committer
+            .commit(&dft_committer, &mut prover_state, polynomial)
+            .unwrap();
 
         assert!(
             witness.ood_points.is_empty(),

@@ -52,6 +52,8 @@ p3-commit = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
 p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
 p3-blake3 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
 p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
+p3-dft = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
+p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
 p3-maybe-rayon = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e", optional = true }
 itertools = "0.14"
 thiserror = "2.0"
@@ -75,6 +77,10 @@ rayon = ["dep:rayon"]
 inherits = "release"
 debug = true
 
+# [[bench]]
+# name = "whir"
+# harness = false
+
 [[bench]]
-name = "whir"
+name = "ntt"
 harness = false

@@ -1,7 +1,9 @@
 #![allow(unsafe_code)]
 
 use cooley_tukey::ntt_batch;
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{Field, TwoAdicField};
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use transpose::transpose;
@@ -54,9 +56,57 @@ pub fn expand_from_coeff<F: Field + TwoAdicField>(coeffs: &[F], expansion: usize
     result
 }
 
+/// RS encode at a rate 1/`expansion`
+pub fn expand_from_coeff_plonky3<F, D>(dft: &D, coeffs: &[F], expansion: usize) -> Vec<F>
+where
+    F: Field + TwoAdicField,
+    D: TwoAdicSubgroupDft<F>,
+{
+    let engine = cooley_tukey::NttEngine::<F>::new_from_cache();
+    let n = coeffs.len();
+    let expanded_size = n * expansion;
+    let mut result = Vec::with_capacity(expanded_size);
+    // Note: We can also zero-extend the coefficients and do a larger NTT.
+    // But this is more efficient.
+
+    // Do coset NTT.
+    let root = engine.root(expanded_size);
+    result.extend_from_slice(coeffs);
+    #[cfg(not(feature = "parallel"))]
+    for i in 1..expansion {
+        let root = root.exp_u64(i as u64);
+        let mut offset = F::ONE;
+        result.extend(coeffs.iter().map(|x| {
+            let val = *x * offset;
+            offset *= root;
+            val
+        }));
+    }
+    #[cfg(feature = "parallel")]
+    result.par_extend((1..expansion).into_par_iter().flat_map(|i| {
+        let root_i = root.exp_u64(i as u64);
+        coeffs
+            .par_iter()
+            .enumerate()
+            .map_with(F::ZERO, move |root_j, (j, coeff)| {
+                if root_j.is_zero() {
+                    *root_j = root_i.exp_u64(j as u64);
+                } else {
+                    *root_j *= root_i;
+                }
+                *coeff * *root_j
+            })
+    }));
+
+    dft.dft_batch(RowMajorMatrix::new(result, n).transpose())
+        .to_row_major_matrix()
+        .values
+}
+
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_dft::NaiveDft;
     use p3_field::PrimeCharacteristicRing;
 
     use super::*;
@@ -68,50 +118,80 @@ mod tests {
         let coeffs = vec![c0, c1];
         let expansion = 2;
 
-        let omega = BabyBear::two_adic_generator(expansion); // 2nd root of unity for expansion 2
+        let omega = BabyBear::two_adic_generator(expansion); // ω = primitive 2nd root of unity
 
-        // Expansion of the coefficient vector
+        // Let the polynomial be:
         //
-        // The expansion factor is 2, so we extend the original coefficients as follows:
+        // ```text
+        //     f(x) = c_0 + c_1 · x = 1 + 2x
+        // ```
         //
-        //   f0 = c0
-        //   f1 = c1
-        //   f2 = c0 * ω⁰ = c0
-        //   f3 = c1 * ω¹ = c1 * ω
+        // === Expansion Step ===
         //
-        // Using c0 = 1, c1 = 2, and ω as the generator:
+        // We expand the coefficient vector [c_0, c_1] by evaluating over coset shifts.
+        //
+        // Let ω be the 2nd root of unity. We generate new terms using powers of ω:
+        //
+        // ```text
+        //   f_0 = c_0
+        //   f_1 = c_1
+        //
+        //   f_2 = c_0 · ω^0 = c_0
+        //   f_3 = c_1 · ω^1 = c_1 · ω
+        // ```
+        //
+        // So the full expanded vector is:
+        //
+        // ```text
+        //   [ f_0, f_1, f_2, f_3 ]
+        // = [ c_0, c_1, c_0, c_1 · ω ]
+        // ```
 
         let f0 = c0;
         let f1 = c1;
         let f2 = c0 * omega.exp_u64(0);
         let f3 = c1 * omega.exp_u64(1);
 
-        // Compute the expected NTT
+        // === NTT Step ===
         //
-        // The NTT for a size-2 batch follows:
+        // Now we perform a size-2 NTT on each of the two rows:
         //
-        //   F(0) = f0 + f1
-        //   F(1) = f0 - f1
+        // Let the NTT matrix be:
         //
-        // We apply this to both pairs (f0, f1) and (f2, f3):
+        // ```text
+        //   NTT_2 =
+        //   [ 1  1 ]
+        //   [ 1 -1 ]
+        // ```
         //
-        //   F(0) = f0 + f1
-        //   F(1) = f0 - f1
+        // First chunk: [f_0, f_1]
         //
-        //   F(2) = f2 + f3
-        //   F(3) = f2 - f3
+        // ```text
+        //   F_0 = f_0 + f_1 = c_0 + c_1
+        //   F_1 = f_0 - f_1 = c_0 - c_1
+        // ```
         //
-        // Now using the omega-based approach:
+        // Second chunk: [f_2, f_3]
+        //
+        // ```text
+        //   F_2 = f_2 + f_3 = c_0 + c_1 · ω
+        //   F_3 = f_2 - f_3 = c_0 - c_1 · ω
+        // ```
+        //
+        // After transposing the matrix (interleaving chunks), the expected output is:
+        //
+        // ```text
+        //   [ F_0, F_2, F_1, F_3 ]
+        // ```
 
         let expected_f0 = f0 + f1;
         let expected_f1 = f0 - f1;
         let expected_f2 = f2 + f3;
         let expected_f3 = f2 - f3;
 
-        // The expected NTT result should be in transposed order:
         let expected_values_transposed = vec![expected_f0, expected_f2, expected_f1, expected_f3];
 
-        let computed_values = expand_from_coeff(&coeffs, expansion);
+        let computed_values = expand_from_coeff_plonky3(&NaiveDft, &coeffs, expansion);
         assert_eq!(computed_values, expected_values_transposed);
     }
 
@@ -224,7 +304,7 @@ mod tests {
             expected_f15,
         ];
 
-        let computed_values = expand_from_coeff(&coeffs, expansion);
+        let computed_values = expand_from_coeff_plonky3(&NaiveDft, &coeffs, expansion);
         assert_eq!(computed_values, expected_values_transposed);
     }
 }

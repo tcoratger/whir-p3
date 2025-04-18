@@ -1,5 +1,6 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_blake3::Blake3;
+use p3_dft::Radix2DitParallel;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher64};
@@ -130,7 +131,11 @@ pub fn make_whir_things(
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(params.clone());
 
-    let witness = committer.commit(&mut prover_state, polynomial).unwrap();
+    let dft_committer = Radix2DitParallel::<F>::default();
+
+    let witness = committer
+        .commit(&dft_committer, &mut prover_state, polynomial)
+        .unwrap();
 
     // Generate a proof using the prover
     let prover = Prover(params.clone());
@@ -138,8 +143,12 @@ pub fn make_whir_things(
     // Extract verifier-side version of the statement (only public data)
     let statement_verifier = StatementVerifier::from_statement(&statement);
 
+    let dft_prover = Radix2DitParallel::<EF>::default();
+
     // Generate a STARK proof for the given statement and witness
-    let proof = prover.prove(&mut prover_state, statement, witness).unwrap();
+    let proof = prover
+        .prove(&dft_prover, &mut prover_state, statement, witness)
+        .unwrap();
 
     // Create a commitment reader
     let commitment_reader = CommitmentReader::new(&params);
