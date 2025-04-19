@@ -122,7 +122,7 @@ where
             let coeffs = buf.chunks(base_bytes).map(from_le_bytes_mod_order);
 
             // Reconstruct the field element from its base field coefficients
-            *out = EF::from_basis_coefficients_iter(coeffs);
+            *out = EF::from_basis_coefficients_iter(coeffs).unwrap();
         }
 
         Ok(())
@@ -182,7 +182,7 @@ where
             let base_coeffs = buf.chunks(base_field_size).map(from_be_bytes_mod_order);
 
             // Reconstruct the full field element using canonical basis
-            *o = EF::from_basis_coefficients_iter(base_coeffs);
+            *o = EF::from_basis_coefficients_iter(base_coeffs).unwrap();
         }
 
         Ok(())
@@ -402,7 +402,8 @@ mod tests {
                 F::from_u64(18093877879687808447),
             ]
             .into_iter(),
-        );
+        )
+        .unwrap();
 
         let ef1 = EF4::from_basis_coefficients_iter(
             [
@@ -412,7 +413,8 @@ mod tests {
                 F::from_u64(9614754510566682848),
             ]
             .into_iter(),
-        );
+        )
+        .unwrap();
 
         // Step 2: Store the known expected values into a slice
         let values = [ef0, ef1];
@@ -516,7 +518,8 @@ mod tests {
                 BabyBear::new(1079604003),
             ]
             .into_iter(),
-        );
+        )
+        .unwrap();
 
         assert_eq!(out, [expected]);
     }
@@ -538,7 +541,8 @@ mod tests {
                 BabyBear::new(421782538),
             ]
             .into_iter(),
-        );
+        )
+        .unwrap();
 
         let ef1 = EF4::from_basis_coefficients_iter(
             [
@@ -548,7 +552,8 @@ mod tests {
                 BabyBear::new(878608238),
             ]
             .into_iter(),
-        );
+        )
+        .unwrap();
 
         let ef2 = EF4::from_basis_coefficients_iter(
             [
@@ -558,7 +563,8 @@ mod tests {
                 BabyBear::new(1112934023),
             ]
             .into_iter(),
-        );
+        )
+        .unwrap();
 
         let ef3 = EF4::from_basis_coefficients_iter(
             [
@@ -568,7 +574,8 @@ mod tests {
                 BabyBear::new(1127778746),
             ]
             .into_iter(),
-        );
+        )
+        .unwrap();
 
         let ef4 = EF4::from_basis_coefficients_iter(
             [
@@ -578,7 +585,8 @@ mod tests {
                 BabyBear::new(1199951082),
             ]
             .into_iter(),
-        );
+        )
+        .unwrap();
 
         // Result obtained via a script to double check the result
         assert_eq!(out, [ef0, ef1, ef2, ef3, ef4]);

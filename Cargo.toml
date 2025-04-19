@@ -42,17 +42,19 @@ cast_sign_loss = "allow"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 rayon = { version = "1.0", optional = true }
-p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
-p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
-p3-monty-31 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
-p3-merkle-tree = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
-p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
-p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
-p3-commit = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
-p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
-p3-blake3 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
-p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e" }
-p3-maybe-rayon = { git = "https://github.com/Plonky3/Plonky3.git", rev = "926a69e", optional = true }
+p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-monty-31 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-merkle-tree = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-commit = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-blake3 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-dft = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1" }
+p3-maybe-rayon = { git = "https://github.com/Plonky3/Plonky3.git", rev = "83e0fa1", optional = true }
 itertools = "0.14"
 thiserror = "2.0"
 rand = "0.9"
@@ -75,6 +77,10 @@ rayon = ["dep:rayon"]
 inherits = "release"
 debug = true
 
+# [[bench]]
+# name = "whir"
+# harness = false
+
 [[bench]]
-name = "whir"
+name = "ntt"
 harness = false

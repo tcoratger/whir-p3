@@ -5,7 +5,7 @@ use whir_p3::{
 };
 
 fn benchmark_whir(c: &mut Criterion) {
-    let num_variables = 12;
+    let num_variables = 18;
     let folding_factor = FoldingFactor::Constant(4);
     let num_points = 2;
     let soundness_type = SoundnessType::UniqueDecoding;
