@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::Witness;
 use crate::{
     fiat_shamir::{errors::ProofResult, prover::ProverState},
-    ntt::expand_from_coeff_plonky3,
+    ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
     whir::{parameters::WhirConfig, utils::sample_ood_points},
 };
@@ -63,7 +63,7 @@ where
         let expansion = base_domain.size() / polynomial.num_coeffs();
 
         // Expand polynomial coefficients into evaluations over the domain
-        let mut evals = expand_from_coeff_plonky3(dft, polynomial.coeffs(), expansion);
+        let mut evals = expand_from_coeff(dft, polynomial.coeffs(), expansion);
         transform_evaluations(
             &mut evals,
             self.0.fold_optimisation,

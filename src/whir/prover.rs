@@ -13,7 +13,7 @@ use super::{WhirProof, committer::Witness, parameters::WhirConfig, statement::St
 use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
-    ntt::expand_from_coeff_plonky3,
+    ntt::expand_from_coeff,
     poly::{coeffs::CoefficientList, fold::transform_evaluations, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     utils::expand_randomness,
@@ -229,7 +229,7 @@ where
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
-        let mut evals = expand_from_coeff_plonky3(dft, folded_coefficients.coeffs(), expansion);
+        let mut evals = expand_from_coeff(dft, folded_coefficients.coeffs(), expansion);
         transform_evaluations(
             &mut evals,
             self.0.fold_optimisation,

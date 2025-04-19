@@ -3,7 +3,7 @@ use p3_baby_bear::BabyBear;
 use p3_dft::Radix2DitParallel;
 use p3_field::extension::BinomialExtensionField;
 use rand::{Rng, rng};
-use whir_p3::ntt::expand_from_coeff_plonky3;
+use whir_p3::ntt::expand_from_coeff;
 
 type F = BabyBear;
 type EF4 = BinomialExtensionField<F, 4>;
@@ -29,7 +29,7 @@ fn bench_expand_from_coeff(c: &mut Criterion) {
                 &expansion,
                 |b, &e| {
                     b.iter(|| {
-                        let _ = expand_from_coeff_plonky3(&dft, &coeffs, e);
+                        let _ = expand_from_coeff(&dft, &coeffs, e);
                     });
                 },
             );

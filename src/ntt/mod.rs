@@ -2,62 +2,18 @@
 
 use std::{mem, mem::MaybeUninit};
 
-use cooley_tukey::ntt_batch;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_util::log2_strict_usize;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use transpose::transpose;
 
 pub mod cooley_tukey;
 pub mod matrix;
 pub mod transpose;
 pub mod utils;
 pub mod wavelet;
-
-/// RS encode at a rate 1/`expansion`.
-pub fn expand_from_coeff<F: Field + TwoAdicField>(coeffs: &[F], expansion: usize) -> Vec<F> {
-    let engine = cooley_tukey::NttEngine::<F>::new_from_cache();
-    let expanded_size = coeffs.len() * expansion;
-    let mut result = Vec::with_capacity(expanded_size);
-    // Note: We can also zero-extend the coefficients and do a larger NTT.
-    // But this is more efficient.
-
-    // Do coset NTT.
-    let root = engine.root(expanded_size);
-    result.extend_from_slice(coeffs);
-    #[cfg(not(feature = "parallel"))]
-    for i in 1..expansion {
-        let root = root.exp_u64(i as u64);
-        let mut offset = F::ONE;
-        result.extend(coeffs.iter().map(|x| {
-            let val = *x * offset;
-            offset *= root;
-            val
-        }));
-    }
-    #[cfg(feature = "parallel")]
-    result.par_extend((1..expansion).into_par_iter().flat_map(|i| {
-        let root_i = root.exp_u64(i as u64);
-        coeffs
-            .par_iter()
-            .enumerate()
-            .map_with(F::ZERO, move |root_j, (j, coeff)| {
-                if root_j.is_zero() {
-                    *root_j = root_i.exp_u64(j as u64);
-                } else {
-                    *root_j *= root_i;
-                }
-                *coeff * *root_j
-            })
-    }));
-
-    ntt_batch(&mut result, coeffs.len());
-    transpose(&mut result, expansion, coeffs.len());
-    result
-}
 
 /// Performs Reed-Solomon encoding by evaluating a polynomial on multiple cosets.
 ///
@@ -91,7 +47,7 @@ pub fn expand_from_coeff<F: Field + TwoAdicField>(coeffs: &[F], expansion: usize
 /// A `Vec<EF>` containing the polynomial evaluations on the expanded domain.
 /// The total number of evaluations is `coeffs.len() * expansion`.
 #[inline]
-pub fn expand_from_coeff_plonky3<F, EF, D>(dft: &D, coeffs: &[EF], expansion: usize) -> Vec<EF>
+pub fn expand_from_coeff<F, EF, D>(dft: &D, coeffs: &[EF], expansion: usize) -> Vec<EF>
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField + Send + Sync,
@@ -282,7 +238,7 @@ mod tests {
 
         let expected_values_transposed = vec![expected_f0, expected_f2, expected_f1, expected_f3];
 
-        let computed_values = expand_from_coeff_plonky3(&NaiveDft, &coeffs, expansion);
+        let computed_values = expand_from_coeff(&NaiveDft, &coeffs, expansion);
         assert_eq!(computed_values, expected_values_transposed);
     }
 
@@ -395,7 +351,7 @@ mod tests {
             expected_f15,
         ];
 
-        let computed_values = expand_from_coeff_plonky3(&NaiveDft, &coeffs, expansion);
+        let computed_values = expand_from_coeff(&NaiveDft, &coeffs, expansion);
         assert_eq!(computed_values, expected_values_transposed);
     }
 }
