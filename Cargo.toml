@@ -77,9 +77,9 @@ rayon = ["dep:rayon"]
 inherits = "release"
 debug = true
 
-[[bench]]
-name = "whir"
-harness = false
+# [[bench]]
+# name = "whir"
+# harness = false
 
 [[bench]]
 name = "ntt"
