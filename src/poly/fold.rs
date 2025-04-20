@@ -1,11 +1,10 @@
-use p3_field::{Field, TwoAdicField};
+use p3_dft::TwoAdicSubgroupDft;
+use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::{
-    ntt::{cooley_tukey::intt_batch, transpose::transpose},
-    parameters::FoldType,
-};
+use crate::{ntt::transpose::transpose, parameters::FoldType};
 
 /// Computes the folded value of a function evaluated on a coset.
 ///
@@ -97,13 +96,18 @@ pub fn compute_fold<F: Field>(
 ///
 /// # Panics
 /// Panics if the input size is not divisible by `2^folding_factor`.
-pub fn transform_evaluations<F: Field + TwoAdicField>(
-    evals: &mut [F],
+pub fn transform_evaluations<F, EF, D>(
+    evals: &mut [EF],
+    dft: &D,
     fold_type: FoldType,
-    _domain_gen: F,
-    domain_gen_inv: F,
+    _domain_gen: EF,
+    domain_gen_inv: EF,
     folding_factor: usize,
-) {
+) where
+    F: Field + TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+    D: TwoAdicSubgroupDft<F>,
+{
     // Compute the number of sub-cosets = 2^folding_factor
     let folding_factor_exp = 1 << folding_factor;
 
@@ -119,44 +123,38 @@ pub fn transform_evaluations<F: Field + TwoAdicField>(
             // size_of_new_domain]
             transpose(evals, folding_factor_exp, size_of_new_domain);
         }
-        FoldType::ProverHelps => {
-            // Step 1: Reshape via transposition
-            transpose(evals, folding_factor_exp, size_of_new_domain);
 
-            // Step 2: Apply inverse NTTs
-            intt_batch(evals, folding_factor_exp);
+        FoldType::ProverHelps => {
+            // Compute the inverse DFT of the input
+            let mut mat = dft
+                .idft_algebra_batch(RowMajorMatrix::new(evals.to_vec(), size_of_new_domain))
+                .to_row_major_matrix()
+                .transpose();
+
+            // We need to scale the values
+            let scale1 = EF::from_usize(folding_factor_exp);
 
             // Step 3: Apply scaling to match the desired domain layout
             // Each value is scaled by: size_inv * offset^j
-            let size_inv = F::from_u64(folding_factor_exp as u64).inverse();
-            #[cfg(not(feature = "parallel"))]
-            {
-                let mut coset_offset_inv = F::ONE;
-                for answers in evals.chunks_exact_mut(folding_factor_exp) {
-                    let mut scale = size_inv;
-                    for v in answers.iter_mut() {
-                        *v *= scale;
-                        scale *= coset_offset_inv;
-                    }
-                    coset_offset_inv *= domain_gen_inv;
-                }
-            }
-            #[cfg(feature = "parallel")]
-            evals
-                .par_chunks_exact_mut(folding_factor_exp)
+            let size_inv = EF::from_u64(folding_factor_exp as u64).inverse();
+
+            mat.par_rows_mut()
                 .enumerate()
-                .for_each_with(F::ZERO, |offset, (i, answers)| {
-                    if *offset == F::ZERO {
+                .for_each_with(EF::ZERO, |offset, (i, answers)| {
+                    if *offset == EF::ZERO {
                         *offset = domain_gen_inv.exp_u64(i as u64);
                     } else {
                         *offset *= domain_gen_inv;
                     }
                     let mut scale = size_inv;
                     for v in answers.iter_mut() {
-                        *v *= scale;
+                        *v *= scale * scale1;
+                        // *v *= scale;
                         scale *= *offset;
                     }
                 });
+
+            evals.copy_from_slice(&mat.values);
         }
     }
 }
@@ -164,6 +162,7 @@ pub fn transform_evaluations<F: Field + TwoAdicField>(
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_dft::NaiveDft;
     use p3_field::PrimeCharacteristicRing;
 
     use super::*;
@@ -289,11 +288,14 @@ mod tests {
         // Step 3: Restructure evaluations using the `ProverHelps` folding strategy
         transform_evaluations(
             &mut domain_evaluations,
+            &NaiveDft,
             crate::parameters::FoldType::ProverHelps,
             root_of_unity,
             root_of_unity_inv,
             folding_factor,
         );
+
+        // println!("domain_evaluations: {:?}", domain_evaluations);
 
         // Step 4: Compute expected folded values and compare against processed results
         let num = domain_size / folding_factor_exp; // Number of cosets (256 / 8 = 32)
@@ -503,6 +505,7 @@ mod tests {
         // Naive transpose — only reshuffling the data
         transform_evaluations(
             &mut evals,
+            &NaiveDft,
             FoldType::Naive,
             BabyBear::ONE,
             BabyBear::ONE,
@@ -571,8 +574,9 @@ mod tests {
         ];
 
         // Run transform
-        transform_evaluations(
+        transform_evaluations::<BabyBear, BabyBear, _>(
             &mut evals,
+            &NaiveDft,
             FoldType::ProverHelps,
             domain_gen,
             domain_gen_inv,
@@ -587,6 +591,13 @@ mod tests {
     #[should_panic]
     fn test_transform_evaluations_invalid_length() {
         let mut evals = vec![BabyBear::from_u64(1); 6]; // Not a power of 2
-        transform_evaluations(&mut evals, FoldType::Naive, BabyBear::ONE, BabyBear::ONE, 2);
+        transform_evaluations(
+            &mut evals,
+            &NaiveDft,
+            FoldType::Naive,
+            BabyBear::ONE,
+            BabyBear::ONE,
+            2,
+        );
     }
 }

@@ -92,6 +92,7 @@ where
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
+        EF: Ord,
     {
         // Validate parameters
         assert!(
@@ -205,6 +206,7 @@ where
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
+        EF: Ord,
     {
         // Fold the coefficients
         let folded_coefficients = round_state
@@ -230,8 +232,9 @@ where
         let new_domain = round_state.domain.scale(2);
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
         let mut evals = expand_from_coeff(dft, folded_coefficients.coeffs(), expansion);
-        transform_evaluations(
+        transform_evaluations::<F, EF, D>(
             &mut evals,
+            dft,
             self.0.fold_optimisation,
             new_domain.backing_domain.group_gen(),
             new_domain.backing_domain.group_gen_inv(),

@@ -64,8 +64,9 @@ where
 
         // Expand polynomial coefficients into evaluations over the domain
         let mut evals = expand_from_coeff(dft, polynomial.coeffs(), expansion);
-        transform_evaluations(
+        transform_evaluations::<F, F, D>(
             &mut evals,
+            dft,
             self.0.fold_optimisation,
             base_domain.group_gen(),
             base_domain.group_gen_inv(),
