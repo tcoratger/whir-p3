@@ -92,7 +92,6 @@ where
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
-        EF: Ord,
     {
         // Validate parameters
         assert!(
@@ -206,7 +205,6 @@ where
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
-        EF: Ord,
     {
         // Fold the coefficients
         let folded_coefficients = round_state
