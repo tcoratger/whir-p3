@@ -11,7 +11,7 @@ use crate::{
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     ntt::expand_from_coeff,
     parameters::FoldType,
-    poly::{coeffs::CoefficientList, fold::transform_evaluations},
+    poly::coeffs::CoefficientList,
     whir::{parameters::WhirConfig, utils::sample_ood_points},
 };
 
@@ -66,15 +66,17 @@ where
         // Expand polynomial coefficients into evaluations over the domain
         let evals = match self.0.fold_optimisation {
             FoldType::Naive => {
-                let mut evals = expand_from_coeff(dft, polynomial.coeffs(), expansion);
-                transform_evaluations(
-                    &mut evals,
-                    self.0.fold_optimisation,
-                    base_domain.group_gen(),
-                    base_domain.group_gen_inv(),
-                    self.0.folding_factor.at_round(0),
-                );
-                evals
+                let evals = expand_from_coeff(dft, polynomial.coeffs(), expansion);
+
+                // Compute the number of sub-cosets = 2^folding_factor
+                let folding_factor_exp = 1 << self.0.folding_factor.at_round(0);
+
+                // Number of rows (one per subdomain)
+                let size_of_new_domain = evals.len() / folding_factor_exp;
+
+                RowMajorMatrix::new(evals, size_of_new_domain)
+                    .transpose()
+                    .values
             }
             FoldType::ProverHelps => {
                 let mut coeffs = F::zero_vec(polynomial.coeffs().len() * expansion);

@@ -16,7 +16,7 @@ use crate::{
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
     ntt::expand_from_coeff,
     parameters::FoldType,
-    poly::{coeffs::CoefficientList, fold::transform_evaluations, multilinear::MultilinearPoint},
+    poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     utils::expand_randomness,
     whir::{
@@ -233,15 +233,17 @@ where
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
         let evals = match self.0.fold_optimisation {
             FoldType::Naive => {
-                let mut evals = expand_from_coeff(dft, folded_coefficients.coeffs(), expansion);
-                transform_evaluations(
-                    &mut evals,
-                    self.0.fold_optimisation,
-                    new_domain.backing_domain.group_gen(),
-                    new_domain.backing_domain.group_gen_inv(),
-                    folding_factor_next,
-                );
-                evals
+                let evals = expand_from_coeff(dft, folded_coefficients.coeffs(), expansion);
+
+                // Compute the number of sub-cosets = 2^folding_factor
+                let folding_factor_exp = 1 << self.0.folding_factor.at_round(0);
+
+                // Number of rows (one per subdomain)
+                let size_of_new_domain = evals.len() / folding_factor_exp;
+
+                RowMajorMatrix::new(evals, size_of_new_domain)
+                    .transpose()
+                    .values
             }
             FoldType::ProverHelps => {
                 let mut coeffs = EF::zero_vec(folded_coefficients.coeffs().len() * expansion);
