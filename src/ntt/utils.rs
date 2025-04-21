@@ -24,62 +24,8 @@ pub const fn gcd(mut a: usize, mut b: usize) -> usize {
     a
 }
 
-/// Compute the largest factor of `n` that is ≤ sqrt(n).
-/// Assumes `n` is of the form `2^k * {1,3,9}`.
-pub fn sqrt_factor(n: usize) -> usize {
-    // Count the number of trailing zeros in `n`, i.e., the power of 2 in `n`
-    let twos = n.trailing_zeros();
-
-    // Divide `n` by the highest power of 2 to extract the base component
-    let base = n >> twos;
-
-    // Determine the largest factor ≤ sqrt(n) based on the extracted `base`
-    match base {
-        // Case: `n` is purely a power of 2 (base = 1)
-        // The largest factor ≤ sqrt(n) is 2^(twos/2)
-        1 => 1 << (twos / 2),
-
-        // Case: `n = 2^k * 3`
-        3 => {
-            if twos == 0 {
-                // sqrt(3) ≈ 1.73, so the largest integer factor ≤ sqrt(3) is 1
-                1
-            } else {
-                // - If `twos` is even: The largest factor is `3 * 2^((twos - 1) / 2)`
-                // - If `twos` is odd: The largest factor is `2^((twos / 2))`
-                if twos % 2 == 0 {
-                    3 << ((twos - 1) / 2)
-                } else {
-                    2 << (twos / 2)
-                }
-            }
-        }
-
-        // Case: `n = 2^k * 9`
-        9 => {
-            if twos == 1 {
-                // sqrt(9 * 2^1) = sqrt(18) ≈ 4.24, largest factor ≤ sqrt(18) is 3
-                3
-            } else {
-                // - If `twos` is even: The largest factor is `3 * 2^(twos / 2)`
-                // - If `twos` is odd: The largest factor is `4 * 2^(twos / 2)`
-                if twos % 2 == 0 {
-                    3 << (twos / 2)
-                } else {
-                    4 << (twos / 2)
-                }
-            }
-        }
-
-        // If `base` is not in {1,3,9}, `n` is not in the expected form
-        _ => panic!("n is not in the form 2^k * {{1,3,9}}"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
-
     use super::*;
 
     /// Computes the largest factor of `x` that is ≤ sqrt(x).
@@ -122,40 +68,5 @@ mod tests {
         assert_eq!(lcm(5, 6), 30);
         assert_eq!(lcm(3, 7), 21);
         assert_eq!(lcm(0, 10), 0);
-    }
-
-    #[test]
-    fn test_sqrt_factor() {
-        // Cases where n = 2^k * 1
-        assert_eq!(sqrt_factor(1), 1); // 1 = 2^0 * 1
-        assert_eq!(sqrt_factor(4), 2); // 4 = 2^2 * 1
-        assert_eq!(sqrt_factor(16), 4); // 16 = 2^4 * 1
-        assert_eq!(sqrt_factor(32), 4); // 32 = 2^5 * 1
-        assert_eq!(sqrt_factor(64), 8); // 64 = 2^6 * 1
-        assert_eq!(sqrt_factor(256), 16); // 256 = 2^8 * 1
-
-        // Cases where n = 2^k * 3
-        assert_eq!(sqrt_factor(3), 1); // 3 = 2^0 * 3
-        assert_eq!(sqrt_factor(12), 3); // 12 = 2^2 * 3
-        assert_eq!(sqrt_factor(48), 6); // 48 = 2^4 * 3
-        assert_eq!(sqrt_factor(192), 12); // 192 = 2^6 * 3
-        assert_eq!(sqrt_factor(768), 24); // 768 = 2^8 * 3
-
-        // Cases where n = 2^k * 9
-        assert_eq!(sqrt_factor(9), 3); // 9 = 2^0 * 9
-        assert_eq!(sqrt_factor(36), 6); // 36 = 2^2 * 9
-        assert_eq!(sqrt_factor(144), 12); // 144 = 2^4 * 9
-        assert_eq!(sqrt_factor(576), 24); // 576 = 2^6 * 9
-        assert_eq!(sqrt_factor(2304), 48); // 2304 = 2^8 * 9
-    }
-
-    proptest! {
-        #[test]
-        fn proptest_sqrt_factor(k in 0usize..30, base in prop_oneof![Just(1), Just(3), Just(9)])
-        {
-            let n = (1 << k) * base;
-            let expected = get_largest_divisor_up_to_sqrt(n);
-            prop_assert_eq!(sqrt_factor(n), expected);
-        }
     }
 }
