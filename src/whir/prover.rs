@@ -174,15 +174,17 @@ where
         }
 
         // Extract WhirProof
-        let mut randomness_vec_rev = round_state.randomness_vec;
-        randomness_vec_rev.reverse();
+        round_state.randomness_vec.reverse();
         let statement_values_at_random_point = round_state
             .statement
             .constraints
             .iter()
             .filter_map(|(weights, _)| {
                 if let Weights::Linear { weight } = weights {
-                    Some(weight.eval_extension(&MultilinearPoint(randomness_vec_rev.clone())))
+                    Some(
+                        weight
+                            .eval_extension(&MultilinearPoint(round_state.randomness_vec.clone())),
+                    )
                 } else {
                     None
                 }
@@ -246,9 +248,8 @@ where
                     .values
             }
             FoldType::ProverHelps => {
-                let mut coeffs = EF::zero_vec(folded_coefficients.coeffs().len() * expansion);
-                coeffs[..folded_coefficients.coeffs().len()]
-                    .copy_from_slice(folded_coefficients.coeffs());
+                let mut coeffs = folded_coefficients.coeffs().to_vec();
+                coeffs.resize(coeffs.len() * expansion, EF::ZERO);
                 // Do DFT on only interleaved polys to be folded.
                 dft.dft_algebra_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor_next))
                     // Get natural order of rows.

@@ -79,14 +79,16 @@ where
                     .values
             }
             FoldType::ProverHelps => {
-                let mut coeffs = F::zero_vec(polynomial.coeffs().len() * expansion);
-                coeffs[..polynomial.coeffs().len()].copy_from_slice(polynomial.coeffs());
-                let folding_factor = self.0.folding_factor.at_round(0);
+                let mut coeffs = polynomial.coeffs().to_vec();
+                coeffs.resize(coeffs.len() * expansion, F::ZERO);
                 // Do DFT on only interleaved polys to be folded.
-                dft.dft_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor))
-                    // Get natural order of rows.
-                    .to_row_major_matrix()
-                    .values
+                dft.dft_batch(RowMajorMatrix::new(
+                    coeffs,
+                    1 << self.0.folding_factor.at_round(0),
+                ))
+                // Get natural order of rows.
+                .to_row_major_matrix()
+                .values
             }
         };
 
