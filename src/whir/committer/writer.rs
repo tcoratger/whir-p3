@@ -132,7 +132,7 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_dft::Radix2DitParallel;
     use p3_keccak::Keccak256Hash;
-    use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32};
+    use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
     use rand::Rng;
 
     use super::*;
@@ -146,7 +146,7 @@ mod tests {
 
     type F = BabyBear;
     type ByteHash = Keccak256Hash;
-    type FieldHash = SerializingHasher32<ByteHash>;
+    type FieldHash = SerializingHasher<ByteHash>;
     type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 
     #[test]
