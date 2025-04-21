@@ -4,7 +4,7 @@ use p3_blake3::Blake3;
 use p3_dft::Radix2DitParallel;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_monty_31::dft::RecursiveDft;
-use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher64};
+use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use parameters::WhirConfig;
 use prover::{Leafs, Prover};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -43,7 +43,7 @@ pub struct WhirProof<F, const DIGEST_ELEMS: usize> {
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
 type ByteHash = Blake3;
-type FieldHash = SerializingHasher64<ByteHash>;
+type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 
 /// Run a complete WHIR STARK proof lifecycle.
