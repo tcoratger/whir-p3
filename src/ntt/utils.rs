@@ -9,13 +9,6 @@ pub const fn workload_size<T: Sized>() -> usize {
     L1_CACHE_SIZE / size_of::<T>()
 }
 
-/// Least common multiple.
-///
-/// Note that lcm(0,0) will panic (rather than give the correct answer 0).
-pub const fn lcm(a: usize, b: usize) -> usize {
-    a * (b / gcd(a, b))
-}
-
 /// Greatest common divisor.
 pub const fn gcd(mut a: usize, mut b: usize) -> usize {
     while b != 0 {
@@ -61,12 +54,5 @@ mod tests {
         assert_eq!(gcd(64, 16), 16);
         assert_eq!(gcd(81, 9), 9);
         assert_eq!(gcd(0, 0), 0);
-    }
-
-    #[test]
-    fn test_lcm() {
-        assert_eq!(lcm(5, 6), 30);
-        assert_eq!(lcm(3, 7), 21);
-        assert_eq!(lcm(0, 10), 0);
     }
 }
