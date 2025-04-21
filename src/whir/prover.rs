@@ -2,6 +2,7 @@ use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::{
+    Matrix,
     dense::{DenseMatrix, RowMajorMatrix},
     extension::FlatMatrixView,
 };
@@ -14,6 +15,7 @@ use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
     ntt::expand_from_coeff,
+    parameters::FoldType,
     poly::{coeffs::CoefficientList, fold::transform_evaluations, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     utils::expand_randomness,
@@ -229,14 +231,29 @@ where
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
-        let mut evals = expand_from_coeff(dft, folded_coefficients.coeffs(), expansion);
-        transform_evaluations(
-            &mut evals,
-            self.0.fold_optimisation,
-            new_domain.backing_domain.group_gen(),
-            new_domain.backing_domain.group_gen_inv(),
-            folding_factor_next,
-        );
+        let evals = match self.0.fold_optimisation {
+            FoldType::Naive => {
+                let mut evals = expand_from_coeff(dft, folded_coefficients.coeffs(), expansion);
+                transform_evaluations(
+                    &mut evals,
+                    self.0.fold_optimisation,
+                    new_domain.backing_domain.group_gen(),
+                    new_domain.backing_domain.group_gen_inv(),
+                    folding_factor_next,
+                );
+                evals
+            }
+            FoldType::ProverHelps => {
+                let mut coeffs = EF::zero_vec(folded_coefficients.coeffs().len() * expansion);
+                coeffs[..folded_coefficients.coeffs().len()]
+                    .copy_from_slice(folded_coefficients.coeffs());
+                // Do DFT on only interleaved polys to be folded.
+                dft.dft_algebra_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor_next))
+                    // Get natural order of rows.
+                    .to_row_major_matrix()
+                    .values
+            }
+        };
 
         // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
         let folded_matrix = RowMajorMatrix::new(evals, 1 << folding_factor_next);

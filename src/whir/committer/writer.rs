@@ -1,7 +1,7 @@
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
-use p3_matrix::dense::RowMajorMatrix;
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,7 @@ use super::Witness;
 use crate::{
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     ntt::expand_from_coeff,
+    parameters::FoldType,
     poly::{coeffs::CoefficientList, fold::transform_evaluations},
     whir::{parameters::WhirConfig, utils::sample_ood_points},
 };
@@ -63,14 +64,29 @@ where
         let expansion = base_domain.size() / polynomial.num_coeffs();
 
         // Expand polynomial coefficients into evaluations over the domain
-        let mut evals = expand_from_coeff(dft, polynomial.coeffs(), expansion);
-        transform_evaluations(
-            &mut evals,
-            self.0.fold_optimisation,
-            base_domain.group_gen(),
-            base_domain.group_gen_inv(),
-            self.0.folding_factor.at_round(0),
-        );
+        let evals = match self.0.fold_optimisation {
+            FoldType::Naive => {
+                let mut evals = expand_from_coeff(dft, polynomial.coeffs(), expansion);
+                transform_evaluations(
+                    &mut evals,
+                    self.0.fold_optimisation,
+                    base_domain.group_gen(),
+                    base_domain.group_gen_inv(),
+                    self.0.folding_factor.at_round(0),
+                );
+                evals
+            }
+            FoldType::ProverHelps => {
+                let mut coeffs = F::zero_vec(polynomial.coeffs().len() * expansion);
+                coeffs[..polynomial.coeffs().len()].copy_from_slice(polynomial.coeffs());
+                let folding_factor = self.0.folding_factor.at_round(0);
+                // Do DFT on only interleaved polys to be folded.
+                dft.dft_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor))
+                    // Get natural order of rows.
+                    .to_row_major_matrix()
+                    .values
+            }
+        };
 
         // Convert to extension field (for future rounds)
         let folded_evals: Vec<_> = evals.into_iter().map(EF::from).collect();
