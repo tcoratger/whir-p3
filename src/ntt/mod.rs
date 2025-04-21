@@ -9,7 +9,6 @@ use p3_util::log2_strict_usize;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-pub mod cooley_tukey;
 pub mod matrix;
 pub mod transpose;
 pub mod utils;
