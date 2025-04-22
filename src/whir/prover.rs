@@ -2,7 +2,6 @@ use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::{
-    Matrix,
     dense::{DenseMatrix, RowMajorMatrix},
     extension::FlatMatrixView,
 };
@@ -250,8 +249,6 @@ where
                 coeffs.resize(coeffs.len() * expansion, EF::ZERO);
                 // Do DFT on only interleaved polys to be folded.
                 dft.dft_algebra_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor_next))
-                    // Get natural order of rows.
-                    .to_row_major_matrix()
             }
         };
 
