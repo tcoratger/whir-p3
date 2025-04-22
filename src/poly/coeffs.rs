@@ -82,7 +82,10 @@ where
     /// - The number of variables decreases: `m = n - k`
     /// - Uses multivariate evaluation over chunks of coefficients.
     #[must_use]
-    pub fn fold(&self, folding_randomness: &MultilinearPoint<F>) -> Self {
+    pub fn fold<EF>(&self, folding_randomness: &MultilinearPoint<EF>) -> CoefficientList<EF>
+    where
+        EF: ExtensionField<F>,
+    {
         let folding_factor = folding_randomness.num_variables();
         #[cfg(not(feature = "parallel"))]
         let coeffs = self
@@ -97,7 +100,7 @@ where
             .map(|coeffs| eval_multivariate(coeffs, &folding_randomness.0))
             .collect();
 
-        Self {
+        CoefficientList {
             coeffs,
             num_variables: self.num_variables() - folding_factor,
         }
@@ -123,34 +126,38 @@ where
 /// ```
 ///
 /// where `P_0` and `P_1` are the even-indexed and odd-indexed coefficient subsets.
-fn eval_multivariate<F: Field>(coeffs: &[F], point: &[F]) -> F {
+fn eval_multivariate<F, EF>(coeffs: &[F], point: &[EF]) -> EF
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
     debug_assert_eq!(coeffs.len(), 1 << point.len());
     match point {
-        [] => coeffs[0],
-        [x] => coeffs[0] + coeffs[1] * *x,
+        [] => coeffs[0].into(),
+        [x] => *x * coeffs[1] + coeffs[0],
         [x0, x1] => {
-            let b0 = coeffs[0] + coeffs[1] * *x1;
-            let b1 = coeffs[2] + coeffs[3] * *x1;
+            let b0 = *x1 * coeffs[1] + coeffs[0];
+            let b1 = *x1 * coeffs[3] + coeffs[2];
             b0 + b1 * *x0
         }
         [x0, x1, x2] => {
-            let b00 = coeffs[0] + coeffs[1] * *x2;
-            let b01 = coeffs[2] + coeffs[3] * *x2;
-            let b10 = coeffs[4] + coeffs[5] * *x2;
-            let b11 = coeffs[6] + coeffs[7] * *x2;
+            let b00 = *x2 * coeffs[1] + coeffs[0];
+            let b01 = *x2 * coeffs[3] + coeffs[2];
+            let b10 = *x2 * coeffs[5] + coeffs[4];
+            let b11 = *x2 * coeffs[7] + coeffs[6];
             let b0 = b00 + b01 * *x1;
             let b1 = b10 + b11 * *x1;
             b0 + b1 * *x0
         }
         [x0, x1, x2, x3] => {
-            let b000 = coeffs[0] + coeffs[1] * *x3;
-            let b001 = coeffs[2] + coeffs[3] * *x3;
-            let b010 = coeffs[4] + coeffs[5] * *x3;
-            let b011 = coeffs[6] + coeffs[7] * *x3;
-            let b100 = coeffs[8] + coeffs[9] * *x3;
-            let b101 = coeffs[10] + coeffs[11] * *x3;
-            let b110 = coeffs[12] + coeffs[13] * *x3;
-            let b111 = coeffs[14] + coeffs[15] * *x3;
+            let b000 = *x3 * coeffs[1] + coeffs[0];
+            let b001 = *x3 * coeffs[3] + coeffs[2];
+            let b010 = *x3 * coeffs[5] + coeffs[4];
+            let b011 = *x3 * coeffs[7] + coeffs[6];
+            let b100 = *x3 * coeffs[9] + coeffs[8];
+            let b101 = *x3 * coeffs[11] + coeffs[10];
+            let b110 = *x3 * coeffs[13] + coeffs[12];
+            let b111 = *x3 * coeffs[15] + coeffs[14];
             let b00 = b000 + b001 * *x2;
             let b01 = b010 + b011 * *x2;
             let b10 = b100 + b101 * *x2;
@@ -186,7 +193,7 @@ impl<F> CoefficientList<F> {
     /// Ensures that:
     /// - The length is a power of two (`2^n` for some `n`).
     /// - Computes `num_variables` as `log₂(coeffs.len())`.
-    pub fn new(coeffs: Vec<F>) -> Self {
+    pub const fn new(coeffs: Vec<F>) -> Self {
         let len = coeffs.len();
         assert!(len.is_power_of_two());
         let num_variables = len.ilog2();
@@ -211,7 +218,7 @@ impl<F> CoefficientList<F> {
     }
 
     /// Returns the total number of coefficients (`2^n`).
-    pub fn num_coeffs(&self) -> usize {
+    pub const fn num_coeffs(&self) -> usize {
         self.coeffs.len()
     }
 
@@ -288,18 +295,22 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use rand::{Rng, rng};
 
     use super::*;
     use crate::poly::evals::EvaluationsList;
 
+    type F = BabyBear;
+    type EF4 = BinomialExtensionField<F, 4>;
+
     #[test]
     fn test_coefficient_list_initialization() {
         let coeffs = vec![
-            BabyBear::from_u64(3),
-            BabyBear::from_u64(1),
-            BabyBear::from_u64(4),
-            BabyBear::from_u64(1),
+            F::from_u64(3),
+            F::from_u64(1),
+            F::from_u64(4),
+            F::from_u64(1),
         ];
         let coeff_list = CoefficientList::new(coeffs.clone());
 
@@ -311,16 +322,16 @@ mod tests {
 
     #[test]
     fn test_evaluate_multilinear() {
-        let coeff0 = BabyBear::from_u64(8);
-        let coeff1 = BabyBear::from_u64(2);
-        let coeff2 = BabyBear::from_u64(3);
-        let coeff3 = BabyBear::from_u64(1);
+        let coeff0 = F::from_u64(8);
+        let coeff1 = F::from_u64(2);
+        let coeff2 = F::from_u64(3);
+        let coeff3 = F::from_u64(1);
 
         let coeffs = vec![coeff0, coeff1, coeff2, coeff3];
         let coeff_list = CoefficientList::new(coeffs);
 
-        let x0 = BabyBear::from_u64(2);
-        let x1 = BabyBear::from_u64(3);
+        let x0 = F::from_u64(2);
+        let x1 = F::from_u64(3);
         let point = MultilinearPoint(vec![x0, x1]);
 
         // Expected value based on multilinear evaluation
@@ -330,19 +341,19 @@ mod tests {
 
     #[test]
     fn test_folding() {
-        let coeff0 = BabyBear::from_u64(6);
-        let coeff1 = BabyBear::from_u64(2);
-        let coeff2 = BabyBear::from_u64(4);
-        let coeff3 = BabyBear::from_u64(8);
+        let coeff0 = F::from_u64(6);
+        let coeff1 = F::from_u64(2);
+        let coeff2 = F::from_u64(4);
+        let coeff3 = F::from_u64(8);
 
         let coeffs = vec![coeff0, coeff1, coeff2, coeff3];
         let coeff_list = CoefficientList::new(coeffs);
 
-        let folding_value = BabyBear::from_u64(3);
+        let folding_value = F::from_u64(3);
         let folding_point = MultilinearPoint(vec![folding_value]);
         let folded = coeff_list.fold(&folding_point);
 
-        let eval_value = BabyBear::from_u64(5);
+        let eval_value = F::from_u64(5);
         let expected_eval = coeff_list.evaluate(&MultilinearPoint(vec![eval_value, folding_value]));
 
         // Ensure folding preserves evaluation correctness
@@ -355,16 +366,16 @@ mod tests {
     #[test]
     fn test_folding_multiple_variables() {
         let num_variables = 3;
-        let coeffs: Vec<BabyBear> = (0..(1 << num_variables)).map(BabyBear::from_u64).collect();
+        let coeffs: Vec<_> = (0..(1 << num_variables)).map(F::from_u64).collect();
         let coeff_list = CoefficientList::new(coeffs);
 
-        let fold_x1 = BabyBear::from_u64(4);
-        let fold_x2 = BabyBear::from_u64(2);
+        let fold_x1 = F::from_u64(4);
+        let fold_x2 = F::from_u64(2);
         let folding_point = MultilinearPoint(vec![fold_x1, fold_x2]);
 
         let folded = coeff_list.fold(&folding_point);
 
-        let eval_x0 = BabyBear::from_u64(6);
+        let eval_x0 = F::from_u64(6);
         let full_point = MultilinearPoint(vec![eval_x0, fold_x1, fold_x2]);
         let expected_eval = coeff_list.evaluate(&full_point);
 
@@ -377,10 +388,10 @@ mod tests {
 
     #[test]
     fn test_coefficient_to_evaluations_conversion() {
-        let coeff0 = BabyBear::from_u64(5);
-        let coeff1 = BabyBear::from_u64(3);
-        let coeff2 = BabyBear::from_u64(7);
-        let coeff3 = BabyBear::from_u64(2);
+        let coeff0 = F::from_u64(5);
+        let coeff1 = F::from_u64(3);
+        let coeff2 = F::from_u64(7);
+        let coeff3 = F::from_u64(2);
 
         let coeffs = vec![coeff0, coeff1, coeff2, coeff3];
         let coeff_list = CoefficientList::new(coeffs);
@@ -397,7 +408,7 @@ mod tests {
     #[test]
     fn test_num_variables_and_coeffs() {
         // 8 = 2^3, so num_variables = 3
-        let coeffs = vec![BabyBear::from_u64(1); 8];
+        let coeffs = vec![F::from_u64(1); 8];
         let coeff_list = CoefficientList::new(coeffs);
 
         assert_eq!(coeff_list.num_variables(), 3);
@@ -407,24 +418,24 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_coefficient_list_empty() {
-        let _coeff_list = CoefficientList::<BabyBear>::new(vec![]);
+        let _coeff_list = CoefficientList::<F>::new(vec![]);
     }
 
     #[test]
     #[should_panic]
     fn test_coefficient_list_invalid_size() {
         // 7 is not a power of two
-        let _coeff_list = CoefficientList::new(vec![BabyBear::from_u64(1); 7]);
+        let _coeff_list = CoefficientList::new(vec![F::from_u64(1); 7]);
     }
 
     #[test]
     fn test_folding_and_evaluation() {
         let num_variables = 10;
-        let coeffs = (0..(1 << num_variables)).map(BabyBear::from_u64).collect();
+        let coeffs = (0..(1 << num_variables)).map(F::from_u64).collect();
         let coeffs_list = CoefficientList::new(coeffs);
 
         let randomness: Vec<_> = (0..num_variables)
-            .map(|i| BabyBear::from_u64(35 * i as u64))
+            .map(|i| F::from_u64(35 * i as u64))
             .collect();
         for k in 0..num_variables {
             let fold_part = randomness[0..k].to_vec();
@@ -443,17 +454,14 @@ mod tests {
 
     #[test]
     fn test_evaluate_at_extension_single_variable() {
-        type F = BabyBear;
-        type E = BinomialExtensionField<F, 4>;
-
         // Polynomial f(X) = 3 + 7X in base field
         let coeff0 = F::from_u64(3);
         let coeff1 = F::from_u64(7);
         let coeffs = vec![coeff0, coeff1];
         let coeff_list = CoefficientList::new(coeffs);
 
-        let x = E::from_u64(2); // Evaluation at x = 2 in extension field
-        let expected_value = E::from_u64(3) + E::from_u64(7) * x; // f(2) = 3 + 7 * 2
+        let x = EF4::from_u64(2); // Evaluation at x = 2 in extension field
+        let expected_value = EF4::from_u64(3) + EF4::from_u64(7) * x; // f(2) = 3 + 7 * 2
         let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x]));
 
         assert_eq!(eval_result, expected_value);
@@ -461,9 +469,6 @@ mod tests {
 
     #[test]
     fn test_evaluate_at_extension_two_variables() {
-        type F = BabyBear;
-        type E = BinomialExtensionField<F, 4>;
-
         // Polynomial f(X₀, X₁) = 2 + 5X₀ + 3X₁ + 7X₀X₁
         let coeffs = vec![
             F::from_u64(2), // Constant term
@@ -473,10 +478,12 @@ mod tests {
         ];
         let coeff_list = CoefficientList::new(coeffs);
 
-        let x0 = E::from_u64(2);
-        let x1 = E::from_u64(3);
-        let expected_value =
-            E::from_u64(2) + E::from_u64(5) * x1 + E::from_u64(3) * x0 + E::from_u64(7) * x0 * x1;
+        let x0 = EF4::from_u64(2);
+        let x1 = EF4::from_u64(3);
+        let expected_value = EF4::from_u64(2)
+            + EF4::from_u64(5) * x1
+            + EF4::from_u64(3) * x0
+            + EF4::from_u64(7) * x0 * x1;
         let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x0, x1]));
 
         assert_eq!(eval_result, expected_value);
@@ -484,9 +491,6 @@ mod tests {
 
     #[test]
     fn test_evaluate_at_extension_three_variables() {
-        type F = BabyBear;
-        type E = BinomialExtensionField<F, 4>;
-
         // Polynomial: f(X₀, X₁, X₂) = 1 + 2X₂ + 3X₁ + 5X₁X₂ + 4X₀ + 6X₀X₂ + 7X₀X₁ + 8X₀X₁X₂
         let coeffs = vec![
             F::from_u64(1), // Constant term (000)
@@ -500,19 +504,19 @@ mod tests {
         ];
         let coeff_list = CoefficientList::new(coeffs);
 
-        let x0 = E::from_u64(2);
-        let x1 = E::from_u64(3);
-        let x2 = E::from_u64(4);
+        let x0 = EF4::from_u64(2);
+        let x1 = EF4::from_u64(3);
+        let x2 = EF4::from_u64(4);
 
         // Correct expected value based on the coefficient order
-        let expected_value = E::from_u64(1)
-            + E::from_u64(2) * x2
-            + E::from_u64(3) * x1
-            + E::from_u64(5) * x1 * x2
-            + E::from_u64(4) * x0
-            + E::from_u64(6) * x0 * x2
-            + E::from_u64(7) * x0 * x1
-            + E::from_u64(8) * x0 * x1 * x2;
+        let expected_value = EF4::from_u64(1)
+            + EF4::from_u64(2) * x2
+            + EF4::from_u64(3) * x1
+            + EF4::from_u64(5) * x1 * x2
+            + EF4::from_u64(4) * x0
+            + EF4::from_u64(6) * x0 * x2
+            + EF4::from_u64(7) * x0 * x1
+            + EF4::from_u64(8) * x0 * x1 * x2;
 
         let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x0, x1, x2]));
 
@@ -521,31 +525,28 @@ mod tests {
 
     #[test]
     fn test_evaluate_at_extension_zero_polynomial() {
-        type F = BabyBear;
-        type E = BinomialExtensionField<F, 4>;
-
         // Zero polynomial f(X) = 0
         let coeff_list = CoefficientList::new(vec![F::ZERO; 4]); // f(X₀, X₁) = 0
 
-        let x0 = E::from_u64(5);
-        let x1 = E::from_u64(7);
+        let x0 = EF4::from_u64(5);
+        let x1 = EF4::from_u64(7);
         let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x0, x1]));
 
-        assert_eq!(eval_result, E::ZERO);
+        assert_eq!(eval_result, EF4::ZERO);
     }
 
     #[test]
     fn test_evaluate_at_univariate_degree_one() {
         // Polynomial: f(x) = 3 + 4x
-        let c0 = BabyBear::from_u64(3);
-        let c1 = BabyBear::from_u64(4);
+        let c0 = F::from_u64(3);
+        let c1 = F::from_u64(4);
         let coeffs = vec![c0, c1];
         let poly = CoefficientList::new(coeffs);
 
-        let p0 = BabyBear::from_u64(0);
-        let p1 = BabyBear::from_u64(1);
-        let p2 = BabyBear::from_u64(2);
-        let p3 = BabyBear::from_u64(5);
+        let p0 = F::from_u64(0);
+        let p1 = F::from_u64(1);
+        let p2 = F::from_u64(2);
+        let p3 = F::from_u64(5);
         let points = vec![p0, p1, p2, p3];
 
         // Manually compute expected values from coeffs
@@ -564,16 +565,16 @@ mod tests {
     #[test]
     fn test_evaluate_at_univariate_degree_three_multiple_points() {
         // Polynomial: f(x) = 1 + 2x + 3x² + 4x³
-        let c0 = BabyBear::from_u64(1);
-        let c1 = BabyBear::from_u64(2);
-        let c2 = BabyBear::from_u64(3);
-        let c3 = BabyBear::from_u64(4);
+        let c0 = F::from_u64(1);
+        let c1 = F::from_u64(2);
+        let c2 = F::from_u64(3);
+        let c3 = F::from_u64(4);
         let coeffs = vec![c0, c1, c2, c3];
         let poly = CoefficientList::new(coeffs);
 
-        let p0 = BabyBear::from_u64(0);
-        let p1 = BabyBear::from_u64(1);
-        let p2 = BabyBear::from_u64(2);
+        let p0 = F::from_u64(0);
+        let p1 = F::from_u64(1);
+        let p2 = F::from_u64(2);
         let points = vec![p0, p1, p2];
 
         // f(x) = c0 + c1*x + c2*x² + c3*x³
@@ -590,14 +591,14 @@ mod tests {
     #[test]
     fn test_evaluate_at_univariate_equivalence_to_multilinear() {
         // Polynomial: f(x) = 5 + 6x + 7x² + 8x³
-        let c0 = BabyBear::from_u64(5);
-        let c1 = BabyBear::from_u64(6);
-        let c2 = BabyBear::from_u64(7);
-        let c3 = BabyBear::from_u64(8);
+        let c0 = F::from_u64(5);
+        let c1 = F::from_u64(6);
+        let c2 = F::from_u64(7);
+        let c3 = F::from_u64(8);
         let coeffs = vec![c0, c1, c2, c3];
         let poly = CoefficientList::new(coeffs);
 
-        let x = BabyBear::from_u64(2);
+        let x = F::from_u64(2);
 
         let expected = c0 + c1 * x + c2 * x.square() + c3 * x.square() * x;
 
@@ -608,5 +609,211 @@ mod tests {
 
         assert_eq!(result_univariate, expected);
         assert_eq!(result_multilinear, expected);
+    }
+
+    #[test]
+    fn test_eval_multivariate_with_extension_field_points() {
+        let mut rng = rng();
+
+        let c0 = F::from_u64(1);
+        let c1 = F::from_u64(2);
+        let c2 = F::from_u64(3);
+        let c3 = F::from_u64(4);
+
+        let coeffs = vec![c0, c1, c2, c3];
+        assert_eq!(coeffs.len(), 4);
+
+        let x0 = F::from_u64(5);
+        let x1 = F::from_u64(7);
+
+        let eval_extension = eval_multivariate(&coeffs, &[EF4::from(x0), EF4::from(x1)]);
+        let expected = c0 + c1 * x1 + c2 * x0 + c3 * x0 * x1;
+
+        assert_eq!(eval_extension, EF4::from(expected));
+
+        // Compare with base field evaluation
+        let eval_base = eval_multivariate(&coeffs, &[x0, x1]);
+        assert_eq!(eval_extension, EF4::from(eval_base));
+
+        // Now test with some random extension points
+        let e: EF4 = rng.random();
+        let f: EF4 = rng.random();
+
+        let eval = eval_multivariate(&coeffs, &[e, f]);
+
+        let expected =
+            EF4::from(c0) + EF4::from(c1) * f + EF4::from(c2) * e + EF4::from(c3) * e * f;
+
+        assert_eq!(eval, expected);
+    }
+
+    #[test]
+    fn test_eval_multivariate_constant_poly() {
+        let c = F::from_u64(42);
+        let coeffs = vec![c];
+
+        let points: Vec<EF4> = vec![]; // Zero variables
+
+        let result = eval_multivariate(&coeffs, &points);
+        assert_eq!(result, EF4::from(c));
+    }
+
+    #[test]
+    fn test_eval_multivariate_all_zero_point() {
+        let coeffs = vec![
+            F::from_u64(11), // constant term
+            F::from_u64(22), // x₁
+            F::from_u64(33), // x₀
+            F::from_u64(44), // x₀x₁
+        ];
+        let zeros = vec![EF4::ZERO, EF4::ZERO];
+
+        let result = eval_multivariate(&coeffs, &zeros);
+        assert_eq!(result, EF4::from(coeffs[0])); // Only constant survives
+    }
+
+    #[test]
+    fn test_eval_multivariate_all_ones_point() {
+        let coeffs = vec![
+            F::from_u64(5), // 1
+            F::from_u64(6), // x₁
+            F::from_u64(7), // x₀
+            F::from_u64(8), // x₀x₁
+        ];
+
+        let one = EF4::ONE;
+        let result = eval_multivariate(&coeffs, &[one, one]);
+
+        let expected = EF4::from(coeffs[0])
+            + EF4::from(coeffs[1])
+            + EF4::from(coeffs[2])
+            + EF4::from(coeffs[3]);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_multivariate_three_vars_mixed() {
+        let coeffs = vec![
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(4),
+            F::from_u64(5),
+            F::from_u64(6),
+            F::from_u64(7),
+            F::from_u64(8),
+        ];
+
+        let x0 = EF4::from_u64(2); // embedded from F
+        let x1: EF4 = EF4::from_u64(3);
+        let x2: EF4 = EF4::from_basis_coefficients_iter(
+            [
+                BabyBear::new(9),
+                BabyBear::new(0),
+                BabyBear::new(1),
+                BabyBear::new(0),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        let result = eval_multivariate(&coeffs, &[x0, x1, x2]);
+
+        // Expected computed via monomial expansion
+        let expected = EF4::from(coeffs[0])
+            + EF4::from(coeffs[1]) * x2
+            + EF4::from(coeffs[2]) * x1
+            + EF4::from(coeffs[3]) * x1 * x2
+            + EF4::from(coeffs[4]) * x0
+            + EF4::from(coeffs[5]) * x0 * x2
+            + EF4::from(coeffs[6]) * x0 * x1
+            + EF4::from(coeffs[7]) * x0 * x1 * x2;
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_fold_with_extension_one_var() {
+        // Polynomial: f(X₀, X₁) = 1 + 2X₁ + 3X₀ + 4X₀X₁
+        let coeffs = vec![
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(4),
+        ];
+        let poly = CoefficientList::new(coeffs);
+
+        // Fold with X₁ = 5 (in EF4)
+        let r1 = EF4::from_u64(5);
+        let folded = poly.fold(&MultilinearPoint(vec![r1]));
+
+        // Should produce polynomial in X₀ only
+        for x0_f in 0..10 {
+            let x0 = EF4::from_u64(x0_f);
+            let full_point = MultilinearPoint(vec![x0, r1]);
+            let folded_point = MultilinearPoint(vec![x0]);
+
+            let expected = poly.evaluate_at_extension(&full_point);
+            let actual = folded.evaluate(&folded_point);
+            assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn test_fold_with_extension_two_vars() {
+        // f(X₀, X₁, X₂) = 1 + 2X₂ + 3X₁ + 4X₁X₂ + 5X₀ + 6X₀X₂ + 7X₀X₁ + 8X₀X₁X₂
+        let coeffs = (1..=8).map(F::from_u64).collect::<Vec<_>>();
+        let poly = CoefficientList::new(coeffs);
+
+        let r1 = EF4::from_u64(9);
+        let r2 = EF4::from_basis_coefficients_iter(
+            [
+                BabyBear::new(2),
+                BabyBear::new(0),
+                BabyBear::new(3),
+                BabyBear::new(1),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+
+        let folded = poly.fold(&MultilinearPoint(vec![r1, r2]));
+
+        for x0_f in 0..10 {
+            let x0 = EF4::from_u64(x0_f);
+            let full_point = MultilinearPoint(vec![x0, r1, r2]);
+            let folded_point = MultilinearPoint(vec![x0]);
+
+            let expected = poly.evaluate_at_extension(&full_point);
+            let actual = folded.evaluate(&folded_point);
+            assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn test_fold_with_zero_extension_randomness() {
+        // f(X₀, X₁) = 1 + 2X₁ + 3X₀ + 4X₀X₁
+        let coeffs = vec![
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(4),
+        ];
+        let poly = CoefficientList::new(coeffs);
+
+        let zero = EF4::ZERO;
+        let folded = poly.fold(&MultilinearPoint(vec![zero]));
+
+        // Should be equivalent to evaluating X₁ = 0 in original poly
+        for x0_f in 0..5 {
+            let x0 = EF4::from_u64(x0_f);
+            let full_point = MultilinearPoint(vec![x0, zero]);
+            let folded_point = MultilinearPoint(vec![x0]);
+
+            let expected = poly.evaluate_at_extension(&full_point);
+            let actual = folded.evaluate(&folded_point);
+            assert_eq!(expected, actual);
+        }
     }
 }
