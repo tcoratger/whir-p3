@@ -219,20 +219,17 @@ impl<F> CoefficientList<F> {
     /// extension of F.
     ///
     /// Note that this is currently restricted to the case where F is a prime field.
-    #[cfg(feature = "parallel")]
     pub fn to_extension<E: ExtensionField<F>>(self) -> CoefficientList<E>
     where
         F: Field,
     {
-        use rayon::iter::{IntoParallelIterator, ParallelIterator};
-        CoefficientList::new(self.coeffs.into_par_iter().map(E::from).collect())
-    }
+        #[cfg(feature = "parallel")]
+        {
+            use rayon::iter::{IntoParallelIterator, ParallelIterator};
+            CoefficientList::new(self.coeffs.into_par_iter().map(E::from).collect())
+        }
 
-    #[cfg(not(feature = "parallel"))]
-    pub fn to_extension<E: ExtensionField<F>>(self) -> CoefficientList<E>
-    where
-        F: Field,
-    {
+        #[cfg(not(feature = "parallel"))]
         CoefficientList::new(self.coeffs.into_iter().map(E::from).collect())
     }
 }
