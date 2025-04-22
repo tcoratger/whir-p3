@@ -4,6 +4,7 @@ use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 use super::Witness;
@@ -93,7 +94,7 @@ where
         };
 
         // Convert to extension field (for future rounds)
-        let folded_evals: Vec<_> = evals.into_iter().map(EF::from).collect();
+        let folded_evals: Vec<_> = evals.into_par_iter().map(EF::from).collect();
 
         // Determine leaf size based on folding factor.
         let fold_size = 1 << self.0.folding_factor.at_round(0);
