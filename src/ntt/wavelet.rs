@@ -1,89 +1,98 @@
 use p3_field::Field;
+use p3_matrix::{Matrix, dense::RowMajorMatrixViewMut};
 #[cfg(feature = "parallel")]
 use {super::utils::workload_size, rayon::prelude::*};
 
-use crate::ntt::transpose::transpose;
-
-/// Fast Wavelet Transform.
+/// In-place Fast Wavelet Transform on a matrix view.
 ///
-/// The input slice must have a length that is a power of two.
-/// Recursively applies the kernel
+/// Applies the kernel:
 ///   [1 0]
 ///   [1 1]
-pub fn wavelet_transform<F: Field>(values: &mut [F]) {
-    debug_assert!(values.len().is_power_of_two());
-    wavelet_transform_batch(values, values.len());
+///
+/// Assumes the number of rows is a power of two.
+pub fn wavelet_transform<F: Field>(values: &mut RowMajorMatrixViewMut<'_, F>) {
+    let height = values.height();
+    debug_assert!(height.is_power_of_two());
+    wavelet_transform_batch(values, height);
 }
 
-pub fn wavelet_transform_batch<F: Field>(values: &mut [F], size: usize) {
-    debug_assert_eq!(values.len() % size, 0);
-    debug_assert!(size.is_power_of_two());
+pub fn wavelet_transform_batch<F: Field>(values: &mut RowMajorMatrixViewMut<'_, F>, size: usize) {
+    debug_assert!(values.height() % size == 0 && size.is_power_of_two());
+
     #[cfg(feature = "parallel")]
-    if values.len() > workload_size::<F>() && values.len() != size {
-        // Multiple wavelet transforms, compute in parallel.
-        // Work size is largest multiple of `size` smaller than `WORKLOAD_SIZE`.
-        let workload_size = size * std::cmp::max(1, workload_size::<F>() / size);
-        return values.par_chunks_mut(workload_size).for_each(|values| {
-            wavelet_transform_batch(values, size);
-        });
+    if values.height() > workload_size::<F>() && values.height() != size {
+        let chunk_rows = size * std::cmp::max(1, workload_size::<F>() / size);
+        values
+            .par_row_chunks_mut(chunk_rows)
+            .for_each(|mut chunk| wavelet_transform_batch(&mut chunk, size));
+        return;
     }
+
     match size {
         0 | 1 => {}
         2 => {
-            for v in values.chunks_exact_mut(2) {
-                v[1] += v[0];
+            for v in values.row_chunks_exact_mut(2) {
+                v.values[1] += v.values[0];
             }
         }
         4 => {
-            for v in values.chunks_exact_mut(4) {
-                v[1] += v[0];
-                v[3] += v[2];
-                v[2] += v[0];
-                v[3] += v[1];
+            for v in values.row_chunks_exact_mut(4) {
+                v.values[1] += v.values[0];
+                v.values[3] += v.values[2];
+                v.values[2] += v.values[0];
+                v.values[3] += v.values[1];
             }
         }
         8 => {
-            for v in values.chunks_exact_mut(8) {
-                v[1] += v[0];
-                v[3] += v[2];
-                v[2] += v[0];
-                v[3] += v[1];
-                v[5] += v[4];
-                v[7] += v[6];
-                v[6] += v[4];
-                v[7] += v[5];
-                v[4] += v[0];
-                v[5] += v[1];
-                v[6] += v[2];
-                v[7] += v[3];
+            for v in values.row_chunks_exact_mut(8) {
+                v.values[1] += v.values[0];
+                v.values[3] += v.values[2];
+                v.values[2] += v.values[0];
+                v.values[3] += v.values[1];
+                v.values[5] += v.values[4];
+                v.values[7] += v.values[6];
+                v.values[6] += v.values[4];
+                v.values[7] += v.values[5];
+                v.values[4] += v.values[0];
+                v.values[5] += v.values[1];
+                v.values[6] += v.values[2];
+                v.values[7] += v.values[3];
             }
         }
         16 => {
-            for v in values.chunks_exact_mut(16) {
-                for v in v.chunks_exact_mut(4) {
-                    v[1] += v[0];
-                    v[3] += v[2];
-                    v[2] += v[0];
-                    v[3] += v[1];
+            for mut v in values.row_chunks_exact_mut(16) {
+                for v in v.row_chunks_exact_mut(4) {
+                    v.values[1] += v.values[0];
+                    v.values[3] += v.values[2];
+                    v.values[2] += v.values[0];
+                    v.values[3] += v.values[1];
                 }
-                let (a, v) = v.split_at_mut(4);
-                let (b, v) = v.split_at_mut(4);
-                let (c, d) = v.split_at_mut(4);
+                let (a, mut v) = v.split_rows_mut(4);
+                let (b, mut v) = v.split_rows_mut(4);
+                let (c, d) = v.split_rows_mut(4);
                 for i in 0..4 {
-                    b[i] += a[i];
-                    d[i] += c[i];
-                    c[i] += a[i];
-                    d[i] += b[i];
+                    b.values[i] += a.values[i];
+                    d.values[i] += c.values[i];
+                    c.values[i] += a.values[i];
+                    d.values[i] += b.values[i];
                 }
             }
         }
         n => {
             let n1 = 1 << (n.trailing_zeros() / 2);
-            let n2 = n / n1;
+            let n2 = size / n1;
+
             wavelet_transform_batch(values, n1);
-            transpose(values, n2, n1);
+            values.par_row_chunks_exact_mut(n1 * n2).for_each(|matrix| {
+                let mut m = RowMajorMatrixViewMut::new(matrix.values, n1);
+                m.transpose();
+            });
+
             wavelet_transform_batch(values, n2);
-            transpose(values, n1, n2);
+            values.par_row_chunks_exact_mut(n1 * n2).for_each(|matrix| {
+                let mut m = RowMajorMatrixViewMut::new(matrix.values, n2);
+                m.transpose();
+            });
         }
     }
 }
@@ -92,23 +101,26 @@ pub fn wavelet_transform_batch<F: Field>(values: &mut [F], size: usize) {
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+    use p3_matrix::dense::RowMajorMatrix;
 
     use super::*;
 
     #[test]
     fn test_wavelet_transform_single_element() {
-        let mut values = vec![BabyBear::from_u64(5)];
-        wavelet_transform(&mut values);
-        assert_eq!(values, vec![BabyBear::from_u64(5)]);
+        let values = vec![BabyBear::from_u64(5)];
+        let mut mat = RowMajorMatrix::new_col(values);
+        wavelet_transform(&mut mat.as_view_mut());
+        assert_eq!(mat.values, vec![BabyBear::from_u64(5)]);
     }
 
     #[test]
     fn test_wavelet_transform_size_2() {
         let v1 = BabyBear::from_u64(3);
         let v2 = BabyBear::from_u64(7);
-        let mut values = vec![v1, v2];
-        wavelet_transform(&mut values);
-        assert_eq!(values, vec![v1, v1 + v2]);
+        let values = vec![v1, v2];
+        let mut mat = RowMajorMatrix::new_col(values);
+        wavelet_transform(&mut mat.as_view_mut());
+        assert_eq!(mat.values, vec![v1, v1 + v2]);
     }
 
     #[test]
@@ -117,16 +129,17 @@ mod tests {
         let v2 = BabyBear::from_u64(2);
         let v3 = BabyBear::from_u64(3);
         let v4 = BabyBear::from_u64(4);
-        let mut values = vec![v1, v2, v3, v4];
+        let values = vec![v1, v2, v3, v4];
+        let mut mat = RowMajorMatrix::new_col(values);
 
-        wavelet_transform(&mut values);
+        wavelet_transform(&mut mat.as_view_mut());
 
-        assert_eq!(values, vec![v1, v1 + v2, v3 + v1, v1 + v2 + v3 + v4]);
+        assert_eq!(mat.values, vec![v1, v1 + v2, v3 + v1, v1 + v2 + v3 + v4]);
     }
 
     #[test]
     fn test_wavelet_transform_size_8() {
-        let mut values = (1..=8).map(BabyBear::from_u64).collect::<Vec<_>>();
+        let values = (1..=8).map(BabyBear::from_u64).collect::<Vec<_>>();
         let v1 = values[0];
         let v2 = values[1];
         let v3 = values[2];
@@ -136,10 +149,12 @@ mod tests {
         let v7 = values[6];
         let v8 = values[7];
 
-        wavelet_transform(&mut values);
+        let mut mat = RowMajorMatrix::new_col(values);
+
+        wavelet_transform(&mut mat.as_view_mut());
 
         assert_eq!(
-            values,
+            mat.values,
             vec![
                 v1,
                 v1 + v2,
@@ -155,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_wavelet_transform_size_16() {
-        let mut values = (1..=16).map(BabyBear::from_u64).collect::<Vec<_>>();
+        let values = (1..=16).map(BabyBear::from_u64).collect::<Vec<_>>();
         let v1 = values[0];
         let v2 = values[1];
         let v3 = values[2];
@@ -173,10 +188,12 @@ mod tests {
         let v15 = values[14];
         let v16 = values[15];
 
-        wavelet_transform(&mut values);
+        let mut mat = RowMajorMatrix::new_col(values);
+
+        wavelet_transform(&mut mat.as_view_mut());
 
         assert_eq!(
-            values,
+            mat.values,
             vec![
                 v1,
                 v1 + v2,
@@ -215,17 +232,22 @@ mod tests {
     #[test]
     fn test_wavelet_transform_large() {
         let size = 2_i32.pow(10) as u64;
-        let mut values = (1..=size).map(BabyBear::from_u64).collect::<Vec<_>>();
+        let values = (1..=size).map(BabyBear::from_u64).collect::<Vec<_>>();
         let v1 = values[0];
 
-        wavelet_transform(&mut values);
+        let mut mat = RowMajorMatrix::new_col(values);
+
+        wavelet_transform(&mut mat.as_view_mut());
 
         // Verify the first element remains unchanged
-        assert_eq!(values[0], v1);
+        assert_eq!(mat.values[0], v1);
 
         // Verify last element has accumulated all previous values
         let expected_last = (1..=size).sum::<u64>();
-        assert_eq!(values[size as usize - 1], BabyBear::from_u64(expected_last));
+        assert_eq!(
+            mat.values[size as usize - 1],
+            BabyBear::from_u64(expected_last)
+        );
     }
 
     #[test]
@@ -234,44 +256,47 @@ mod tests {
         let batch_size = 2_i32.pow(20) as usize;
         // Ensure values.len() > size to enter parallel execution
         let total_size = batch_size * 4;
-        let mut values = (1..=total_size as u64)
+        let values = (1..=total_size as u64)
             .map(BabyBear::from_u64)
             .collect::<Vec<_>>();
 
         // Keep a copy to compare later
         let original_values = values.clone();
 
+        let mut mat = RowMajorMatrix::new_col(values);
+
         // Run batch transform on 256-sized chunks
-        wavelet_transform_batch(&mut values, batch_size);
+        wavelet_transform_batch(&mut mat.as_view_mut(), batch_size);
 
         // Verify that the first chunk has been transformed correctly
-        let mut expected_chunk = original_values[..batch_size].to_vec();
-        wavelet_transform_batch(&mut expected_chunk, batch_size);
-        assert_eq!(&values[..batch_size], &expected_chunk);
+        let mut mat1 = RowMajorMatrix::new_col(original_values[..batch_size].to_vec());
+
+        wavelet_transform_batch(&mut mat1.as_view_mut(), batch_size);
+        assert_eq!(mat.values[..batch_size], mat1.values);
 
         // Ensure that the transformation occurred separately for each chunk
         for i in 1..4 {
             let start = i * batch_size;
             let end = start + batch_size;
 
-            let mut expected_chunk = original_values[start..end].to_vec();
-            wavelet_transform_batch(&mut expected_chunk, batch_size);
+            let mut mat_loop = RowMajorMatrix::new_col(original_values[start..end].to_vec());
+            wavelet_transform_batch(&mut mat_loop.as_view_mut(), batch_size);
 
             assert_eq!(
-                &values[start..end],
-                &expected_chunk,
+                mat.values[start..end],
+                mat_loop.values,
                 "Mismatch in chunk {i}"
             );
         }
 
         // Ensure the first element remains unchanged
-        assert_eq!(values[0], BabyBear::from_u64(1));
+        assert_eq!(mat.values[0], BabyBear::from_u64(1));
 
         // Ensure the last element has accumulated all values from its own chunk
         let expected_last_chunk_sum =
             (total_size as u64 - batch_size as u64 + 1..=total_size as u64).sum::<u64>();
         assert_eq!(
-            values[total_size - 1],
+            mat.values[total_size - 1],
             BabyBear::from_u64(expected_last_chunk_sum),
             "Final element mismatch"
         );

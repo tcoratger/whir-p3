@@ -1,4 +1,5 @@
 use p3_field::{ExtensionField, Field};
+use p3_matrix::dense::RowMajorMatrix;
 #[cfg(feature = "parallel")]
 use {
     rayon::{join, prelude::*},
@@ -246,9 +247,9 @@ where
     F: Field,
 {
     fn from(value: CoefficientList<F>) -> Self {
-        let mut evals = value.coeffs;
-        wavelet_transform(&mut evals);
-        Self::new(evals)
+        let mut evals = RowMajorMatrix::new_col(value.coeffs);
+        wavelet_transform(&mut evals.as_view_mut());
+        Self::new(evals.values)
     }
 }
 
