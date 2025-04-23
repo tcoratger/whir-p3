@@ -2,7 +2,6 @@ use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::{
-    Matrix,
     dense::{DenseMatrix, RowMajorMatrix},
     extension::FlatMatrixView,
 };
@@ -233,7 +232,7 @@ where
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
-        let evals = match self.0.fold_optimisation {
+        let folded_matrix = match self.0.fold_optimisation {
             FoldType::Naive => {
                 let evals = expand_from_coeff(dft, folded_coefficients.coeffs(), expansion);
 
@@ -243,23 +242,15 @@ where
                 // Number of rows (one per subdomain)
                 let size_of_new_domain = evals.len() / folding_factor_exp;
 
-                RowMajorMatrix::new(evals, size_of_new_domain)
-                    .transpose()
-                    .values
+                RowMajorMatrix::new(evals, size_of_new_domain).transpose()
             }
             FoldType::ProverHelps => {
                 let mut coeffs = folded_coefficients.coeffs().to_vec();
                 coeffs.resize(coeffs.len() * expansion, EF::ZERO);
                 // Do DFT on only interleaved polys to be folded.
                 dft.dft_algebra_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor_next))
-                    // Get natural order of rows.
-                    .to_row_major_matrix()
-                    .values
             }
         };
-
-        // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
-        let folded_matrix = RowMajorMatrix::new(evals, 1 << folding_factor_next);
 
         let merkle_tree = ExtensionMmcs::new(MerkleTreeMmcs::new(
             self.0.merkle_hash.clone(),
