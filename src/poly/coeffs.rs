@@ -193,7 +193,7 @@ impl<F> CoefficientList<F> {
     /// Ensures that:
     /// - The length is a power of two (`2^n` for some `n`).
     /// - Computes `num_variables` as `log₂(coeffs.len())`.
-    pub const fn new(coeffs: Vec<F>) -> Self {
+    pub fn new(coeffs: Vec<F>) -> Self {
         let len = coeffs.len();
         assert!(len.is_power_of_two());
         let num_variables = len.ilog2();
@@ -218,7 +218,7 @@ impl<F> CoefficientList<F> {
     }
 
     /// Returns the total number of coefficients (`2^n`).
-    pub const fn num_coeffs(&self) -> usize {
+    pub fn num_coeffs(&self) -> usize {
         self.coeffs.len()
     }
 
