@@ -10,20 +10,19 @@ use {super::utils::workload_size, rayon::prelude::*};
 ///   [1 1]
 ///
 /// Assumes the number of rows is a power of two.
-pub fn wavelet_transform<F: Field>(values: &mut RowMajorMatrixViewMut<'_, F>) {
-    let height = values.height();
+pub fn wavelet_transform<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>) {
+    let height = mat.height();
     debug_assert!(height.is_power_of_two());
-    wavelet_transform_batch(values, height);
+    wavelet_transform_batch(mat, height);
 }
 
-pub fn wavelet_transform_batch<F: Field>(values: &mut RowMajorMatrixViewMut<'_, F>, size: usize) {
-    debug_assert!(values.height() % size == 0 && size.is_power_of_two());
+pub fn wavelet_transform_batch<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>, size: usize) {
+    debug_assert!(mat.height() % size == 0 && size.is_power_of_two());
 
     #[cfg(feature = "parallel")]
-    if values.height() > workload_size::<F>() && values.height() != size {
+    if mat.height() > workload_size::<F>() && mat.height() != size {
         let chunk_rows = size * std::cmp::max(1, workload_size::<F>() / size);
-        values
-            .par_row_chunks_mut(chunk_rows)
+        mat.par_row_chunks_mut(chunk_rows)
             .for_each(|mut chunk| wavelet_transform_batch(&mut chunk, size));
         return;
     }
@@ -31,12 +30,12 @@ pub fn wavelet_transform_batch<F: Field>(values: &mut RowMajorMatrixViewMut<'_, 
     match size {
         0 | 1 => {}
         2 => {
-            for v in values.row_chunks_exact_mut(2) {
+            for v in mat.row_chunks_exact_mut(2) {
                 v.values[1] += v.values[0];
             }
         }
         4 => {
-            for v in values.row_chunks_exact_mut(4) {
+            for v in mat.row_chunks_exact_mut(4) {
                 v.values[1] += v.values[0];
                 v.values[3] += v.values[2];
                 v.values[2] += v.values[0];
@@ -44,7 +43,7 @@ pub fn wavelet_transform_batch<F: Field>(values: &mut RowMajorMatrixViewMut<'_, 
             }
         }
         8 => {
-            for v in values.row_chunks_exact_mut(8) {
+            for v in mat.row_chunks_exact_mut(8) {
                 v.values[1] += v.values[0];
                 v.values[3] += v.values[2];
                 v.values[2] += v.values[0];
@@ -60,7 +59,7 @@ pub fn wavelet_transform_batch<F: Field>(values: &mut RowMajorMatrixViewMut<'_, 
             }
         }
         16 => {
-            for mut v in values.row_chunks_exact_mut(16) {
+            for mut v in mat.row_chunks_exact_mut(16) {
                 for v in v.row_chunks_exact_mut(4) {
                     v.values[1] += v.values[0];
                     v.values[3] += v.values[2];
@@ -82,14 +81,14 @@ pub fn wavelet_transform_batch<F: Field>(values: &mut RowMajorMatrixViewMut<'_, 
             let n1 = 1 << (n.trailing_zeros() / 2);
             let n2 = size / n1;
 
-            wavelet_transform_batch(values, n1);
-            values.par_row_chunks_exact_mut(n1 * n2).for_each(|matrix| {
+            wavelet_transform_batch(mat, n1);
+            mat.par_row_chunks_exact_mut(n1 * n2).for_each(|matrix| {
                 let mut m = RowMajorMatrixViewMut::new(matrix.values, n1);
                 m.transpose();
             });
 
-            wavelet_transform_batch(values, n2);
-            values.par_row_chunks_exact_mut(n1 * n2).for_each(|matrix| {
+            wavelet_transform_batch(mat, n2);
+            mat.par_row_chunks_exact_mut(n1 * n2).for_each(|matrix| {
                 let mut m = RowMajorMatrixViewMut::new(matrix.values, n2);
                 m.transpose();
             });
