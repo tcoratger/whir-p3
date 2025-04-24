@@ -43,7 +43,6 @@ where
     /// ```ignore
     /// evaluations[i] = h(x_1, x_2, ..., x_n)  where (x_1, ..., x_n) ∈ {0,1,2}^n
     /// ```
-    #[allow(clippy::missing_const_for_fn)]
     pub fn evaluations(&self) -> &[F] {
         &self.evaluations
     }

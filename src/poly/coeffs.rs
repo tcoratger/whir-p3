@@ -205,7 +205,6 @@ impl<F> CoefficientList<F> {
     }
 
     /// Returns a reference to the stored coefficients.
-    #[allow(clippy::missing_const_for_fn)]
     pub fn coeffs(&self) -> &[F] {
         &self.coeffs
     }
