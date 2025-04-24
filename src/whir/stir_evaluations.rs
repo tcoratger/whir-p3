@@ -128,14 +128,16 @@ mod tests {
 
     use super::*;
 
+    type F = BabyBear;
+
     #[test]
     fn test_stir_eval_prover_helps_basic() {
         // A degree-2 multilinear polynomial over two variables:
         // f(x, y) = 1 + 2y + 3x + 4xy
-        let c0 = BabyBear::from_u64(1);
-        let c1 = BabyBear::from_u64(2);
-        let c2 = BabyBear::from_u64(3);
-        let c3 = BabyBear::from_u64(4);
+        let c0 = F::from_u64(1);
+        let c1 = F::from_u64(2);
+        let c2 = F::from_u64(3);
+        let c3 = F::from_u64(4);
 
         let coeffs = vec![
             c0, // f(0,0)
@@ -145,8 +147,8 @@ mod tests {
         ];
 
         // Evaluate at point (5, 6)
-        let r0 = BabyBear::from_u64(5);
-        let r1 = BabyBear::from_u64(6);
+        let r0 = F::from_u64(5);
+        let r1 = F::from_u64(6);
         let r = MultilinearPoint(vec![r0, r1]);
 
         // f(r0, r1)
@@ -165,11 +167,11 @@ mod tests {
     #[test]
     fn test_stir_eval_prover_helps_single_variable() {
         // A single-variable linear polynomial: f(x) = 2 + 5x
-        let c0 = BabyBear::from_u64(2);
-        let c1 = BabyBear::from_u64(5);
+        let c0 = F::from_u64(2);
+        let c1 = F::from_u64(5);
         let coeffs = vec![c0, c1];
 
-        let r0 = BabyBear::from_u64(3);
+        let r0 = F::from_u64(3);
         let r = MultilinearPoint(vec![r0]); // Evaluate at x = 3
 
         let expected = c0 + c1 * r0;
@@ -186,12 +188,8 @@ mod tests {
     #[test]
     fn test_stir_eval_prover_helps_zero_polynomial() {
         // Zero polynomial of any degree should evaluate to zero at any point
-        let coeffs = vec![BabyBear::ZERO; 8];
-        let r = MultilinearPoint(vec![
-            BabyBear::from_u64(10),
-            BabyBear::from_u64(20),
-            BabyBear::from_u64(30),
-        ]);
+        let coeffs = vec![F::ZERO; 8];
+        let r = MultilinearPoint(vec![F::from_u64(10), F::from_u64(20), F::from_u64(30)]);
 
         let mut evals = Vec::new();
         let context = StirEvalContext::ProverHelps {
@@ -199,16 +197,16 @@ mod tests {
         };
         context.evaluate(&[coeffs], &mut evals);
 
-        assert_eq!(evals, vec![BabyBear::ZERO]);
+        assert_eq!(evals, vec![F::ZERO]);
     }
 
     #[test]
     fn test_stir_eval_prover_helps_multiple_points() {
         // Test several different coefficient sets with same randomness
-        let coeffs1 = vec![BabyBear::from_u64(1), BabyBear::from_u64(0)]; // f(x) = 1
-        let coeffs2 = vec![BabyBear::from_u64(0), BabyBear::from_u64(1)]; // f(x) = x
+        let coeffs1 = vec![F::from_u64(1), F::from_u64(0)]; // f(x) = 1
+        let coeffs2 = vec![F::from_u64(0), F::from_u64(1)]; // f(x) = x
 
-        let r = MultilinearPoint(vec![BabyBear::from_u64(7)]); // Evaluate at x = 7
+        let r = MultilinearPoint(vec![F::from_u64(7)]); // Evaluate at x = 7
 
         let mut evals = Vec::new();
         let context = StirEvalContext::ProverHelps {
@@ -217,14 +215,14 @@ mod tests {
         context.evaluate(&[coeffs1, coeffs2], &mut evals);
 
         // f1(7) = 1, f2(7) = 7
-        assert_eq!(evals, vec![BabyBear::from_u64(1), BabyBear::from_u64(7)]);
+        assert_eq!(evals, vec![F::from_u64(1), F::from_u64(7)]);
     }
 
     #[test]
     fn test_stir_eval_naive_single_variable() {
         // A multilinear polynomial with one variable: f(x) = 2 + 3x
-        let f0 = BabyBear::from_u64(2); // f(0)
-        let f1 = BabyBear::from_u64(5); // f(1)
+        let f0 = F::from_u64(2); // f(0)
+        let f1 = F::from_u64(5); // f(1)
         let answers = vec![vec![f0, f1]];
 
         // We will fold over this coset using folding_factor = 1
@@ -233,14 +231,14 @@ mod tests {
 
         // Domain size must be a multiple of 2^folding_factor
         let domain_size = 2;
-        let domain_gen = BabyBear::from_u64(7);
+        let domain_gen = F::from_u64(7);
         let domain_gen_inv = domain_gen.inverse();
 
         // Only one index = 1 → offset = domain_gen^1 = 7 → offset⁻¹ = domain_gen_inv
         let stir_challenges_indexes = [1];
 
         // Folding randomness `r = [4]`
-        let r = BabyBear::from_u64(4);
+        let r = F::from_u64(4);
         let folding_randomness = MultilinearPoint(vec![r]);
 
         // Manually compute expected using the fold formula:
