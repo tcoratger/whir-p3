@@ -65,119 +65,103 @@ mod tests {
 
     use super::*;
 
+    type F = BabyBear;
+
     #[test]
     fn test_zero_polynomial() {
         // A zero polynomial has no coefficients
-        let poly = WhirDensePolynomial::<BabyBear>::from_coefficients_vec(vec![]);
+        let poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![]);
         assert!(poly.is_zero());
-        assert_eq!(poly.evaluate(&BabyBear::from_u64(42)), BabyBear::ZERO);
+        assert_eq!(poly.evaluate(&F::from_u64(42)), F::ZERO);
     }
 
     #[test]
     fn test_constant_polynomial() {
         // Polynomial: f(x) = 7
-        let c0 = BabyBear::from_u64(7);
+        let c0 = F::from_u64(7);
         let poly = WhirDensePolynomial::from_coefficients_vec(vec![c0]);
 
         // f(0)
-        assert_eq!(poly.evaluate(&BabyBear::ZERO), c0);
+        assert_eq!(poly.evaluate(&F::ZERO), c0);
         // f(1)
-        assert_eq!(poly.evaluate(&BabyBear::ONE), c0);
+        assert_eq!(poly.evaluate(&F::ONE), c0);
         // f(42)
-        assert_eq!(poly.evaluate(&BabyBear::from_u64(42)), c0);
+        assert_eq!(poly.evaluate(&F::from_u64(42)), c0);
     }
 
     #[test]
     fn test_linear_polynomial() {
         // Polynomial: f(x) = 3 + 4x
-        let c0 = BabyBear::from_u64(3);
-        let c1 = BabyBear::from_u64(4);
+        let c0 = F::from_u64(3);
+        let c1 = F::from_u64(4);
         let poly = WhirDensePolynomial::from_coefficients_vec(vec![c0, c1]);
 
         // f(0)
-        assert_eq!(poly.evaluate(&BabyBear::ZERO), c0);
+        assert_eq!(poly.evaluate(&F::ZERO), c0);
         // f(1)
-        assert_eq!(poly.evaluate(&BabyBear::ONE), c0 + c1 * BabyBear::ONE);
+        assert_eq!(poly.evaluate(&F::ONE), c0 + c1 * F::ONE);
         // f(2)
-        assert_eq!(
-            poly.evaluate(&BabyBear::from_u64(2)),
-            c0 + c1 * BabyBear::from_u64(2)
-        );
+        assert_eq!(poly.evaluate(&F::from_u64(2)), c0 + c1 * F::from_u64(2));
     }
 
     #[test]
     fn test_quadratic_polynomial() {
         // Polynomial: f(x) = 2 + 0x + 5x²
-        let c0 = BabyBear::from_u64(2);
-        let c1 = BabyBear::from_u64(0);
-        let c2 = BabyBear::from_u64(5);
+        let c0 = F::from_u64(2);
+        let c1 = F::from_u64(0);
+        let c2 = F::from_u64(5);
         let poly = WhirDensePolynomial::from_coefficients_vec(vec![c0, c1, c2]);
 
         // f(0)
-        assert_eq!(poly.evaluate(&BabyBear::ZERO), c0);
+        assert_eq!(poly.evaluate(&F::ZERO), c0);
         // f(1)
-        assert_eq!(poly.evaluate(&BabyBear::ONE), c0 + c2);
+        assert_eq!(poly.evaluate(&F::ONE), c0 + c2);
         // f(2)
-        assert_eq!(
-            poly.evaluate(&BabyBear::from_u64(2)),
-            c0 + c2 * BabyBear::from_u64(4)
-        );
+        assert_eq!(poly.evaluate(&F::from_u64(2)), c0 + c2 * F::from_u64(4));
     }
 
     #[test]
     fn test_cubic_polynomial() {
         // Polynomial: f(x) = 1 + 2x + 3x² + 4x³
-        let c0 = BabyBear::from_u64(1);
-        let c1 = BabyBear::from_u64(2);
-        let c2 = BabyBear::from_u64(3);
-        let c3 = BabyBear::from_u64(4);
+        let c0 = F::from_u64(1);
+        let c1 = F::from_u64(2);
+        let c2 = F::from_u64(3);
+        let c3 = F::from_u64(4);
         let poly = WhirDensePolynomial::from_coefficients_vec(vec![c0, c1, c2, c3]);
 
         // f(0)
-        assert_eq!(poly.evaluate(&BabyBear::ZERO), c0);
+        assert_eq!(poly.evaluate(&F::ZERO), c0);
         // f(1)
-        assert_eq!(poly.evaluate(&BabyBear::ONE), c0 + c1 + c2 + c3);
+        assert_eq!(poly.evaluate(&F::ONE), c0 + c1 + c2 + c3);
 
         // f(2)
         assert_eq!(
-            poly.evaluate(&BabyBear::from_u64(2)),
-            c0 + c1 * BabyBear::from_u64(2)
-                + c2 * BabyBear::from_u64(4)
-                + c3 * BabyBear::from_u64(8)
+            poly.evaluate(&F::from_u64(2)),
+            c0 + c1 * F::from_u64(2) + c2 * F::from_u64(4) + c3 * F::from_u64(8)
         );
     }
 
     #[test]
     fn test_leading_zeros_trimmed() {
         // Polynomial: f(x) = 1 + 2x, with trailing zeroes
-        let c0 = BabyBear::from_u64(1);
-        let c1 = BabyBear::from_u64(2);
-        let poly = WhirDensePolynomial::from_coefficients_vec(vec![
-            c0,
-            c1,
-            BabyBear::ZERO,
-            BabyBear::ZERO,
-        ]);
+        let c0 = F::from_u64(1);
+        let c1 = F::from_u64(2);
+        let poly = WhirDensePolynomial::from_coefficients_vec(vec![c0, c1, F::ZERO, F::ZERO]);
 
         // Should be trimmed to degree 1
         assert_eq!(poly.coeffs.len(), 2);
-        assert_eq!(
-            poly.evaluate(&BabyBear::from_u64(3)),
-            c0 + c1 * BabyBear::from_u64(3)
-        );
+        assert_eq!(poly.evaluate(&F::from_u64(3)), c0 + c1 * F::from_u64(3));
     }
 
     #[test]
     fn test_is_zero_various_cases() {
-        let zero_poly = WhirDensePolynomial::<BabyBear>::from_coefficients_vec(vec![]);
+        let zero_poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![]);
         assert!(zero_poly.is_zero());
 
-        let zero_poly_all_zeros =
-            WhirDensePolynomial::<BabyBear>::from_coefficients_vec(vec![BabyBear::ZERO; 5]);
+        let zero_poly_all_zeros = WhirDensePolynomial::<F>::from_coefficients_vec(vec![F::ZERO; 5]);
         assert!(zero_poly_all_zeros.is_zero());
 
-        let non_zero_poly =
-            WhirDensePolynomial::<BabyBear>::from_coefficients_vec(vec![BabyBear::ONE]);
+        let non_zero_poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![F::ONE]);
         assert!(!non_zero_poly.is_zero());
     }
 }
