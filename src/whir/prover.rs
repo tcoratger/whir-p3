@@ -312,31 +312,28 @@ where
         let combination_randomness =
             expand_randomness(combination_randomness_gen, stir_challenges.len());
 
-        #[allow(clippy::map_unwrap_or)]
-        let mut sumcheck_prover = round_state
-            .sumcheck_prover
-            .take()
-            .map(|mut sumcheck_prover| {
+        let mut sumcheck_prover =
+            if let Some(mut sumcheck_prover) = round_state.sumcheck_prover.take() {
                 sumcheck_prover.add_new_equality(
                     &stir_challenges,
                     &stir_evaluations,
                     &combination_randomness,
                 );
                 sumcheck_prover
-            })
-            .unwrap_or_else(|| {
+            } else {
                 let mut statement = Statement::new(folded_coefficients.num_variables());
 
                 for (point, eval) in stir_challenges.into_iter().zip(stir_evaluations) {
                     let weights = Weights::evaluation(point);
                     statement.add_constraint(weights, eval);
                 }
+
                 SumcheckSingle::from_extension_coeffs(
                     folded_coefficients.clone(),
                     &statement,
                     combination_randomness[1],
                 )
-            });
+            };
 
         let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS>(
             prover_state,
