@@ -105,56 +105,55 @@ mod tests {
 
     use super::*;
 
+    type F = BabyBear;
+
     #[test]
     fn test_domain_creation() {
-        let domain = Radix2EvaluationDomain::<BabyBear>::new(8).unwrap();
+        let domain = Radix2EvaluationDomain::<F>::new(8).unwrap();
         assert_eq!(domain.size(), 8);
         assert_eq!(domain.log_size_of_group, 3);
     }
 
     #[test]
     fn test_invalid_domain() {
-        // BabyBear has TWO_ADICITY = 27, so we ensure that we test an invalid size
+        // F has TWO_ADICITY = 27, so we ensure that we test an invalid size
         // that exceeds the maximum power-of-2 allowed.
-        let invalid_size = 1 << (BabyBear::TWO_ADICITY + 1); // 2^(27+1)
-        assert!(Radix2EvaluationDomain::<BabyBear>::new(invalid_size).is_none());
+        let invalid_size = 1 << (F::TWO_ADICITY + 1); // 2^(27+1)
+        assert!(Radix2EvaluationDomain::<F>::new(invalid_size).is_none());
     }
 
     #[test]
     fn test_root_of_unity() {
-        let domain = Radix2EvaluationDomain::<BabyBear>::new(8).unwrap();
+        let domain = Radix2EvaluationDomain::<F>::new(8).unwrap();
         let root = domain.group_gen();
 
         let expected = root.exp_u64(8);
-        assert_eq!(expected, BabyBear::ONE);
+        assert_eq!(expected, F::ONE);
     }
 
     #[test]
     fn test_size_conversion() {
-        let domain = Radix2EvaluationDomain::<BabyBear>::new(16).unwrap();
+        let domain = Radix2EvaluationDomain::<F>::new(16).unwrap();
         assert_eq!(domain.size(), 16);
     }
 
     #[test]
     fn test_group_gen_inverse() {
-        let domain = Radix2EvaluationDomain::<BabyBear>::new(16).unwrap();
-        assert_eq!(domain.group_gen() * domain.group_gen_inv(), BabyBear::ONE);
+        let domain = Radix2EvaluationDomain::<F>::new(16).unwrap();
+        assert_eq!(domain.group_gen() * domain.group_gen_inv(), F::ONE);
     }
 
     #[test]
     fn test_size_inv() {
-        let domain = Radix2EvaluationDomain::<BabyBear>::new(16).unwrap();
-        assert_eq!(
-            domain.size_as_field_element * domain.size_inv(),
-            BabyBear::ONE
-        );
+        let domain = Radix2EvaluationDomain::<F>::new(16).unwrap();
+        assert_eq!(domain.size_as_field_element * domain.size_inv(), F::ONE);
     }
 
     #[test]
     fn test_coset_offset() {
-        let domain = Radix2EvaluationDomain::<BabyBear>::new(16).unwrap();
-        assert_eq!(domain.coset_offset(), BabyBear::ONE);
-        assert_eq!(domain.coset_offset_inv(), BabyBear::ONE);
-        assert_eq!(domain.coset_offset_pow_size(), BabyBear::ONE);
+        let domain = Radix2EvaluationDomain::<F>::new(16).unwrap();
+        assert_eq!(domain.coset_offset(), F::ONE);
+        assert_eq!(domain.coset_offset_inv(), F::ONE);
+        assert_eq!(domain.coset_offset_pow_size(), F::ONE);
     }
 }
