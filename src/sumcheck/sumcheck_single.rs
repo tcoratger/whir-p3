@@ -102,7 +102,7 @@ where
         }
     }
 
-    /// Constructs a new `SumcheckSingle` instance from polynomial coefficients in base field.
+    /// Constructs a new `SumcheckSingle` instance from polynomial coefficients in extension field.
     ///
     /// This function:
     /// - Converts `coeffs` into evaluation form.
