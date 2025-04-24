@@ -15,7 +15,7 @@ pub mod writer;
 #[derive(Debug)]
 pub struct Witness<EF: ExtensionField<F>, F: Field, const DIGEST_ELEMS: usize> {
     /// The committed polynomial in coefficient form.
-    pub polynomial: CoefficientList<EF>,
+    pub polynomial: CoefficientList<F>,
     /// Prover data of the Merkle tree.
     pub prover_data: MerkleTree<F, u8, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>,
     /// Out-of-domain challenge points used for polynomial verification.
