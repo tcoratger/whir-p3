@@ -1677,8 +1677,8 @@ mod tests {
                 .collect();
 
             //  Wrap both coefficient representations
-            let base_cl = CoefficientList::new(coeffs.clone());
-            let ext_cl = CoefficientList::new(coeffs_ext.clone());
+            let base_cl = CoefficientList::new(coeffs);
+            let ext_cl = CoefficientList::new(coeffs_ext);
 
             // Determine how many variables exist (log₂ of length)
             let n_vars = base_cl.num_variables();
