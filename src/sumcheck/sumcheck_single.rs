@@ -5,44 +5,14 @@ use rayon::prelude::*;
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
-    poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::{
+        coeffs::CoefficientList,
+        evals::{EvaluationStorage, EvaluationsList},
+        multilinear::MultilinearPoint,
+    },
     utils::eval_eq,
     whir::statement::Statement,
 };
-
-/// A wrapper enum that holds evaluation data for a multilinear polynomial,
-/// either over the base field `F` or an extension field `EF`.
-///
-/// This abstraction allows operating generically on both base and extension
-/// field evaluations, as used in sumcheck protocols and other polynomial
-/// computations.
-#[derive(Debug, Clone)]
-enum EvaluationStorage<F, EF> {
-    /// Evaluation data over the base field `F`.
-    Base(EvaluationsList<F>),
-    /// Evaluation data over the extension field `EF`.
-    Extension(EvaluationsList<EF>),
-}
-
-impl<F, EF> EvaluationStorage<F, EF>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    /// Returns the number of variables in the stored evaluation list.
-    ///
-    /// This corresponds to the logarithm base 2 of the number of evaluation points.
-    /// It is assumed that the number of evaluations is a power of two.
-    ///
-    /// # Returns
-    /// - `usize`: The number of input variables of the underlying multilinear polynomial.
-    const fn num_variables(&self) -> usize {
-        match self {
-            Self::Base(evals) => evals.num_variables(),
-            Self::Extension(evals) => evals.num_variables(),
-        }
-    }
-}
 
 /// Implements the single-round sumcheck protocol for verifying a multilinear polynomial evaluation.
 ///

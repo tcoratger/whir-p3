@@ -1,8 +1,42 @@
 use std::ops::Index;
 
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 
 use super::{lagrange_iterator::LagrangePolynomialIterator, multilinear::MultilinearPoint};
+
+/// A wrapper enum that holds evaluation data for a multilinear polynomial,
+/// either over the base field `F` or an extension field `EF`.
+///
+/// This abstraction allows operating generically on both base and extension
+/// field evaluations, as used in sumcheck protocols and other polynomial
+/// computations.
+#[derive(Debug, Clone)]
+pub(crate) enum EvaluationStorage<F, EF> {
+    /// Evaluation data over the base field `F`.
+    Base(EvaluationsList<F>),
+    /// Evaluation data over the extension field `EF`.
+    Extension(EvaluationsList<EF>),
+}
+
+impl<F, EF> EvaluationStorage<F, EF>
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    /// Returns the number of variables in the stored evaluation list.
+    ///
+    /// This corresponds to the logarithm base 2 of the number of evaluation points.
+    /// It is assumed that the number of evaluations is a power of two.
+    ///
+    /// # Returns
+    /// - `usize`: The number of input variables of the underlying multilinear polynomial.
+    pub(crate) const fn num_variables(&self) -> usize {
+        match self {
+            Self::Base(evals) => evals.num_variables(),
+            Self::Extension(evals) => evals.num_variables(),
+        }
+    }
+}
 
 /// Represents a multilinear polynomial `f` in `num_variables` unknowns, stored via its evaluations
 /// over the hypercube `{0,1}^{num_variables}`.
