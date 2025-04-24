@@ -453,7 +453,8 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use proptest::prelude::*;
 
     use super::*;
     use crate::{
@@ -1545,5 +1546,119 @@ mod tests {
 
         // 8 points = 3 variables (log2(8) = 3)
         assert_eq!(storage.num_variables(), 3);
+    }
+
+    proptest! {
+
+        #[test]
+        fn prop_compute_sumcheck_polynomial_consistency(
+            // Ensure at least 8 base coefficients (2 EF4 elements)
+            raw_coeffs in prop::collection::vec(0u64..F::ORDER_U64, 8..=64)
+                .prop_filter("len must be power of two and at least 8", |v| v.len().is_power_of_two()),
+
+            // Random coefficients to form a true EF4 combination randomness
+            rand_scalars in prop::array::uniform4(0u64..F::ORDER_U64),
+        ) {
+            // Convert u64s into base field elements
+            let coeffs: Vec<F> = raw_coeffs.iter().map(|&x| F::from_u64(x)).collect();
+
+            // Convert base field coeffs into true EF4 elements (4 base elems → 1 EF4)
+            let coeffs_ext: Vec<EF4> = coeffs
+                .chunks_exact(4)
+                .map(|chunk| {
+                    let basis = [chunk[0], chunk[1], chunk[2], chunk[3]];
+                    EF4::from_basis_coefficients_iter(basis.into_iter()).unwrap()
+                })
+                .collect();
+
+            // Build coefficient lists
+            let base_cl = CoefficientList::new(coeffs.clone());
+            let ext_cl = CoefficientList::new(coeffs_ext.clone());
+
+            // Determine number of variables (log₂(length))
+            let n_vars = base_cl.num_variables();
+            prop_assume!(n_vars >= 1); // Safeguard for edge cases
+
+            // Build empty constraint system
+            let statement = Statement::new(n_vars);
+
+            // Construct random combination EF4 element from 4 base values
+            let combination_randomness = EF4::from_basis_coefficients_iter(
+                rand_scalars.map(F::from_u64).into_iter()
+            ).unwrap();
+
+            // Initialize sumcheck provers for both base and extension representations
+            let base_prover = SumcheckSingle::<F, EF4>::from_base_coeffs(base_cl, &statement, combination_randomness);
+            let ext_prover = SumcheckSingle::<F, EF4>::from_extension_coeffs(ext_cl, &statement, combination_randomness);
+
+            // Compute the sumcheck polynomial in both cases
+            let poly_base = base_prover.compute_sumcheck_polynomial();
+            let poly_ext = ext_prover.compute_sumcheck_polynomial();
+
+            // Assert consistency between both representations
+            prop_assert_eq!(poly_base.evaluations(), poly_ext.evaluations());
+        }
+
+        #[test]
+        fn prop_compress_consistency(
+            // Generate a longer list (at least 4, and power of two) for testing compression
+            raw_coeffs in prop::collection::vec(0u64..F::ORDER_U64, 4_usize..=64)
+                .prop_filter("len must be power of two and >= 4", |v| v.len().is_power_of_two() && v.len() >= 4),
+            // Random folding randomness value
+            fold_scalar in 0u64..F::ORDER_U64,
+            // Random scalar for compression scaling
+            rand_scalar in 0u64..F::ORDER_U64,
+            // Random scalar for combination randomness
+            combo_scalar in 0u64..F::ORDER_U64,
+        ) {
+            // Convert to base and extension field representations
+            let coeffs: Vec<F> = raw_coeffs.iter().map(|&x| F::from_u64(x)).collect();
+            let coeffs_ext: Vec<EF4> = coeffs.iter().copied().map(EF4::from).collect();
+
+            // Wrap as coefficient lists
+            let base_cl = CoefficientList::new(coeffs.clone());
+            let ext_cl = CoefficientList::new(coeffs_ext.clone());
+
+            // Determine number of variables
+            let n_vars = base_cl.num_variables();
+
+            // Create a dummy statement (no constraints)
+            let statement = Statement::new(n_vars);
+
+            // Use a random combination randomness for initializing the provers
+            let init_randomness = EF4::from(F::from_u64(combo_scalar));
+            let mut base_prover = SumcheckSingle::<F, EF4>::from_base_coeffs(base_cl, &statement, init_randomness);
+            let mut ext_prover = SumcheckSingle::<F, EF4>::from_extension_coeffs(ext_cl, &statement, init_randomness);
+
+            // Construct folding point and compression randomness
+            let fold_point = MultilinearPoint(vec![EF4::from(F::from_u64(fold_scalar))]);
+            let combination_randomness = EF4::from(F::from_u64(rand_scalar));
+
+            // Compute the sumcheck polynomials for both
+            let poly_base = base_prover.compute_sumcheck_polynomial();
+            let poly_ext = ext_prover.compute_sumcheck_polynomial();
+
+            // Apply compression step to both provers
+            base_prover.compress(combination_randomness, &fold_point, &poly_base);
+            ext_prover.compress(combination_randomness, &fold_point, &poly_ext);
+
+            // Assert that the sum is identical post-compression
+            prop_assert_eq!(base_prover.sum, ext_prover.sum);
+
+            // Assert that the evaluations match
+            prop_assert_eq!(
+                match base_prover.evaluation_of_p {
+                    EvaluationStorage::Extension(ref evals_b) => evals_b.evals(),
+                    _ => panic!("Expected extension evaluations"),
+                },
+                match ext_prover.evaluation_of_p {
+                    EvaluationStorage::Extension(ref evals_e) => evals_e.evals(),
+                    _ => panic!("Expected extension evaluations"),
+                }
+            );
+
+            // Assert that the weights match
+            prop_assert_eq!(base_prover.weights.evals(), ext_prover.weights.evals());
+        }
     }
 }
