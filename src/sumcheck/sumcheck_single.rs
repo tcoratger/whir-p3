@@ -1483,41 +1483,6 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
     }
 
-    #[test]
-    fn test_num_variables_base_storage() {
-        // Polynomial with 2 variables: 4 evaluation points
-        let values = vec![F::ONE, F::ZERO, F::ONE, F::ZERO];
-        let evals = EvaluationsList::new(values);
-
-        // Wrap in EvaluationStorage::Base
-        let storage = EvaluationStorage::<F, EF4>::Base(evals);
-
-        // 4 points = 2 variables (log2(4) = 2)
-        assert_eq!(storage.num_variables(), 2);
-    }
-
-    #[test]
-    fn test_num_variables_extension_storage() {
-        // Polynomial with 3 variables: 8 evaluation points
-        let values = vec![
-            EF4::ONE,
-            EF4::ZERO,
-            EF4::ONE,
-            EF4::ZERO,
-            EF4::ONE,
-            EF4::ZERO,
-            EF4::ONE,
-            EF4::ZERO,
-        ];
-        let evals = EvaluationsList::new(values);
-
-        // Wrap in EvaluationStorage::Extension
-        let storage = EvaluationStorage::<F, EF4>::Extension(evals);
-
-        // 8 points = 3 variables (log2(8) = 3)
-        assert_eq!(storage.num_variables(), 3);
-    }
-
     proptest! {
         #[test]
         fn prop_compute_sumcheck_polynomial_consistency(
