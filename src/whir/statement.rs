@@ -82,7 +82,7 @@ impl<F: Field> Weights<F> {
                     poly.evals()
                         .iter()
                         .zip(weight.evals().iter())
-                        .map(|(p, w)| *p * *w)
+                        .map(|(p, w)| *w * *p)
                         .sum()
                 }
                 #[cfg(feature = "parallel")]
