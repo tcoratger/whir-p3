@@ -551,7 +551,7 @@ mod tests {
         ) {
             // Base field evaluations
             let coeffs_f: Vec<F> = values.iter().copied().map(F::from_u64).collect();
-            let poly_f = EvaluationsList::new(coeffs_f.clone());
+            let poly_f = EvaluationsList::new(coeffs_f);
 
             // Lift to extension field EF4
             let coeffs_ef: Vec<EF4> = values.iter().copied().map(EF4::from_u64).collect();
