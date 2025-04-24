@@ -125,15 +125,17 @@ mod tests {
 
     use super::*;
 
+    type F = BabyBear;
+
     #[test]
     fn test_lagrange_iterator_single_variable() {
-        let point = MultilinearPoint(vec![BabyBear::from_u64(3)]);
+        let point = MultilinearPoint(vec![F::from_u64(3)]);
         let mut iter = LagrangePolynomialIterator::from(&point);
 
         // Expected values: (0, 1 - p) and (1, p)
         assert_eq!(
             iter.next(),
-            Some((BinaryHypercubePoint(0), BabyBear::ONE - point.0[0]))
+            Some((BinaryHypercubePoint(0), F::ONE - point.0[0]))
         );
         assert_eq!(iter.next(), Some((BinaryHypercubePoint(1), point.0[0])));
         assert_eq!(iter.next(), None); // No more elements should be present
@@ -141,25 +143,22 @@ mod tests {
 
     #[test]
     fn test_lagrange_iterator_two_variables() {
-        let (a, b) = (BabyBear::from_u64(2), BabyBear::from_u64(3));
+        let (a, b) = (F::from_u64(2), F::from_u64(3));
         let point = MultilinearPoint(vec![a, b]);
         let mut iter = LagrangePolynomialIterator::from(&point);
 
         // Expected values based on binary enumeration (big-endian)
         assert_eq!(
             iter.next(),
-            Some((
-                BinaryHypercubePoint(0b00),
-                (BabyBear::ONE - a) * (BabyBear::ONE - b)
-            ))
+            Some((BinaryHypercubePoint(0b00), (F::ONE - a) * (F::ONE - b)))
         );
         assert_eq!(
             iter.next(),
-            Some((BinaryHypercubePoint(0b01), (BabyBear::ONE - a) * b))
+            Some((BinaryHypercubePoint(0b01), (F::ONE - a) * b))
         );
         assert_eq!(
             iter.next(),
-            Some((BinaryHypercubePoint(0b10), a * (BabyBear::ONE - b)))
+            Some((BinaryHypercubePoint(0b10), a * (F::ONE - b)))
         );
         assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b11), a * b)));
         assert_eq!(iter.next(), None);
@@ -167,93 +166,41 @@ mod tests {
 
     #[test]
     fn test_lagrange_iterator_all_zeros() {
-        let point = MultilinearPoint(vec![BabyBear::ZERO; 3]);
+        let point = MultilinearPoint(vec![F::ZERO; 3]);
         let mut iter = LagrangePolynomialIterator::from(&point);
 
         // Expect all outputs to be 1 when x is all zeros and 0 otherwise
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b000), BabyBear::ONE))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b001), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b010), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b011), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b100), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b101), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b110), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b111), BabyBear::ZERO))
-        );
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b000), F::ONE)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b001), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b010), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b011), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b100), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b101), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b110), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b111), F::ZERO)));
         assert_eq!(iter.next(), None);
     }
 
     #[test]
     fn test_lagrange_iterator_all_ones() {
-        let point = MultilinearPoint(vec![BabyBear::ONE; 3]);
+        let point = MultilinearPoint(vec![F::ONE; 3]);
         let mut iter = LagrangePolynomialIterator::from(&point);
 
         // Expect all outputs to be 1 when x is all ones and 0 otherwise
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b000), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b001), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b010), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b011), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b100), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b101), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b110), BabyBear::ZERO))
-        );
-        assert_eq!(
-            iter.next(),
-            Some((BinaryHypercubePoint(0b111), BabyBear::ONE))
-        );
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b000), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b001), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b010), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b011), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b100), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b101), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b110), F::ZERO)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0b111), F::ONE)));
         assert_eq!(iter.next(), None);
     }
 
     #[test]
     fn test_lagrange_iterator_mixed_values() {
-        let (a, b, c) = (
-            BabyBear::from_u64(2),
-            BabyBear::from_u64(3),
-            BabyBear::from_u64(4),
-        );
+        let (a, b, c) = (F::from_u64(2), F::from_u64(3), F::from_u64(4));
         let point = MultilinearPoint(vec![a, b, c]);
         let mut iter = LagrangePolynomialIterator::from(&point);
 
@@ -273,10 +220,10 @@ mod tests {
     #[test]
     fn test_lagrange_iterator_four_variables() {
         let point = MultilinearPoint(vec![
-            BabyBear::from_u64(1),
-            BabyBear::from_u64(2),
-            BabyBear::from_u64(3),
-            BabyBear::from_u64(4),
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(4),
         ]);
         let mut iter = LagrangePolynomialIterator::from(&point);
 
@@ -290,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_lagrange_iterator_correct_order() {
-        let point = MultilinearPoint(vec![BabyBear::from_u64(5), BabyBear::from_u64(7)]);
+        let point = MultilinearPoint(vec![F::from_u64(5), F::from_u64(7)]);
         let mut iter = LagrangePolynomialIterator::from(&point);
 
         // Expect values in **binary order**: 0b00, 0b01, 0b10, 0b11
@@ -308,7 +255,7 @@ mod tests {
     #[test]
     fn test_lagrange_iterator_output_count() {
         let num_vars = 5;
-        let point = MultilinearPoint(vec![BabyBear::from_u64(3); num_vars]);
+        let point = MultilinearPoint(vec![F::from_u64(3); num_vars]);
         let iter = LagrangePolynomialIterator::from(&point);
 
         // The iterator should yield exactly 2^num_vars elements
@@ -317,18 +264,18 @@ mod tests {
 
     #[test]
     fn test_lagrange_iterator_empty() {
-        let point = MultilinearPoint::<BabyBear>(vec![]);
+        let point = MultilinearPoint::<F>(vec![]);
         let mut iter = LagrangePolynomialIterator::from(&point);
 
         // Only a single output should be generated
-        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0), BabyBear::ONE)));
+        assert_eq!(iter.next(), Some((BinaryHypercubePoint(0), F::ONE)));
         assert_eq!(iter.next(), None);
     }
 
     #[test]
     fn test_blendy() {
-        let one = BabyBear::from_u64(1);
-        let (a, b) = (BabyBear::from_u64(2), BabyBear::from_u64(3));
+        let one = F::from_u64(1);
+        let (a, b) = (F::from_u64(2), F::from_u64(3));
         let point_1 = MultilinearPoint(vec![a, b]);
 
         let mut lag_iterator = LagrangePolynomialIterator::from(&point_1);
@@ -354,11 +301,7 @@ mod tests {
 
     #[test]
     fn test_blendy_2() {
-        let point = MultilinearPoint(vec![
-            BabyBear::from_u64(12),
-            BabyBear::from_u64(13),
-            BabyBear::from_u64(32),
-        ]);
+        let point = MultilinearPoint(vec![F::from_u64(12), F::from_u64(13), F::from_u64(32)]);
 
         let mut last_b = None;
         for (b, lag) in LagrangePolynomialIterator::from(&point) {
@@ -372,11 +315,11 @@ mod tests {
     #[test]
     fn test_blendy_3() {
         let point = MultilinearPoint(vec![
-            BabyBear::from_u64(414_151),
-            BabyBear::from_u64(109_849_018),
-            BabyBear::from_u64(33_184_190),
-            BabyBear::from_u64(33_184_190),
-            BabyBear::from_u64(33_184_190),
+            F::from_u64(414_151),
+            F::from_u64(109_849_018),
+            F::from_u64(33_184_190),
+            F::from_u64(33_184_190),
+            F::from_u64(33_184_190),
         ]);
 
         let mut last_b = None;
