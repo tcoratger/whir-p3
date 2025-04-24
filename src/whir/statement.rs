@@ -1,4 +1,4 @@
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -69,7 +69,11 @@ impl<F: Field> Weights<F> {
     ///
     /// **Precondition:**
     /// If `self` is in linear mode, `poly.num_variables()` must match `weight.num_variables()`.
-    pub fn weighted_sum(&self, poly: &EvaluationsList<F>) -> F {
+    pub fn weighted_sum<BF>(&self, poly: &EvaluationsList<BF>) -> F
+    where
+        BF: Field,
+        F: ExtensionField<BF>,
+    {
         match self {
             Self::Linear { weight } => {
                 assert_eq!(poly.num_variables(), weight.num_variables());
@@ -78,7 +82,7 @@ impl<F: Field> Weights<F> {
                     poly.evals()
                         .iter()
                         .zip(weight.evals().iter())
-                        .map(|(p, w)| *p * *w)
+                        .map(|(p, w)| *w * *p)
                         .sum()
                 }
                 #[cfg(feature = "parallel")]
@@ -86,7 +90,7 @@ impl<F: Field> Weights<F> {
                     poly.evals()
                         .par_iter()
                         .zip(weight.evals().par_iter())
-                        .map(|(p, w)| *p * *w)
+                        .map(|(p, w)| *w * *p)
                         .sum()
                 }
             }
@@ -399,14 +403,18 @@ impl<F: Field> StatementVerifier<F> {
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_field::PrimeCharacteristicRing;
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use proptest::prelude::*;
 
     use super::*;
+
+    type F = BabyBear;
+    type EF4 = BinomialExtensionField<F, 4>;
 
     #[test]
     fn test_weights_evaluation() {
         // Define a point in the multilinear space
-        let point = MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO]);
+        let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
         let weight = Weights::evaluation(point);
 
         // The number of variables in the weight should match the number of variables in the point
@@ -416,12 +424,7 @@ mod tests {
     #[test]
     fn test_weights_linear() {
         // Define a list of evaluation values
-        let evals = EvaluationsList::new(vec![
-            BabyBear::ONE,
-            BabyBear::TWO,
-            BabyBear::from_u64(3),
-            BabyBear::from_u64(3),
-        ]);
+        let evals = EvaluationsList::new(vec![F::ONE, F::TWO, F::from_u64(3), F::from_u64(3)]);
         let weight = Weights::linear(evals);
 
         // The number of variables in the weight should match the number of variables in evals
@@ -431,12 +434,12 @@ mod tests {
     #[test]
     fn test_weighted_sum_evaluation() {
         // Define polynomial evaluations at different points
-        let e0 = BabyBear::from_u64(3);
-        let e1 = BabyBear::from_u64(5);
+        let e0 = F::from_u64(3);
+        let e1 = F::from_u64(5);
         let evals = EvaluationsList::new(vec![e0, e1]);
 
         // Define an evaluation weight at a specific point
-        let point = MultilinearPoint(vec![BabyBear::ONE]);
+        let point = MultilinearPoint(vec![F::ONE]);
         let weight = Weights::evaluation(point);
 
         // Expected result: polynomial evaluation at the given point
@@ -448,13 +451,13 @@ mod tests {
     #[test]
     fn test_weighted_sum_linear() {
         // Define polynomial evaluations
-        let e0 = BabyBear::ONE;
-        let e1 = BabyBear::TWO;
+        let e0 = F::ONE;
+        let e1 = F::TWO;
         let evals = EvaluationsList::new(vec![e0, e1]);
 
         // Define linear weights
-        let w0 = BabyBear::TWO;
-        let w1 = BabyBear::from_u64(3);
+        let w0 = F::TWO;
+        let w1 = F::from_u64(3);
         let weight_list = EvaluationsList::new(vec![w0, w1]);
         let weight = Weights::linear(weight_list);
 
@@ -471,16 +474,16 @@ mod tests {
     #[test]
     fn test_accumulate_linear() {
         // Initialize an empty accumulator
-        let mut accumulator = EvaluationsList::new(vec![BabyBear::ZERO, BabyBear::ZERO]);
+        let mut accumulator = EvaluationsList::new(vec![F::ZERO, F::ZERO]);
 
         // Define weights
-        let w0 = BabyBear::from_u64(2);
-        let w1 = BabyBear::from_u64(3);
+        let w0 = F::from_u64(2);
+        let w1 = F::from_u64(3);
         let weight_list = EvaluationsList::new(vec![w0, w1]);
         let weight = Weights::linear(weight_list);
 
         // Define a multiplication factor
-        let factor = BabyBear::from_u64(4);
+        let factor = F::from_u64(4);
 
         // Accumulate weighted values
         weight.accumulate(&mut accumulator, factor);
@@ -501,20 +504,20 @@ mod tests {
     #[test]
     fn test_accumulate_evaluation() {
         // Initialize an empty accumulator
-        let mut accumulator = EvaluationsList::new(vec![BabyBear::ZERO, BabyBear::ZERO]);
+        let mut accumulator = EvaluationsList::new(vec![F::ZERO, F::ZERO]);
 
         // Define an evaluation point
-        let point = MultilinearPoint(vec![BabyBear::ONE]);
+        let point = MultilinearPoint(vec![F::ONE]);
         let weight = Weights::evaluation(point.clone());
 
         // Define a multiplication factor
-        let factor = BabyBear::from_u64(5);
+        let factor = F::from_u64(5);
 
         // Accumulate weighted values
         weight.accumulate(&mut accumulator, factor);
 
         // Compute expected result manually
-        let mut expected = vec![BabyBear::ZERO, BabyBear::ZERO];
+        let mut expected = vec![F::ZERO, F::ZERO];
         eval_eq(&point.0, &mut expected, factor);
 
         assert_eq!(accumulator.evals(), &expected);
@@ -526,17 +529,17 @@ mod tests {
         let mut statement = Statement::new(1);
 
         // Define weights
-        let w0 = BabyBear::from_u64(3);
-        let w1 = BabyBear::from_u64(5);
+        let w0 = F::from_u64(3);
+        let w1 = F::from_u64(5);
         let weight_list = EvaluationsList::new(vec![w0, w1]);
         let weight = Weights::linear(weight_list);
 
         // Define sum constraint
-        let sum = BabyBear::from_u64(7);
+        let sum = F::from_u64(7);
         statement.add_constraint(weight, sum);
 
         // Define a challenge factor
-        let challenge = BabyBear::from_u64(2);
+        let challenge = F::from_u64(2);
 
         // Compute combined evaluations and sum
         let (combined_evals, combined_sum) = statement.combine(challenge);
@@ -560,15 +563,15 @@ mod tests {
         let mut statement = Statement::new(2);
 
         // Define weights
-        let w0 = BabyBear::from_u64(3);
-        let w1 = BabyBear::from_u64(4);
-        let w2 = BabyBear::from_u64(5);
-        let w3 = BabyBear::from_u64(6);
+        let w0 = F::from_u64(3);
+        let w1 = F::from_u64(4);
+        let w2 = F::from_u64(5);
+        let w3 = F::from_u64(6);
         let weight_list = EvaluationsList::new(vec![w0, w1, w2, w3]);
         let weight = Weights::linear(weight_list);
 
         // Define sum constraint
-        let sum = BabyBear::from_u64(10);
+        let sum = F::from_u64(10);
         statement.add_constraint(weight, sum);
 
         // Convert statement to verifier format
@@ -587,24 +590,24 @@ mod tests {
         let mut statement = Statement::new(2);
 
         // Define weights for first constraint (2 variables => 4 evaluations)
-        let w0 = BabyBear::from_u64(1);
-        let w1 = BabyBear::from_u64(2);
-        let w2 = BabyBear::from_u64(3);
-        let w3 = BabyBear::from_u64(4);
+        let w0 = F::from_u64(1);
+        let w1 = F::from_u64(2);
+        let w2 = F::from_u64(3);
+        let w3 = F::from_u64(4);
         let weight_list1 = EvaluationsList::new(vec![w0, w1, w2, w3]);
         let weight1 = Weights::linear(weight_list1);
 
         // Define weights for second constraint (also 2 variables => 4 evaluations)
-        let w4 = BabyBear::from_u64(5);
-        let w5 = BabyBear::from_u64(6);
-        let w6 = BabyBear::from_u64(7);
-        let w7 = BabyBear::from_u64(8);
+        let w4 = F::from_u64(5);
+        let w5 = F::from_u64(6);
+        let w6 = F::from_u64(7);
+        let w7 = F::from_u64(8);
         let weight_list2 = EvaluationsList::new(vec![w4, w5, w6, w7]);
         let weight2 = Weights::linear(weight_list2);
 
         // Define sum constraints
-        let sum1 = BabyBear::from_u64(5);
-        let sum2 = BabyBear::from_u64(7);
+        let sum1 = F::from_u64(5);
+        let sum2 = F::from_u64(7);
 
         // Ensure both weight lists match the expected number of variables
         assert_eq!(weight1.num_variables(), 2);
@@ -615,7 +618,7 @@ mod tests {
         statement.add_constraint(weight2, sum2);
 
         // Define a challenge factor
-        let challenge = BabyBear::from_u64(2);
+        let challenge = F::from_u64(2);
 
         // Compute combined evaluations and sum
         let (combined_evals, combined_sum) = statement.combine(challenge);
@@ -646,11 +649,11 @@ mod tests {
     #[test]
     fn test_compute_evaluation_weight() {
         // Define an evaluation weight at a specific point
-        let point = MultilinearPoint(vec![BabyBear::from_u64(3)]);
+        let point = MultilinearPoint(vec![F::from_u64(3)]);
         let weight = VerifierWeights::evaluation(point.clone());
 
         // Define a randomness point for folding
-        let folding_randomness = MultilinearPoint(vec![BabyBear::from_u64(2)]);
+        let folding_randomness = MultilinearPoint(vec![F::from_u64(2)]);
 
         // Expected result is the evaluation of eq_poly_outside at the given randomness
         let expected = point.eq_poly_outside(&folding_randomness);
@@ -661,12 +664,11 @@ mod tests {
     #[test]
     fn test_compute_linear_weight_with_term() {
         // Define a linear weight with a precomputed term
-        let term = BabyBear::from_u64(7);
+        let term = F::from_u64(7);
         let weight = VerifierWeights::linear(2, Some(term));
 
         // Folding randomness should have no effect in linear mode
-        let folding_randomness =
-            MultilinearPoint(vec![BabyBear::from_u64(3), BabyBear::from_u64(4)]);
+        let folding_randomness = MultilinearPoint(vec![F::from_u64(3), F::from_u64(4)]);
 
         // Expected result is the stored term
         assert_eq!(weight.compute(&folding_randomness), term);
@@ -679,8 +681,7 @@ mod tests {
         let weight = VerifierWeights::linear(2, None);
 
         // Folding randomness is irrelevant in this case
-        let folding_randomness =
-            MultilinearPoint(vec![BabyBear::from_u64(3), BabyBear::from_u64(4)]);
+        let folding_randomness = MultilinearPoint(vec![F::from_u64(3), F::from_u64(4)]);
 
         // This should panic due to an attempt to unwrap a None value
         weight.compute(&folding_randomness);
@@ -690,7 +691,7 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     fn test_compute_evaluation_weight_identity() {
         // Define an evaluation weight at a specific point
-        let point = MultilinearPoint(vec![BabyBear::ONE, BabyBear::ZERO]);
+        let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
 
         // Folding randomness is the same as the point itself
         let folding_randomness = point.clone();
@@ -699,5 +700,38 @@ mod tests {
         // Expected result should be identity for equality polynomial
         let expected = point.eq_poly_outside(&folding_randomness);
         assert_eq!(weight.compute(&folding_randomness), expected);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_weighted_sum_equivalence_eval_vs_eval_ef4(
+            values in prop::collection::vec(0u64..100, 8),
+            x0 in 0u64..100,
+            x1 in 0u64..100,
+            x2 in 0u64..100
+        ) {
+            // F-based polynomial
+            let coeffs: Vec<F> = values.iter().copied().map(F::from_u64).collect();
+            let poly = EvaluationsList::new(coeffs);
+
+            // EF4-based polynomial
+            let coeffs_ef: Vec<EF4> = values.iter().copied().map(EF4::from_u64).collect();
+            let poly_ef = EvaluationsList::new(coeffs_ef);
+
+            let point_ef4 = MultilinearPoint(vec![
+                EF4::from_u64(x0),
+                EF4::from_u64(x1),
+                EF4::from_u64(x2),
+            ]);
+
+            // EF4-based weight
+            let weight_ef = Weights::<EF4>::evaluation(point_ef4);
+
+            // Comparison between F-based and EF4-based weights
+            let result_f = weight_ef.weighted_sum(&poly);
+            let result_ef = weight_ef.weighted_sum(&poly_ef);
+
+            prop_assert_eq!(result_f, result_ef);
+        }
     }
 }

@@ -136,9 +136,12 @@ where
     /// - Otherwise, computes `f(point) = ∑_{x ∈ {0,1}^n} eq(x, point) * f(x)`, where `eq(x, point)
     ///   = ∏_{i=1}^{n} (1 - p_i + 2 p_i x_i)`.
     /// - Uses fast multilinear interpolation for efficiency.
-    pub fn eval_extension(&self, point: &MultilinearPoint<F>) -> F {
+    pub fn eval_extension<EF>(&self, point: &MultilinearPoint<EF>) -> EF
+    where
+        EF: ExtensionField<F>,
+    {
         if let Some(point) = point.to_hypercube() {
-            return self.evals[point.0];
+            return self.evals[point.0].into();
         }
         eval_multilinear(&self.evals, &point.0)
     }
@@ -158,40 +161,44 @@ impl<F> Index<usize> for EvaluationsList<F> {
 /// - Uses the recurrence: `f(x_1, ..., x_n) = (1 - x_1) f_0 + x_1 f_1`, reducing dimension at each
 ///   step.
 /// - Ensures `evals.len() = 2^n` to match the number of variables.
-fn eval_multilinear<F: Field>(evals: &[F], point: &[F]) -> F {
+fn eval_multilinear<F, EF>(evals: &[F], point: &[EF]) -> EF
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
     debug_assert_eq!(evals.len(), 1 << point.len());
     match point {
-        [] => evals[0],
-        [x] => evals[0] + (evals[1] - evals[0]) * *x,
+        [] => evals[0].into(),
+        [x] => *x * (evals[1] - evals[0]) + evals[0],
         [x0, x1] => {
-            let a0 = evals[0] + (evals[1] - evals[0]) * *x1;
-            let a1 = evals[2] + (evals[3] - evals[2]) * *x1;
+            let a0 = *x1 * (evals[1] - evals[0]) + evals[0];
+            let a1 = *x1 * (evals[3] - evals[2]) + evals[2];
             a0 + (a1 - a0) * *x0
         }
         [x0, x1, x2] => {
-            let a00 = evals[0] + (evals[1] - evals[0]) * *x2;
-            let a01 = evals[2] + (evals[3] - evals[2]) * *x2;
-            let a10 = evals[4] + (evals[5] - evals[4]) * *x2;
-            let a11 = evals[6] + (evals[7] - evals[6]) * *x2;
-            let a0 = a00 + (a01 - a00) * *x1;
-            let a1 = a10 + (a11 - a10) * *x1;
+            let a00 = *x2 * (evals[1] - evals[0]) + evals[0];
+            let a01 = *x2 * (evals[3] - evals[2]) + evals[2];
+            let a10 = *x2 * (evals[5] - evals[4]) + evals[4];
+            let a11 = *x2 * (evals[7] - evals[6]) + evals[6];
+            let a0 = a00 + *x1 * (a01 - a00);
+            let a1 = a10 + *x1 * (a11 - a10);
             a0 + (a1 - a0) * *x0
         }
         [x0, x1, x2, x3] => {
-            let a000 = evals[0] + (evals[1] - evals[0]) * *x3;
-            let a001 = evals[2] + (evals[3] - evals[2]) * *x3;
-            let a010 = evals[4] + (evals[5] - evals[4]) * *x3;
-            let a011 = evals[6] + (evals[7] - evals[6]) * *x3;
-            let a100 = evals[8] + (evals[9] - evals[8]) * *x3;
-            let a101 = evals[10] + (evals[11] - evals[10]) * *x3;
-            let a110 = evals[12] + (evals[13] - evals[12]) * *x3;
-            let a111 = evals[14] + (evals[15] - evals[14]) * *x3;
-            let a00 = a000 + (a001 - a000) * *x2;
-            let a01 = a010 + (a011 - a010) * *x2;
-            let a10 = a100 + (a101 - a100) * *x2;
-            let a11 = a110 + (a111 - a110) * *x2;
-            let a0 = a00 + (a01 - a00) * *x1;
-            let a1 = a10 + (a11 - a10) * *x1;
+            let a000 = *x3 * (evals[1] - evals[0]) + evals[0];
+            let a001 = *x3 * (evals[3] - evals[2]) + evals[2];
+            let a010 = *x3 * (evals[5] - evals[4]) + evals[4];
+            let a011 = *x3 * (evals[7] - evals[6]) + evals[6];
+            let a100 = *x3 * (evals[9] - evals[8]) + evals[8];
+            let a101 = *x3 * (evals[11] - evals[10]) + evals[10];
+            let a110 = *x3 * (evals[13] - evals[12]) + evals[12];
+            let a111 = *x3 * (evals[15] - evals[14]) + evals[14];
+            let a00 = a000 + *x2 * (a001 - a000);
+            let a01 = a010 + *x2 * (a011 - a010);
+            let a10 = a100 + *x2 * (a101 - a100);
+            let a11 = a110 + *x2 * (a111 - a110);
+            let a0 = a00 + *x1 * (a01 - a00);
+            let a1 = a10 + *x1 * (a11 - a10);
             a0 + (a1 - a0) * *x0
         }
         [x, tail @ ..] => {
@@ -216,6 +223,7 @@ fn eval_multilinear<F: Field>(evals: &[F], point: &[F]) -> F {
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use proptest::prelude::*;
 
     use super::*;
     use crate::poly::hypercube::BinaryHypercube;
@@ -353,7 +361,7 @@ mod tests {
 
         for i in BinaryHypercube::new(2) {
             assert_eq!(
-                eval_list.eval_extension(&MultilinearPoint::from_binary_hypercube_point(i, 2)),
+                eval_list.eval_extension(&MultilinearPoint::<F>::from_binary_hypercube_point(i, 2)),
                 evals[i.0]
             );
         }
@@ -531,5 +539,36 @@ mod tests {
 
         // 8 points = 3 variables (log2(8) = 3)
         assert_eq!(storage.num_variables(), 3);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_eval_multilinear_equiv_between_f_and_ef4(
+            values in prop::collection::vec(0u64..100, 8),
+            x0 in 0u64..100,
+            x1 in 0u64..100,
+            x2 in 0u64..100,
+        ) {
+            // Base field evaluations
+            let coeffs_f: Vec<F> = values.iter().copied().map(F::from_u64).collect();
+            let poly_f = EvaluationsList::new(coeffs_f);
+
+            // Lift to extension field EF4
+            let coeffs_ef: Vec<EF4> = values.iter().copied().map(EF4::from_u64).collect();
+            let poly_ef = EvaluationsList::new(coeffs_ef);
+
+            // Evaluation point in EF4
+            let point_ef = MultilinearPoint(vec![
+                EF4::from_u64(x0),
+                EF4::from_u64(x1),
+                EF4::from_u64(x2),
+            ]);
+
+            // Evaluate using both base and extension representations
+            let eval_f = poly_f.eval_extension(&point_ef);
+            let eval_ef = poly_ef.eval_extension(&point_ef);
+
+            prop_assert_eq!(eval_f, eval_ef);
+        }
     }
 }

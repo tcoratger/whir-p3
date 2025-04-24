@@ -269,24 +269,6 @@ impl<F> CoefficientList<F> {
     pub fn num_coeffs(&self) -> usize {
         self.coeffs.len()
     }
-
-    /// Map the polynomial `self` from F[X_1,...,X_n] to E[X_1,...,X_n], where E is a field
-    /// extension of F.
-    ///
-    /// Note that this is currently restricted to the case where F is a prime field.
-    pub fn to_extension<E: ExtensionField<F>>(self) -> CoefficientList<E>
-    where
-        F: Field,
-    {
-        #[cfg(feature = "parallel")]
-        {
-            use rayon::iter::{IntoParallelIterator, ParallelIterator};
-            CoefficientList::new(self.coeffs.into_par_iter().map(E::from).collect())
-        }
-
-        #[cfg(not(feature = "parallel"))]
-        CoefficientList::new(self.coeffs.into_iter().map(E::from).collect())
-    }
 }
 
 impl<F> From<CoefficientList<F>> for EvaluationsList<F>
