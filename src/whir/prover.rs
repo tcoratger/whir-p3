@@ -124,7 +124,7 @@ where
             let [combination_randomness_gen] = prover_state.challenge_scalars()?;
 
             // Create the sumcheck prover
-            let mut sumcheck = SumcheckSingle::new(
+            let mut sumcheck = SumcheckSingle::from_extension_coeffs(
                 witness.polynomial.clone(),
                 &statement,
                 combination_randomness_gen,
@@ -328,7 +328,7 @@ where
                     let weights = Weights::evaluation(point);
                     statement.add_constraint(weights, eval);
                 }
-                SumcheckSingle::new(
+                SumcheckSingle::from_extension_coeffs(
                     folded_coefficients.clone(),
                     &statement,
                     combination_randomness[1],
@@ -413,7 +413,7 @@ where
                 .sumcheck_prover
                 .clone()
                 .unwrap_or_else(|| {
-                    SumcheckSingle::new(
+                    SumcheckSingle::from_extension_coeffs(
                         folded_coefficients.clone(),
                         &round_state.statement,
                         EF::ONE,
