@@ -1572,8 +1572,8 @@ mod tests {
                 .collect();
 
             // Build coefficient lists
-            let base_cl = CoefficientList::new(coeffs.clone());
-            let ext_cl = CoefficientList::new(coeffs_ext.clone());
+            let base_cl = CoefficientList::new(coeffs);
+            let ext_cl = CoefficientList::new(coeffs_ext);
 
             // Determine number of variables (log₂(length))
             let n_vars = base_cl.num_variables();
@@ -1616,8 +1616,8 @@ mod tests {
             let coeffs_ext: Vec<EF4> = coeffs.iter().copied().map(EF4::from).collect();
 
             // Wrap as coefficient lists
-            let base_cl = CoefficientList::new(coeffs.clone());
-            let ext_cl = CoefficientList::new(coeffs_ext.clone());
+            let base_cl = CoefficientList::new(coeffs);
+            let ext_cl = CoefficientList::new(coeffs_ext);
 
             // Determine number of variables
             let n_vars = base_cl.num_variables();
@@ -1649,11 +1649,11 @@ mod tests {
             prop_assert_eq!(
                 match base_prover.evaluation_of_p {
                     EvaluationStorage::Extension(ref evals_b) => evals_b.evals(),
-                    _ => panic!("Expected extension evaluations"),
+                    EvaluationStorage::Base(_) => panic!("Expected extension evaluations"),
                 },
                 match ext_prover.evaluation_of_p {
                     EvaluationStorage::Extension(ref evals_e) => evals_e.evals(),
-                    _ => panic!("Expected extension evaluations"),
+                    EvaluationStorage::Base(_) => panic!("Expected extension evaluations"),
                 }
             );
 
