@@ -342,7 +342,9 @@ where
 
         let randomness = folding_randomness.0[0];
 
+        // Fold between extension field elements
         let fold_extension = |slice: &[EF]| -> EF { randomness * (slice[1] - slice[0]) + slice[0] };
+        // Fold between base and extension field elements
         let fold_base = |slice: &[F]| -> EF { randomness * (slice[1] - slice[0]) + slice[0] };
 
         #[cfg(feature = "parallel")]
