@@ -739,13 +739,7 @@ mod tests {
         let x0 = EF4::from_u64(2); // embedded from F
         let x1: EF4 = EF4::from_u64(3);
         let x2: EF4 = EF4::from_basis_coefficients_iter(
-            [
-                BabyBear::new(9),
-                BabyBear::new(0),
-                BabyBear::new(1),
-                BabyBear::new(0),
-            ]
-            .into_iter(),
+            [F::new(9), F::new(0), F::new(1), F::new(0)].into_iter(),
         )
         .unwrap();
 
@@ -799,13 +793,7 @@ mod tests {
 
         let r1 = EF4::from_u64(9);
         let r2 = EF4::from_basis_coefficients_iter(
-            [
-                BabyBear::new(2),
-                BabyBear::new(0),
-                BabyBear::new(3),
-                BabyBear::new(1),
-            ]
-            .into_iter(),
+            [F::new(2), F::new(0), F::new(3), F::new(1)].into_iter(),
         )
         .unwrap();
 
