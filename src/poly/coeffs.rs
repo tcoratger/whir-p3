@@ -51,8 +51,8 @@ where
     /// Works generically on both base and extension field representations.
     pub(crate) fn fold(&self, folding_randomness: &MultilinearPoint<EF>) -> CoefficientList<EF> {
         match self {
-            CoefficientStorage::Base(cl) => cl.fold(folding_randomness),
-            CoefficientStorage::Extension(cl) => cl.fold(folding_randomness),
+            Self::Base(cl) => cl.fold(folding_randomness),
+            Self::Extension(cl) => cl.fold(folding_randomness),
         }
     }
 }
@@ -878,7 +878,7 @@ mod tests {
 
     #[test]
     fn test_coefficient_storage_num_variables_and_coeffs_extension() {
-        let coeffs: Vec<EF4> = (0..16).map(|i| EF4::from_u64(i)).collect();
+        let coeffs: Vec<EF4> = (0..16).map(EF4::from_u64).collect();
         let list = CoefficientList::new(coeffs);
         let storage = CoefficientStorage::<F, EF4>::Extension(list);
 
