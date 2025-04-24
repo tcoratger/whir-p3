@@ -72,13 +72,11 @@ where
     }
 
     /// Returns an immutable reference to the evaluations vector.
-    #[allow(clippy::missing_const_for_fn)]
     pub fn evals(&self) -> &[F] {
         &self.evals
     }
 
     /// Returns a mutable reference to the evaluations vector.
-    #[allow(clippy::missing_const_for_fn)]
     pub fn evals_mut(&mut self) -> &mut [F] {
         &mut self.evals
     }
