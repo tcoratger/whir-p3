@@ -1549,7 +1549,6 @@ mod tests {
     }
 
     proptest! {
-
         #[test]
         fn prop_compute_sumcheck_polynomial_consistency(
             // Ensure at least 8 base coefficients (2 EF4 elements)
@@ -1660,5 +1659,74 @@ mod tests {
             // Assert that the weights match
             prop_assert_eq!(base_prover.weights.evals(), ext_prover.weights.evals());
         }
+
+
+        #[test]
+        fn prop_compute_sumcheck_polynomials_roundtrip(
+            raw_coeffs in prop::collection::vec(0u64..F::ORDER_U64, 8..=64)
+                .prop_filter("len must be power of two and >= 8", |v| v.len().is_power_of_two()),
+            combo_scalars in prop::array::uniform4(0u64..F::ORDER_U64),
+        ) {
+            // Convert base coefficients from u64 to BabyBear elements
+            let coeffs: Vec<F> = raw_coeffs.iter().copied().map(F::from_u64).collect();
+
+            // Convert base field coeffs into EF4 (element by element)
+            let coeffs_ext: Vec<EF4> = coeffs.clone()
+                .into_iter()
+                .map(EF4::from)
+                .collect();
+
+            //  Wrap both coefficient representations
+            let base_cl = CoefficientList::new(coeffs.clone());
+            let ext_cl = CoefficientList::new(coeffs_ext.clone());
+
+            // Determine how many variables exist (log₂ of length)
+            let n_vars = base_cl.num_variables();
+            prop_assume!(n_vars >= 1);
+            let folding_rounds = n_vars;
+
+            // Construct an empty constraint system
+            let statement= Statement::new(n_vars);
+
+            // Construct EF4 combination randomness from 4 base field values
+            let combination_randomness = EF4::from_basis_coefficients_iter(
+                combo_scalars.map(F::from_u64).into_iter()
+            ).unwrap();
+
+            // Create both provers
+            let mut prover_base = SumcheckSingle::<F, EF4>::from_base_coeffs(base_cl, &statement, combination_randomness);
+            let mut prover_ext = SumcheckSingle::<F, EF4>::from_extension_coeffs(ext_cl, &statement, combination_randomness);
+
+            // Use a single shared DomainSeparator and clone it (identical transcript!)
+            let mut domsep_base: DomainSeparator<EF4, F, DefaultHash> = DomainSeparator::new("tag");
+            let mut domsep_ext:DomainSeparator<EF4, F, DefaultHash> = DomainSeparator::new("tag");
+
+            // Register the same interactions for each folding round
+            for _ in 0..folding_rounds {
+                domsep_base.add_scalars(3, "tag");
+                domsep_base.challenge_scalars(1, "tag");
+
+                domsep_ext.add_scalars(3, "tag");
+                domsep_ext.challenge_scalars(1, "tag");
+            }
+
+
+            // Convert into prover states
+            let mut state_base = domsep_base.to_prover_state();
+            let mut state_ext = domsep_ext.to_prover_state();
+
+            // Run sumcheck with zero grinding (no challenge_pow)
+            let final_point_base = prover_base
+                .compute_sumcheck_polynomials::<Blake3PoW>(&mut state_base, folding_rounds, 0.0)
+                .unwrap();
+
+            let final_point_ext = prover_ext
+                .compute_sumcheck_polynomials::<Blake3PoW>(&mut state_ext, folding_rounds, 0.0)
+                .unwrap();
+
+            // Ensure roundtrip consistency
+            prop_assert_eq!(final_point_base.0, final_point_ext.0);
+        }
+
     }
 }
