@@ -115,7 +115,7 @@ pub fn make_whir_things(
     let linear_claim_weight = Weights::linear(input.into());
 
     // Convert the polynomial to extension form for weighted evaluation
-    let poly = EvaluationsList::from(polynomial.clone().to_extension());
+    let poly = EvaluationsList::from(polynomial.clone());
 
     // Evaluate the weighted sum and add it as a linear constraint
     let sum = linear_claim_weight.weighted_sum(&poly);

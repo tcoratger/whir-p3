@@ -1,4 +1,4 @@
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -69,7 +69,11 @@ impl<F: Field> Weights<F> {
     ///
     /// **Precondition:**
     /// If `self` is in linear mode, `poly.num_variables()` must match `weight.num_variables()`.
-    pub fn weighted_sum(&self, poly: &EvaluationsList<F>) -> F {
+    pub fn weighted_sum<BF>(&self, poly: &EvaluationsList<BF>) -> F
+    where
+        BF: Field,
+        F: ExtensionField<BF>,
+    {
         match self {
             Self::Linear { weight } => {
                 assert_eq!(poly.num_variables(), weight.num_variables());
@@ -86,7 +90,7 @@ impl<F: Field> Weights<F> {
                     poly.evals()
                         .par_iter()
                         .zip(weight.evals().par_iter())
-                        .map(|(p, w)| *p * *w)
+                        .map(|(p, w)| *w * *p)
                         .sum()
                 }
             }
