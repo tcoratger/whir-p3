@@ -126,9 +126,11 @@ mod tests {
 
     use super::*;
 
+    type F = BabyBear;
+
     #[test]
     fn test_binary_to_ternary_index() {
-        let poly = SumcheckPolynomial::new(vec![BabyBear::ZERO; 9], 2);
+        let poly = SumcheckPolynomial::new(vec![F::ZERO; 9], 2);
 
         // Binary indices: 0, 1, 2, 3 (for 2 variables: {00, 01, 10, 11})
         // Corresponding ternary indices: 0, 1, 3, 4
@@ -140,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_binary_to_ternary_index_three_vars() {
-        let poly = SumcheckPolynomial::new(vec![BabyBear::ZERO; 27], 3);
+        let poly = SumcheckPolynomial::new(vec![F::ZERO; 27], 3);
 
         // Check conversion for all binary points in {0,1}^3
         assert_eq!(poly.binary_to_ternary_index(0b000), 0);
@@ -158,14 +160,14 @@ mod tests {
         // Test case for a single variable (n_variables = 1)
         // Function values at {0,1,2}: f(0) = 3, f(1) = 5, f(2) = 7
         let evaluations = vec![
-            BabyBear::from_u64(3), // f(0)
-            BabyBear::from_u64(5), // f(1)
-            BabyBear::from_u64(7), // f(2)
+            F::from_u64(3), // f(0)
+            F::from_u64(5), // f(1)
+            F::from_u64(7), // f(2)
         ];
         let poly = SumcheckPolynomial::new(evaluations, 1);
 
         // Sum over {0,1}: f(0) + f(1)
-        let expected_sum = BabyBear::from_u64(3) + BabyBear::from_u64(5);
+        let expected_sum = F::from_u64(3) + F::from_u64(5);
         assert_eq!(poly.sum_over_boolean_hypercube(), expected_sum);
     }
 
@@ -175,14 +177,11 @@ mod tests {
         // f(0,0) = 1, f(0,1) = 2, f(0,2) = 3
         // f(1,0) = 4, f(1,1) = 5, f(1,2) = 6
         // f(2,0) = 7, f(2,1) = 8, f(2,2) = 9
-        let evaluations: Vec<_> = (1..=9).map(BabyBear::from_u64).collect();
+        let evaluations: Vec<_> = (1..=9).map(F::from_u64).collect();
         let poly = SumcheckPolynomial::new(evaluations, 2);
 
         // Sum over {0,1}^2: f(0,0) + f(0,1) + f(1,0) + f(1,1)
-        let expected_sum = BabyBear::from_u64(1)
-            + BabyBear::from_u64(2)
-            + BabyBear::from_u64(4)
-            + BabyBear::from_u64(5);
+        let expected_sum = F::from_u64(1) + F::from_u64(2) + F::from_u64(4) + F::from_u64(5);
         let computed_sum = poly.sum_over_boolean_hypercube();
         assert_eq!(computed_sum, expected_sum);
     }
@@ -203,18 +202,18 @@ mod tests {
         // f(2,0,0) = 19 f(2,0,1) = 20 f(2,0,2) = 21
         // f(2,1,0) = 22 f(2,1,1) = 23 f(2,1,2) = 24
         // f(2,2,0) = 25 f(2,2,1) = 26 f(2,2,2) = 27
-        let evaluations: Vec<_> = (1..=27).map(BabyBear::from_u64).collect();
+        let evaluations: Vec<_> = (1..=27).map(F::from_u64).collect();
         let poly = SumcheckPolynomial::new(evaluations, 3);
 
         // Sum over {0,1}^3
-        let expected_sum = BabyBear::from_u64(1)
-            + BabyBear::from_u64(2)
-            + BabyBear::from_u64(4)
-            + BabyBear::from_u64(5)
-            + BabyBear::from_u64(10)
-            + BabyBear::from_u64(11)
-            + BabyBear::from_u64(13)
-            + BabyBear::from_u64(14);
+        let expected_sum = F::from_u64(1)
+            + F::from_u64(2)
+            + F::from_u64(4)
+            + F::from_u64(5)
+            + F::from_u64(10)
+            + F::from_u64(11)
+            + F::from_u64(13)
+            + F::from_u64(14);
 
         assert_eq!(poly.sum_over_boolean_hypercube(), expected_sum);
     }
@@ -225,24 +224,24 @@ mod tests {
         // f(0,0) = 1, f(0,1) = 2, f(0,2) = 3
         // f(1,0) = 4, f(1,1) = 5, f(1,2) = 6
         // f(2,0) = 7, f(2,1) = 8, f(2,2) = 9
-        let evaluations: Vec<_> = (1..=9).map(BabyBear::from_u64).collect();
+        let evaluations: Vec<_> = (1..=9).map(F::from_u64).collect();
         let poly = SumcheckPolynomial::new(evaluations, 2);
 
         // Define an evaluation point (0.5, 0.5) as an interpolation between {0,1,2}^2
-        let point = MultilinearPoint(vec![BabyBear::from_u64(1) / BabyBear::from_u64(2); 2]);
+        let point = MultilinearPoint(vec![F::from_u64(1) / F::from_u64(2); 2]);
 
         let result = poly.evaluate_at_point(&point);
 
         // Compute the expected result using the full weighted sum:
-        let expected_value = BabyBear::from_u64(1) * point.eq_poly3(0)
-            + BabyBear::from_u64(2) * point.eq_poly3(1)
-            + BabyBear::from_u64(3) * point.eq_poly3(2)
-            + BabyBear::from_u64(4) * point.eq_poly3(3)
-            + BabyBear::from_u64(5) * point.eq_poly3(4)
-            + BabyBear::from_u64(6) * point.eq_poly3(5)
-            + BabyBear::from_u64(7) * point.eq_poly3(6)
-            + BabyBear::from_u64(8) * point.eq_poly3(7)
-            + BabyBear::from_u64(9) * point.eq_poly3(8);
+        let expected_value = F::from_u64(1) * point.eq_poly3(0)
+            + F::from_u64(2) * point.eq_poly3(1)
+            + F::from_u64(3) * point.eq_poly3(2)
+            + F::from_u64(4) * point.eq_poly3(3)
+            + F::from_u64(5) * point.eq_poly3(4)
+            + F::from_u64(6) * point.eq_poly3(5)
+            + F::from_u64(7) * point.eq_poly3(6)
+            + F::from_u64(8) * point.eq_poly3(7)
+            + F::from_u64(9) * point.eq_poly3(8);
 
         assert_eq!(result, expected_value);
     }
@@ -250,16 +249,16 @@ mod tests {
     #[test]
     fn test_evaluate_at_point_three_vars() {
         // Define a function with three variables
-        let evaluations: Vec<_> = (1..=27).map(BabyBear::from_u64).collect();
+        let evaluations: Vec<_> = (1..=27).map(F::from_u64).collect();
         let poly = SumcheckPolynomial::new(evaluations, 3);
 
         // Define an interpolation point (1/2, 1/2, 1/2) in {0,1,2}^3
-        let point = MultilinearPoint(vec![BabyBear::from_u64(1) / BabyBear::from_u64(2); 3]);
+        let point = MultilinearPoint(vec![F::from_u64(1) / F::from_u64(2); 3]);
 
         // Compute expected evaluation:
         let expected_value = (0..27)
             .map(|i| poly.evaluations[i] * point.eq_poly3(i))
-            .sum::<BabyBear>();
+            .sum::<F>();
 
         let computed_value = poly.evaluate_at_point(&point);
         assert_eq!(computed_value, expected_value);
