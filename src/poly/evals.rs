@@ -223,6 +223,7 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use proptest::prelude::*;
 
     use super::*;
     use crate::poly::hypercube::BinaryHypercube;
@@ -538,5 +539,36 @@ mod tests {
 
         // 8 points = 3 variables (log2(8) = 3)
         assert_eq!(storage.num_variables(), 3);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_eval_multilinear_equiv_between_f_and_ef4(
+            values in prop::collection::vec(0u64..100, 8),
+            x0 in 0u64..100,
+            x1 in 0u64..100,
+            x2 in 0u64..100,
+        ) {
+            // Base field evaluations
+            let coeffs_f: Vec<F> = values.iter().copied().map(F::from_u64).collect();
+            let poly_f = EvaluationsList::new(coeffs_f.clone());
+
+            // Lift to extension field EF4
+            let coeffs_ef: Vec<EF4> = values.iter().copied().map(EF4::from_u64).collect();
+            let poly_ef = EvaluationsList::new(coeffs_ef);
+
+            // Evaluation point in EF4
+            let point_ef = MultilinearPoint(vec![
+                EF4::from_u64(x0),
+                EF4::from_u64(x1),
+                EF4::from_u64(x2),
+            ]);
+
+            // Evaluate using both base and extension representations
+            let eval_f = poly_f.eval_extension(&point_ef);
+            let eval_ef = poly_ef.eval_extension(&point_ef);
+
+            prop_assert_eq!(eval_f, eval_ef);
+        }
     }
 }
