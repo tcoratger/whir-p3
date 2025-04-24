@@ -95,17 +95,19 @@ mod tests {
 
     use super::*;
 
+    type F = BabyBear;
+
     #[test]
     fn test_wavelet_transform_single_element() {
-        let mut values = vec![BabyBear::from_u64(5)];
+        let mut values = vec![F::from_u64(5)];
         wavelet_transform(&mut values);
-        assert_eq!(values, vec![BabyBear::from_u64(5)]);
+        assert_eq!(values, vec![F::from_u64(5)]);
     }
 
     #[test]
     fn test_wavelet_transform_size_2() {
-        let v1 = BabyBear::from_u64(3);
-        let v2 = BabyBear::from_u64(7);
+        let v1 = F::from_u64(3);
+        let v2 = F::from_u64(7);
         let mut values = vec![v1, v2];
         wavelet_transform(&mut values);
         assert_eq!(values, vec![v1, v1 + v2]);
@@ -113,10 +115,10 @@ mod tests {
 
     #[test]
     fn test_wavelet_transform_size_4() {
-        let v1 = BabyBear::from_u64(1);
-        let v2 = BabyBear::from_u64(2);
-        let v3 = BabyBear::from_u64(3);
-        let v4 = BabyBear::from_u64(4);
+        let v1 = F::from_u64(1);
+        let v2 = F::from_u64(2);
+        let v3 = F::from_u64(3);
+        let v4 = F::from_u64(4);
         let mut values = vec![v1, v2, v3, v4];
 
         wavelet_transform(&mut values);
@@ -126,7 +128,7 @@ mod tests {
 
     #[test]
     fn test_wavelet_transform_size_8() {
-        let mut values = (1..=8).map(BabyBear::from_u64).collect::<Vec<_>>();
+        let mut values = (1..=8).map(F::from_u64).collect::<Vec<_>>();
         let v1 = values[0];
         let v2 = values[1];
         let v3 = values[2];
@@ -155,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_wavelet_transform_size_16() {
-        let mut values = (1..=16).map(BabyBear::from_u64).collect::<Vec<_>>();
+        let mut values = (1..=16).map(F::from_u64).collect::<Vec<_>>();
         let v1 = values[0];
         let v2 = values[1];
         let v3 = values[2];
@@ -215,7 +217,7 @@ mod tests {
     #[test]
     fn test_wavelet_transform_large() {
         let size = 2_i32.pow(10) as u64;
-        let mut values = (1..=size).map(BabyBear::from_u64).collect::<Vec<_>>();
+        let mut values = (1..=size).map(F::from_u64).collect::<Vec<_>>();
         let v1 = values[0];
 
         wavelet_transform(&mut values);
@@ -225,7 +227,7 @@ mod tests {
 
         // Verify last element has accumulated all previous values
         let expected_last = (1..=size).sum::<u64>();
-        assert_eq!(values[size as usize - 1], BabyBear::from_u64(expected_last));
+        assert_eq!(values[size as usize - 1], F::from_u64(expected_last));
     }
 
     #[test]
@@ -234,9 +236,7 @@ mod tests {
         let batch_size = 2_i32.pow(20) as usize;
         // Ensure values.len() > size to enter parallel execution
         let total_size = batch_size * 4;
-        let mut values = (1..=total_size as u64)
-            .map(BabyBear::from_u64)
-            .collect::<Vec<_>>();
+        let mut values = (1..=total_size as u64).map(F::from_u64).collect::<Vec<_>>();
 
         // Keep a copy to compare later
         let original_values = values.clone();
@@ -265,14 +265,14 @@ mod tests {
         }
 
         // Ensure the first element remains unchanged
-        assert_eq!(values[0], BabyBear::from_u64(1));
+        assert_eq!(values[0], F::from_u64(1));
 
         // Ensure the last element has accumulated all values from its own chunk
         let expected_last_chunk_sum =
             (total_size as u64 - batch_size as u64 + 1..=total_size as u64).sum::<u64>();
         assert_eq!(
             values[total_size - 1],
-            BabyBear::from_u64(expected_last_chunk_sum),
+            F::from_u64(expected_last_chunk_sum),
             "Final element mismatch"
         );
     }
