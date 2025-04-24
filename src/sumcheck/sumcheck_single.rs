@@ -187,6 +187,7 @@ where
                 .par_chunks_exact(2)
                 .zip(self.weights.evals().par_chunks_exact(2))
                 .map(|(p_at, eq_at)| {
+                    // Convert evaluations to coefficients for the linear fns p and eq.
                     let (p_0, p_1) = (p_at[0], p_at[1] - p_at[0]);
                     let (eq_0, eq_1) = (eq_at[0], eq_at[1] - eq_at[0]);
 
@@ -201,6 +202,7 @@ where
                 .par_chunks_exact(2)
                 .zip(self.weights.evals().par_chunks_exact(2))
                 .map(|(p_at, eq_at)| {
+                    // Convert evaluations to coefficients for the linear fns p and eq.
                     let (p_0, p_1) = (p_at[0], p_at[1] - p_at[0]);
                     let (eq_0, eq_1) = (eq_at[0], eq_at[1] - eq_at[0]);
 
@@ -219,6 +221,7 @@ where
                 .chunks_exact(2)
                 .zip(self.weights.evals().chunks_exact(2))
                 .map(|(p_at, eq_at)| {
+                    // Convert evaluations to coefficients for the linear fns p and eq.
                     let (p_0, p_1) = (p_at[0], p_at[1] - p_at[0]);
                     let (eq_0, eq_1) = (eq_at[0], eq_at[1] - eq_at[0]);
 
@@ -233,6 +236,7 @@ where
                 .chunks_exact(2)
                 .zip(self.weights.evals().chunks_exact(2))
                 .map(|(p_at, eq_at)| {
+                    // Convert evaluations to coefficients for the linear fns p and eq.
                     let (p_0, p_1) = (p_at[0], p_at[1] - p_at[0]);
                     let (eq_0, eq_1) = (eq_at[0], eq_at[1] - eq_at[0]);
 
