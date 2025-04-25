@@ -10,7 +10,6 @@ use p3_util::log2_strict_usize;
 use rayon::prelude::*;
 
 pub mod matrix;
-pub mod transpose;
 pub mod utils;
 pub mod wavelet;
 
