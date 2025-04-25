@@ -94,6 +94,8 @@ mod tests {
 
     use super::*;
 
+    type F = BabyBear;
+
     #[test]
     fn test_base_decomposition_binary() {
         // Base-2 decomposition (big-endian, padded to n_bits)
@@ -204,19 +206,14 @@ mod tests {
 
     #[test]
     fn test_eval_eq_functionality() {
-        let mut output = vec![BabyBear::ZERO; 4]; // n=2 → 2^2 = 4 elements
-        let eval = vec![BabyBear::from_u64(1), BabyBear::from_u64(0)]; // (X1, X2) = (1,0)
-        let scalar = BabyBear::from_u64(2);
+        let mut output = vec![F::ZERO; 4]; // n=2 → 2^2 = 4 elements
+        let eval = vec![F::from_u64(1), F::from_u64(0)]; // (X1, X2) = (1,0)
+        let scalar = F::from_u64(2);
 
         eval_eq(&eval, &mut output, scalar);
 
         // Expected results for (X1, X2) = (1,0)
-        let expected_output = vec![
-            BabyBear::ZERO,
-            BabyBear::ZERO,
-            BabyBear::from_u64(2),
-            BabyBear::ZERO,
-        ];
+        let expected_output = vec![F::ZERO, F::ZERO, F::from_u64(2), F::ZERO];
 
         assert_eq!(output, expected_output);
     }
@@ -224,15 +221,15 @@ mod tests {
     #[test]
     fn test_expand_randomness_basic() {
         // Test with base = 2 and length = 5
-        let base = BabyBear::from_u64(2);
+        let base = F::from_u64(2);
         let len = 5;
 
         let expected = vec![
-            BabyBear::ONE,
-            BabyBear::from_u64(2),
-            BabyBear::from_u64(4),
-            BabyBear::from_u64(8),
-            BabyBear::from_u64(16),
+            F::ONE,
+            F::from_u64(2),
+            F::from_u64(4),
+            F::from_u64(8),
+            F::from_u64(16),
         ];
 
         assert_eq!(expand_randomness(base, len), expected);
@@ -241,29 +238,24 @@ mod tests {
     #[test]
     fn test_expand_randomness_zero_length() {
         // If len = 0, should return an empty vector
-        let base = BabyBear::from_u64(3);
+        let base = F::from_u64(3);
         assert!(expand_randomness(base, 0).is_empty());
     }
 
     #[test]
     fn test_expand_randomness_one_length() {
         // If len = 1, should return [1]
-        let base = BabyBear::from_u64(5);
-        assert_eq!(expand_randomness(base, 1), vec![BabyBear::ONE]);
+        let base = F::from_u64(5);
+        assert_eq!(expand_randomness(base, 1), vec![F::ONE]);
     }
 
     #[test]
     fn test_expand_randomness_large_base() {
         // Test with a large base value
-        let base = BabyBear::from_u64(10);
+        let base = F::from_u64(10);
         let len = 4;
 
-        let expected = vec![
-            BabyBear::ONE,
-            BabyBear::from_u64(10),
-            BabyBear::from_u64(100),
-            BabyBear::from_u64(1000),
-        ];
+        let expected = vec![F::ONE, F::from_u64(10), F::from_u64(100), F::from_u64(1000)];
 
         assert_eq!(expand_randomness(base, len), expected);
     }
@@ -271,43 +263,30 @@ mod tests {
     #[test]
     fn test_expand_randomness_identity_case() {
         // If base = 1, all values should be 1
-        let base = BabyBear::ONE;
+        let base = F::ONE;
         let len = 6;
 
-        let expected = vec![BabyBear::ONE; len];
+        let expected = vec![F::ONE; len];
         assert_eq!(expand_randomness(base, len), expected);
     }
 
     #[test]
     fn test_expand_randomness_zero_base() {
         // If base = 0, all values after the first should be 0
-        let base = BabyBear::ZERO;
+        let base = F::ZERO;
         let len = 5;
 
-        let expected = vec![
-            BabyBear::ONE,
-            BabyBear::ZERO,
-            BabyBear::ZERO,
-            BabyBear::ZERO,
-            BabyBear::ZERO,
-        ];
+        let expected = vec![F::ONE, F::ZERO, F::ZERO, F::ZERO, F::ZERO];
         assert_eq!(expand_randomness(base, len), expected);
     }
 
     #[test]
     fn test_expand_randomness_negative_base() {
         // Test with base = -1, which should alternate between 1 and -1
-        let base = -BabyBear::ONE;
+        let base = -F::ONE;
         let len = 6;
 
-        let expected = vec![
-            BabyBear::ONE,
-            -BabyBear::ONE,
-            BabyBear::ONE,
-            -BabyBear::ONE,
-            BabyBear::ONE,
-            -BabyBear::ONE,
-        ];
+        let expected = vec![F::ONE, -F::ONE, F::ONE, -F::ONE, F::ONE, -F::ONE];
 
         assert_eq!(expand_randomness(base, len), expected);
     }

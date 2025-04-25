@@ -126,7 +126,7 @@ where
 
         // Return the witness containing the polynomial, Merkle tree, and OOD results.
         Ok(Witness {
-            polynomial: polynomial.to_extension(),
+            polynomial,
             prover_data,
             ood_points,
             ood_answers,

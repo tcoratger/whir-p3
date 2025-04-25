@@ -314,7 +314,7 @@ mod tests {
         // Step 3: Initialize the prover state from the domain separator
         let mut prover_state = domsep.to_prover_state();
 
-        // Step 4: Create 3 BabyBear field elements
+        // Step 4: Create 3 F field elements
         let f0 = F::from_u64(111);
         let f1 = F::from_u64(222);
         let f2 = F::from_u64(333);
@@ -410,7 +410,7 @@ mod tests {
         prover_state.add_scalars(&[f0, f1, f2]).unwrap();
 
         // Step 6: Expected bytes from 3 extension field elements, each with 4 limbs
-        // - 4 * 3 = 12 BabyBear limbs = 12 * 4 = 48 bytes
+        // - 4 * 3 = 12 F limbs = 12 * 4 = 48 bytes
         let expected_bytes = vec![
             // f0 = u64::MAX → nontrivial encoded limb
             226, 221, 221, 69, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -547,10 +547,10 @@ mod tests {
 
         let expected = EF4::from_basis_coefficients_iter(
             [
-                BabyBear::new(766723793),
-                BabyBear::new(142148826),
-                BabyBear::new(1747592655),
-                BabyBear::new(1079604003),
+                F::new(766723793),
+                F::new(142148826),
+                F::new(1747592655),
+                F::new(1079604003),
             ]
             .into_iter(),
         )
@@ -570,10 +570,10 @@ mod tests {
 
         let ef0 = EF4::from_basis_coefficients_iter(
             [
-                BabyBear::new(221219480),
-                BabyBear::new(1982332342),
-                BabyBear::new(625475973),
-                BabyBear::new(421782538),
+                F::new(221219480),
+                F::new(1982332342),
+                F::new(625475973),
+                F::new(421782538),
             ]
             .into_iter(),
         )
@@ -581,10 +581,10 @@ mod tests {
 
         let ef1 = EF4::from_basis_coefficients_iter(
             [
-                BabyBear::new(1967478349),
-                BabyBear::new(966593806),
-                BabyBear::new(1839663095),
-                BabyBear::new(878608238),
+                F::new(1967478349),
+                F::new(966593806),
+                F::new(1839663095),
+                F::new(878608238),
             ]
             .into_iter(),
         )
@@ -592,10 +592,10 @@ mod tests {
 
         let ef2 = EF4::from_basis_coefficients_iter(
             [
-                BabyBear::new(1330039744),
-                BabyBear::new(410562161),
-                BabyBear::new(825994336),
-                BabyBear::new(1112934023),
+                F::new(1330039744),
+                F::new(410562161),
+                F::new(825994336),
+                F::new(1112934023),
             ]
             .into_iter(),
         )
@@ -603,10 +603,10 @@ mod tests {
 
         let ef3 = EF4::from_basis_coefficients_iter(
             [
-                BabyBear::new(111882429),
-                BabyBear::new(1246071646),
-                BabyBear::new(1718768295),
-                BabyBear::new(1127778746),
+                F::new(111882429),
+                F::new(1246071646),
+                F::new(1718768295),
+                F::new(1127778746),
             ]
             .into_iter(),
         )
@@ -614,10 +614,10 @@ mod tests {
 
         let ef4 = EF4::from_basis_coefficients_iter(
             [
-                BabyBear::new(1533982496),
-                BabyBear::new(1606406037),
-                BabyBear::new(1075981915),
-                BabyBear::new(1199951082),
+                F::new(1533982496),
+                F::new(1606406037),
+                F::new(1075981915),
+                F::new(1199951082),
             ]
             .into_iter(),
         )
@@ -629,8 +629,8 @@ mod tests {
 
     #[test]
     fn test_common_field_to_unit_bytes_babybear() {
-        // Generate some random BabyBear values
-        let values = [BabyBear::from_u64(111), BabyBear::from_u64(222)];
+        // Generate some random F values
+        let values = [F::from_u64(111), F::from_u64(222)];
 
         // Create a domain separator indicating we will absorb 2 public scalars
         let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("field");
@@ -759,12 +759,7 @@ mod tests {
 
     #[test]
     fn test_common_field_to_unit_mixed_values() {
-        let values = [
-            BabyBear::ZERO,
-            BabyBear::ONE,
-            BabyBear::from_u64(123456),
-            BabyBear::from_u64(7891011),
-        ];
+        let values = [F::ZERO, F::ONE, F::from_u64(123456), F::from_u64(7891011)];
 
         let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("mixed");
         domsep.add_scalars(values.len(), "mix");

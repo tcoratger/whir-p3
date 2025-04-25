@@ -157,14 +157,16 @@ mod tests {
 
     use super::*;
 
+    type F = BabyBear;
+
     #[test]
     fn test_expand_from_coeff_size_2() {
-        let c0 = BabyBear::from_u64(1);
-        let c1 = BabyBear::from_u64(2);
+        let c0 = F::from_u64(1);
+        let c1 = F::from_u64(2);
         let coeffs = vec![c0, c1];
         let expansion = 2;
 
-        let omega = BabyBear::two_adic_generator(expansion); // ω = primitive 2nd root of unity
+        let omega = F::two_adic_generator(expansion); // ω = primitive 2nd root of unity
 
         // Let the polynomial be:
         //
@@ -243,14 +245,14 @@ mod tests {
 
     #[test]
     fn test_expand_from_coeff_size_4() {
-        let c0 = BabyBear::from_u64(1);
-        let c1 = BabyBear::from_u64(2);
-        let c2 = BabyBear::from_u64(3);
-        let c3 = BabyBear::from_u64(4);
+        let c0 = F::from_u64(1);
+        let c1 = F::from_u64(2);
+        let c2 = F::from_u64(3);
+        let c3 = F::from_u64(4);
         let coeffs = vec![c0, c1, c2, c3];
         let expansion = 4;
 
-        let omega = BabyBear::two_adic_generator(4); // 4th root of unity for expansion 4
+        let omega = F::two_adic_generator(4); // 4th root of unity for expansion 4
 
         // Manual expansion of the coefficient vector
         //
@@ -300,7 +302,7 @@ mod tests {
         // We process the values in **four chunks of four elements**, following the radix-2
         // butterfly structure.
 
-        let omega = BabyBear::two_adic_generator(2);
+        let omega = F::two_adic_generator(2);
         let omega1 = omega; // ω
         let omega2 = omega * omega; // ω²
         let omega3 = omega * omega2; // ω³

@@ -15,7 +15,10 @@ use crate::{
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
     ntt::expand_from_coeff,
     parameters::FoldType,
-    poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
+    poly::{
+        coeffs::{CoefficientList, CoefficientStorage},
+        multilinear::MultilinearPoint,
+    },
     sumcheck::sumcheck_single::SumcheckSingle,
     utils::expand_randomness,
     whir::{
@@ -38,7 +41,7 @@ where
     pub(crate) domain: Domain<EF, F>,
     pub(crate) sumcheck_prover: Option<SumcheckSingle<F, EF>>,
     pub(crate) folding_randomness: MultilinearPoint<EF>,
-    pub(crate) coefficients: CoefficientList<EF>,
+    pub(crate) coefficients: CoefficientStorage<F, EF>,
     pub(crate) prev_merkle_prover_data:
         MerkleTree<F, u8, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>,
     /// - The first element is the opened leaf values
@@ -124,7 +127,7 @@ where
             let [combination_randomness_gen] = prover_state.challenge_scalars()?;
 
             // Create the sumcheck prover
-            let mut sumcheck = SumcheckSingle::new(
+            let mut sumcheck = SumcheckSingle::from_base_coeffs(
                 witness.polynomial.clone(),
                 &statement,
                 combination_randomness_gen,
@@ -160,7 +163,7 @@ where
             round: 0,
             sumcheck_prover,
             folding_randomness,
-            coefficients: witness.polynomial,
+            coefficients: CoefficientStorage::Base(witness.polynomial),
             prev_merkle_prover_data: witness.prover_data,
             merkle_proofs: vec![],
             randomness_vec,
@@ -309,31 +312,28 @@ where
         let combination_randomness =
             expand_randomness(combination_randomness_gen, stir_challenges.len());
 
-        #[allow(clippy::map_unwrap_or)]
-        let mut sumcheck_prover = round_state
-            .sumcheck_prover
-            .take()
-            .map(|mut sumcheck_prover| {
+        let mut sumcheck_prover =
+            if let Some(mut sumcheck_prover) = round_state.sumcheck_prover.take() {
                 sumcheck_prover.add_new_equality(
                     &stir_challenges,
                     &stir_evaluations,
                     &combination_randomness,
                 );
                 sumcheck_prover
-            })
-            .unwrap_or_else(|| {
+            } else {
                 let mut statement = Statement::new(folded_coefficients.num_variables());
 
                 for (point, eval) in stir_challenges.into_iter().zip(stir_evaluations) {
                     let weights = Weights::evaluation(point);
                     statement.add_constraint(weights, eval);
                 }
-                SumcheckSingle::new(
+
+                SumcheckSingle::from_extension_coeffs(
                     folded_coefficients.clone(),
                     &statement,
                     combination_randomness[1],
                 )
-            });
+            };
 
         let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS>(
             prover_state,
@@ -357,7 +357,7 @@ where
         round_state.domain = new_domain;
         round_state.sumcheck_prover = Some(sumcheck_prover);
         round_state.folding_randomness = folding_randomness;
-        round_state.coefficients = folded_coefficients;
+        round_state.coefficients = CoefficientStorage::Extension(folded_coefficients);
         round_state.prev_merkle_prover_data = prover_data;
 
         Ok(())
@@ -413,7 +413,7 @@ where
                 .sumcheck_prover
                 .clone()
                 .unwrap_or_else(|| {
-                    SumcheckSingle::new(
+                    SumcheckSingle::from_extension_coeffs(
                         folded_coefficients.clone(),
                         &round_state.statement,
                         EF::ONE,

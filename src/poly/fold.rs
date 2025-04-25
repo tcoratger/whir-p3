@@ -71,6 +71,8 @@ mod tests {
     use super::*;
     use crate::poly::{coeffs::CoefficientList, multilinear::MultilinearPoint};
 
+    type F = BabyBear;
+
     #[test]
     fn test_folding() {
         // Number of variables in the multilinear polynomial
@@ -87,18 +89,17 @@ mod tests {
         let folding_factor_exp = 1 << folding_factor; // 2^folding_factor = 8
 
         // Construct a multilinear polynomial where coefficients are just consecutive integers
-        let poly = CoefficientList::new((0..num_coeffs).map(BabyBear::from_u64).collect());
+        let poly = CoefficientList::new((0..num_coeffs).map(F::from_u64).collect());
 
         // Root of unity used to generate the evaluation domain
-        let root_of_unity = BabyBear::from_u64(0x6745_6167);
+        let root_of_unity = F::from_u64(0x6745_6167);
 
         // The coset index for evaluation
         let index = 15;
 
         // Folding randomness values: {0, 1, 2} (since folding_factor = 3)
-        let folding_randomness: Vec<_> = (0..folding_factor)
-            .map(|i| BabyBear::from_u64(i as u64))
-            .collect();
+        let folding_randomness: Vec<_> =
+            (0..folding_factor).map(|i| F::from_u64(i as u64)).collect();
 
         // Compute coset offset: ω^index
         let coset_offset = root_of_unity.exp_u64(index);
@@ -141,15 +142,15 @@ mod tests {
     #[test]
     fn test_compute_fold_single_layer() {
         // Folding a vector of size 2: f(x) = [1, 3]
-        let f0 = BabyBear::from_u64(1);
-        let f1 = BabyBear::from_u64(3);
+        let f0 = F::from_u64(1);
+        let f1 = F::from_u64(3);
         let answers = vec![f0, f1];
 
-        let r = BabyBear::from_u64(2); // folding randomness
+        let r = F::from_u64(2); // folding randomness
         let folding_randomness = vec![r];
 
-        let coset_offset_inv = BabyBear::from_u64(5); // arbitrary inverse offset
-        let coset_gen_inv = BabyBear::from_u64(7); // arbitrary generator inverse
+        let coset_offset_inv = F::from_u64(5); // arbitrary inverse offset
+        let coset_gen_inv = F::from_u64(7); // arbitrary generator inverse
 
         // g = (f0 + f1 + r * (f0 - f1) * coset_offset_inv) / 2
         // Here coset_index_inv = 1
@@ -171,22 +172,22 @@ mod tests {
     #[test]
     fn test_compute_fold_two_layers() {
         // Define the input evaluations: f(x) = [f00, f01, f10, f11]
-        let f00 = BabyBear::from_u64(1);
-        let f01 = BabyBear::from_u64(2);
-        let f10 = BabyBear::from_u64(3);
-        let f11 = BabyBear::from_u64(4);
+        let f00 = F::from_u64(1);
+        let f01 = F::from_u64(2);
+        let f10 = F::from_u64(3);
+        let f11 = F::from_u64(4);
 
         // Create the input vector for folding
         let answers = vec![f00, f01, f10, f11];
 
         // Folding randomness used in each layer (innermost first)
-        let r0 = BabyBear::from_u64(5); // randomness for layer 1 (first fold)
-        let r1 = BabyBear::from_u64(7); // randomness for layer 2 (second fold)
+        let r0 = F::from_u64(5); // randomness for layer 1 (first fold)
+        let r1 = F::from_u64(7); // randomness for layer 2 (second fold)
         let folding_randomness = vec![r1, r0]; // reversed because fold reads from the back
 
         // Precompute constants
-        let coset_offset_inv = BabyBear::from_u64(9); // offset⁻¹
-        let coset_gen_inv = BabyBear::from_u64(3); // generator⁻¹
+        let coset_offset_inv = F::from_u64(9); // offset⁻¹
+        let coset_gen_inv = F::from_u64(3); // generator⁻¹
 
         // --- First layer of folding ---
 
@@ -244,15 +245,15 @@ mod tests {
     #[test]
     fn test_compute_fold_with_zero_randomness() {
         // Inputs: f(x) = [f0, f1]
-        let f0 = BabyBear::from_u64(6);
-        let f1 = BabyBear::from_u64(2);
+        let f0 = F::from_u64(6);
+        let f1 = F::from_u64(2);
         let answers = vec![f0, f1];
 
-        let r = BabyBear::ZERO;
+        let r = F::ZERO;
         let folding_randomness = vec![r];
 
-        let coset_offset_inv = BabyBear::from_u64(10);
-        let coset_gen_inv = BabyBear::from_u64(3);
+        let coset_offset_inv = F::from_u64(10);
+        let coset_gen_inv = F::from_u64(3);
 
         let left = f0 + f1;
         // with r = 0, this simplifies to (f0 + f1) / 2
@@ -272,13 +273,13 @@ mod tests {
     #[test]
     fn test_compute_fold_all_zeros() {
         // All values are zero: f(x) = [0, 0, ..., 0]
-        let answers = vec![BabyBear::ZERO; 8];
-        let folding_randomness = vec![BabyBear::from_u64(3); 3];
-        let coset_offset_inv = BabyBear::from_u64(4);
-        let coset_gen_inv = BabyBear::from_u64(7);
+        let answers = vec![F::ZERO; 8];
+        let folding_randomness = vec![F::from_u64(3); 3];
+        let coset_offset_inv = F::from_u64(4);
+        let coset_gen_inv = F::from_u64(7);
 
         // each fold step is (0 + 0 + r * (0 - 0) * _) / 2 = 0
-        let expected = BabyBear::ZERO;
+        let expected = F::ZERO;
 
         let result = compute_fold(
             &answers,
