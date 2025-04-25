@@ -83,14 +83,14 @@ pub fn wavelet_transform_batch<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>,
 
             wavelet_transform_batch(mat, n1);
             mat.par_row_chunks_exact_mut(n1 * n2).for_each(|matrix| {
-                let mut m = RowMajorMatrixViewMut::new(matrix.values, n1);
-                m.transpose();
+                let m = RowMajorMatrixViewMut::new(matrix.values, n1).transpose();
+                matrix.values.copy_from_slice(&m.values);
             });
 
             wavelet_transform_batch(mat, n2);
             mat.par_row_chunks_exact_mut(n1 * n2).for_each(|matrix| {
-                let mut m = RowMajorMatrixViewMut::new(matrix.values, n2);
-                m.transpose();
+                let m = RowMajorMatrixViewMut::new(matrix.values, n2).transpose();
+                matrix.values.copy_from_slice(&m.values);
             });
         }
     }
