@@ -63,7 +63,6 @@ keccak = "0.1"
 blake3 = "1.5.4"
 num-bigint = "0.4"
 clap = { version = "4.4.17", features = ["derive"] }
-transpose = "0.2.3"
 
 [dev-dependencies]
 criterion = "0.5"

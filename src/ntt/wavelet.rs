@@ -245,10 +245,7 @@ mod tests {
 
         // Verify last element has accumulated all previous values
         let expected_last = (1..=size).sum::<u64>();
-        assert_eq!(
-            mat.values[size as usize - 1],
-            F::from_u64(expected_last)
-        );
+        assert_eq!(mat.values[size as usize - 1], F::from_u64(expected_last));
     }
 
     #[test]
@@ -257,9 +254,7 @@ mod tests {
         let batch_size = 2_i32.pow(20) as usize;
         // Ensure values.len() > size to enter parallel execution
         let total_size = batch_size * 4;
-        let values = (1..=total_size as u64)
-            .map(F::from_u64)
-            .collect::<Vec<_>>();
+        let values = (1..=total_size as u64).map(F::from_u64).collect::<Vec<_>>();
 
         // Keep a copy to compare later
         let original_values = values.clone();
