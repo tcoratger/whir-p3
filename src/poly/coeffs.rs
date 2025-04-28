@@ -176,7 +176,7 @@ where
 /// ```
 ///
 /// where `P_0` and `P_1` are the even-indexed and odd-indexed coefficient subsets.
-pub(crate) fn eval_multivariate<F, EF>(coeffs: &[F], point: &[EF]) -> EF
+fn eval_multivariate<F, EF>(coeffs: &[F], point: &[EF]) -> EF
 where
     F: Field,
     EF: ExtensionField<F>,
