@@ -176,7 +176,7 @@ where
 /// ```
 ///
 /// where `P_0` and `P_1` are the even-indexed and odd-indexed coefficient subsets.
-fn eval_multivariate<F, EF>(coeffs: &[F], point: &[EF]) -> EF
+pub(crate) fn eval_multivariate<F, EF>(coeffs: &[F], point: &[EF]) -> EF
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -523,7 +523,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_at_extension_three_variables() {
-        // Polynomial: f(X₀, X₁, X₂) = 1 + 2X₂ + 3X₁ + 5X₁X₂ + 4X₀ + 6X₀X₂ + 7X₀X₁ + 8X₀X₁X₂
+        // Polynomial: f(X₀, X₁, X₂) = 1 + 2X₂ + 3X₁ + 4X₁X₂ + 5X₀ + 6X₀X₂ + 7X₀X₁ + 8X₀X₁X₂
         let coeffs = vec![
             F::from_u64(1), // Constant term (000)
             F::from_u64(2), // X₂ (001)
@@ -726,27 +726,54 @@ mod tests {
 
     #[test]
     fn test_eval_multivariate_three_vars_mixed() {
+        // We define a multilinear polynomial in three variables (X₀, X₁, X₂):
+        //
+        // f(X₀, X₁, X₂) =
+        //    1                     (constant term)
+        //  + 2·X₂                  (degree-1 term in X₂)
+        //  + 3·X₁                  (degree-1 term in X₁)
+        //  + 4·X₁·X₂               (degree-2 term X₁X₂)
+        //  + 5·X₀                  (degree-1 term in X₀)
+        //  + 6·X₀·X₂               (degree-2 term X₀X₂)
+        //  + 7·X₀·X₁               (degree-2 term X₀X₁)
+        //  + 8·X₀·X₁·X₂            (degree-3 term X₀X₁X₂)
+
         let coeffs = vec![
-            F::from_u64(1),
-            F::from_u64(2),
-            F::from_u64(3),
-            F::from_u64(4),
-            F::from_u64(5),
-            F::from_u64(6),
-            F::from_u64(7),
-            F::from_u64(8),
+            F::from_u64(1), // coeff for constant term
+            F::from_u64(2), // coeff for X₂
+            F::from_u64(3), // coeff for X₁
+            F::from_u64(4), // coeff for X₁·X₂
+            F::from_u64(5), // coeff for X₀
+            F::from_u64(6), // coeff for X₀·X₂
+            F::from_u64(7), // coeff for X₀·X₁
+            F::from_u64(8), // coeff for X₀·X₁·X₂
         ];
 
-        let x0 = EF4::from_u64(2); // embedded from F
-        let x1: EF4 = EF4::from_u64(3);
-        let x2: EF4 = EF4::from_basis_coefficients_iter(
+        // Now define evaluation point (x₀, x₁, x₂) ∈ EF4³:
+        let x0 = EF4::from_u64(2); // x₀ = 2 (embedded from base field)
+        let x1 = EF4::from_u64(3); // x₁ = 3
+        let x2 = EF4::from_basis_coefficients_iter(
             [F::new(9), F::new(0), F::new(1), F::new(0)].into_iter(),
         )
-        .unwrap();
+        .unwrap(); // x₂ is a custom EF4 element
 
+        // Evaluate the multilinear polynomial at (x₀, x₁, x₂)
         let result = eval_multivariate(&coeffs, &[x0, x1, x2]);
 
-        // Expected computed via monomial expansion
+        // Manually expand the expected result:
+        //
+        // f(x₀,x₁,x₂) =
+        //    1
+        //  + 2 * x₂
+        //  + 3 * x₁
+        //  + 4 * (x₁ * x₂)
+        //  + 5 * x₀
+        //  + 6 * (x₀ * x₂)
+        //  + 7 * (x₀ * x₁)
+        //  + 8 * (x₀ * x₁ * x₂)
+        //
+        // Each coefficient is promoted from F to EF4 before multiplication.
+
         let expected = EF4::from(coeffs[0])
             + EF4::from(coeffs[1]) * x2
             + EF4::from(coeffs[2]) * x1
@@ -756,6 +783,7 @@ mod tests {
             + EF4::from(coeffs[6]) * x0 * x1
             + EF4::from(coeffs[7]) * x0 * x1 * x2;
 
+        // Final assertion: evaluated result must match the manual expansion
         assert_eq!(result, expected);
     }
 
@@ -855,6 +883,68 @@ mod tests {
 
         assert_eq!(storage.num_variables(), 4); // log2(16)
         assert_eq!(storage.num_coeffs(), 16);
+    }
+
+    #[test]
+    fn test_coefficient_list_to_evaluations_list_three_variables() {
+        // Define a multilinear polynomial:
+        //
+        // f(X₀, X₁, X₂) =
+        //    1                  (constant term)
+        //  + 2·X₂               (degree-1 term in X₂)
+        //  + 3·X₁               (degree-1 term in X₁)
+        //  + 4·X₁·X₂            (degree-2 term X₁X₂)
+        //  + 5·X₀               (degree-1 term in X₀)
+        //  + 6·X₀·X₂            (degree-2 term X₀X₂)
+        //  + 7·X₀·X₁            (degree-2 term X₀X₁)
+        //  + 8·X₀·X₁·X₂         (degree-3 term X₀X₁X₂)
+
+        let coeffs = vec![
+            F::from_u64(1), // index 0: constant
+            F::from_u64(2), // index 1: X₂
+            F::from_u64(3), // index 2: X₁
+            F::from_u64(4), // index 3: X₁·X₂
+            F::from_u64(5), // index 4: X₀
+            F::from_u64(6), // index 5: X₀·X₂
+            F::from_u64(7), // index 6: X₀·X₁
+            F::from_u64(8), // index 7: X₀·X₁·X₂
+        ];
+
+        let coeff_list = CoefficientList::new(coeffs);
+
+        // Convert to evaluations list via wavelet transform
+        let eval_list = EvaluationsList::from(coeff_list);
+
+        // Manually compute expected evaluations.
+        //
+        // Evaluations correspond to values of f(x₀,x₁,x₂) at all (x₀,x₁,x₂) ∈ {0,1}³
+        //
+        // Order of points is lex smallest bit last:
+        // [ (x₂, x₁, x₀) ] ← binary counting
+        //
+        // | Index | (X₀, X₁, X₂) | f(X₀,X₁,X₂) |
+        // |:-----:|:------------:|:-----------:|
+        // |   0   | (0, 0, 0)    | 1
+        // |   1   | (0, 0, 1)    | 1 + 2
+        // |   2   | (0, 1, 0)    | 1 + 3
+        // |   3   | (0, 1, 1)    | 1 + 2 + 3 + 4
+        // |   4   | (1, 0, 0)    | 1 + 5
+        // |   5   | (1, 0, 1)    | 1 + 2 + 5 + 6
+        // |   6   | (1, 1, 0)    | 1 + 3 + 5 + 7
+        // |   7   | (1, 1, 1)    | 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8
+
+        let expected = vec![
+            F::from_u64(1),
+            F::from_u64(1 + 2),
+            F::from_u64(1 + 3),
+            F::from_u64(1 + 2 + 3 + 4),
+            F::from_u64(1 + 5),
+            F::from_u64(1 + 2 + 5 + 6),
+            F::from_u64(1 + 3 + 5 + 7),
+            F::from_u64(1 + 2 + 3 + 4 + 5 + 6 + 7 + 8),
+        ];
+
+        assert_eq!(eval_list.evals(), &expected);
     }
 
     proptest! {

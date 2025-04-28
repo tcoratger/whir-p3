@@ -641,135 +641,257 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_sumcheck_polynomial_with_equality_constraints() {
-        // Define a multilinear polynomial with two variables:
-        // f(X1, X2) = c1 + c2*X1 + c3*X2 + c4*X1*X2
-        // This polynomial is represented in coefficient form.
+    fn test_compute_sumcheck_polynomial_with_equality_constraints1() {
+        // ----------------------------------------------------------------
+        // Step 0: Define the multilinear polynomial
+        //
+        // f(X₀, X₁) = c₁ + c₂·X₁ + c₃·X₀ + c₄·X₀·X₁
+        //
+        // with coefficients:
+        //   c₁ = 1
+        //   c₂ = 2
+        //   c₃ = 3
+        //   c₄ = 4
+        // ----------------------------------------------------------------
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
         let c4 = F::from_u64(4);
 
-        // Convert the polynomial into coefficient list representation
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
 
-        // Create a statement and introduce an equality constraint at (X1, X2) = (1,0)
-        // The constraint enforces that f(1,0) must evaluate to 5 with weight 2.
+        // ----------------------------------------------------------------
+        // Step 1: Define an equality constraint
+        //
+        // Constraint: f(1,0) = 5
+        // Using a Weights::evaluation at the point (X₀, X₁) = (1,0).
+        // ----------------------------------------------------------------
         let mut statement = Statement::new(2);
         let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
         let weights = Weights::evaluation(point);
         let eval = F::from_u64(5);
         statement.add_constraint(weights, eval);
 
-        // Instantiate the Sumcheck prover with the polynomial and equality constraints
+        // Instantiate prover
         let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
+
+        // Compute the sumcheck polynomial h(X)
         let sumcheck_poly = prover.compute_sumcheck_polynomial();
 
-        // The constraint directly contributes to the sum, hence sum = 5
+        // Check sum consistency
         assert_eq!(prover.sum, eval);
 
-        // Compute the polynomial evaluations at the four possible binary inputs
-        let ep_00 = c1; // f(0,0) = c1
-        let ep_01 = c1 + c2; // f(0,1) = c1 + c2
-        let ep_10 = c1 + c3; // f(1,0) = c1 + c3
-        let ep_11 = c1 + c3 + c2 + c4; // f(1,1) = c1 + c3 + c2 + c4
-
-        // Compute the evaluations of the equality constraint polynomial at each binary input
-        // Given that the constraint is at (1,0) with weight 2, the equality function is:
+        // ----------------------------------------------------------------
+        // Step 2: Define the polynomials f and w manually
         //
-        // \begin{equation}
-        // eq(X1, X2) = 2 * (X1 - 1) * (X2 - 0)
-        // \end{equation}
-        let f_00 = F::ZERO; // eq(0,0) = 0
-        let f_01 = F::ZERO; // eq(0,1) = 0
-        let f_10 = F::ONE; // eq(1,0) = 1
-        let f_11 = F::ZERO; // eq(1,1) = 0
+        // - f(x₀,x₁) = c₁ + c₂·x₁ + c₃·x₀ + c₄·x₀·x₁
+        //
+        // - w(x₀,x₁) is the Lagrange interpolation enforcing (x₀,x₁) = (1,0):
+        //   w(x₀,x₁) = x₀ · (1 - x₁)
+        //
+        // This satisfies:
+        //  - w(1,0) = 1
+        //  - w(x) = 0 elsewhere
+        // ----------------------------------------------------------------
+        let f = |x0: F, x1: F| c1 + c2 * x1 + c3 * x0 + c4 * x0 * x1;
+        let w = |x0: F, x1: F| x0 * (F::ONE - x1);
 
-        // Compute the coefficients of the sumcheck polynomial S(X)
-        let e0 = ep_00 * f_00 + ep_10 * f_10; // Constant term (X = 0)
-        let e2 = (ep_01 - ep_00) * (f_01 - f_00) + (ep_11 - ep_10) * (f_11 - f_10); // Quadratic coefficient
+        // ----------------------------------------------------------------
+        // Step 3: Evaluate f and w at all binary points (0/1 for x₀, x₁)
+        // ----------------------------------------------------------------
+        let f_00 = f(F::ZERO, F::ZERO);
+        let f_01 = f(F::ZERO, F::ONE);
+        let f_10 = f(F::ONE, F::ZERO);
+        let f_11 = f(F::ONE, F::ONE);
+
+        let w_00 = w(F::ZERO, F::ZERO);
+        let w_01 = w(F::ZERO, F::ONE);
+        let w_10 = w(F::ONE, F::ZERO);
+        let w_11 = w(F::ONE, F::ONE);
+
+        // ----------------------------------------------------------------
+        // Step 4: Manually reconstruct the quadratic sumcheck polynomial
+        //
+        // We want h(X) = quadratic polynomial satisfying:
+        //
+        //      h(X₀) = ∑_{X₁ ∈ {0,1}} f(X₀,X₁) · w(X₀,X₁)
+        //
+        // which can be interpolated from:
+        //
+        // - c₀ = constant coefficient
+        // - c₂ = quadratic coefficient
+        // - c₁ = determined from sum rule: prover.sum = 2·c₀ + c₁ + c₂
+        //
+        // More precisely:
+        //
+        // \[
+        // c₀ = (f₀₀ × w₀₀) + (f₁₀ × w₁₀)
+        // \]
+        //
+        // \[
+        // c₂ = (f₀₁ - f₀₀) × (w₀₁ - w₀₀) + (f₁₁ - f₁₀) × (w₁₁ - w₁₀)
+        // \]
+        //
+        // \[
+        // c₁ = sum - 2·c₀ - c₂
+        // \]
+        // ----------------------------------------------------------------
+
+        let e0 = f_00 * w_00 + f_10 * w_10; // Constant term
+        let e2 = (f_01 - f_00) * (w_01 - w_00) + (f_11 - f_10) * (w_11 - w_10); // Quadratic term
         let e1 = prover.sum - e0.double() - e2; // Middle coefficient using sum rule
 
-        // Compute the evaluations of the sumcheck polynomial at X ∈ {0,1,2}
+        // ----------------------------------------------------------------
+        // Step 5: Evaluate the quadratic polynomial at {0,1,2}
+        //
+        // - h(0) = c₀
+        // - h(1) = c₀ + c₁ + c₂
+        // - h(2) = h(1) + c₁ + c₂ + 2c₂
+        // ----------------------------------------------------------------
+
         let eval_0 = e0;
         let eval_1 = e0 + e1 + e2;
         let eval_2 = eval_1 + e1 + e2 + e2.double();
+
         let expected_evaluations = vec![eval_0, eval_1, eval_2];
 
-        // Ensure that the computed sumcheck polynomial matches expectations
+        // ----------------------------------------------------------------
+        // Step 6: Assert final match
+        // ----------------------------------------------------------------
         assert_eq!(sumcheck_poly.evaluations(), &expected_evaluations);
     }
 
     #[test]
     fn test_compute_sumcheck_polynomial_with_equality_constraints_3vars() {
-        // Define a multilinear polynomial with three variables:
-        // f(X1, X2, X3) = c1 + c2*X1 + c3*X2 + c4*X3 + c5*X1*X2 + c6*X1*X3 + c7*X2*X3 + c8*X1*X2*X3
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let c5 = F::from_u64(5);
-        let c6 = F::from_u64(6);
-        let c7 = F::from_u64(7);
-        let c8 = F::from_u64(8);
+        // Step 1: Define a multilinear polynomial with three variables:
+        //
+        //   f(X₀, X₁, X₂) = c₀
+        //                 + c₁·X₂
+        //                 + c₂·X₁
+        //                 + c₃·X₁·X₂
+        //                 + c₄·X₀
+        //                 + c₅·X₀·X₂
+        //                 + c₆·X₀·X₁
+        //                 + c₇·X₀·X₁·X₂
+        //
+        // Coefficients:
+        //   - c₀ = 1
+        //   - c₁ = 2
+        //   - c₂ = 3
+        //   - c₃ = 4
+        //   - c₄ = 5
+        //   - c₅ = 6
+        //   - c₆ = 7
+        //   - c₇ = 8
+        let c0 = F::from_u64(1);
+        let c1 = F::from_u64(2);
+        let c2 = F::from_u64(3);
+        let c3 = F::from_u64(4);
+        let c4 = F::from_u64(5);
+        let c5 = F::from_u64(6);
+        let c6 = F::from_u64(7);
+        let c7 = F::from_u64(8);
 
-        // Convert the polynomial into coefficient form
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
 
-        // Create a statement and introduce an equality constraint at (X1, X2, X3) = (1,0,1)
+        // Step 2: Set up a sumcheck statement with a **single equality constraint**.
+        //
+        // The constraint is at the point (X₀,X₁,X₂) = (1,0,1),
+        // with expected evaluation value = 5.
         let mut statement = Statement::new(3);
         let point = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE]);
         let weights = Weights::evaluation(point);
-        let eval = F::from_u64(5);
-        statement.add_constraint(weights, eval);
 
-        // Instantiate the Sumcheck prover with the polynomial and equality constraints
+        let expected_sum = F::from_u64(5);
+        statement.add_constraint(weights, expected_sum);
+
+        // Build prover and compute sumcheck polynomial.
         let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
         let sumcheck_poly = prover.compute_sumcheck_polynomial();
 
-        // Expected sum update: sum = 5
-        assert_eq!(prover.sum, eval);
+        // Sanity check: sum must match the constraint
+        assert_eq!(prover.sum, expected_sum);
 
-        // Compute polynomial evaluations at the eight possible binary inputs
-        let ep_000 = c1; // f(0,0,0)
-        let ep_001 = c1 + c2; // f(0,0,1)
-        let ep_010 = c1 + c3; // f(0,1,0)
-        let ep_011 = c1 + c2 + c3 + c4; // f(0,1,1)
-        let ep_100 = c1 + c5; // f(1,0,0)
-        let ep_101 = c1 + c2 + c5 + c6; // f(1,0,1)
-        let ep_110 = c1 + c3 + c5 + c7; // f(1,1,0)
-        let ep_111 = c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8; // f(1,1,1)
+        // Step 3: Define f(x₀,x₁,x₂) explicitly as a function
+        let f = |x0: F, x1: F, x2: F| {
+            c0 + c1 * x2
+                + c2 * x1
+                + c3 * x1 * x2
+                + c4 * x0
+                + c5 * x0 * x2
+                + c6 * x0 * x1
+                + c7 * x0 * x1 * x2
+        };
 
-        // Compute the evaluations of the equality constraint polynomial at each binary input
-        // Given that the constraint is at (1,0,1) with weight 2, the equality function is:
+        // Step 4: Manually compute f at all 8 binary points (0,1)^3
+        let ep_000 = f(F::ZERO, F::ZERO, F::ZERO);
+        let ep_001 = f(F::ZERO, F::ZERO, F::ONE);
+        let ep_010 = f(F::ZERO, F::ONE, F::ZERO);
+        let ep_011 = f(F::ZERO, F::ONE, F::ONE);
+        let ep_100 = f(F::ONE, F::ZERO, F::ZERO);
+        let ep_101 = f(F::ONE, F::ZERO, F::ONE);
+        let ep_110 = f(F::ONE, F::ONE, F::ZERO);
+        let ep_111 = f(F::ONE, F::ONE, F::ONE);
+
+        // Step 5: Compute the evaluations of the **equality constraint polynomial**.
         //
-        // \begin{equation}
-        // eq(X1, X2, X3) = 2 * (X1 - 1) * (X2 - 0) * (X3 - 1)
-        // \end{equation}
-        let f_000 = F::ZERO; // eq(0,0,0) = 0
-        let f_001 = F::ZERO; // eq(0,0,1) = 0
-        let f_010 = F::ZERO; // eq(0,1,0) = 0
-        let f_011 = F::ZERO; // eq(0,1,1) = 0
-        let f_100 = F::ZERO; // eq(1,0,0) = 0
-        let f_101 = F::ONE; // eq(1,0,1) = 1
-        let f_110 = F::ZERO; // eq(1,1,0) = 0
-        let f_111 = F::ZERO; // eq(1,1,1) = 0
+        // The equality constraint enforces X = (1,0,1).
+        // The equality polynomial eq_{(1,0,1)}(X₀,X₁,X₂) evaluates to:
+        //   - 1 when (X₀,X₁,X₂) == (1,0,1)
+        //   - 0 elsewhere
+        //
+        // Thus:
+        //   - Only point (1,0,1) gets a 1
+        //   - All other 7 points are 0
+        let w_000 = F::ZERO; // eq(0,0,0) = 0
+        let w_001 = F::ZERO; // eq(0,0,1) = 0
+        let w_010 = F::ZERO; // eq(0,1,0) = 0
+        let w_011 = F::ZERO; // eq(0,1,1) = 0
+        let w_100 = F::ZERO; // eq(1,0,0) = 0
+        let w_101 = F::ONE; // eq(1,0,1) = 1 (this is the constraint point)
+        let w_110 = F::ZERO; // eq(1,1,0) = 0
+        let w_111 = F::ZERO; // eq(1,1,1) = 0
 
-        // Compute the coefficients of the sumcheck polynomial S(X)
-        let e0 = ep_000 * f_000 + ep_010 * f_010 + ep_100 * f_100 + ep_110 * f_110; // Contribution at X = 0
-        let e2 = (ep_001 - ep_000) * (f_001 - f_000)
-            + (ep_011 - ep_010) * (f_011 - f_010)
-            + (ep_101 - ep_100) * (f_101 - f_100)
-            + (ep_111 - ep_110) * (f_111 - f_110); // Quadratic coefficient
-        let e1 = prover.sum - e0.double() - e2; // Middle coefficient using sum rule
+        // ----------------------------------------------------------------
+        // Step 6: Manually compute the coefficients (e₀, e₁, e₂) of the sumcheck polynomial
+        //
+        // Recall:
+        // - e₀ = sum of f(x)·w(x) where x₀ = 0
+        // - e₁ and e₂ derived from interpolation using prover.sum
+        //
+        // Detailed formulas:
+        //   e₀ = (ep_000 * w_000) + (ep_010 * w_010) + (ep_100 * w_100) + (ep_110 * w_110)
+        //       = 0
+        //
+        //   e₂ = (ep_001 - ep_000) * (w_001 - w_000)
+        //       + (ep_011 - ep_010) * (w_011 - w_010)
+        //       + (ep_101 - ep_100) * (w_101 - w_100)
+        //       + (ep_111 - ep_110) * (w_111 - w_110)
+        //
+        //   e₁ = sum - 2*e₀ - e₂
+        // ----------------------------------------------------------------
+        let e0 = ep_000 * w_000 + ep_010 * w_010 + ep_100 * w_100 + ep_110 * w_110; // = 0
+        let e2 = (ep_001 - ep_000) * (w_001 - w_000)
+            + (ep_011 - ep_010) * (w_011 - w_010)
+            + (ep_101 - ep_100) * (w_101 - w_100)
+            + (ep_111 - ep_110) * (w_111 - w_110);
+        let e1 = prover.sum - e0.double() - e2;
 
-        // Compute sumcheck polynomial evaluations at {0,1,2}
+        // ----------------------------------------------------------------
+        // Step 7: Manually compute evaluations of sumcheck polynomial at {0,1,2}
+        //
+        // Recall:
+        //   h(0) = e₀
+        //   h(1) = e₀ + e₁ + e₂
+        //   h(2) = h(1) + e₁ + e₂ + 2e₂
+        // ----------------------------------------------------------------
         let eval_0 = e0;
         let eval_1 = e0 + e1 + e2;
         let eval_2 = eval_1 + e1 + e2 + e2.double();
+
         let expected_evaluations = vec![eval_0, eval_1, eval_2];
 
-        // Assert that computed sumcheck polynomial matches expectations
+        // Final assertion: check that the computed polynomial matches manual expansion
         assert_eq!(sumcheck_poly.evaluations(), &expected_evaluations);
     }
 
@@ -1662,6 +1784,5 @@ mod tests {
             // Ensure roundtrip consistency
             prop_assert_eq!(final_point_base.0, final_point_ext.0);
         }
-
     }
 }

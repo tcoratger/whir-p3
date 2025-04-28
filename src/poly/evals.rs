@@ -226,7 +226,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::poly::hypercube::BinaryHypercube;
+    use crate::poly::{coeffs::CoefficientList, hypercube::BinaryHypercube};
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
@@ -570,5 +570,186 @@ mod tests {
 
             prop_assert_eq!(eval_f, eval_ef);
         }
+    }
+
+    #[test]
+    fn test_multilinear_eval_two_vars() {
+        // Define a simple 2-variable multilinear polynomial:
+        //
+        // Variables: X₁, X₂
+        // Coefficients ordered in lexicographic order: (X₁, X₂)
+        //
+        // - coeffs[0] → constant term
+        // - coeffs[1] → X₂ term
+        // - coeffs[2] → X₁ term
+        // - coeffs[3] → X₁·X₂ term
+        //
+        // Thus, the polynomial is:
+        //
+        //   f(X₁, X₂) = c0 + c1·X₂ + c2·X₁ + c3·X₁·X₂
+        //
+        // where:
+        let c0 = F::from_u64(5); // constant
+        let c1 = F::from_u64(6); // X₂ coefficient
+        let c2 = F::from_u64(7); // X₁ coefficient
+        let c3 = F::from_u64(8); // X₁·X₂ coefficient
+        //
+        // So concretely:
+        //
+        //   f(X₁, X₂) = 5 + 6·X₂ + 7·X₁ + 8·X₁·X₂
+        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3]);
+
+        // Convert coefficients to evaluations via the wavelet transform
+        let evals = EvaluationsList::from(coeffs);
+
+        // Choose evaluation point:
+        //
+        // Let's pick (x₁, x₂) = (2, 1)
+        let x1 = F::from_u64(2);
+        let x2 = F::from_u64(1);
+        let coords = MultilinearPoint(vec![x1, x2]);
+
+        // Manually compute the expected value step-by-step:
+        //
+        // Reminder:
+        //   f(X₁, X₂) = 5 + 6·X₂ + 7·X₁ + 8·X₁·X₂
+        //
+        // Substituting (X₁, X₂):
+        let expected = c0 + c1 * x2 + c2 * x1 + c3 * x1 * x2;
+
+        // Now evaluate using the function under test
+        let result = evals.evaluate(&coords);
+
+        // Check that it matches the manual computation
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_evaluate_3_variables() {
+        // Define a multilinear polynomial in 3 variables: X₀, X₁, X₂
+        //
+        // Coefficients ordered lex in index order:
+        //
+        // - coeffs[0] → constant term
+        // - coeffs[1] → X₂
+        // - coeffs[2] → X₁
+        // - coeffs[3] → X₁·X₂
+        // - coeffs[4] → X₀
+        // - coeffs[5] → X₀·X₂
+        // - coeffs[6] → X₀·X₁
+        // - coeffs[7] → X₀·X₁·X₂
+        //
+        // Thus:
+        //    f(X₀,X₁,X₂) = c0 + c1·X₂ + c2·X₁ + c3·X₁·X₂
+        //                + c4·X₀ + c5·X₀·X₂ + c6·X₀·X₁ + c7·X₀·X₁·X₂
+        let c0 = F::from_u64(1);
+        let c1 = F::from_u64(2);
+        let c2 = F::from_u64(3);
+        let c3 = F::from_u64(4);
+        let c4 = F::from_u64(5);
+        let c5 = F::from_u64(6);
+        let c6 = F::from_u64(7);
+        let c7 = F::from_u64(8);
+
+        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
+        let evals = EvaluationsList::from(coeffs);
+
+        // Pick point: (x₀,x₁,x₂) = (2, 3, 4)
+        let x0 = F::from_u64(2);
+        let x1 = F::from_u64(3);
+        let x2 = F::from_u64(4);
+
+        let point = MultilinearPoint(vec![x0, x1, x2]);
+
+        // Manually compute:
+        //
+        // expected = 1
+        //          + 2·4
+        //          + 3·3
+        //          + 4·3·4
+        //          + 5·2
+        //          + 6·2·4
+        //          + 7·2·3
+        //          + 8·2·3·4
+        let expected = c0
+            + c1 * x2
+            + c2 * x1
+            + c3 * x1 * x2
+            + c4 * x0
+            + c5 * x0 * x2
+            + c6 * x0 * x1
+            + c7 * x0 * x1 * x2;
+
+        let result = evals.evaluate(&point);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_extension_3_variables() {
+        // Define a multilinear polynomial in 3 variables: X₀, X₁, X₂
+        //
+        // Coefficients ordered lex in index order:
+        //
+        // - coeffs[0] → constant term
+        // - coeffs[1] → X₂ term
+        // - coeffs[2] → X₁ term
+        // - coeffs[3] → X₁·X₂ term
+        // - coeffs[4] → X₀ term
+        // - coeffs[5] → X₀·X₂ term
+        // - coeffs[6] → X₀·X₁ term
+        // - coeffs[7] → X₀·X₁·X₂ term
+        //
+        // Thus:
+        //    f(X₀,X₁,X₂) = c0 + c1·X₂ + c2·X₁ + c3·X₁·X₂
+        //                + c4·X₀ + c5·X₀·X₂ + c6·X₀·X₁ + c7·X₀·X₁·X₂
+        let c0 = F::from_u64(1);
+        let c1 = F::from_u64(2);
+        let c2 = F::from_u64(3);
+        let c3 = F::from_u64(4);
+        let c4 = F::from_u64(5);
+        let c5 = F::from_u64(6);
+        let c6 = F::from_u64(7);
+        let c7 = F::from_u64(8);
+
+        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
+        let evals = EvaluationsList::from(coeffs);
+
+        // Choose evaluation point: (x₀, x₁, x₂) = (2, 3, 4)
+        //
+        // Here we lift into the extension field EF4
+        let x0 = EF4::from_u64(2);
+        let x1 = EF4::from_u64(3);
+        let x2 = EF4::from_u64(4);
+
+        let point = MultilinearPoint(vec![x0, x1, x2]);
+
+        // Manually compute expected value
+        //
+        // Substituting (X₀,X₁,X₂) = (2,3,4) into:
+        //
+        //   f(X₀,X₁,X₂) = 1
+        //               + 2·4
+        //               + 3·3
+        //               + 4·3·4
+        //               + 5·2
+        //               + 6·2·4
+        //               + 7·2·3
+        //               + 8·2·3·4
+        //
+        // and lifting each constant into EF4 for correct typing
+        let expected = EF4::from(c0)
+            + EF4::from(c1) * x2
+            + EF4::from(c2) * x1
+            + EF4::from(c3) * x1 * x2
+            + EF4::from(c4) * x0
+            + EF4::from(c5) * x0 * x2
+            + EF4::from(c6) * x0 * x1
+            + EF4::from(c7) * x0 * x1 * x2;
+
+        // Evaluate via `eval_extension` method
+        let result = evals.eval_extension(&point);
+
+        // Verify that result matches manual computation
+        assert_eq!(result, expected);
     }
 }
