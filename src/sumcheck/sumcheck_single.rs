@@ -150,19 +150,16 @@ where
     pub fn compute_sumcheck_polynomial(&self) -> SumcheckPolynomial<EF> {
         assert!(self.num_variables() >= 1);
 
+        let lin = |(p, eq): (&[EF], &[EF])| (eq[0] * p[0], (eq[1] - eq[0]) * (p[1] - p[0]));
+        let lin_mixed = |(p, eq): (&[F], &[EF])| (eq[0] * p[0], (eq[1] - eq[0]) * (p[1] - p[0]));
+
         #[cfg(feature = "parallel")]
         let (c0, c2) = match &self.evaluation_of_p {
             EvaluationStorage::Base(evals_f) => evals_f
                 .evals()
                 .par_chunks_exact(2)
                 .zip(self.weights.evals().par_chunks_exact(2))
-                .map(|(p_at, eq_at)| {
-                    // Convert evaluations to coefficients for the linear fns p and eq.
-                    let (p_0, p_1) = (p_at[0], p_at[1] - p_at[0]);
-                    let (eq_0, eq_1) = (eq_at[0], eq_at[1] - eq_at[0]);
-
-                    (eq_0 * p_0, eq_1 * p_1)
-                })
+                .map(lin_mixed)
                 .reduce(
                     || (EF::ZERO, EF::ZERO),
                     |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
@@ -171,13 +168,7 @@ where
                 .evals()
                 .par_chunks_exact(2)
                 .zip(self.weights.evals().par_chunks_exact(2))
-                .map(|(p_at, eq_at)| {
-                    // Convert evaluations to coefficients for the linear fns p and eq.
-                    let (p_0, p_1) = (p_at[0], p_at[1] - p_at[0]);
-                    let (eq_0, eq_1) = (eq_at[0], eq_at[1] - eq_at[0]);
-
-                    (p_0 * eq_0, p_1 * eq_1)
-                })
+                .map(lin)
                 .reduce(
                     || (EF::ZERO, EF::ZERO),
                     |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
@@ -190,13 +181,7 @@ where
                 .evals()
                 .chunks_exact(2)
                 .zip(self.weights.evals().chunks_exact(2))
-                .map(|(p_at, eq_at)| {
-                    // Convert evaluations to coefficients for the linear fns p and eq.
-                    let (p_0, p_1) = (p_at[0], p_at[1] - p_at[0]);
-                    let (eq_0, eq_1) = (eq_at[0], eq_at[1] - eq_at[0]);
-
-                    (eq_0 * p_0, eq_1 * p_1)
-                })
+                .map(lin_mixed)
                 .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
                     (a0 + b0, a2 + b2)
                 }),
@@ -205,13 +190,7 @@ where
                 .evals()
                 .chunks_exact(2)
                 .zip(self.weights.evals().chunks_exact(2))
-                .map(|(p_at, eq_at)| {
-                    // Convert evaluations to coefficients for the linear fns p and eq.
-                    let (p_0, p_1) = (p_at[0], p_at[1] - p_at[0]);
-                    let (eq_0, eq_1) = (eq_at[0], eq_at[1] - eq_at[0]);
-
-                    (p_0 * eq_0, p_1 * eq_1)
-                })
+                .map(lin)
                 .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
                     (a0 + b0, a2 + b2)
                 }),
