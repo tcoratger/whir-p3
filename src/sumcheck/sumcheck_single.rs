@@ -10,6 +10,7 @@ use crate::{
         evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
+    sumcheck::utils::sumcheck_quadratic,
     utils::eval_eq,
     whir::statement::Statement,
 };
@@ -135,23 +136,33 @@ where
             });
     }
 
-    /// Computes the sumcheck polynomial `h(X)`, which is quadratic.
+    /// Computes the sumcheck polynomial `h(X)`, a quadratic polynomial resulting from the folding step.
     ///
-    /// The sumcheck polynomial is given by:
+    /// The sumcheck polynomial is computed as:
     ///
-    /// \begin{equation}
+    /// \[
     /// h(X) = \sum_b p(b, X) \cdot w(b, X)
-    /// \end{equation}
+    /// \]
     ///
     /// where:
-    /// - `b` represents points in `{0,1,2}^1`.
-    /// - `w(b, X)` are the generic weights applied to `p(b, X)`.
-    /// - `h(X)` is a quadratic polynomial.
+    /// - `b` ranges over evaluation points in `{0,1,2}^1` (i.e., two points per fold).
+    /// - `p(b, X)` is the polynomial evaluation at `b` as a function of `X`.
+    /// - `w(b, X)` is the associated weight applied at `b` as a function of `X`.
+    ///
+    /// **Mathematical model:**
+    /// - Each chunk of two evaluations encodes a linear polynomial in `X`.
+    /// - The product `p(X) * w(X)` is a quadratic polynomial.
+    /// - We compute the constant and quadratic coefficients first, then infer the linear coefficient using:
+    ///
+    /// \[
+    /// \text{sum} = 2 \cdot c_0 + c_1 + c_2
+    /// \]
+    ///
+    /// where `sum` is the accumulated constraint sum.
+    ///
+    /// Returns a `SumcheckPolynomial` with evaluations at `X = 0, 1, 2`.
     pub fn compute_sumcheck_polynomial(&self) -> SumcheckPolynomial<EF> {
         assert!(self.num_variables() >= 1);
-
-        let lin = |(p, eq): (&[EF], &[EF])| (eq[0] * p[0], (eq[1] - eq[0]) * (p[1] - p[0]));
-        let lin_mixed = |(p, eq): (&[F], &[EF])| (eq[0] * p[0], (eq[1] - eq[0]) * (p[1] - p[0]));
 
         #[cfg(feature = "parallel")]
         let (c0, c2) = match &self.evaluation_of_p {
@@ -159,7 +170,7 @@ where
                 .evals()
                 .par_chunks_exact(2)
                 .zip(self.weights.evals().par_chunks_exact(2))
-                .map(lin_mixed)
+                .map(sumcheck_quadratic::<F, EF>)
                 .reduce(
                     || (EF::ZERO, EF::ZERO),
                     |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
@@ -168,7 +179,7 @@ where
                 .evals()
                 .par_chunks_exact(2)
                 .zip(self.weights.evals().par_chunks_exact(2))
-                .map(lin)
+                .map(sumcheck_quadratic::<EF, EF>)
                 .reduce(
                     || (EF::ZERO, EF::ZERO),
                     |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
@@ -181,7 +192,7 @@ where
                 .evals()
                 .chunks_exact(2)
                 .zip(self.weights.evals().chunks_exact(2))
-                .map(lin_mixed)
+                .map(sumcheck_quadratic::<F, EF>)
                 .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
                     (a0 + b0, a2 + b2)
                 }),
@@ -190,16 +201,42 @@ where
                 .evals()
                 .chunks_exact(2)
                 .zip(self.weights.evals().chunks_exact(2))
-                .map(lin)
+                .map(sumcheck_quadratic::<EF, EF>)
                 .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
                     (a0 + b0, a2 + b2)
                 }),
         };
 
-        // Compute the middle coefficient using sum rule: sum = 2 * c0 + c1 + c2
+        // Compute the middle (linear) coefficient
+        //
+        // The quadratic polynomial h(X) has the form:
+        //     h(X) = c0 + c1 * X + c2 * X^2
+        //
+        // We already computed:
+        // - c0: the constant coefficient (contribution at X=0)
+        // - c2: the quadratic coefficient (contribution at X^2)
+        //
+        // To recover c1 (linear term), we use the known sum rule:
+        //     sum = h(0) + h(1)
+        // Expand h(0) and h(1):
+        //     h(0) = c0
+        //     h(1) = c0 + c1 + c2
+        // Therefore:
+        //     sum = c0 + (c0 + c1 + c2) = 2*c0 + c1 + c2
+        //
+        // Rearranging for c1 gives:
+        //     c1 = sum - 2*c0 - c2
         let c1 = self.sum - c0.double() - c2;
 
-        // Evaluate the quadratic polynomial at 0, 1, 2
+        // Evaluate the quadratic polynomial at points 0, 1, 2
+        //
+        // Evaluate:
+        //     h(0) = c0
+        //     h(1) = c0 + c1 + c2
+        //     h(2) = c0 + 2*c1 + 4*c2
+        //
+        // To compute h(2) efficiently, observe:
+        //     h(2) = h(1) + (c1 + 2*c2)
         let eval_0 = c0;
         let eval_1 = c0 + c1 + c2;
         let eval_2 = eval_1 + c1 + c2 + c2.double();
@@ -620,7 +657,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_sumcheck_polynomial_with_equality_constraints1() {
+    fn test_compute_sumcheck_polynomial_with_equality_constraints() {
         // ----------------------------------------------------------------
         // Step 0: Define the multilinear polynomial
         //
