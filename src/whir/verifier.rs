@@ -51,7 +51,7 @@ where
         verifier_state: &mut VerifierState<'_, EF, F>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
         statement_points_len: usize,
-        whir_proof: &WhirProof<EF, DIGEST_ELEMS>,
+        whir_proof: &WhirProof<F, EF, DIGEST_ELEMS>,
     ) -> ProofResult<ParsedProof<EF>>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
@@ -62,6 +62,11 @@ where
             self.params.merkle_hash.clone(),
             self.params.merkle_compress.clone(),
         ));
+
+        let commitment_mmcs = MerkleTreeMmcs::new(
+            self.params.merkle_hash.clone(),
+            self.params.merkle_compress.clone(),
+        );
 
         let mut sumcheck_rounds = Vec::new();
         let mut folding_randomness;
@@ -114,7 +119,6 @@ where
         let mut rounds = vec![];
 
         for r in 0..self.params.n_rounds() {
-            let (answers, merkle_proof) = &whir_proof.merkle_paths[r];
             let round_params = &self.params.round_parameters[r];
             let fold_r = self.params.folding_factor.at_round(r);
 
@@ -145,15 +149,42 @@ where
                 width: 1 << fold_r,
             }];
 
+            let mut stir_challenges_answers = Vec::new();
+
             for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
-                mmcs.verify_batch(
-                    &prev_root,
-                    &dimensions,
-                    stir_challenges_index,
-                    &[answers[i].clone()],
-                    &merkle_proof[i],
-                )
-                .map_err(|_| ProofError::InvalidProof)?;
+                if r == 0 {
+                    let (answers, merkle_proof) = &whir_proof.commitment_merkle_paths;
+                    let indexed_answers: Vec<F> = answers[i]
+                        .iter()
+                        .map(|v| v.as_base())
+                        .map(|v| v.unwrap())
+                        .collect();
+
+                    commitment_mmcs
+                        .verify_batch(
+                            &prev_root,
+                            &dimensions,
+                            stir_challenges_index,
+                            &[indexed_answers],
+                            &merkle_proof[i],
+                        )
+                        .map_err(|_| ProofError::InvalidProof)?;
+                    stir_challenges_answers = answers
+                        .into_iter()
+                        .map(|inner| inner.into_iter().map(|&f_el| EF::from(f_el)).collect())
+                        .collect();
+                } else {
+                    let (answers, merkle_proof) = &whir_proof.merkle_paths[r - 1];
+                    mmcs.verify_batch(
+                        &prev_root,
+                        &dimensions,
+                        stir_challenges_index,
+                        &[answers[i].clone()],
+                        &merkle_proof[i],
+                    )
+                    .map_err(|_| ProofError::InvalidProof)?;
+                    stir_challenges_answers = answers.clone();
+                }
             }
 
             if round_params.pow_bits > 0. {
@@ -189,7 +220,7 @@ where
                 ood_answers,
                 stir_challenges_indexes,
                 stir_challenges_points,
-                stir_challenges_answers: answers.clone(),
+                stir_challenges_answers: stir_challenges_answers.clone(),
                 combination_randomness,
                 sumcheck_rounds,
                 domain_gen_inv,
@@ -220,25 +251,49 @@ where
             .map(|index| exp_domain_gen.exp_u64(*index as u64))
             .collect();
 
-        // Final Merkle verification
-        let (final_randomness_answers, final_merkle_proof) =
-            &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
-
         let dimensions = vec![Dimensions {
             width: 1 << fold_last,
             height: domain_size >> fold_last,
         }];
 
-        for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
-            mmcs.verify_batch(
-                &prev_root,
-                &dimensions,
-                stir_challenges_index,
-                &[final_randomness_answers[i].clone()],
-                &final_merkle_proof[i],
-            )
-            .map_err(|_| ProofError::InvalidProof)?;
-        }
+        // Final Merkle verification
+        let final_randomness_answers: Vec<Vec<EF>> = if whir_proof.merkle_paths.len() == 0 {
+            let (commitment_randomness_answers, commitment_merkle_proof) =
+                &whir_proof.commitment_merkle_paths;
+
+            for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
+                commitment_mmcs
+                    .verify_batch(
+                        &prev_root,
+                        &dimensions,
+                        stir_challenges_index,
+                        &[commitment_randomness_answers[i].clone()],
+                        &commitment_merkle_proof[i],
+                    )
+                    .map_err(|_| ProofError::InvalidProof)?;
+            }
+
+            commitment_randomness_answers
+                .into_iter()
+                .map(|inner| inner.into_iter().map(|&f_el| EF::from(f_el)).collect())
+                .collect()
+        } else {
+            let (final_randomness_answers, final_merkle_proof) =
+                &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
+
+            for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
+                mmcs.verify_batch(
+                    &prev_root,
+                    &dimensions,
+                    stir_challenges_index,
+                    &[final_randomness_answers[i].clone()],
+                    &final_merkle_proof[i],
+                )
+                .map_err(|_| ProofError::InvalidProof)?;
+            }
+
+            final_randomness_answers.clone()
+        };
 
         if self.params.final_pow_bits > 0. {
             verifier_state.challenge_pow::<PS>(self.params.final_pow_bits)?;
@@ -365,7 +420,7 @@ where
         verifier_state: &mut VerifierState<'_, EF, F>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
         statement: &StatementVerifier<EF>,
-        whir_proof: &WhirProof<EF, DIGEST_ELEMS>,
+        whir_proof: &WhirProof<F, EF, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,

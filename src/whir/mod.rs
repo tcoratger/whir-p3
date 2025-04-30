@@ -33,12 +33,13 @@ pub mod verifier;
 // Only includes the authentication paths
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(bound(
-    serialize = "F: Serialize, [u8; DIGEST_ELEMS]: Serialize",
-    deserialize = "F: DeserializeOwned, [u8; DIGEST_ELEMS]: DeserializeOwned"
+    serialize = "F: Serialize, EF: Serialize, [u8; DIGEST_ELEMS]: Serialize",
+    deserialize = "F: DeserializeOwned, EF: DeserializeOwned, [u8; DIGEST_ELEMS]: DeserializeOwned",
 ))]
-pub struct WhirProof<F, const DIGEST_ELEMS: usize> {
-    pub merkle_paths: Vec<(Leafs<F>, Proof<DIGEST_ELEMS>)>,
-    pub statement_values_at_random_point: Vec<F>,
+pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
+    pub commitment_merkle_paths: (Leafs<F>, Proof<DIGEST_ELEMS>),
+    pub merkle_paths: Vec<(Leafs<EF>, Proof<DIGEST_ELEMS>)>,
+    pub statement_values_at_random_point: Vec<EF>,
 }
 
 type F = BabyBear;
@@ -93,7 +94,7 @@ pub fn make_whir_things(
     // Combine protocol and polynomial parameters into a single config
     let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
-    // Define a polynomial with all coefficients set to 1 (i.e., constant 1 polynomial)
+    // Define a polynomial with all coefficients set to 1
     let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]);
 
     // Sample `num_points` random multilinear points in the Boolean hypercube
