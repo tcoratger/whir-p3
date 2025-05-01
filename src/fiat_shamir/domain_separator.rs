@@ -79,6 +79,7 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     F: Field + TwoAdicField + PrimeField64,
 {
+    #[must_use]
     pub const fn from_string(io: String) -> Self {
         Self {
             io,
@@ -89,6 +90,7 @@ where
     }
 
     /// Create a new DomainSeparator with the domain separator.
+    #[must_use]
     pub fn new(session_identifier: &str) -> Self {
         assert!(
             !session_identifier.contains(SEP_BYTE),
@@ -136,6 +138,7 @@ where
     }
 
     /// Return the IO Pattern as bytes.
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         self.io.as_bytes()
     }
@@ -206,12 +209,14 @@ where
     }
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
+    #[must_use]
     pub fn to_prover_state(&self) -> ProverState<EF, F, H> {
         ProverState::new(self)
     }
 
     /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript
     /// (bytes).
+    #[must_use]
     pub fn to_verifier_state<'a>(&self, transcript: &'a [u8]) -> VerifierState<'a, EF, F, H> {
         VerifierState::new(self, transcript)
     }

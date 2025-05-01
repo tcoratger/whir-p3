@@ -66,6 +66,7 @@ where
     ///
     /// **Panics:**
     /// - If `evals.len()` is **not** a power of two.
+    #[must_use]
     pub fn new(evals: Vec<F>) -> Self {
         let len = evals.len();
         assert!(
@@ -93,6 +94,7 @@ where
     /// ```
     ///
     /// where `eq(x, p)` is the Lagrange basis polynomial.
+    #[must_use]
     pub fn evaluate(&self, point: &MultilinearPoint<F>) -> F {
         if let Some(binary_index) = point.to_hypercube() {
             return self.evals[binary_index.0];
@@ -106,6 +108,7 @@ where
     }
 
     /// Returns an immutable reference to the evaluations vector.
+    #[must_use]
     pub fn evals(&self) -> &[F] {
         &self.evals
     }
@@ -121,11 +124,13 @@ where
     /// ```ignore
     /// num_evals = 2^{num_variables}
     /// ```
+    #[must_use]
     pub fn num_evals(&self) -> usize {
         self.evals.len()
     }
 
     /// Returns the number of variables in the multilinear polynomial.
+    #[must_use]
     pub const fn num_variables(&self) -> usize {
         self.num_variables
     }
@@ -136,6 +141,7 @@ where
     /// - Otherwise, computes `f(point) = ∑_{x ∈ {0,1}^n} eq(x, point) * f(x)`, where `eq(x, point)
     ///   = ∏_{i=1}^{n} (1 - p_i + 2 p_i x_i)`.
     /// - Uses fast multilinear interpolation for efficiency.
+    #[must_use]
     pub fn eval_extension<EF>(&self, point: &MultilinearPoint<EF>) -> EF
     where
         EF: ExtensionField<F>,

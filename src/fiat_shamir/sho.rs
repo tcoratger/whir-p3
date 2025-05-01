@@ -26,6 +26,7 @@ where
 impl<H: DuplexSpongeInterface<u8>> HashStateWithInstructions<H> {
     /// Initialise a stateful hash object,
     /// setting up the state of the sponge function and parsing the tag string.
+    #[must_use]
     pub fn new<EF, F>(domain_separator: &DomainSeparator<EF, F, H>) -> Self
     where
         EF: ExtensionField<F> + TwoAdicField,

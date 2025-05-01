@@ -39,6 +39,7 @@ where
     /// where `log_rho_inv` determines additional scaling.
     ///
     /// If the domain cannot be constructed, it returns `None`.
+    #[must_use]
     pub fn new(degree: usize, log_rho_inv: usize) -> Option<Self> {
         let size = degree * (1 << log_rho_inv);
         let base_domain = GeneralEvaluationDomain::new(size)?;

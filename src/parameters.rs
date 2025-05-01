@@ -13,6 +13,7 @@ use crate::whir::{
 ///
 /// This function determines the PoW security level based on the number of variables
 /// and the logarithmic inverse rate.
+#[must_use]
 pub const fn default_max_pow(num_variables: usize, log_inv_rate: usize) -> usize {
     num_variables + log_inv_rate - 3
 }
@@ -61,6 +62,7 @@ pub struct MultivariateParameters<F> {
 
 impl<F> MultivariateParameters<F> {
     /// Creates new multivariate parameters.
+    #[must_use]
     pub const fn new(num_variables: usize) -> Self {
         Self {
             num_variables,
@@ -236,6 +238,7 @@ pub enum FoldingFactor {
 
 impl FoldingFactor {
     /// Retrieves the folding factor for a given round.
+    #[must_use]
     pub const fn at_round(&self, round: usize) -> usize {
         match self {
             Self::Constant(factor) => *factor,
@@ -285,6 +288,7 @@ impl FoldingFactor {
     }
 
     /// Computes the number of WHIR rounds and the number of rounds in the final sumcheck.
+    #[must_use]
     pub fn compute_number_of_rounds(&self, num_variables: usize) -> (usize, usize) {
         match self {
             Self::Constant(factor) => {
@@ -323,6 +327,7 @@ impl FoldingFactor {
     }
 
     /// Computes the total number of folding rounds over `n_rounds` iterations.
+    #[must_use]
     pub fn total_number(&self, n_rounds: usize) -> usize {
         match self {
             Self::Constant(factor) => {

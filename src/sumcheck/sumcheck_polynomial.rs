@@ -29,6 +29,7 @@ where
     /// - `n_variables`: The number of variables (determines the evaluation domain size).
     ///
     /// The vector `evaluations` **must** have a length of `3^n_variables`.
+    #[must_use]
     pub const fn new(evaluations: Vec<F>, n_variables: usize) -> Self {
         Self {
             n_variables,
@@ -43,6 +44,7 @@ where
     /// ```ignore
     /// evaluations[i] = h(x_1, x_2, ..., x_n)  where (x_1, ..., x_n) ∈ {0,1,2}^n
     /// ```
+    #[must_use]
     pub fn evaluations(&self) -> &[F] {
         &self.evaluations
     }
@@ -56,6 +58,7 @@ where
     /// ```ignore
     /// sum = ∑ f(x_1, ..., x_n)  where  (x_1, ..., x_n) ∈ {0,1}^n
     /// ```
+    #[must_use]
     pub fn sum_over_boolean_hypercube(&self) -> F {
         (0..(1 << self.n_variables))
             .map(|point| self.evaluations[self.binary_to_ternary_index(point)])
@@ -109,6 +112,7 @@ where
     ///
     /// # Constraints:
     /// - The input `point` must have `n_variables` dimensions.
+    #[must_use]
     pub fn evaluate_at_point(&self, point: &MultilinearPoint<F>) -> F {
         assert_eq!(point.num_variables(), self.n_variables);
         self.evaluations

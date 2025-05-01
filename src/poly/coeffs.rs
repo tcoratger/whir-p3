@@ -97,6 +97,7 @@ where
     ///
     /// Ensures that:
     /// - `point` has the same number of variables as the polynomial (`n`).
+    #[must_use]
     pub fn evaluate(&self, point: &MultilinearPoint<F>) -> F {
         assert_eq!(self.num_variables, point.num_variables());
         eval_multivariate(&self.coeffs, &point.0)
@@ -243,6 +244,7 @@ impl<F> CoefficientList<F> {
     /// Ensures that:
     /// - The length is a power of two (`2^n` for some `n`).
     /// - Computes `num_variables` as `log₂(coeffs.len())`.
+    #[must_use]
     pub fn new(coeffs: Vec<F>) -> Self {
         let len = coeffs.len();
         assert!(len.is_power_of_two());
@@ -255,6 +257,7 @@ impl<F> CoefficientList<F> {
     }
 
     /// Returns a reference to the stored coefficients.
+    #[must_use]
     pub fn coeffs(&self) -> &[F] {
         &self.coeffs
     }
@@ -262,11 +265,13 @@ impl<F> CoefficientList<F> {
     /// Returns the number of variables (`n`).
     ///
     /// Since `coeffs.len() = 2^n`, this returns `log₂(coeffs.len())`.
+    #[must_use]
     pub const fn num_variables(&self) -> usize {
         self.num_variables
     }
 
     /// Returns the total number of coefficients (`2^n`).
+    #[must_use]
     pub fn num_coeffs(&self) -> usize {
         self.coeffs.len()
     }

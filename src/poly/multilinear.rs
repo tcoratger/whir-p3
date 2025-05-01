@@ -18,6 +18,7 @@ where
 {
     /// Returns the number of variables (dimension `n`).
     #[inline]
+    #[must_use]
     pub fn num_variables(&self) -> usize {
         self.0.len()
     }
@@ -30,6 +31,7 @@ where
     /// ```ignore
     /// [b_{n-1}, b_{n-2}, ..., b_1, b_0]
     /// ```
+    #[must_use]
     pub fn from_binary_hypercube_point(point: BinaryHypercubePoint, num_variables: usize) -> Self {
         Self(
             (0..num_variables)
@@ -96,6 +98,7 @@ where
     /// which evaluates to `1` if `c == p`, and `0` otherwise.
     ///
     /// `p` is interpreted as a **big-endian** binary number.
+    #[must_use]
     pub fn eq_poly(&self, mut point: BinaryHypercubePoint) -> F {
         let n_variables = self.num_variables();
         assert!(*point < (1 << n_variables)); // Ensure correct length
@@ -118,6 +121,7 @@ where
     /// eq(c, p) = ∏ (c_i * p_i + (1 - c_i) * (1 - p_i))
     /// ```
     /// which evaluates to `1` if `c == p`, and `0` otherwise.
+    #[must_use]
     pub fn eq_poly_outside(&self, point: &Self) -> F {
         assert_eq!(self.num_variables(), point.num_variables());
 
@@ -143,6 +147,7 @@ where
     ///           = 0  otherwise
     /// ```
     /// Uses precomputed values to reduce redundant operations.
+    #[must_use]
     pub fn eq_poly3(&self, mut point: usize) -> F {
         let n_variables = self.num_variables();
         assert!(point < 3usize.pow(n_variables as u32));
@@ -644,7 +649,7 @@ mod tests {
         let ml_point2 = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE]);
 
         // Should panic because lengths do not match
-        ml_point1.eq_poly_outside(&ml_point2);
+        let _ = ml_point1.eq_poly_outside(&ml_point2);
     }
 
     #[test]
@@ -760,7 +765,7 @@ mod tests {
         let ml_point = MultilinearPoint(vec![F::ONE, F::ZERO]);
         let ternary_point = 9; // Invalid ternary representation (not in {0,1,2})
 
-        ml_point.eq_poly3(ternary_point);
+        let _ = ml_point.eq_poly3(ternary_point);
     }
 
     #[test]

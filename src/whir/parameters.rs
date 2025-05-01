@@ -242,6 +242,7 @@ where
             .all(|r| r.pow_bits <= max_bits && r.folding_pow_bits <= max_bits)
     }
 
+    #[must_use]
     pub const fn log_eta(soundness_type: SoundnessType, log_inv_rate: usize) -> f64 {
         match soundness_type {
             SoundnessType::ProvableList => -(0.5 * log_inv_rate as f64 + LOG2_10 + 1.),
@@ -250,6 +251,7 @@ where
         }
     }
 
+    #[must_use]
     pub const fn list_size_bits(
         soundness_type: SoundnessType,
         num_variables: usize,
@@ -266,6 +268,7 @@ where
         }
     }
 
+    #[must_use]
     pub const fn rbr_ood_sample(
         soundness_type: SoundnessType,
         num_variables: usize,
@@ -281,6 +284,7 @@ where
         (ood_samples * field_size_bits) as f64 + 1. - error
     }
 
+    #[must_use]
     pub fn ood_samples(
         security_level: usize, // We don't do PoW for OOD
         soundness_type: SoundnessType,
@@ -307,6 +311,7 @@ where
     }
 
     // Compute the proximity gaps term of the fold
+    #[must_use]
     pub const fn rbr_soundness_fold_prox_gaps(
         soundness_type: SoundnessType,
         field_size_bits: usize,
@@ -326,6 +331,7 @@ where
         field_size_bits as f64 - error
     }
 
+    #[must_use]
     pub const fn rbr_soundness_fold_sumcheck(
         soundness_type: SoundnessType,
         field_size_bits: usize,
@@ -338,6 +344,7 @@ where
         field_size_bits as f64 - (list_size + 1.)
     }
 
+    #[must_use]
     pub const fn folding_pow_bits(
         security_level: usize,
         soundness_type: SoundnessType,
@@ -368,6 +375,7 @@ where
 
     // Used to select the number of queries
     #[allow(clippy::cast_sign_loss)]
+    #[must_use]
     pub fn queries(
         soundness_type: SoundnessType,
         protocol_security_level: usize,
@@ -389,6 +397,7 @@ where
     }
 
     // This is the bits of security of the query step
+    #[must_use]
     pub fn rbr_queries(
         soundness_type: SoundnessType,
         log_inv_rate: usize,
@@ -408,6 +417,7 @@ where
         }
     }
 
+    #[must_use]
     pub fn rbr_soundness_queries_combination(
         soundness_type: SoundnessType,
         field_size_bits: usize,

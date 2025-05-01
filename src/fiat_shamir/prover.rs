@@ -53,6 +53,7 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
+    #[must_use]
     pub fn new(domain_separator: &DomainSeparator<EF, F, H>) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator);
 

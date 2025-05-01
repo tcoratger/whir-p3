@@ -71,6 +71,7 @@ where
     /// assert!(challenge.is_ok());
     /// assert_ne!(challenge.unwrap(), [0; 32]);
     /// ```
+    #[must_use]
     pub fn new(domain_separator: &DomainSeparator<EF, F, H>, narg_string: &'a [u8]) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator);
         Self {

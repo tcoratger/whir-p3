@@ -27,6 +27,7 @@ pub struct Radix2EvaluationDomain<F> {
 }
 
 impl<F: Field + TwoAdicField> Radix2EvaluationDomain<F> {
+    #[must_use]
     pub fn new(num_coeffs: usize) -> Option<Self> {
         let size = num_coeffs.next_power_of_two() as u64;
         let log_size_of_group = size.trailing_zeros();

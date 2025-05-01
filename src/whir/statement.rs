@@ -32,6 +32,7 @@ impl<F: Field> Weights<F> {
     /// \end{equation}
     ///
     /// where `eq_z(X)` is the Lagrange interpolation polynomial enforcing `X = z`.
+    #[must_use]
     pub const fn evaluation(point: MultilinearPoint<F>) -> Self {
         Self::Evaluation { point }
     }
@@ -45,11 +46,13 @@ impl<F: Field> Weights<F> {
     /// \end{equation}
     ///
     /// where `w_i` are the predefined weight values for each corner of the hypercube.
+    #[must_use]
     pub const fn linear(weight: EvaluationsList<F>) -> Self {
         Self::Linear { weight }
     }
 
     /// Returns the number of variables involved in the weight function.
+    #[must_use]
     pub fn num_variables(&self) -> usize {
         match self {
             Self::Evaluation { point } => point.num_variables(),
@@ -69,6 +72,7 @@ impl<F: Field> Weights<F> {
     ///
     /// **Precondition:**
     /// If `self` is in linear mode, `poly.num_variables()` must match `weight.num_variables()`.
+    #[must_use]
     pub fn weighted_sum<BF>(&self, poly: &EvaluationsList<BF>) -> F
     where
         BF: Field,
@@ -171,6 +175,7 @@ pub struct Statement<F> {
 
 impl<F: Field> Statement<F> {
     /// Creates an empty `Statement<F>` for polynomials with `num_variables` variables.
+    #[must_use]
     pub const fn new(num_variables: usize) -> Self {
         Self {
             num_variables,
@@ -179,6 +184,7 @@ impl<F: Field> Statement<F> {
     }
 
     /// Returns the number of variables defining the polynomial space.
+    #[must_use]
     pub const fn num_variables(&self) -> usize {
         self.num_variables
     }
@@ -265,6 +271,7 @@ pub enum VerifierWeights<F> {
 
 impl<F: Field> VerifierWeights<F> {
     /// Constructs an evaluation weight at a fixed point.
+    #[must_use]
     pub const fn evaluation(point: MultilinearPoint<F>) -> Self {
         Self::Evaluation { point }
     }
@@ -352,6 +359,7 @@ impl<F: Field> StatementVerifier<F> {
     }
 
     /// Returns the number of variables in the statement.
+    #[must_use]
     pub const fn num_variables(&self) -> usize {
         self.num_variables
     }

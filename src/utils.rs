@@ -6,6 +6,7 @@ use p3_field::Field;
 /// value = v[0] * base^(n_bits-1) + v[1] * base^(n_bits-2) + ... + v[n_bits-1] * 1
 /// ```
 /// where each `v[i]` is in `0..base`. Always returns exactly `n_bits` digits (padded with 0).
+#[must_use]
 pub fn base_decomposition(mut value: usize, base: u8, n_bits: usize) -> Vec<u8> {
     debug_assert!(base > 1, "Base must be at least 2");
 
@@ -201,7 +202,7 @@ mod tests {
     #[should_panic]
     fn test_base_decomposition_invalid_base() {
         // Base cannot be 0 or 1 (should panic)
-        base_decomposition(10, 0, 5);
+        let _ = base_decomposition(10, 0, 5);
     }
 
     #[test]

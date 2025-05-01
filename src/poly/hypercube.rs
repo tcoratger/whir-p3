@@ -39,6 +39,7 @@ pub struct BinaryHypercube {
 
 impl BinaryHypercube {
     /// Constructs a new iterator for a binary hypercube `{0,1}^num_variables`.
+    #[must_use]
     pub const fn new(num_variables: usize) -> Self {
         // Note that we need strictly smaller, since some code would overflow otherwise.
         debug_assert!(num_variables < usize::BITS as usize);
