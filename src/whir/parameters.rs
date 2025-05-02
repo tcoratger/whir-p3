@@ -234,20 +234,6 @@ where
     }
 
     #[must_use]
-    pub const fn rbr_ood_sample(
-        soundness_type: SecurityAssumption,
-        num_variables: usize,
-        log_inv_rate: usize,
-        field_size_bits: usize,
-        ood_samples: usize,
-    ) -> f64 {
-        let list_size_bits = soundness_type.list_size_bits(num_variables, log_inv_rate);
-
-        let error = 2. * list_size_bits + (num_variables * ood_samples) as f64;
-        (ood_samples * field_size_bits) as f64 + 1. - error
-    }
-
-    #[must_use]
     pub fn ood_samples(
         security_level: usize, // We don't do PoW for OOD
         soundness_type: SecurityAssumption,
@@ -259,8 +245,7 @@ where
             SecurityAssumption::UniqueDecoding => 0,
             _ => (1..64)
                 .find(|&ood_samples| {
-                    Self::rbr_ood_sample(
-                        soundness_type,
+                    soundness_type.ood_error(
                         num_variables,
                         log_inv_rate,
                         field_size_bits,
