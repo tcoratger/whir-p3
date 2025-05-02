@@ -14,7 +14,8 @@ use verifier::Verifier;
 use crate::{
     fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
-        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, SoundnessType,
+        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters,
+        errors::SecurityAssumption,
     },
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::prover::Proof,
@@ -61,7 +62,7 @@ pub fn make_whir_things(
     num_variables: usize,
     folding_factor: FoldingFactor,
     num_points: usize,
-    soundness_type: SoundnessType,
+    soundness_type: SecurityAssumption,
     pow_bits: usize,
     fold_type: FoldType,
 ) {
@@ -181,7 +182,7 @@ pub fn make_whir_things(
 #[cfg(test)]
 mod tests {
     use crate::{
-        parameters::SoundnessType,
+        parameters::errors::SecurityAssumption,
         whir::{FoldType, FoldingFactor, make_whir_things},
     };
 
@@ -189,9 +190,9 @@ mod tests {
     fn test_whir_end_to_end() {
         let folding_factors = [1, 2, 3, 4];
         let soundness_type = [
-            SoundnessType::ConjectureList,
-            SoundnessType::ProvableList,
-            SoundnessType::UniqueDecoding,
+            SecurityAssumption::JohnsonBound,
+            SecurityAssumption::CapacityBound,
+            SecurityAssumption::UniqueDecoding,
         ];
         let fold_types = [FoldType::Naive, FoldType::ProverHelps];
         let num_points = [0, 1, 2];

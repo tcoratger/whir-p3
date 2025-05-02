@@ -1,6 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use whir_p3::{
-    parameters::{FoldType, FoldingFactor, SoundnessType},
+    parameters::{FoldType, FoldingFactor, errors::SecurityAssumption},
     whir::make_whir_things,
 };
 
@@ -8,7 +8,7 @@ fn benchmark_whir(c: &mut Criterion) {
     let num_variables = 18;
     let folding_factor = FoldingFactor::Constant(4);
     let num_points = 2;
-    let soundness_type = SoundnessType::UniqueDecoding;
+    let soundness_type = SecurityAssumption::UniqueDecoding;
     let pow_bits = 10;
     let fold_type = FoldType::ProverHelps;
 
