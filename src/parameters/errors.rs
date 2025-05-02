@@ -29,8 +29,6 @@ impl SecurityAssumption {
     // TODO: Maybe it makes more sense to be multiplicative. I think this can be set in a better way.
     #[must_use]
     pub fn log_eta(&self, log_inv_rate: usize) -> f64 {
-        // Ask me how I did this? At the time, only God and I knew. Now only God knows
-        // I joke, I actually know but this is left for posterity.
         match self {
             // We don't use η in UD
             Self::UniqueDecoding => 0., // TODO: Maybe just panic and avoid calling it in UD?
