@@ -139,8 +139,9 @@ where
                 field_size_bits,
             );
 
-            let query_error =
-                Self::rbr_queries(whir_parameters.soundness_type, log_inv_rate, num_queries);
+            let query_error = whir_parameters
+                .soundness_type
+                .queries_error(log_inv_rate, num_queries);
             let combination_error = Self::rbr_soundness_queries_combination(
                 whir_parameters.soundness_type,
                 field_size_bits,
@@ -179,7 +180,9 @@ where
 
         let final_pow_bits = 0_f64.max(
             whir_parameters.security_level as f64
-                - Self::rbr_queries(whir_parameters.soundness_type, log_inv_rate, final_queries),
+                - whir_parameters
+                    .soundness_type
+                    .queries_error(log_inv_rate, final_queries),
         );
 
         let final_folding_pow_bits =
@@ -323,27 +326,6 @@ where
         0_f64.max(security_level as f64 - error)
     }
 
-    // This is the bits of security of the query step
-    #[must_use]
-    pub fn rbr_queries(
-        soundness_type: SecurityAssumption,
-        log_inv_rate: usize,
-        num_queries: usize,
-    ) -> f64 {
-        let num_queries = num_queries as f64;
-
-        match soundness_type {
-            SecurityAssumption::UniqueDecoding => {
-                let rate = 1. / f64::from(1 << log_inv_rate);
-                let denom = -(0.5 * (1. + rate)).log2();
-
-                num_queries * denom
-            }
-            SecurityAssumption::JohnsonBound => num_queries * 0.5 * log_inv_rate as f64,
-            SecurityAssumption::CapacityBound => num_queries * log_inv_rate as f64,
-        }
-    }
-
     #[must_use]
     pub fn rbr_soundness_queries_combination(
         soundness_type: SecurityAssumption,
@@ -435,48 +417,6 @@ mod tests {
 
         // PoW bits should never be negative
         assert!(pow_bits >= 0.);
-    }
-
-    #[test]
-    fn test_rbr_queries_unique_decoding() {
-        let log_inv_rate = 5; // log_inv_rate = 5
-        let num_queries = 10; // Number of queries
-
-        let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::rbr_queries(
-            SecurityAssumption::UniqueDecoding,
-            log_inv_rate,
-            num_queries,
-        );
-
-        assert!((result - 9.556_058_806_415_466).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_rbr_queries_provable_list() {
-        let log_inv_rate = 8; // log_inv_rate = 8
-        let num_queries = 16; // Number of queries
-
-        let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::rbr_queries(
-            SecurityAssumption::JohnsonBound,
-            log_inv_rate,
-            num_queries,
-        );
-
-        assert!((result - 64.0) < 1e-6);
-    }
-
-    #[test]
-    fn test_rbr_queries_conjecture_list() {
-        let log_inv_rate = 4; // log_inv_rate = 4
-        let num_queries = 20; // Number of queries
-
-        let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::rbr_queries(
-            SecurityAssumption::CapacityBound,
-            log_inv_rate,
-            num_queries,
-        );
-
-        assert!((result - 80.) < 1e-6);
     }
 
     #[test]
