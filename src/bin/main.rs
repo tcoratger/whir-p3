@@ -9,8 +9,8 @@ use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
-        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, SoundnessType,
-        default_max_pow,
+        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, default_max_pow,
+        errors::SecurityAssumption,
     },
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     whir::{
@@ -52,8 +52,8 @@ struct Args {
     #[arg(short = 'k', long = "fold", default_value = "4")]
     folding_factor: usize,
 
-    #[arg(long = "sec", default_value = "ConjectureList")]
-    soundness_type: SoundnessType,
+    #[arg(long = "sec", default_value = "CapacityBound")]
+    soundness_type: SecurityAssumption,
 
     #[arg(long = "fold_type", default_value = "ProverHelps")]
     fold_optimisation: FoldType,

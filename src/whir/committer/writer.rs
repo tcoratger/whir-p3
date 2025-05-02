@@ -146,7 +146,8 @@ mod tests {
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         parameters::{
-            FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, SoundnessType,
+            FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters,
+            errors::SecurityAssumption,
         },
         poly::multilinear::MultilinearPoint,
     };
@@ -183,7 +184,7 @@ mod tests {
             // merkle_compress: Poseidon2Compression::new(poseidon_p16),
             merkle_hash: field_hash,
             merkle_compress: compress,
-            soundness_type: SoundnessType::ConjectureList,
+            soundness_type: SecurityAssumption::CapacityBound,
             fold_optimisation: FoldType::ProverHelps,
             starting_log_inv_rate: starting_rate,
         };
@@ -266,7 +267,7 @@ mod tests {
             ),
             merkle_hash: field_hash,
             merkle_compress: compress,
-            soundness_type: SoundnessType::ConjectureList,
+            soundness_type: SecurityAssumption::CapacityBound,
             fold_optimisation: FoldType::ProverHelps,
             starting_log_inv_rate: starting_rate,
         };
@@ -314,7 +315,7 @@ mod tests {
             ),
             merkle_hash: field_hash,
             merkle_compress: compress,
-            soundness_type: SoundnessType::ConjectureList,
+            soundness_type: SecurityAssumption::CapacityBound,
             fold_optimisation: FoldType::ProverHelps,
             starting_log_inv_rate: starting_rate,
         };

@@ -5,7 +5,8 @@ use p3_field::{BasedVectorSpace, ExtensionField, Field, TwoAdicField};
 use crate::{
     domain::Domain,
     parameters::{
-        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, SoundnessType,
+        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters,
+        errors::SecurityAssumption,
     },
 };
 
@@ -25,7 +26,7 @@ where
     EF: ExtensionField<F> + TwoAdicField,
 {
     pub mv_parameters: MultivariateParameters<EF>,
-    pub soundness_type: SoundnessType,
+    pub soundness_type: SecurityAssumption,
     pub security_level: usize,
     pub max_pow_bits: usize,
 
@@ -87,7 +88,7 @@ where
             .folding_factor
             .compute_number_of_rounds(mv_parameters.num_variables);
 
-        let log_eta_start = Self::log_eta(whir_parameters.soundness_type, log_inv_rate);
+        let log_eta_start = whir_parameters.soundness_type.log_eta(log_inv_rate);
 
         let committment_ood_samples = if whir_parameters.initial_statement {
             Self::ood_samples(
@@ -95,7 +96,6 @@ where
                 whir_parameters.soundness_type,
                 num_variables,
                 log_inv_rate,
-                log_eta_start,
                 field_size_bits,
             )
         } else {
@@ -131,7 +131,7 @@ where
             // Queries are set w.r.t. to old rate, while the rest to the new rate
             let next_rate = log_inv_rate + (whir_parameters.folding_factor.at_round(round) - 1);
 
-            let log_next_eta = Self::log_eta(whir_parameters.soundness_type, next_rate);
+            let log_next_eta = whir_parameters.soundness_type.log_eta(next_rate);
             let num_queries = Self::queries(
                 whir_parameters.soundness_type,
                 protocol_security_level,
@@ -143,7 +143,6 @@ where
                 whir_parameters.soundness_type,
                 num_variables,
                 next_rate,
-                log_next_eta,
                 field_size_bits,
             );
 
@@ -154,7 +153,6 @@ where
                 field_size_bits,
                 num_variables,
                 next_rate,
-                log_next_eta,
                 ood_samples,
                 num_queries,
             );
@@ -243,42 +241,14 @@ where
     }
 
     #[must_use]
-    pub const fn log_eta(soundness_type: SoundnessType, log_inv_rate: usize) -> f64 {
-        match soundness_type {
-            SoundnessType::ProvableList => -(0.5 * log_inv_rate as f64 + LOG2_10 + 1.),
-            SoundnessType::UniqueDecoding => 0.,
-            SoundnessType::ConjectureList => -(log_inv_rate as f64 + 1.),
-        }
-    }
-
-    #[must_use]
-    pub const fn list_size_bits(
-        soundness_type: SoundnessType,
-        num_variables: usize,
-        log_inv_rate: usize,
-        log_eta: f64,
-    ) -> f64 {
-        match soundness_type {
-            SoundnessType::ConjectureList => (num_variables + log_inv_rate) as f64 - log_eta,
-            SoundnessType::ProvableList => {
-                let log_inv_sqrt_rate: f64 = log_inv_rate as f64 / 2.;
-                log_inv_sqrt_rate - (1. + log_eta)
-            }
-            SoundnessType::UniqueDecoding => 0.0,
-        }
-    }
-
-    #[must_use]
     pub const fn rbr_ood_sample(
-        soundness_type: SoundnessType,
+        soundness_type: SecurityAssumption,
         num_variables: usize,
         log_inv_rate: usize,
-        log_eta: f64,
         field_size_bits: usize,
         ood_samples: usize,
     ) -> f64 {
-        let list_size_bits =
-            Self::list_size_bits(soundness_type, num_variables, log_inv_rate, log_eta);
+        let list_size_bits = soundness_type.list_size_bits(num_variables, log_inv_rate);
 
         let error = 2. * list_size_bits + (num_variables * ood_samples) as f64;
         (ood_samples * field_size_bits) as f64 + 1. - error
@@ -287,21 +257,19 @@ where
     #[must_use]
     pub fn ood_samples(
         security_level: usize, // We don't do PoW for OOD
-        soundness_type: SoundnessType,
+        soundness_type: SecurityAssumption,
         num_variables: usize,
         log_inv_rate: usize,
-        log_eta: f64,
         field_size_bits: usize,
     ) -> usize {
         match soundness_type {
-            SoundnessType::UniqueDecoding => 0,
+            SecurityAssumption::UniqueDecoding => 0,
             _ => (1..64)
                 .find(|&ood_samples| {
                     Self::rbr_ood_sample(
                         soundness_type,
                         num_variables,
                         log_inv_rate,
-                        log_eta,
                         field_size_bits,
                         ood_samples,
                     ) >= security_level as f64
@@ -313,7 +281,7 @@ where
     // Compute the proximity gaps term of the fold
     #[must_use]
     pub const fn rbr_soundness_fold_prox_gaps(
-        soundness_type: SoundnessType,
+        soundness_type: SecurityAssumption,
         field_size_bits: usize,
         num_variables: usize,
         log_inv_rate: usize,
@@ -321,11 +289,11 @@ where
     ) -> f64 {
         // Recall, at each round we are only folding by two at a time
         let error = match soundness_type {
-            SoundnessType::ConjectureList => (num_variables + log_inv_rate) as f64 - log_eta,
-            SoundnessType::ProvableList => {
+            SecurityAssumption::CapacityBound => (num_variables + log_inv_rate) as f64 - log_eta,
+            SecurityAssumption::JohnsonBound => {
                 LOG2_10 + 3.5 * log_inv_rate as f64 + 2. * num_variables as f64
             }
-            SoundnessType::UniqueDecoding => (num_variables + log_inv_rate) as f64,
+            SecurityAssumption::UniqueDecoding => (num_variables + log_inv_rate) as f64,
         };
 
         field_size_bits as f64 - error
@@ -333,13 +301,12 @@ where
 
     #[must_use]
     pub const fn rbr_soundness_fold_sumcheck(
-        soundness_type: SoundnessType,
+        soundness_type: SecurityAssumption,
         field_size_bits: usize,
         num_variables: usize,
         log_inv_rate: usize,
-        log_eta: f64,
     ) -> f64 {
-        let list_size = Self::list_size_bits(soundness_type, num_variables, log_inv_rate, log_eta);
+        let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate);
 
         field_size_bits as f64 - (list_size + 1.)
     }
@@ -347,7 +314,7 @@ where
     #[must_use]
     pub const fn folding_pow_bits(
         security_level: usize,
-        soundness_type: SoundnessType,
+        soundness_type: SecurityAssumption,
         field_size_bits: usize,
         num_variables: usize,
         log_inv_rate: usize,
@@ -365,7 +332,6 @@ where
             field_size_bits,
             num_variables,
             log_inv_rate,
-            log_eta,
         );
 
         let error = prox_gaps_error.min(sumcheck_error);
@@ -377,21 +343,23 @@ where
     #[allow(clippy::cast_sign_loss)]
     #[must_use]
     pub fn queries(
-        soundness_type: SoundnessType,
+        soundness_type: SecurityAssumption,
         protocol_security_level: usize,
         log_inv_rate: usize,
     ) -> usize {
         let num_queries_f = match soundness_type {
-            SoundnessType::UniqueDecoding => {
+            SecurityAssumption::UniqueDecoding => {
                 let rate = 1. / f64::from(1 << log_inv_rate);
                 let denom = (0.5 * (1. + rate)).log2();
 
                 -(protocol_security_level as f64) / denom
             }
-            SoundnessType::ProvableList => {
+            SecurityAssumption::JohnsonBound => {
                 (2 * protocol_security_level) as f64 / log_inv_rate as f64
             }
-            SoundnessType::ConjectureList => protocol_security_level as f64 / log_inv_rate as f64,
+            SecurityAssumption::CapacityBound => {
+                protocol_security_level as f64 / log_inv_rate as f64
+            }
         };
         num_queries_f.ceil() as usize
     }
@@ -399,35 +367,34 @@ where
     // This is the bits of security of the query step
     #[must_use]
     pub fn rbr_queries(
-        soundness_type: SoundnessType,
+        soundness_type: SecurityAssumption,
         log_inv_rate: usize,
         num_queries: usize,
     ) -> f64 {
         let num_queries = num_queries as f64;
 
         match soundness_type {
-            SoundnessType::UniqueDecoding => {
+            SecurityAssumption::UniqueDecoding => {
                 let rate = 1. / f64::from(1 << log_inv_rate);
                 let denom = -(0.5 * (1. + rate)).log2();
 
                 num_queries * denom
             }
-            SoundnessType::ProvableList => num_queries * 0.5 * log_inv_rate as f64,
-            SoundnessType::ConjectureList => num_queries * log_inv_rate as f64,
+            SecurityAssumption::JohnsonBound => num_queries * 0.5 * log_inv_rate as f64,
+            SecurityAssumption::CapacityBound => num_queries * log_inv_rate as f64,
         }
     }
 
     #[must_use]
     pub fn rbr_soundness_queries_combination(
-        soundness_type: SoundnessType,
+        soundness_type: SecurityAssumption,
         field_size_bits: usize,
         num_variables: usize,
         log_inv_rate: usize,
-        log_eta: f64,
         ood_samples: usize,
         num_queries: usize,
     ) -> f64 {
-        let list_size = Self::list_size_bits(soundness_type, num_variables, log_inv_rate, log_eta);
+        let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate);
 
         let log_combination = ((ood_samples + num_queries) as f64).log2();
 
@@ -454,7 +421,7 @@ mod tests {
             folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
             merkle_hash: Poseidon2Sponge::new(44), // Just a placeholder
             merkle_compress: Poseidon2Compression::new(55), // Just a placeholder
-            soundness_type: SoundnessType::ConjectureList,
+            soundness_type: SecurityAssumption::CapacityBound,
             fold_optimisation: FoldType::ProverHelps,
             starting_log_inv_rate: 1,
         }
@@ -475,7 +442,7 @@ mod tests {
 
         assert_eq!(config.security_level, 100);
         assert_eq!(config.max_pow_bits, 20);
-        assert_eq!(config.soundness_type, SoundnessType::ConjectureList);
+        assert_eq!(config.soundness_type, SecurityAssumption::CapacityBound);
         assert!(config.initial_statement);
     }
 
@@ -497,7 +464,7 @@ mod tests {
     #[test]
     fn test_folding_pow_bits() {
         let field_size_bits = 64;
-        let soundness = SoundnessType::ConjectureList;
+        let soundness = SecurityAssumption::CapacityBound;
 
         let pow_bits = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::folding_pow_bits(
             100, // Security level
@@ -518,7 +485,7 @@ mod tests {
         let log_inv_rate = 5;
 
         let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::queries(
-            SoundnessType::UniqueDecoding,
+            SecurityAssumption::UniqueDecoding,
             security_level,
             log_inv_rate,
         );
@@ -532,7 +499,7 @@ mod tests {
         let log_inv_rate = 8;
 
         let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::queries(
-            SoundnessType::ProvableList,
+            SecurityAssumption::JohnsonBound,
             security_level,
             log_inv_rate,
         );
@@ -546,7 +513,7 @@ mod tests {
         let log_inv_rate = 16;
 
         let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::queries(
-            SoundnessType::ConjectureList,
+            SecurityAssumption::CapacityBound,
             security_level,
             log_inv_rate,
         );
@@ -560,7 +527,7 @@ mod tests {
         let num_queries = 10; // Number of queries
 
         let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::rbr_queries(
-            SoundnessType::UniqueDecoding,
+            SecurityAssumption::UniqueDecoding,
             log_inv_rate,
             num_queries,
         );
@@ -574,7 +541,7 @@ mod tests {
         let num_queries = 16; // Number of queries
 
         let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::rbr_queries(
-            SoundnessType::ProvableList,
+            SecurityAssumption::JohnsonBound,
             log_inv_rate,
             num_queries,
         );
@@ -588,7 +555,7 @@ mod tests {
         let num_queries = 20; // Number of queries
 
         let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::rbr_queries(
-            SoundnessType::ConjectureList,
+            SecurityAssumption::CapacityBound,
             log_inv_rate,
             num_queries,
         );
@@ -811,238 +778,14 @@ mod tests {
     }
 
     #[test]
-    fn test_list_size_bits_conjecture_list() {
-        // ConjectureList: list_size_bits = num_variables + log_inv_rate - log_eta
-
-        let cases = vec![
-            (10, 5, 2.0, 13.0), // Basic case
-            (0, 5, 2.0, 3.0),   // Edge case: num_variables = 0
-            (10, 0, 2.0, 8.0),  // Edge case: log_inv_rate = 0
-            (10, 5, 0.0, 15.0), // Edge case: log_eta = 0
-            (10, 5, 10.0, 5.0), // High log_eta
-        ];
-
-        for (num_variables, log_inv_rate, log_eta, expected) in cases {
-            let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::list_size_bits(
-                SoundnessType::ConjectureList,
-                num_variables,
-                log_inv_rate,
-                log_eta,
-            );
-            assert!(
-                (result - expected).abs() < 1e-6,
-                "Failed for {:?}",
-                (num_variables, log_inv_rate, log_eta)
-            );
-        }
-    }
-
-    #[test]
-    fn test_list_size_bits_provable_list() {
-        // ProvableList: list_size_bits = (log_inv_rate / 2) - (1 + log_eta)
-
-        let cases = vec![
-            (10, 8, 2.0, 1.0),   // Basic case
-            (10, 0, 2.0, -3.0),  // Edge case: log_inv_rate = 0
-            (10, 8, 0.0, 3.0),   // Edge case: log_eta = 0
-            (10, 8, 10.0, -7.0), // High log_eta
-        ];
-
-        for (num_variables, log_inv_rate, log_eta, expected) in cases {
-            let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::list_size_bits(
-                SoundnessType::ProvableList,
-                num_variables,
-                log_inv_rate,
-                log_eta,
-            );
-            assert!(
-                (result - expected).abs() < 1e-6,
-                "Failed for {:?}",
-                (num_variables, log_inv_rate, log_eta)
-            );
-        }
-    }
-
-    #[test]
-    fn test_list_size_bits_unique_decoding() {
-        // UniqueDecoding: always returns 0.0
-
-        let cases = vec![
-            (10, 5, 2.0),
-            (0, 5, 2.0),
-            (10, 0, 2.0),
-            (10, 5, 0.0),
-            (10, 5, 10.0),
-        ];
-
-        for (num_variables, log_inv_rate, log_eta) in cases {
-            let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::list_size_bits(
-                SoundnessType::UniqueDecoding,
-                num_variables,
-                log_inv_rate,
-                log_eta,
-            );
-            assert!(
-                (result - 0.0) < 1e-6,
-                "Failed for {:?}",
-                (num_variables, log_inv_rate, log_eta)
-            );
-        }
-    }
-
-    #[test]
-    fn test_rbr_ood_sample_conjecture_list() {
-        // ConjectureList: rbr_ood_sample = (ood_samples * field_size_bits) + 1 - (2 *
-        // list_size_bits + num_variables * ood_samples)
-
-        let cases = vec![
-            // Basic case
-            (
-                10,
-                5,
-                2.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 13.0 + (10.0 * 3.0)),
-            ),
-            // Edge case: num_variables = 0
-            (
-                0,
-                5,
-                2.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 3.0 + (0.0 * 3.0)),
-            ),
-            // Edge case: log_inv_rate = 0
-            (
-                10,
-                0,
-                2.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 8.0 + (10.0 * 3.0)),
-            ),
-            // Edge case: log_eta = 0
-            (
-                10,
-                5,
-                0.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 15.0 + (10.0 * 3.0)),
-            ),
-            // High log_eta
-            (
-                10,
-                5,
-                10.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 5.0 + (10.0 * 3.0)),
-            ),
-        ];
-
-        for (num_variables, log_inv_rate, log_eta, field_size_bits, ood_samples, expected) in cases
-        {
-            let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::rbr_ood_sample(
-                SoundnessType::ConjectureList,
-                num_variables,
-                log_inv_rate,
-                log_eta,
-                field_size_bits,
-                ood_samples,
-            );
-            assert!(
-                (result - expected).abs() < 1e-6,
-                "Failed for {:?}",
-                (
-                    num_variables,
-                    log_inv_rate,
-                    log_eta,
-                    field_size_bits,
-                    ood_samples
-                )
-            );
-        }
-    }
-
-    #[test]
-    fn test_rbr_ood_sample_provable_list() {
-        // ProvableList: Uses a different list_size_bits formula
-
-        let cases = vec![
-            // Basic case
-            (
-                10,
-                8,
-                2.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 1.0 + (10.0 * 3.0)),
-            ),
-            // log_inv_rate = 0
-            (
-                10,
-                0,
-                2.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * -3.0 + (10.0 * 3.0)),
-            ),
-            // log_eta = 0
-            (
-                10,
-                8,
-                0.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 3.0 + (10.0 * 3.0)),
-            ),
-            // High log_eta
-            (
-                10,
-                8,
-                10.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * -7.0 + (10.0 * 3.0)),
-            ),
-        ];
-        for (num_variables, log_inv_rate, log_eta, field_size_bits, ood_samples, expected) in cases
-        {
-            let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::rbr_ood_sample(
-                SoundnessType::ProvableList,
-                num_variables,
-                log_inv_rate,
-                log_eta,
-                field_size_bits,
-                ood_samples,
-            );
-            assert!(
-                (result - expected).abs() < 1e-6,
-                "Failed for {:?}",
-                (
-                    num_variables,
-                    log_inv_rate,
-                    log_eta,
-                    field_size_bits,
-                    ood_samples
-                )
-            );
-        }
-    }
-
-    #[test]
     fn test_ood_samples_unique_decoding() {
         // UniqueDecoding should always return 0 regardless of parameters
         assert_eq!(
             WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::ood_samples(
                 100,
-                SoundnessType::UniqueDecoding,
+                SecurityAssumption::UniqueDecoding,
                 10,
                 3,
-                1.5,
                 256
             ),
             0
@@ -1055,10 +798,9 @@ mod tests {
         assert_eq!(
             WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::ood_samples(
                 50, // security level
-                SoundnessType::ProvableList,
+                SecurityAssumption::JohnsonBound,
                 15,  // num_variables
                 4,   // log_inv_rate
-                2.0, // log_eta
                 256, // field_size_bits
             ),
             1
@@ -1071,10 +813,9 @@ mod tests {
         assert_eq!(
             WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::ood_samples(
                 30, // Lower security level
-                SoundnessType::ConjectureList,
+                SecurityAssumption::CapacityBound,
                 20,  // num_variables
                 5,   // log_inv_rate
-                2.5, // log_eta
                 512, // field_size_bits
             ),
             1
@@ -1087,10 +828,9 @@ mod tests {
         assert_eq!(
             WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::ood_samples(
                 100, // High security level
-                SoundnessType::ProvableList,
+                SecurityAssumption::JohnsonBound,
                 25,   // num_variables
                 6,    // log_inv_rate
-                3.0,  // log_eta
                 1024  // field_size_bits
             ),
             1
@@ -1102,10 +842,9 @@ mod tests {
         assert_eq!(
             WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::ood_samples(
                 1000, // Extremely high security level
-                SoundnessType::ConjectureList,
+                SecurityAssumption::CapacityBound,
                 10,  // num_variables
                 5,   // log_inv_rate
-                2.0, // log_eta
                 256, // field_size_bits
             ),
             5
