@@ -88,8 +88,6 @@ where
             .folding_factor
             .compute_number_of_rounds(mv_parameters.num_variables);
 
-        let log_eta_start = whir_parameters.soundness_type.log_eta(log_inv_rate);
-
         let committment_ood_samples = if whir_parameters.initial_statement {
             Self::ood_samples(
                 whir_parameters.security_level,
@@ -109,16 +107,14 @@ where
                 field_size_bits,
                 num_variables,
                 log_inv_rate,
-                log_eta_start,
             )
         } else {
             {
-                let prox_gaps_error = Self::rbr_soundness_fold_prox_gaps(
-                    whir_parameters.soundness_type,
-                    field_size_bits,
+                let prox_gaps_error = whir_parameters.soundness_type.prox_gaps_error(
                     num_variables,
                     log_inv_rate,
-                    log_eta_start,
+                    field_size_bits,
+                    2,
                 ) + (whir_parameters.folding_factor.at_round(0) as f64)
                     .log2();
                 (whir_parameters.security_level as f64 - prox_gaps_error).max(0.0)
@@ -131,7 +127,6 @@ where
             // Queries are set w.r.t. to old rate, while the rest to the new rate
             let next_rate = log_inv_rate + (whir_parameters.folding_factor.at_round(round) - 1);
 
-            let log_next_eta = whir_parameters.soundness_type.log_eta(next_rate);
             let num_queries = Self::queries(
                 whir_parameters.soundness_type,
                 protocol_security_level,
@@ -166,7 +161,6 @@ where
                 field_size_bits,
                 num_variables,
                 next_rate,
-                log_next_eta,
             );
 
             round_parameters.push(RoundConfig {
@@ -312,21 +306,15 @@ where
     }
 
     #[must_use]
-    pub const fn folding_pow_bits(
+    pub fn folding_pow_bits(
         security_level: usize,
         soundness_type: SecurityAssumption,
         field_size_bits: usize,
         num_variables: usize,
         log_inv_rate: usize,
-        log_eta: f64,
     ) -> f64 {
-        let prox_gaps_error = Self::rbr_soundness_fold_prox_gaps(
-            soundness_type,
-            field_size_bits,
-            num_variables,
-            log_inv_rate,
-            log_eta,
-        );
+        let prox_gaps_error =
+            soundness_type.prox_gaps_error(num_variables, log_inv_rate, field_size_bits, 2);
         let sumcheck_error = Self::rbr_soundness_fold_sumcheck(
             soundness_type,
             field_size_bits,
@@ -470,9 +458,8 @@ mod tests {
             100, // Security level
             soundness,
             field_size_bits,
-            10,   // Number of variables
-            5,    // Log inverse rate
-            -3.0, // Log eta
+            10, // Number of variables
+            5,  // Log inverse rate
         );
 
         // PoW bits should never be negative
