@@ -96,7 +96,6 @@ where
                 whir_parameters.soundness_type,
                 num_variables,
                 log_inv_rate,
-                log_eta_start,
                 field_size_bits,
             )
         } else {
@@ -144,7 +143,6 @@ where
                 whir_parameters.soundness_type,
                 num_variables,
                 next_rate,
-                log_next_eta,
                 field_size_bits,
             );
 
@@ -155,7 +153,6 @@ where
                 field_size_bits,
                 num_variables,
                 next_rate,
-                log_next_eta,
                 ood_samples,
                 num_queries,
             );
@@ -244,33 +241,14 @@ where
     }
 
     #[must_use]
-    pub const fn list_size_bits(
-        soundness_type: SecurityAssumption,
-        num_variables: usize,
-        log_inv_rate: usize,
-        log_eta: f64,
-    ) -> f64 {
-        match soundness_type {
-            SecurityAssumption::CapacityBound => (num_variables + log_inv_rate) as f64 - log_eta,
-            SecurityAssumption::JohnsonBound => {
-                let log_inv_sqrt_rate: f64 = log_inv_rate as f64 / 2.;
-                log_inv_sqrt_rate - (1. + log_eta)
-            }
-            SecurityAssumption::UniqueDecoding => 0.0,
-        }
-    }
-
-    #[must_use]
     pub const fn rbr_ood_sample(
         soundness_type: SecurityAssumption,
         num_variables: usize,
         log_inv_rate: usize,
-        log_eta: f64,
         field_size_bits: usize,
         ood_samples: usize,
     ) -> f64 {
-        let list_size_bits =
-            Self::list_size_bits(soundness_type, num_variables, log_inv_rate, log_eta);
+        let list_size_bits = soundness_type.list_size_bits(num_variables, log_inv_rate);
 
         let error = 2. * list_size_bits + (num_variables * ood_samples) as f64;
         (ood_samples * field_size_bits) as f64 + 1. - error
@@ -282,7 +260,6 @@ where
         soundness_type: SecurityAssumption,
         num_variables: usize,
         log_inv_rate: usize,
-        log_eta: f64,
         field_size_bits: usize,
     ) -> usize {
         match soundness_type {
@@ -293,7 +270,6 @@ where
                         soundness_type,
                         num_variables,
                         log_inv_rate,
-                        log_eta,
                         field_size_bits,
                         ood_samples,
                     ) >= security_level as f64
@@ -329,9 +305,8 @@ where
         field_size_bits: usize,
         num_variables: usize,
         log_inv_rate: usize,
-        log_eta: f64,
     ) -> f64 {
-        let list_size = Self::list_size_bits(soundness_type, num_variables, log_inv_rate, log_eta);
+        let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate);
 
         field_size_bits as f64 - (list_size + 1.)
     }
@@ -357,7 +332,6 @@ where
             field_size_bits,
             num_variables,
             log_inv_rate,
-            log_eta,
         );
 
         let error = prox_gaps_error.min(sumcheck_error);
@@ -417,11 +391,10 @@ where
         field_size_bits: usize,
         num_variables: usize,
         log_inv_rate: usize,
-        log_eta: f64,
         ood_samples: usize,
         num_queries: usize,
     ) -> f64 {
-        let list_size = Self::list_size_bits(soundness_type, num_variables, log_inv_rate, log_eta);
+        let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate);
 
         let log_combination = ((ood_samples + num_queries) as f64).log2();
 
@@ -805,229 +778,6 @@ mod tests {
     }
 
     #[test]
-    fn test_list_size_bits_conjecture_list() {
-        // ConjectureList: list_size_bits = num_variables + log_inv_rate - log_eta
-
-        let cases = vec![
-            (10, 5, 2.0, 13.0), // Basic case
-            (0, 5, 2.0, 3.0),   // Edge case: num_variables = 0
-            (10, 0, 2.0, 8.0),  // Edge case: log_inv_rate = 0
-            (10, 5, 0.0, 15.0), // Edge case: log_eta = 0
-            (10, 5, 10.0, 5.0), // High log_eta
-        ];
-
-        for (num_variables, log_inv_rate, log_eta, expected) in cases {
-            let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::list_size_bits(
-                SecurityAssumption::CapacityBound,
-                num_variables,
-                log_inv_rate,
-                log_eta,
-            );
-            assert!(
-                (result - expected).abs() < 1e-6,
-                "Failed for {:?}",
-                (num_variables, log_inv_rate, log_eta)
-            );
-        }
-    }
-
-    #[test]
-    fn test_list_size_bits_provable_list() {
-        // ProvableList: list_size_bits = (log_inv_rate / 2) - (1 + log_eta)
-
-        let cases = vec![
-            (10, 8, 2.0, 1.0),   // Basic case
-            (10, 0, 2.0, -3.0),  // Edge case: log_inv_rate = 0
-            (10, 8, 0.0, 3.0),   // Edge case: log_eta = 0
-            (10, 8, 10.0, -7.0), // High log_eta
-        ];
-
-        for (num_variables, log_inv_rate, log_eta, expected) in cases {
-            let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::list_size_bits(
-                SecurityAssumption::JohnsonBound,
-                num_variables,
-                log_inv_rate,
-                log_eta,
-            );
-            assert!(
-                (result - expected).abs() < 1e-6,
-                "Failed for {:?}",
-                (num_variables, log_inv_rate, log_eta)
-            );
-        }
-    }
-
-    #[test]
-    fn test_list_size_bits_unique_decoding() {
-        // UniqueDecoding: always returns 0.0
-
-        let cases = vec![
-            (10, 5, 2.0),
-            (0, 5, 2.0),
-            (10, 0, 2.0),
-            (10, 5, 0.0),
-            (10, 5, 10.0),
-        ];
-
-        for (num_variables, log_inv_rate, log_eta) in cases {
-            let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::list_size_bits(
-                SecurityAssumption::UniqueDecoding,
-                num_variables,
-                log_inv_rate,
-                log_eta,
-            );
-            assert!(
-                (result - 0.0) < 1e-6,
-                "Failed for {:?}",
-                (num_variables, log_inv_rate, log_eta)
-            );
-        }
-    }
-
-    #[test]
-    fn test_rbr_ood_sample_conjecture_list() {
-        // ConjectureList: rbr_ood_sample = (ood_samples * field_size_bits) + 1 - (2 *
-        // list_size_bits + num_variables * ood_samples)
-
-        let cases = vec![
-            // Basic case
-            (
-                10,
-                5,
-                2.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 13.0 + (10.0 * 3.0)),
-            ),
-            // Edge case: num_variables = 0
-            (
-                0,
-                5,
-                2.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 3.0 + (0.0 * 3.0)),
-            ),
-            // Edge case: log_inv_rate = 0
-            (
-                10,
-                0,
-                2.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 8.0 + (10.0 * 3.0)),
-            ),
-            // Edge case: log_eta = 0
-            (
-                10,
-                5,
-                0.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 15.0 + (10.0 * 3.0)),
-            ),
-            // High log_eta
-            (
-                10,
-                5,
-                10.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 5.0 + (10.0 * 3.0)),
-            ),
-        ];
-
-        for (num_variables, log_inv_rate, log_eta, field_size_bits, ood_samples, expected) in cases
-        {
-            let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::rbr_ood_sample(
-                SecurityAssumption::CapacityBound,
-                num_variables,
-                log_inv_rate,
-                log_eta,
-                field_size_bits,
-                ood_samples,
-            );
-            assert!(
-                (result - expected).abs() < 1e-6,
-                "Failed for {:?}",
-                (
-                    num_variables,
-                    log_inv_rate,
-                    log_eta,
-                    field_size_bits,
-                    ood_samples
-                )
-            );
-        }
-    }
-
-    #[test]
-    fn test_rbr_ood_sample_provable_list() {
-        // ProvableList: Uses a different list_size_bits formula
-
-        let cases = vec![
-            // Basic case
-            (
-                10,
-                8,
-                2.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 1.0 + (10.0 * 3.0)),
-            ),
-            // log_inv_rate = 0
-            (
-                10,
-                0,
-                2.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * -3.0 + (10.0 * 3.0)),
-            ),
-            // log_eta = 0
-            (
-                10,
-                8,
-                0.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * 3.0 + (10.0 * 3.0)),
-            ),
-            // High log_eta
-            (
-                10,
-                8,
-                10.0,
-                256,
-                3,
-                (3.0 * 256.0) + 1.0 - (2.0 * -7.0 + (10.0 * 3.0)),
-            ),
-        ];
-        for (num_variables, log_inv_rate, log_eta, field_size_bits, ood_samples, expected) in cases
-        {
-            let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::rbr_ood_sample(
-                SecurityAssumption::JohnsonBound,
-                num_variables,
-                log_inv_rate,
-                log_eta,
-                field_size_bits,
-                ood_samples,
-            );
-            assert!(
-                (result - expected).abs() < 1e-6,
-                "Failed for {:?}",
-                (
-                    num_variables,
-                    log_inv_rate,
-                    log_eta,
-                    field_size_bits,
-                    ood_samples
-                )
-            );
-        }
-    }
-
-    #[test]
     fn test_ood_samples_unique_decoding() {
         // UniqueDecoding should always return 0 regardless of parameters
         assert_eq!(
@@ -1036,7 +786,6 @@ mod tests {
                 SecurityAssumption::UniqueDecoding,
                 10,
                 3,
-                1.5,
                 256
             ),
             0
@@ -1052,7 +801,6 @@ mod tests {
                 SecurityAssumption::JohnsonBound,
                 15,  // num_variables
                 4,   // log_inv_rate
-                2.0, // log_eta
                 256, // field_size_bits
             ),
             1
@@ -1068,7 +816,6 @@ mod tests {
                 SecurityAssumption::CapacityBound,
                 20,  // num_variables
                 5,   // log_inv_rate
-                2.5, // log_eta
                 512, // field_size_bits
             ),
             1
@@ -1084,7 +831,6 @@ mod tests {
                 SecurityAssumption::JohnsonBound,
                 25,   // num_variables
                 6,    // log_inv_rate
-                3.0,  // log_eta
                 1024  // field_size_bits
             ),
             1
@@ -1099,7 +845,6 @@ mod tests {
                 SecurityAssumption::CapacityBound,
                 10,  // num_variables
                 5,   // log_inv_rate
-                2.0, // log_eta
                 256, // field_size_bits
             ),
             5
