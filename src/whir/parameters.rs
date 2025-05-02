@@ -89,9 +89,8 @@ where
             .compute_number_of_rounds(mv_parameters.num_variables);
 
         let committment_ood_samples = if whir_parameters.initial_statement {
-            Self::ood_samples(
+            whir_parameters.soundness_type.determine_ood_samples(
                 whir_parameters.security_level,
-                whir_parameters.soundness_type,
                 num_variables,
                 log_inv_rate,
                 field_size_bits,
@@ -131,9 +130,8 @@ where
                 .soundness_type
                 .queries(protocol_security_level, log_inv_rate);
 
-            let ood_samples = Self::ood_samples(
+            let ood_samples = whir_parameters.soundness_type.determine_ood_samples(
                 whir_parameters.security_level,
-                whir_parameters.soundness_type,
                 num_variables,
                 next_rate,
                 field_size_bits,
@@ -231,29 +229,6 @@ where
         self.round_parameters
             .iter()
             .all(|r| r.pow_bits <= max_bits && r.folding_pow_bits <= max_bits)
-    }
-
-    #[must_use]
-    pub fn ood_samples(
-        security_level: usize, // We don't do PoW for OOD
-        soundness_type: SecurityAssumption,
-        num_variables: usize,
-        log_inv_rate: usize,
-        field_size_bits: usize,
-    ) -> usize {
-        match soundness_type {
-            SecurityAssumption::UniqueDecoding => 0,
-            _ => (1..64)
-                .find(|&ood_samples| {
-                    soundness_type.ood_error(
-                        num_variables,
-                        log_inv_rate,
-                        field_size_bits,
-                        ood_samples,
-                    ) >= security_level as f64
-                })
-                .unwrap_or_else(|| panic!("Could not find an appropriate number of OOD samples")),
-        }
     }
 
     // Compute the proximity gaps term of the fold
@@ -615,80 +590,6 @@ mod tests {
         assert!(
             !config.check_pow_bits(),
             "All values exceed max_pow_bits, should return false."
-        );
-    }
-
-    #[test]
-    fn test_ood_samples_unique_decoding() {
-        // UniqueDecoding should always return 0 regardless of parameters
-        assert_eq!(
-            WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::ood_samples(
-                100,
-                SecurityAssumption::UniqueDecoding,
-                10,
-                3,
-                256
-            ),
-            0
-        );
-    }
-
-    #[test]
-    fn test_ood_samples_valid_case() {
-        // Testing a valid case where the function finds an appropriate `ood_samples`
-        assert_eq!(
-            WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::ood_samples(
-                50, // security level
-                SecurityAssumption::JohnsonBound,
-                15,  // num_variables
-                4,   // log_inv_rate
-                256, // field_size_bits
-            ),
-            1
-        );
-    }
-
-    #[test]
-    fn test_ood_samples_low_security_level() {
-        // Lower security level should require fewer OOD samples
-        assert_eq!(
-            WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::ood_samples(
-                30, // Lower security level
-                SecurityAssumption::CapacityBound,
-                20,  // num_variables
-                5,   // log_inv_rate
-                512, // field_size_bits
-            ),
-            1
-        );
-    }
-
-    #[test]
-    fn test_ood_samples_high_security_level() {
-        // Higher security level should require more OOD samples
-        assert_eq!(
-            WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::ood_samples(
-                100, // High security level
-                SecurityAssumption::JohnsonBound,
-                25,   // num_variables
-                6,    // log_inv_rate
-                1024  // field_size_bits
-            ),
-            1
-        );
-    }
-
-    #[test]
-    fn test_ood_extremely_high_security_level() {
-        assert_eq!(
-            WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::ood_samples(
-                1000, // Extremely high security level
-                SecurityAssumption::CapacityBound,
-                10,  // num_variables
-                5,   // log_inv_rate
-                256, // field_size_bits
-            ),
-            5
         );
     }
 }

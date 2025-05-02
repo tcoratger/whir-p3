@@ -153,6 +153,32 @@ impl SecurityAssumption {
         let error = 2. * list_size_bits + (log_degree * ood_samples) as f64;
         (ood_samples * field_size_bits) as f64 + 1. - error
     }
+
+    /// Computes the number of OOD samples required to achieve security_level bits of security
+    /// We note that in both STIR and WHIR there are various strategies to set OOD samples.
+    /// In this case, we are just sampling one element from the extension field
+    #[must_use]
+    pub fn determine_ood_samples(
+        &self,
+        security_level: usize,
+        log_degree: usize,
+        log_inv_rate: usize,
+        field_size_bits: usize,
+    ) -> usize {
+        if matches!(self, Self::UniqueDecoding) {
+            return 0;
+        }
+
+        for ood_samples in 1..64 {
+            if self.ood_error(log_degree, log_inv_rate, field_size_bits, ood_samples)
+                >= security_level as f64
+            {
+                return ood_samples;
+            }
+        }
+
+        panic!("Could not find an appropriate number of OOD samples");
+    }
 }
 
 impl Display for SecurityAssumption {
