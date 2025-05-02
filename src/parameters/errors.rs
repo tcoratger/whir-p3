@@ -121,6 +121,16 @@ impl SecurityAssumption {
 
         num_queries_f.ceil() as usize
     }
+
+    /// Compute the error for the given number of queries
+    /// The error to drive down is (1-δ)^t < 2^-λ.
+    /// Where δ is set as in the `log_1_delta` function.
+    #[must_use]
+    pub fn queries_error(&self, log_inv_rate: usize, num_queries: usize) -> f64 {
+        let num_queries = num_queries as f64;
+
+        -num_queries * self.log_1_delta(log_inv_rate)
+    }
 }
 
 impl Display for SecurityAssumption {
