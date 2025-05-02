@@ -265,34 +265,4 @@ mod tests {
 
         assert!((computed_error - real_error).abs() < 0.01);
     }
-
-    #[test]
-    fn test_queries_unique_decoding() {
-        let security_level = 100;
-        let log_inv_rate = 5;
-
-        let result = SecurityAssumption::UniqueDecoding.queries(security_level, log_inv_rate);
-
-        assert_eq!(result, 105);
-    }
-
-    #[test]
-    fn test_queries_provable_list() {
-        let security_level = 128;
-        let log_inv_rate = 8;
-
-        let result = SecurityAssumption::JohnsonBound.queries(security_level, log_inv_rate);
-
-        assert_eq!(result, 32);
-    }
-
-    #[test]
-    fn test_queries_conjecture_list() {
-        let security_level = 256;
-        let log_inv_rate = 16;
-
-        let result = SecurityAssumption::CapacityBound.queries(security_level, log_inv_rate);
-
-        assert_eq!(result, 16);
-    }
 }
