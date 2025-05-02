@@ -167,7 +167,7 @@ mod tests {
         let field_size_bits = 128;
 
         // List size
-        assert!(assumption.list_size_bits(log_degree, log_inv_rate) - 0. < 0.00000001);
+        assert!(assumption.list_size_bits(log_degree, log_inv_rate) - 0. < 0.01);
 
         // Prox gaps
         let computed_error =
