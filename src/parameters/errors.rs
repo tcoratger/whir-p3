@@ -91,6 +91,36 @@ impl SecurityAssumption {
         let num_functions_1_log = (num_functions as f64 - 1.).log2();
         field_size_bits as f64 - (error + num_functions_1_log)
     }
+
+    /// The query error is (1 - δ)^t where t is the number of queries.
+    /// This computes log(1 - δ).
+    /// - In UD, δ is (1 - ρ)/2
+    /// - In JB, δ is (1 - √ρ - η)
+    /// - In CB, δ is (1 - ρ - η)
+    #[must_use]
+    pub fn log_1_delta(&self, log_inv_rate: usize) -> f64 {
+        let log_eta = self.log_eta(log_inv_rate);
+        let eta = 2_f64.powf(log_eta);
+        let rate = 1. / f64::from(1 << log_inv_rate);
+
+        let delta = match self {
+            Self::UniqueDecoding => 0.5 * (1. - rate),
+            Self::JohnsonBound => 1. - rate.sqrt() - eta,
+            Self::CapacityBound => 1. - rate - eta,
+        };
+
+        (1. - delta).log2()
+    }
+
+    /// Compute the number of queries to match the security level
+    /// The error to drive down is (1-δ)^t < 2^-λ.
+    /// Where δ is set as in the `log_1_delta` function.
+    #[must_use]
+    pub fn queries(&self, protocol_security_level: usize, log_inv_rate: usize) -> usize {
+        let num_queries_f = -(protocol_security_level as f64) / self.log_1_delta(log_inv_rate);
+
+        num_queries_f.ceil() as usize
+    }
 }
 
 impl Display for SecurityAssumption {

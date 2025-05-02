@@ -127,11 +127,9 @@ where
             // Queries are set w.r.t. to old rate, while the rest to the new rate
             let next_rate = log_inv_rate + (whir_parameters.folding_factor.at_round(round) - 1);
 
-            let num_queries = Self::queries(
-                whir_parameters.soundness_type,
-                protocol_security_level,
-                log_inv_rate,
-            );
+            let num_queries = whir_parameters
+                .soundness_type
+                .queries(protocol_security_level, log_inv_rate);
 
             let ood_samples = Self::ood_samples(
                 whir_parameters.security_level,
@@ -175,11 +173,9 @@ where
             log_inv_rate = next_rate;
         }
 
-        let final_queries = Self::queries(
-            whir_parameters.soundness_type,
-            protocol_security_level,
-            log_inv_rate,
-        );
+        let final_queries = whir_parameters
+            .soundness_type
+            .queries(protocol_security_level, log_inv_rate);
 
         let final_pow_bits = 0_f64.max(
             whir_parameters.security_level as f64
@@ -327,31 +323,6 @@ where
         0_f64.max(security_level as f64 - error)
     }
 
-    // Used to select the number of queries
-    #[allow(clippy::cast_sign_loss)]
-    #[must_use]
-    pub fn queries(
-        soundness_type: SecurityAssumption,
-        protocol_security_level: usize,
-        log_inv_rate: usize,
-    ) -> usize {
-        let num_queries_f = match soundness_type {
-            SecurityAssumption::UniqueDecoding => {
-                let rate = 1. / f64::from(1 << log_inv_rate);
-                let denom = (0.5 * (1. + rate)).log2();
-
-                -(protocol_security_level as f64) / denom
-            }
-            SecurityAssumption::JohnsonBound => {
-                (2 * protocol_security_level) as f64 / log_inv_rate as f64
-            }
-            SecurityAssumption::CapacityBound => {
-                protocol_security_level as f64 / log_inv_rate as f64
-            }
-        };
-        num_queries_f.ceil() as usize
-    }
-
     // This is the bits of security of the query step
     #[must_use]
     pub fn rbr_queries(
@@ -464,48 +435,6 @@ mod tests {
 
         // PoW bits should never be negative
         assert!(pow_bits >= 0.);
-    }
-
-    #[test]
-    fn test_queries_unique_decoding() {
-        let security_level = 100;
-        let log_inv_rate = 5;
-
-        let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::queries(
-            SecurityAssumption::UniqueDecoding,
-            security_level,
-            log_inv_rate,
-        );
-
-        assert_eq!(result, 105);
-    }
-
-    #[test]
-    fn test_queries_provable_list() {
-        let security_level = 128;
-        let log_inv_rate = 8;
-
-        let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::queries(
-            SecurityAssumption::JohnsonBound,
-            security_level,
-            log_inv_rate,
-        );
-
-        assert_eq!(result, 32);
-    }
-
-    #[test]
-    fn test_queries_conjecture_list() {
-        let security_level = 256;
-        let log_inv_rate = 16;
-
-        let result = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::queries(
-            SecurityAssumption::CapacityBound,
-            security_level,
-            log_inv_rate,
-        );
-
-        assert_eq!(result, 16);
     }
 
     #[test]
