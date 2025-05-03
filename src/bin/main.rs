@@ -162,6 +162,11 @@ fn main() {
 
     println!("Prover time: {:.1?}", whir_prover_time.elapsed());
 
+    let serialized_proof = bincode::serde::encode_to_vec(&proof, bincode::config::standard())
+        .expect("Failed to serialize proof");
+    let proof_length = serialized_proof.len() + prover_state.narg_string().len();
+    println!("Proof size: {:.1} KiB", proof_length as f64 / 1024.0);
+
     // Extract verifier-side version of the statement (only public data)
     let statement_verifier = StatementVerifier::from_statement(&statement);
 
