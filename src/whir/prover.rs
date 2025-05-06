@@ -1,15 +1,17 @@
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
-use p3_matrix::{
-    dense::{DenseMatrix, RowMajorMatrix},
-    extension::FlatMatrixView,
-};
-use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
+use p3_matrix::dense::RowMajorMatrix;
+use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
-use super::{WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement};
+use super::{
+    WhirProof,
+    committer::{CommitmentMerkleTree, RoundMerkleTree, Witness},
+    parameters::WhirConfig,
+    statement::Statement,
+};
 use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
@@ -44,11 +46,10 @@ where
     pub(crate) coefficients: CoefficientStorage<F, EF>,
 
     /// Prover data for the commitment is over the base field
-    pub(crate) commitment_merkle_prover_data: MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
+    pub(crate) commitment_merkle_prover_data: CommitmentMerkleTree<F, DIGEST_ELEMS>,
     /// Prover data for the remaining rounds is over the extension field
     /// None in the first round, or if the number of rounds is zero
-    pub(crate) merkle_prover_data:
-        Option<MerkleTree<F, u8, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>>,
+    pub(crate) merkle_prover_data: Option<RoundMerkleTree<F, EF, DIGEST_ELEMS>>,
     /// Merkle proofs
     /// - The first element is the opened leaf values
     /// - The second element is the Merkle proof (siblings)
@@ -295,14 +296,14 @@ where
         // Collect Merkle proofs for stir queries
         let stir_evaluations = match &round_state.merkle_prover_data {
             None => {
-                let mut answers = Vec::new();
-                let mut merkle_proof = Vec::new();
+                let mut answers: Vec<Vec<F>> = Vec::with_capacity(stir_challenges_indexes.len());
+                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
+                    Vec::with_capacity(stir_challenges_indexes.len());
                 let commitment_merkle =
                     MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
                 for challenge in &stir_challenges_indexes {
-                    let (commitment_leaf, commitment_root): (Vec<Vec<F>>, Vec<[u8; DIGEST_ELEMS]>) =
-                        commitment_merkle
-                            .open_batch(*challenge, &round_state.commitment_merkle_prover_data);
+                    let (commitment_leaf, commitment_root) = commitment_merkle
+                        .open_batch(*challenge, &round_state.commitment_merkle_prover_data);
                     answers.push(commitment_leaf[0].clone());
                     merkle_proof.push(commitment_root);
                 }
@@ -310,7 +311,7 @@ where
                 let mut stir_evaluations = ood_answers;
                 let transformed: Vec<Vec<EF>> = answers
                     .iter()
-                    .map(|inner| inner.into_iter().map(|&fel| EF::from(fel)).collect())
+                    .map(|inner| inner.iter().map(|&fel| EF::from(fel)).collect())
                     .collect();
                 self.0.fold_optimisation.stir_evaluations_prover(
                     round_state,
@@ -324,10 +325,11 @@ where
                 stir_evaluations
             }
             Some(data) => {
-                let mut answers = Vec::new();
-                let mut merkle_proof = Vec::new();
+                let mut answers: Vec<Vec<EF>> = Vec::with_capacity(stir_challenges_indexes.len());
+                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
+                    Vec::with_capacity(stir_challenges_indexes.len());
                 for challenge in &stir_challenges_indexes {
-                    let (leaf, proof) = merkle_tree.open_batch(*challenge, &data);
+                    let (leaf, proof) = merkle_tree.open_batch(*challenge, data);
                     answers.push(leaf[0].clone());
                     merkle_proof.push(proof);
                 }
@@ -437,14 +439,14 @@ where
 
         match &round_state.merkle_prover_data {
             None => {
-                let mut answers = Vec::new();
-                let mut merkle_proof = Vec::new();
+                let mut answers: Vec<Vec<F>> = Vec::with_capacity(final_challenge_indexes.len());
+                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
+                    Vec::with_capacity(final_challenge_indexes.len());
                 let commitment_merkle =
                     MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
                 for challenge in final_challenge_indexes {
-                    let (commitment_leaf, commitment_root): (Vec<Vec<F>>, Vec<[u8; DIGEST_ELEMS]>) =
-                        commitment_merkle
-                            .open_batch(challenge, &round_state.commitment_merkle_prover_data);
+                    let (commitment_leaf, commitment_root) = commitment_merkle
+                        .open_batch(challenge, &round_state.commitment_merkle_prover_data);
                     answers.push(commitment_leaf[0].clone());
                     merkle_proof.push(commitment_root);
                 }
@@ -453,16 +455,17 @@ where
             }
 
             Some(data) => {
-                let mut answers = Vec::new();
-                let mut merkle_proof = Vec::new();
+                let mut answers: Vec<Vec<EF>> = Vec::with_capacity(final_challenge_indexes.len());
+                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
+                    Vec::with_capacity(final_challenge_indexes.len());
                 for challenge in final_challenge_indexes {
-                    let (leaf, proof) = mmcs.open_batch(challenge, &data);
+                    let (leaf, proof) = mmcs.open_batch(challenge, data);
                     answers.push(leaf[0].clone());
                     merkle_proof.push(proof);
                 }
                 round_state.merkle_proofs.push((answers, merkle_proof));
             }
-        };
+        }
 
         // PoW
         if self.0.final_pow_bits > 0. {

@@ -154,11 +154,8 @@ where
             for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
                 if r == 0 {
                     let (answers, merkle_proof) = &whir_proof.commitment_merkle_paths;
-                    let indexed_answers: Vec<F> = answers[i]
-                        .iter()
-                        .map(|v| v.as_base())
-                        .map(|v| v.unwrap())
-                        .collect();
+                    let indexed_answers: Vec<F> =
+                        answers[i].iter().map(|v| v.as_base().unwrap()).collect();
 
                     commitment_mmcs
                         .verify_batch(
@@ -170,8 +167,8 @@ where
                         )
                         .map_err(|_| ProofError::InvalidProof)?;
                     stir_challenges_answers = answers
-                        .into_iter()
-                        .map(|inner| inner.into_iter().map(|&f_el| EF::from(f_el)).collect())
+                        .iter()
+                        .map(|inner| inner.iter().map(|&f_el| EF::from(f_el)).collect())
                         .collect();
                 } else {
                     let (answers, merkle_proof) = &whir_proof.merkle_paths[r - 1];
@@ -183,7 +180,7 @@ where
                         &merkle_proof[i],
                     )
                     .map_err(|_| ProofError::InvalidProof)?;
-                    stir_challenges_answers = answers.clone();
+                    stir_challenges_answers.clone_from(answers);
                 }
             }
 
@@ -257,7 +254,7 @@ where
         }];
 
         // Final Merkle verification
-        let final_randomness_answers: Vec<Vec<EF>> = if whir_proof.merkle_paths.len() == 0 {
+        let final_randomness_answers: Vec<Vec<EF>> = if whir_proof.merkle_paths.is_empty() {
             let (commitment_randomness_answers, commitment_merkle_proof) =
                 &whir_proof.commitment_merkle_paths;
 
@@ -274,8 +271,8 @@ where
             }
 
             commitment_randomness_answers
-                .into_iter()
-                .map(|inner| inner.into_iter().map(|&f_el| EF::from(f_el)).collect())
+                .iter()
+                .map(|inner| inner.iter().map(|&f_el| EF::from(f_el)).collect())
                 .collect()
         } else {
             let (final_randomness_answers, final_merkle_proof) =
@@ -327,7 +324,7 @@ where
             final_folding_randomness: folding_randomness,
             final_randomness_indexes,
             final_randomness_points,
-            final_randomness_answers: final_randomness_answers.clone(),
+            final_randomness_answers,
             final_sumcheck_rounds,
             final_sumcheck_randomness,
             final_coefficients,
