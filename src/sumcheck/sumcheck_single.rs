@@ -1,3 +1,4 @@
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -10,7 +11,10 @@ use crate::{
         evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
-    sumcheck::utils::sumcheck_quadratic,
+    sumcheck::{
+        sumcheck_single_skip::{evaluate_univariate_poly_at_challenge, fold_k_times},
+        utils::sumcheck_quadratic,
+    },
     utils::eval_eq,
     whir::statement::Statement,
 };
@@ -37,9 +41,9 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct SumcheckSingle<F, EF> {
     /// Evaluations of the polynomial `p(X)`.
-    evaluation_of_p: EvaluationStorage<F, EF>,
+    pub(crate) evaluation_of_p: EvaluationStorage<F, EF>,
     /// Evaluations of the equality polynomial used for enforcing constraints.
-    weights: EvaluationsList<EF>,
+    pub(crate) weights: EvaluationsList<EF>,
     /// Accumulated sum incorporating equality constraints.
     sum: EF,
     /// Marker for phantom type parameter `F`.
@@ -265,20 +269,77 @@ where
     /// - Samples random values to progressively reduce the polynomial.
     /// - Applies proof-of-work grinding if required.
     /// - Returns the sampled folding randomness values used in each reduction step.
-    pub fn compute_sumcheck_polynomials<S>(
+    pub fn compute_sumcheck_polynomials<S, DFT>(
         &mut self,
         prover_state: &mut ProverState<EF, F>,
         folding_factor: usize,
         pow_bits: f64,
+        k_skip: Option<usize>,
+        dft: &DFT,
     ) -> ProofResult<MultilinearPoint<EF>>
     where
         F: PrimeField64 + TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
         S: PowStrategy,
+        DFT: TwoAdicSubgroupDft<F>,
     {
+        assert!(
+            self.num_variables() >= folding_factor,
+            "Not enough variables to fold"
+        );
         let mut res = Vec::with_capacity(folding_factor);
 
-        for _ in 0..folding_factor {
+        // Optional univariate skip
+        let skip = match k_skip {
+            // We apply a k-skip if:
+            // - k >= 2 (to avoid using the univariate skip uselessly)
+            // - k <= folding_factor (to be sure we don't skip more rounds than folding factor)
+            Some(k) if k >= 2 && k <= folding_factor => {
+                // Apply univariate skip over the first k variables
+                let sumcheck_poly = self.compute_skipping_sumcheck_polynomial(dft, k);
+                prover_state.add_scalars(sumcheck_poly.evaluations())?;
+
+                for _ in 0..k {
+                    let [folding_randomness] = prover_state.challenge_scalars()?;
+                    res.push(folding_randomness);
+
+                    if pow_bits > 0. {
+                        prover_state.challenge_pow::<S>(pow_bits)?;
+                    }
+                }
+
+                // Apply k rounds of folding to p and weights
+                let new_p = fold_k_times(
+                    match &self.evaluation_of_p {
+                        EvaluationStorage::Base(evals_f) => evals_f.evals(),
+                        EvaluationStorage::Extension(_) => panic!(
+                            "The univariate skip optimization should only occur in base field"
+                        ),
+                    },
+                    &res,
+                    k,
+                );
+                let new_weights = fold_k_times(self.weights.evals(), &res, k);
+
+                self.evaluation_of_p = EvaluationStorage::Extension(EvaluationsList::new(new_p));
+                self.weights = EvaluationsList::new(new_weights);
+
+                // Evaluate the skip polynomial at the challenge point r0
+                let next_sum = evaluate_univariate_poly_at_challenge(
+                    sumcheck_poly.evaluations(), // Evals of v0(X) on the coset
+                    res[0],                      // The first challenge is r0
+                    dft,                         // Pass the DFT object
+                );
+
+                // Update the sum state variable
+                self.sum = next_sum;
+
+                k
+            }
+            _ => 0, // No skip
+        };
+
+        for _ in skip..folding_factor {
             let sumcheck_poly = self.compute_sumcheck_polynomial();
             prover_state.add_scalars(sumcheck_poly.evaluations())?;
             let [folding_randomness] = prover_state.challenge_scalars()?;
@@ -439,6 +500,7 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_dft::NaiveDft;
     use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use proptest::prelude::*;
 
@@ -1323,7 +1385,13 @@ mod tests {
 
         // Compute sumcheck polynomials
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW>(&mut prover_state, folding_factor, pow_bits)
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+                None,
+                &NaiveDft,
+            )
             .unwrap();
 
         // The result should contain `folding_factor` elements
@@ -1364,7 +1432,13 @@ mod tests {
         let mut prover_state = domsep.to_prover_state();
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW>(&mut prover_state, folding_factor, pow_bits)
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+                None,
+                &NaiveDft,
+            )
             .unwrap();
 
         // Ensure we get `folding_factor` sampled randomness values
@@ -1410,7 +1484,13 @@ mod tests {
         let mut prover_state = domsep.to_prover_state();
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW>(&mut prover_state, folding_factor, pow_bits)
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+                None,
+                &NaiveDft,
+            )
             .unwrap();
 
         assert_eq!(result.0.len(), folding_factor);
@@ -1437,7 +1517,13 @@ mod tests {
         let mut prover_state = domsep.to_prover_state();
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW>(&mut prover_state, folding_factor, pow_bits)
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+                None,
+                &NaiveDft,
+            )
             .unwrap();
 
         assert_eq!(result.0.len(), 0);
@@ -1569,7 +1655,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_sumcheck_polynomials_mixed_fields_three_vars() {
+    fn test_compute_sumcheck_polynomials_mixed_fields_three_vars1() {
         // Define a multilinear polynomial with 3 variables:
         // f(X1, X2, X3) = 1 + 2*X1 + 3*X2 + 4*X3 + 5*X1*X2 + 6*X1*X3 + 7*X2*X3 + 8*X1*X2*X3
         let c1 = F::from_u64(1);
@@ -1614,7 +1700,13 @@ mod tests {
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW>(&mut prover_state, folding_factor, pow_bits)
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+                None,
+                &NaiveDft,
+            )
             .unwrap();
 
         // Ensure we received the expected number of folding randomness values
@@ -1790,15 +1882,75 @@ mod tests {
 
             // Run sumcheck with zero grinding (no challenge_pow)
             let final_point_base = prover_base
-                .compute_sumcheck_polynomials::<Blake3PoW>(&mut state_base, folding_rounds, 0.0)
+                .compute_sumcheck_polynomials::<Blake3PoW,_>(&mut state_base, folding_rounds, 0.0, None, &NaiveDft)
                 .unwrap();
 
             let final_point_ext = prover_ext
-                .compute_sumcheck_polynomials::<Blake3PoW>(&mut state_ext, folding_rounds, 0.0)
+                .compute_sumcheck_polynomials::<Blake3PoW,_>(&mut state_ext, folding_rounds, 0.0, None, &NaiveDft)
                 .unwrap();
 
             // Ensure roundtrip consistency
             prop_assert_eq!(final_point_base.0, final_point_ext.0);
         }
+    }
+
+    #[test]
+    fn test_compute_sumcheck_polynomials_mixed_fields_three_vars_with_skip() {
+        // Define a multilinear polynomial with 3 variables:
+        // f(X1, X2, X3) = 1 + 2*X1 + 3*X2 + 4*X3 + 5*X1*X2 + 6*X1*X3 + 7*X2*X3 + 8*X1*X2*X3
+        let c1 = F::from_u64(1);
+        let c2 = F::from_u64(2);
+        let c3 = F::from_u64(3);
+        let c4 = F::from_u64(4);
+        let c5 = F::from_u64(5);
+        let c6 = F::from_u64(6);
+        let c7 = F::from_u64(7);
+        let c8 = F::from_u64(8);
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+
+        // Empty constraint system (no added equalities)
+        let statement = Statement::new(3);
+
+        // Instantiate the Sumcheck prover using base field coefficients and extension field EF4
+        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+
+        // Number of folding rounds (equal to number of variables)
+        let folding_factor = 3;
+
+        // PoW challenge difficulty (controls grinding)
+        let pow_bits = 0.;
+
+        // Create domain separator for Fiat-Shamir transcript simulation
+        let mut domsep: DomainSeparator<EF4, F, DefaultHash> = DomainSeparator::new("test");
+
+        // Step 1: absorb 3 evaluations of the sumcheck polynomial h(X)
+        domsep.add_scalars(8, "tag");
+
+        // Step 2: derive a folding challenge scalar from transcript
+        domsep.challenge_scalars(1, "tag");
+        domsep.challenge_scalars(1, "tag");
+
+        // Step 1: absorb 3 evaluations of the sumcheck polynomial h(X)
+        domsep.add_scalars(3, "tag");
+
+        // Step 2: derive a folding challenge scalar from transcript
+        domsep.challenge_scalars(1, "tag");
+
+        // Convert domain separator into prover state object
+        let mut prover_state = domsep.to_prover_state();
+
+        // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
+        let result = prover
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+                Some(2),
+                &NaiveDft,
+            )
+            .unwrap();
+
+        // Ensure we received the expected number of folding randomness values
+        assert_eq!(result.0.len(), 3);
     }
 }

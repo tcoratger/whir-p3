@@ -134,10 +134,12 @@ where
             );
 
             // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS>(
+            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS, _>(
                 prover_state,
                 self.0.folding_factor.at_round(0),
                 self.0.starting_folding_pow_bits,
+                None,
+                dft,
             )?;
 
             sumcheck_prover = Some(sumcheck);
@@ -224,7 +226,7 @@ where
 
         // Base case: final round reached
         if round_state.round == self.0.n_rounds() {
-            return self.final_round(prover_state, round_state, &folded_coefficients);
+            return self.final_round(prover_state, round_state, &folded_coefficients, dft);
         }
 
         let round_params = &self.0.round_parameters[round_state.round];
@@ -335,10 +337,12 @@ where
                 )
             };
 
-        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS>(
+        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS, _>(
             prover_state,
             folding_factor_next,
             round_params.folding_pow_bits,
+            None,
+            dft,
         )?;
 
         let start_idx = self.0.folding_factor.total_number(round_state.round);
@@ -363,16 +367,18 @@ where
         Ok(())
     }
 
-    fn final_round<const DIGEST_ELEMS: usize>(
+    fn final_round<D, const DIGEST_ELEMS: usize>(
         &self,
         prover_state: &mut ProverState<EF, F>,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
+        dft: &D,
     ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        D: TwoAdicSubgroupDft<F>,
     {
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_scalars(folded_coefficients.coeffs())?;
@@ -419,10 +425,12 @@ where
                         EF::ONE,
                     )
                 })
-                .compute_sumcheck_polynomials::<PS>(
+                .compute_sumcheck_polynomials::<PS, _>(
                     prover_state,
                     self.0.final_sumcheck_rounds,
                     self.0.final_folding_pow_bits,
+                    None,
+                    dft,
                 )?;
 
             let start_idx = self.0.folding_factor.total_number(round_state.round);
