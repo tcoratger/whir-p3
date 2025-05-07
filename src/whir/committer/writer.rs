@@ -74,9 +74,7 @@ where
                 // Number of rows (one per subdomain)
                 let size_of_new_domain = evals.len() / folding_factor_exp;
 
-                RowMajorMatrix::new(evals, size_of_new_domain)
-                    .transpose()
-                    .values
+                RowMajorMatrix::new(evals, size_of_new_domain).transpose()
             }
             FoldType::ProverHelps => {
                 let mut coeffs = polynomial.coeffs().to_vec();
@@ -88,20 +86,13 @@ where
                 ))
                 // Get natural order of rows.
                 .to_row_major_matrix()
-                .values
             }
         };
-
-        // Determine leaf size based on folding factor.
-        let fold_size = 1 << self.0.folding_factor.at_round(0);
-
-        // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
-        let folded_matrix = RowMajorMatrix::new(folded_evals, fold_size);
 
         // Commit to the Merkle tree
         let merkle_tree =
             MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
-        let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
+        let (root, prover_data) = merkle_tree.commit(vec![folded_evals]);
 
         // Observe Merkle root in challenger
         prover_state.add_digest(root)?;
