@@ -22,7 +22,7 @@ use crate::{
         multilinear::MultilinearPoint,
     },
     sumcheck::sumcheck_single::SumcheckSingle,
-    utils::{MixedFieldSlice, expand_randomness},
+    utils::expand_randomness,
     whir::{
         parameters::RoundConfig,
         statement::Weights,
@@ -311,7 +311,7 @@ where
                 self.0.fold_optimisation.stir_evaluations_prover(
                     round_state,
                     &stir_challenges_indexes,
-                    &MixedFieldSlice::Base(&answers),
+                    &answers,
                     self.0.folding_factor,
                     &mut stir_evaluations,
                 );
@@ -329,13 +329,15 @@ where
                 }
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
-                self.0.fold_optimisation.stir_evaluations_prover(
-                    round_state,
-                    &stir_challenges_indexes,
-                    &MixedFieldSlice::Extension(&answers),
-                    self.0.folding_factor,
-                    &mut stir_evaluations,
-                );
+                self.0
+                    .fold_optimisation
+                    .stir_evaluations_prover::<_, EF, _, DIGEST_ELEMS>(
+                        round_state,
+                        &stir_challenges_indexes,
+                        &answers,
+                        self.0.folding_factor,
+                        &mut stir_evaluations,
+                    );
                 round_state.merkle_proofs.push((answers, merkle_proof));
                 stir_evaluations
             }

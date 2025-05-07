@@ -4,12 +4,9 @@ use errors::SecurityAssumption;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use thiserror::Error;
 
-use crate::{
-    utils::MixedFieldSlice,
-    whir::{
-        parameters::WhirConfig, parsed_proof::ParsedProof, prover::RoundState,
-        stir_evaluations::StirEvalContext,
-    },
+use crate::whir::{
+    parameters::WhirConfig, parsed_proof::ParsedProof, prover::RoundState,
+    stir_evaluations::StirEvalContext,
 };
 
 pub mod errors;
@@ -72,16 +69,17 @@ impl FoldType {
     /// - If `ProverHelps`, assumes coefficients and evaluates directly at $\vec{r}$.
     ///
     /// This method is used by the prover when deriving folded polynomial values at queried points.
-    pub(crate) fn stir_evaluations_prover<EF, F, const DIGEST_ELEMS: usize>(
+    pub(crate) fn stir_evaluations_prover<EF, SubEF, F, const DIGEST_ELEMS: usize>(
         self,
         round_state: &RoundState<EF, F, DIGEST_ELEMS>,
         stir_challenges_indexes: &[usize],
-        answers: &MixedFieldSlice<'_, F, EF>,
+        answers: &[Vec<SubEF>],
         folding_factor: FoldingFactor,
         stir_evaluations: &mut Vec<EF>,
     ) where
         F: Field + TwoAdicField,
-        EF: ExtensionField<F> + TwoAdicField,
+        SubEF: ExtensionField<F>,
+        EF: ExtensionField<SubEF> + ExtensionField<F> + TwoAdicField,
     {
         let ctx = match self {
             Self::Naive => StirEvalContext::Naive {
@@ -137,10 +135,8 @@ impl FoldType {
                         folding_factor: &params.folding_factor,
                         folding_randomness: &round.folding_randomness,
                     };
-                    stir_evals_context.evaluate(
-                        &MixedFieldSlice::Extension(&round.stir_challenges_answers),
-                        &mut round_evals,
-                    );
+                    stir_evals_context
+                        .evaluate::<EF>(&round.stir_challenges_answers, &mut round_evals);
 
                     // Push the folds to the result
                     result.push(round_evals);
@@ -161,10 +157,8 @@ impl FoldType {
                     folding_randomness: &parsed.final_folding_randomness,
                 };
 
-                stir_evals_context.evaluate(
-                    &MixedFieldSlice::Extension(&parsed.final_randomness_answers),
-                    &mut final_evals,
-                );
+                stir_evals_context
+                    .evaluate::<EF>(&parsed.final_randomness_answers, &mut final_evals);
 
                 result.push(final_evals);
                 result
