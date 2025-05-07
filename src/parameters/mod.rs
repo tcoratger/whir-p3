@@ -11,6 +11,11 @@ use crate::whir::{
 
 pub mod errors;
 
+/// Each WHIR steps folds the polymomial, which reduces the number of variables.
+/// As soon as the number of variables is less than or equal to `MAX_NUM_VARIABLES_TO_SEND_COEFFS`,
+/// the prover sends directly the coefficients of the polynomial.
+const MAX_NUM_VARIABLES_TO_SEND_COEFFS: usize = 6;
+
 /// Computes the default maximum proof-of-work (PoW) bits.
 ///
 /// This function determines the PoW security level based on the number of variables
@@ -260,36 +265,35 @@ impl FoldingFactor {
     pub fn compute_number_of_rounds(&self, num_variables: usize) -> (usize, usize) {
         match self {
             Self::Constant(factor) => {
-                // The number of remaining variables that cannot be fully folded.
-                let final_sumcheck_rounds = num_variables % factor;
-
-                // Compute the number of WHIR rounds by subtracting the final sumcheck rounds
-                // and dividing by the folding factor. The -1 accounts for the fact that the last
-                // round does not require another folding.
-                (
-                    (num_variables - final_sumcheck_rounds) / factor - 1,
-                    final_sumcheck_rounds,
-                )
+                if num_variables <= MAX_NUM_VARIABLES_TO_SEND_COEFFS {
+                    // the first folding is mandatory in the current implem (TODO don't fold, send directly the polynomial)
+                    return (0, num_variables - factor);
+                }
+                // Starting from `num_variables`, each round reduces the number of variables by `factor`. As soon as the
+                // number of variables is less of equal than `MAX_NUM_VARIABLES_TO_SEND_COEFFS`, we stop folding and the
+                // prover sends directly the coefficients of the polynomial.
+                let num_rounds =
+                    (num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS).div_ceil(*factor);
+                let final_sumcheck_rounds = num_variables - num_rounds * factor;
+                // The -1 accounts for the fact that the last round does not require another folding.
+                (num_rounds - 1, final_sumcheck_rounds)
             }
             Self::ConstantFromSecondRound(first_round_factor, factor) => {
                 // Compute the number of variables remaining after the first round.
                 let nv_except_first_round = num_variables - *first_round_factor;
-
-                // If the remaining variables are too few for a full folding round,
-                // treat it as a single final sumcheck step.
-                if nv_except_first_round < *factor {
+                if nv_except_first_round < MAX_NUM_VARIABLES_TO_SEND_COEFFS {
+                    // This case is equivalent to Constant(first_round_factor)
+                    // the first folding is mandatory in the current implem (TODO don't fold, send directly the polynomial)
                     return (0, nv_except_first_round);
                 }
-
-                // The number of remaining variables that cannot be fully folded.
-                let final_sumcheck_rounds = nv_except_first_round % *factor;
-
-                // Compute the number of WHIR rounds by dividing the remaining variables
-                // (excluding the first round) by the folding factor.
-                (
-                    (nv_except_first_round - final_sumcheck_rounds) / factor,
-                    final_sumcheck_rounds,
-                )
+                // Starting from `num_variables`, the first round reduces the number of variables by `first_round_factor`,
+                // and the next ones by `factor`. As soon as the number of variables is less of equal than
+                // `MAX_NUM_VARIABLES_TO_SEND_COEFFS`, we stop folding and the prover sends directly the coefficients of the polynomial.
+                let num_rounds =
+                    (nv_except_first_round - MAX_NUM_VARIABLES_TO_SEND_COEFFS).div_ceil(*factor);
+                let final_sumcheck_rounds = nv_except_first_round - num_rounds * factor;
+                // No need to minus 1 because the initial round is already excepted out
+                (num_rounds, final_sumcheck_rounds)
             }
         }
     }
@@ -434,13 +438,66 @@ mod tests {
 
     #[test]
     fn test_compute_number_of_rounds() {
-        let factor = FoldingFactor::Constant(2);
-        assert_eq!(factor.compute_number_of_rounds(6), (2, 0)); // 6 - 2 rounds, no remainder
-        assert_eq!(factor.compute_number_of_rounds(7), (2, 1)); // 7 - 2 rounds, 1 remainder
+        let constant_factor = 3;
+        let factor = FoldingFactor::Constant(constant_factor);
+        assert_eq!(
+            factor.compute_number_of_rounds(MAX_NUM_VARIABLES_TO_SEND_COEFFS - 1),
+            (0, MAX_NUM_VARIABLES_TO_SEND_COEFFS - constant_factor - 1)
+        );
+        assert_eq!(
+            factor.compute_number_of_rounds(MAX_NUM_VARIABLES_TO_SEND_COEFFS),
+            (0, MAX_NUM_VARIABLES_TO_SEND_COEFFS - constant_factor)
+        );
+        assert_eq!(
+            factor.compute_number_of_rounds(MAX_NUM_VARIABLES_TO_SEND_COEFFS + 1),
+            (0, MAX_NUM_VARIABLES_TO_SEND_COEFFS - constant_factor + 1)
+        );
+        assert_eq!(
+            factor.compute_number_of_rounds(MAX_NUM_VARIABLES_TO_SEND_COEFFS + constant_factor),
+            (0, MAX_NUM_VARIABLES_TO_SEND_COEFFS)
+        );
+        assert_eq!(
+            factor.compute_number_of_rounds(MAX_NUM_VARIABLES_TO_SEND_COEFFS + constant_factor + 1),
+            (1, MAX_NUM_VARIABLES_TO_SEND_COEFFS - constant_factor + 1)
+        );
+        assert_eq!(
+            factor.compute_number_of_rounds(
+                MAX_NUM_VARIABLES_TO_SEND_COEFFS + constant_factor * 2 + 1
+            ),
+            (2, MAX_NUM_VARIABLES_TO_SEND_COEFFS - constant_factor + 1)
+        );
 
-        let variable_factor = FoldingFactor::ConstantFromSecondRound(3, 2);
-        assert_eq!(variable_factor.compute_number_of_rounds(7), (2, 0)); // 7 variables, first round uses 3, then 2 per round
-        assert_eq!(variable_factor.compute_number_of_rounds(8), (2, 1)); // 8 variables, remainder 1
+        let initial_factor = 4;
+        let next_factor = 3;
+        let variable_factor = FoldingFactor::ConstantFromSecondRound(initial_factor, next_factor);
+        assert_eq!(
+            variable_factor.compute_number_of_rounds(MAX_NUM_VARIABLES_TO_SEND_COEFFS - 1),
+            (0, MAX_NUM_VARIABLES_TO_SEND_COEFFS - initial_factor - 1)
+        );
+        assert_eq!(
+            variable_factor.compute_number_of_rounds(MAX_NUM_VARIABLES_TO_SEND_COEFFS),
+            (0, MAX_NUM_VARIABLES_TO_SEND_COEFFS - initial_factor)
+        );
+        assert_eq!(
+            variable_factor.compute_number_of_rounds(MAX_NUM_VARIABLES_TO_SEND_COEFFS + 1),
+            (0, MAX_NUM_VARIABLES_TO_SEND_COEFFS - initial_factor + 1)
+        );
+        assert_eq!(
+            variable_factor
+                .compute_number_of_rounds(MAX_NUM_VARIABLES_TO_SEND_COEFFS + initial_factor),
+            (0, MAX_NUM_VARIABLES_TO_SEND_COEFFS)
+        );
+        assert_eq!(
+            variable_factor
+                .compute_number_of_rounds(MAX_NUM_VARIABLES_TO_SEND_COEFFS + initial_factor + 1),
+            (1, MAX_NUM_VARIABLES_TO_SEND_COEFFS - next_factor + 1)
+        );
+        assert_eq!(
+            variable_factor.compute_number_of_rounds(
+                MAX_NUM_VARIABLES_TO_SEND_COEFFS + initial_factor + next_factor + 1
+            ),
+            (2, MAX_NUM_VARIABLES_TO_SEND_COEFFS - next_factor + 1)
+        );
     }
 
     #[test]
