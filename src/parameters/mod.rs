@@ -4,9 +4,12 @@ use errors::SecurityAssumption;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use thiserror::Error;
 
-use crate::whir::{
-    parameters::WhirConfig, parsed_proof::ParsedProof, prover::RoundState,
-    stir_evaluations::StirEvalContext,
+use crate::{
+    utils::MixedFieldSlice,
+    whir::{
+        parameters::WhirConfig, parsed_proof::ParsedProof, prover::RoundState,
+        stir_evaluations::StirEvalContext,
+    },
 };
 
 pub mod errors;
@@ -73,7 +76,7 @@ impl FoldType {
         self,
         round_state: &RoundState<EF, F, DIGEST_ELEMS>,
         stir_challenges_indexes: &[usize],
-        answers: &[Vec<EF>],
+        answers: &MixedFieldSlice<'_, F, EF>,
         folding_factor: FoldingFactor,
         stir_evaluations: &mut Vec<EF>,
     ) where
@@ -134,7 +137,10 @@ impl FoldType {
                         folding_factor: &params.folding_factor,
                         folding_randomness: &round.folding_randomness,
                     };
-                    stir_evals_context.evaluate(&round.stir_challenges_answers, &mut round_evals);
+                    stir_evals_context.evaluate(
+                        &MixedFieldSlice::Extension(&round.stir_challenges_answers),
+                        &mut round_evals,
+                    );
 
                     // Push the folds to the result
                     result.push(round_evals);
@@ -155,7 +161,10 @@ impl FoldType {
                     folding_randomness: &parsed.final_folding_randomness,
                 };
 
-                stir_evals_context.evaluate(&parsed.final_randomness_answers, &mut final_evals);
+                stir_evals_context.evaluate(
+                    &MixedFieldSlice::Extension(&parsed.final_randomness_answers),
+                    &mut final_evals,
+                );
 
                 result.push(final_evals);
                 result

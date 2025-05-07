@@ -4,6 +4,7 @@ use super::stir_evaluations::StirEvalContext;
 use crate::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
+    utils::MixedFieldSlice,
 };
 
 /// Represents a single folding round in the WHIR protocol.
@@ -84,7 +85,7 @@ where
             StirEvalContext::ProverHelps {
                 folding_randomness: randomness,
             }
-            .evaluate(answers, &mut out);
+            .evaluate(&MixedFieldSlice::Base(answers), &mut out);
             out
         };
 

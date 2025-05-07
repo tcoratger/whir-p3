@@ -22,7 +22,7 @@ use crate::{
         multilinear::MultilinearPoint,
     },
     sumcheck::sumcheck_single::SumcheckSingle,
-    utils::expand_randomness,
+    utils::{MixedFieldSlice, expand_randomness},
     whir::{
         parameters::RoundConfig,
         statement::Weights,
@@ -308,14 +308,10 @@ where
                 }
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
-                let transformed: Vec<_> = answers
-                    .iter()
-                    .map(|inner| inner.iter().map(|&fel| EF::from(fel)).collect())
-                    .collect();
                 self.0.fold_optimisation.stir_evaluations_prover(
                     round_state,
                     &stir_challenges_indexes,
-                    &transformed,
+                    &MixedFieldSlice::Base(&answers),
                     self.0.folding_factor,
                     &mut stir_evaluations,
                 );
@@ -336,7 +332,7 @@ where
                 self.0.fold_optimisation.stir_evaluations_prover(
                     round_state,
                     &stir_challenges_indexes,
-                    &answers,
+                    &MixedFieldSlice::Extension(&answers),
                     self.0.folding_factor,
                     &mut stir_evaluations,
                 );

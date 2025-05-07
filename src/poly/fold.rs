@@ -1,4 +1,12 @@
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
+
+/// A value that may reside in either the base field `F` or the extension field `EF`.
+enum Lifted<F, EF> {
+    /// A base field element (cheap to store and operate on).
+    Base(F),
+    /// An extension field element (typically more expensive to compute with).
+    Ext(EF),
+}
 
 /// Computes the folded value of a function evaluated on a coset.
 ///
@@ -23,44 +31,68 @@ use p3_field::Field;
 /// - \( o^{-1} \) is the inverse coset offset
 /// - \( g^{-i} \) is the inverse generator raised to index \( i \)
 /// - The function is recursively applied until the vector reduces to size 1.
-pub fn compute_fold<F: Field>(
-    answers: &[F],
+pub fn compute_fold<F, SF>(
+    answers: &[SF],
     folding_randomness: &[F],
     mut coset_offset_inv: F,
     mut coset_gen_inv: F,
     folding_factor: usize,
-) -> F {
-    let mut answers = answers.to_vec();
+) -> F
+where
+    F: Field + ExtensionField<SF>,
+    SF: Field,
+{
+    let mut answers: Vec<Lifted<SF, F>> = answers.iter().copied().map(Lifted::Base).collect();
 
-    // Perform the folding process `folding_factor` times.
     for rec in 0..folding_factor {
         let r = folding_randomness[folding_randomness.len() - 1 - rec];
-        let offset = answers.len() / 2;
+        let half = answers.len() / 2;
         let mut coset_index_inv = F::ONE;
 
-        // Compute the new folded values, iterating over the first half of `answers`.
-        for i in 0..offset {
-            let f0 = answers[i];
-            let f1 = answers[i + offset];
+        for i in 0..half {
             let point_inv = coset_offset_inv * coset_index_inv;
 
-            let left = f0 + f1;
-            let right = point_inv * (f0 - f1);
+            let (f0, f1) = (&answers[i], &answers[i + half]);
 
-            // Apply the folding transformation with randomness
-            answers[i] = (left + r * right).halve();
+            // Case split based on enum
+            let folded = match (f0, f1) {
+                (Lifted::Base(a), Lifted::Base(b)) => {
+                    let left = *a + *b;
+                    let right = *a - *b;
+                    let folded_base = (r * point_inv * right + left).halve();
+                    Lifted::Ext(folded_base)
+                }
+                (Lifted::Ext(a), Lifted::Base(b)) => {
+                    let left = *a + *b;
+                    let right = *a - *b;
+                    Lifted::Ext((left + r * point_inv * right).halve())
+                }
+                (Lifted::Base(a), Lifted::Ext(b)) => {
+                    let left = *b + *a;
+                    let right = -*b + *a;
+                    Lifted::Ext((left + r * point_inv * right).halve())
+                }
+                (Lifted::Ext(a), Lifted::Ext(b)) => {
+                    let left = *a + *b;
+                    let right = *a - *b;
+                    Lifted::Ext((left + r * point_inv * right).halve())
+                }
+            };
+
+            answers[i] = folded;
             coset_index_inv *= coset_gen_inv;
         }
 
-        // Reduce answers to half its size without allocating a new vector
-        answers.truncate(offset);
-
-        // Update for next iteration
+        answers.truncate(half);
         coset_offset_inv *= coset_offset_inv;
         coset_gen_inv *= coset_gen_inv;
     }
 
-    answers[0]
+    match answers.first() {
+        Some(Lifted::Base(b)) => F::from(*b),
+        Some(Lifted::Ext(e)) => *e,
+        None => unreachable!(),
+    }
 }
 
 #[cfg(test)]
