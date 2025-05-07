@@ -314,7 +314,8 @@ mod tests {
     type Poseidon2Sponge<Perm24> = PaddingFreeSponge<Perm24, 24, 16, 8>;
 
     /// Generates default WHIR parameters
-    fn default_whir_params() -> ProtocolParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
+    const fn default_whir_params()
+    -> ProtocolParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
         ProtocolParameters {
             initial_statement: true,
             security_level: 100,
