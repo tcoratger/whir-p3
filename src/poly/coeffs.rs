@@ -98,7 +98,7 @@ where
     /// Ensures that:
     /// - `point` has the same number of variables as the polynomial (`n`).
     #[must_use]
-    pub fn evaluate(&self, point: &MultilinearPoint<F>) -> F {
+    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables, point.num_variables());
         eval_multivariate(&self.coeffs, &point.0)
     }

@@ -1,4 +1,4 @@
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 
 use crate::{
     parameters::FoldingFactor,
@@ -77,7 +77,11 @@ where
     /// - `answers`: Oracle values — either raw evaluations (naive) or preprocessed coefficients
     ///   (prover helps).
     /// - `stir_evaluations`: Output vector where the results will be appended.
-    pub(crate) fn evaluate(&self, answers: &[Vec<F>], stir_evaluations: &mut Vec<F>) {
+    pub(crate) fn evaluate<SF>(&self, answers: &[Vec<SF>], stir_evaluations: &mut Vec<F>)
+    where
+        SF: Field,
+        F: ExtensionField<SF>,
+    {
         match self {
             Self::Naive {
                 domain_size,

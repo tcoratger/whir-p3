@@ -308,14 +308,10 @@ where
                 }
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
-                let transformed: Vec<_> = answers
-                    .iter()
-                    .map(|inner| inner.iter().map(|&fel| EF::from(fel)).collect())
-                    .collect();
                 self.0.fold_optimisation.stir_evaluations_prover(
                     round_state,
                     &stir_challenges_indexes,
-                    &transformed,
+                    &answers,
                     self.0.folding_factor,
                     &mut stir_evaluations,
                 );
@@ -333,13 +329,15 @@ where
                 }
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
-                self.0.fold_optimisation.stir_evaluations_prover(
-                    round_state,
-                    &stir_challenges_indexes,
-                    &answers,
-                    self.0.folding_factor,
-                    &mut stir_evaluations,
-                );
+                self.0
+                    .fold_optimisation
+                    .stir_evaluations_prover::<_, EF, _, DIGEST_ELEMS>(
+                        round_state,
+                        &stir_challenges_indexes,
+                        &answers,
+                        self.0.folding_factor,
+                        &mut stir_evaluations,
+                    );
                 round_state.merkle_proofs.push((answers, merkle_proof));
                 stir_evaluations
             }
