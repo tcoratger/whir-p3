@@ -267,11 +267,9 @@ where
             }
         };
 
-        let merkle_tree = ExtensionMmcs::new(MerkleTreeMmcs::new(
-            self.0.merkle_hash.clone(),
-            self.0.merkle_compress.clone(),
-        ));
-        let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
+        let mmcs = MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+        let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
+        let (root, prover_data) = extension_mmcs.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger
         prover_state.add_digest(root)?;
@@ -298,11 +296,9 @@ where
             None => {
                 let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
                 let mut merkle_proof = Vec::with_capacity(stir_challenges_indexes.len());
-                let commitment_merkle =
-                    MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
                 for challenge in &stir_challenges_indexes {
-                    let (commitment_leaf, commitment_root) = commitment_merkle
-                        .open_batch(*challenge, &round_state.commitment_merkle_prover_data);
+                    let (commitment_leaf, commitment_root) =
+                        mmcs.open_batch(*challenge, &round_state.commitment_merkle_prover_data);
                     answers.push(commitment_leaf[0].clone());
                     merkle_proof.push(commitment_root);
                 }
@@ -323,7 +319,7 @@ where
                 let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
                 let mut merkle_proof = Vec::with_capacity(stir_challenges_indexes.len());
                 for challenge in &stir_challenges_indexes {
-                    let (leaf, proof) = merkle_tree.open_batch(*challenge, data);
+                    let (leaf, proof) = extension_mmcs.open_batch(*challenge, data);
                     answers.push(leaf[0].clone());
                     merkle_proof.push(proof);
                 }
@@ -428,20 +424,17 @@ where
         )?;
 
         // Every query requires opening these many in the previous Merkle tree
-        let mmcs = ExtensionMmcs::new(MerkleTreeMmcs::new(
-            self.0.merkle_hash.clone(),
-            self.0.merkle_compress.clone(),
-        ));
+        let mmcs = MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+        let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
 
         match &round_state.merkle_prover_data {
             None => {
                 let mut answers = Vec::with_capacity(final_challenge_indexes.len());
                 let mut merkle_proof = Vec::with_capacity(final_challenge_indexes.len());
-                let commitment_merkle =
-                    MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+
                 for challenge in final_challenge_indexes {
-                    let (commitment_leaf, commitment_root) = commitment_merkle
-                        .open_batch(challenge, &round_state.commitment_merkle_prover_data);
+                    let (commitment_leaf, commitment_root) =
+                        mmcs.open_batch(challenge, &round_state.commitment_merkle_prover_data);
                     answers.push(commitment_leaf[0].clone());
                     merkle_proof.push(commitment_root);
                 }
@@ -453,7 +446,7 @@ where
                 let mut answers = Vec::with_capacity(final_challenge_indexes.len());
                 let mut merkle_proof = Vec::with_capacity(final_challenge_indexes.len());
                 for challenge in final_challenge_indexes {
-                    let (leaf, proof) = mmcs.open_batch(challenge, data);
+                    let (leaf, proof) = extension_mmcs.open_batch(challenge, data);
                     answers.push(leaf[0].clone());
                     merkle_proof.push(proof);
                 }
