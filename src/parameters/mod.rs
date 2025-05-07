@@ -11,6 +11,9 @@ use crate::whir::{
 
 pub mod errors;
 
+/// Each WHIR steps folds the polymomial, which reduces the number of variables.
+/// As soon as the number of variables is less than or equal to `MAX_NUM_VARIABLES_TO_SEND_COEFFS`,
+/// the prover sends directly the coefficients of the polynomial.
 const MAX_NUM_VARIABLES_TO_SEND_COEFFS: usize = 6;
 
 /// Computes the default maximum proof-of-work (PoW) bits.
@@ -261,12 +264,11 @@ impl FoldingFactor {
     #[must_use]
     pub fn compute_number_of_rounds(&self, num_variables: usize) -> (usize, usize) {
         match self {
-            FoldingFactor::Constant(factor) => {
+            Self::Constant(factor) => {
                 if num_variables <= MAX_NUM_VARIABLES_TO_SEND_COEFFS {
                     // the first folding is mandatory in the current implem (TODO don't fold, send directly the polynomial)
                     return (0, num_variables - factor);
                 }
-
                 // Starting from `num_variables`, each round reduces the number of variables by `factor`. As soon as the
                 // number of variables is less of equal than `MAX_NUM_VARIABLES_TO_SEND_COEFFS`, we stop folding and the
                 // prover sends directly the coefficients of the polynomial.
@@ -276,7 +278,7 @@ impl FoldingFactor {
                 // The -1 accounts for the fact that the last round does not require another folding.
                 (num_rounds - 1, final_sumcheck_rounds)
             }
-            FoldingFactor::ConstantFromSecondRound(first_round_factor, factor) => {
+            Self::ConstantFromSecondRound(first_round_factor, factor) => {
                 // Compute the number of variables remaining after the first round.
                 let nv_except_first_round = num_variables - *first_round_factor;
                 if nv_except_first_round < MAX_NUM_VARIABLES_TO_SEND_COEFFS {
