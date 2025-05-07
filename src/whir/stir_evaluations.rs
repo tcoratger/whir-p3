@@ -3,7 +3,6 @@ use p3_field::{ExtensionField, Field};
 use crate::{
     parameters::FoldingFactor,
     poly::{coeffs::CoefficientList, fold::compute_fold, multilinear::MultilinearPoint},
-    utils::MixedFieldSlice,
 };
 
 /// Unified context for evaluating STIR queries during a WHIR proof round.
@@ -78,11 +77,8 @@ where
     /// - `answers`: Oracle values — either raw evaluations (naive) or preprocessed coefficients
     ///   (prover helps).
     /// - `stir_evaluations`: Output vector where the results will be appended.
-    pub(crate) fn evaluate<SF>(
-        &self,
-        answers: &MixedFieldSlice<'_, SF, F>,
-        stir_evaluations: &mut Vec<F>,
-    ) where
+    pub(crate) fn evaluate<SF>(&self, answers: &[Vec<SF>], stir_evaluations: &mut Vec<F>)
+    where
         SF: Field,
         F: ExtensionField<SF>,
     {
@@ -103,59 +99,27 @@ where
                     domain_gen_inv.exp_u64((domain_size / coset_domain_size) as u64);
 
                 // Evaluate folded values for each challenge index
-                match *answers {
-                    MixedFieldSlice::Base(answers) => {
-                        stir_evaluations.extend(stir_challenges_indexes.iter().zip(answers).map(
-                            |(index, answers)| {
-                                // Compute coset offset: w^index
-                                let coset_offset_inv = domain_gen_inv.exp_u64(*index as u64);
+                stir_evaluations.extend(stir_challenges_indexes.iter().zip(answers).map(
+                    |(index, answers)| {
+                        // Compute coset offset: w^index
+                        let coset_offset_inv = domain_gen_inv.exp_u64(*index as u64);
 
-                                // Fold evaluations using randomness `r` and coset info
-                                compute_fold(
-                                    answers,
-                                    &folding_randomness.0,
-                                    coset_offset_inv,
-                                    coset_generator_inv,
-                                    folding_factor.at_round(*round),
-                                )
-                            },
-                        ));
-                    }
-                    MixedFieldSlice::Extension(answers) => {
-                        stir_evaluations.extend(stir_challenges_indexes.iter().zip(answers).map(
-                            |(index, answers)| {
-                                // Compute coset offset: w^index
-                                let coset_offset_inv = domain_gen_inv.exp_u64(*index as u64);
-
-                                // Fold evaluations using randomness `r` and coset info
-                                compute_fold(
-                                    answers,
-                                    &folding_randomness.0,
-                                    coset_offset_inv,
-                                    coset_generator_inv,
-                                    folding_factor.at_round(*round),
-                                )
-                            },
-                        ));
-                    }
-                }
+                        // Fold evaluations using randomness `r` and coset info
+                        compute_fold(
+                            answers,
+                            &folding_randomness.0,
+                            coset_offset_inv,
+                            coset_generator_inv,
+                            folding_factor.at_round(*round),
+                        )
+                    },
+                ));
             }
             Self::ProverHelps { folding_randomness } => {
-                match answers {
-                    MixedFieldSlice::Base(answers) => {
-                        // Directly evaluate each list of coefficients at `r`
-                        stir_evaluations.extend(answers.iter().map(|answers| {
-                            CoefficientList::new(answers.clone())
-                                .evaluate_at_extension(folding_randomness)
-                        }));
-                    }
-                    MixedFieldSlice::Extension(answers) => {
-                        // Directly evaluate each list of coefficients at `r`
-                        stir_evaluations.extend(answers.iter().map(|answers| {
-                            CoefficientList::new(answers.clone()).evaluate(folding_randomness)
-                        }));
-                    }
-                }
+                // Directly evaluate each list of coefficients at `r`
+                stir_evaluations.extend(answers.iter().map(|answers| {
+                    CoefficientList::new(answers.clone()).evaluate(folding_randomness)
+                }));
             }
         }
     }
@@ -199,7 +163,7 @@ mod tests {
         let context = StirEvalContext::ProverHelps {
             folding_randomness: &r,
         };
-        context.evaluate(&MixedFieldSlice::Base(&[coeffs]), &mut evals);
+        context.evaluate(&[coeffs], &mut evals);
 
         assert_eq!(evals, vec![expected]);
     }
@@ -220,7 +184,7 @@ mod tests {
         let context = StirEvalContext::ProverHelps {
             folding_randomness: &r,
         };
-        context.evaluate(&MixedFieldSlice::Base(&[coeffs]), &mut evals);
+        context.evaluate(&[coeffs], &mut evals);
 
         assert_eq!(evals, vec![expected]);
     }
@@ -235,7 +199,7 @@ mod tests {
         let context = StirEvalContext::ProverHelps {
             folding_randomness: &r,
         };
-        context.evaluate(&MixedFieldSlice::Base(&[coeffs]), &mut evals);
+        context.evaluate(&[coeffs], &mut evals);
 
         assert_eq!(evals, vec![F::ZERO]);
     }
@@ -252,7 +216,7 @@ mod tests {
         let context = StirEvalContext::ProverHelps {
             folding_randomness: &r,
         };
-        context.evaluate(&MixedFieldSlice::Base(&[coeffs1, coeffs2]), &mut evals);
+        context.evaluate(&[coeffs1, coeffs2], &mut evals);
 
         // f1(7) = 1, f2(7) = 7
         assert_eq!(evals, vec![F::from_u64(1), F::from_u64(7)]);
@@ -301,7 +265,7 @@ mod tests {
         };
 
         let mut evals = Vec::new();
-        context.evaluate(&MixedFieldSlice::Base(&answers), &mut evals);
+        context.evaluate(&answers, &mut evals);
 
         assert_eq!(evals, vec![expected]);
     }

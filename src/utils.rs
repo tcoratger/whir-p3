@@ -1,17 +1,5 @@
 use p3_field::Field;
 
-/// A view over a 2D collection of field elements that may be:
-/// - Either in the base field `F`,
-/// - Or the extension field `EF`.
-#[derive(Debug)]
-pub(crate) enum MixedFieldSlice<'a, F, EF> {
-    /// A reference to a slice of vectors of base field elements.
-    Base(&'a [Vec<F>]),
-
-    /// A reference to a slice of vectors of extension field elements.
-    Extension(&'a [Vec<EF>]),
-}
-
 /// Decomposes `value` into its base-`base` representation with `n_bits` digits.
 /// The result follows big-endian order:
 /// ```ignore

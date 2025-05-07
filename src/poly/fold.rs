@@ -1,13 +1,5 @@
 use p3_field::{ExtensionField, Field};
 
-/// A value that may reside in either the base field `F` or the extension field `EF`.
-enum Lifted<F, EF> {
-    /// A base field element (cheap to store and operate on).
-    Base(F),
-    /// An extension field element (typically more expensive to compute with).
-    Ext(EF),
-}
-
 /// Computes the folded value of a function evaluated on a coset.
 ///
 /// This function applies a recursive folding transformation to a given set of function
@@ -31,68 +23,67 @@ enum Lifted<F, EF> {
 /// - \( o^{-1} \) is the inverse coset offset
 /// - \( g^{-i} \) is the inverse generator raised to index \( i \)
 /// - The function is recursively applied until the vector reduces to size 1.
-pub fn compute_fold<F, SF>(
-    answers: &[SF],
-    folding_randomness: &[F],
-    mut coset_offset_inv: F,
-    mut coset_gen_inv: F,
+pub fn compute_fold<EF, F>(
+    answers: &[F],
+    folding_randomness: &[EF],
+    mut coset_offset_inv: EF,
+    mut coset_gen_inv: EF,
     folding_factor: usize,
-) -> F
+) -> EF
 where
-    F: Field + ExtensionField<SF>,
-    SF: Field,
+    EF: Field + ExtensionField<F>,
+    F: Field,
 {
-    let mut answers: Vec<Lifted<SF, F>> = answers.iter().copied().map(Lifted::Base).collect();
+    assert_eq!(
+        answers.len(),
+        1 << folding_factor,
+        "Invalid number of answers"
+    );
 
-    for rec in 0..folding_factor {
-        let r = folding_randomness[folding_randomness.len() - 1 - rec];
+    if folding_factor == 0 {
+        return EF::from(*answers.first().unwrap());
+    }
+
+    // We do the first folding step separately as in this step answers switches
+    // from a base field vector to an extension field vector.
+    let r = folding_randomness[folding_randomness.len() - 1];
+    let half = answers.len() / 2;
+    let (lo, hi) = answers.split_at(half);
+    let mut answers: Vec<EF> = lo
+        .iter()
+        .zip(hi)
+        .zip(coset_gen_inv.shifted_powers(r * coset_offset_inv))
+        .map(|((a, b), point_inv)| {
+            let left = *a + *b;
+            let right = *a - *b;
+            point_inv * right + left
+        })
+        .collect();
+
+    coset_offset_inv = coset_offset_inv.square();
+    coset_gen_inv = coset_gen_inv.square();
+
+    for r in folding_randomness[..folding_randomness.len() - 1]
+        .iter()
+        .rev()
+    {
         let half = answers.len() / 2;
-        let mut coset_index_inv = F::ONE;
-
-        for i in 0..half {
-            let point_inv = coset_offset_inv * coset_index_inv;
-
-            let (f0, f1) = (&answers[i], &answers[i + half]);
-
-            // Case split based on enum
-            let folded = match (f0, f1) {
-                (Lifted::Base(a), Lifted::Base(b)) => {
-                    let left = *a + *b;
-                    let right = *a - *b;
-                    let folded_base = (r * point_inv * right + left).halve();
-                    Lifted::Ext(folded_base)
-                }
-                (Lifted::Ext(a), Lifted::Base(b)) => {
-                    let left = *a + *b;
-                    let right = *a - *b;
-                    Lifted::Ext((left + r * point_inv * right).halve())
-                }
-                (Lifted::Base(a), Lifted::Ext(b)) => {
-                    let left = *b + *a;
-                    let right = -*b + *a;
-                    Lifted::Ext((left + r * point_inv * right).halve())
-                }
-                (Lifted::Ext(a), Lifted::Ext(b)) => {
-                    let left = *a + *b;
-                    let right = *a - *b;
-                    Lifted::Ext((left + r * point_inv * right).halve())
-                }
-            };
-
-            answers[i] = folded;
-            coset_index_inv *= coset_gen_inv;
-        }
+        let (lo, hi) = answers.split_at_mut(half);
+        lo.iter_mut()
+            .zip(hi)
+            .zip(coset_gen_inv.shifted_powers(*r * coset_offset_inv))
+            .for_each(|((a, b), point_inv)| {
+                let left = *a + *b;
+                let right = *a - *b;
+                *a = point_inv * right + left;
+            });
 
         answers.truncate(half);
-        coset_offset_inv *= coset_offset_inv;
-        coset_gen_inv *= coset_gen_inv;
+        coset_offset_inv = coset_offset_inv.square();
+        coset_gen_inv = coset_gen_inv.square();
     }
 
-    match answers.first() {
-        Some(Lifted::Base(b)) => F::from(*b),
-        Some(Lifted::Ext(e)) => *e,
-        None => unreachable!(),
-    }
+    answers.first().unwrap().div_2exp_u64(folding_factor as u64)
 }
 
 #[cfg(test)]
