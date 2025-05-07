@@ -64,7 +64,7 @@ where
         let expansion = base_domain.size() / polynomial.num_coeffs();
 
         // Expand polynomial coefficients into evaluations over the domain
-        let folded_evals = match self.0.fold_optimisation {
+        let folded_matrix = match self.0.fold_optimisation {
             FoldType::Naive => {
                 let evals = expand_from_coeff(dft, polynomial.coeffs(), expansion);
 
@@ -92,7 +92,7 @@ where
         // Commit to the Merkle tree
         let merkle_tree =
             MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
-        let (root, prover_data) = merkle_tree.commit(vec![folded_evals]);
+        let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
 
         // Observe Merkle root in challenger
         prover_state.add_digest(root)?;
