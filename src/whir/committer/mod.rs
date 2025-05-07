@@ -7,6 +7,11 @@ use crate::poly::coeffs::CoefficientList;
 pub mod reader;
 pub mod writer;
 
+pub type CommitmentMerkleTree<F, const DIGEST_ELEMS: usize> =
+    MerkleTree<F, u8, DenseMatrix<F>, DIGEST_ELEMS>;
+pub type RoundMerkleTree<F, EF, const DIGEST_ELEMS: usize> =
+    MerkleTree<F, u8, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>;
+
 /// Represents the commitment and evaluation data for a polynomial.
 ///
 /// This structure holds all necessary components to verify a commitment,
@@ -17,7 +22,7 @@ pub struct Witness<EF: ExtensionField<F>, F: Field, const DIGEST_ELEMS: usize> {
     /// The committed polynomial in coefficient form.
     pub polynomial: CoefficientList<F>,
     /// Prover data of the Merkle tree.
-    pub prover_data: MerkleTree<F, u8, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>,
+    pub prover_data: CommitmentMerkleTree<F, DIGEST_ELEMS>,
     /// Out-of-domain challenge points used for polynomial verification.
     pub ood_points: Vec<EF>,
     /// The corresponding polynomial evaluations at the OOD challenge points.

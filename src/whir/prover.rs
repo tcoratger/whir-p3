@@ -1,15 +1,17 @@
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
-use p3_matrix::{
-    dense::{DenseMatrix, RowMajorMatrix},
-    extension::FlatMatrixView,
-};
-use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
+use p3_matrix::dense::RowMajorMatrix;
+use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
-use super::{WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement};
+use super::{
+    WhirProof,
+    committer::{CommitmentMerkleTree, RoundMerkleTree, Witness},
+    parameters::WhirConfig,
+    statement::Statement,
+};
 use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
@@ -42,10 +44,17 @@ where
     pub(crate) sumcheck_prover: Option<SumcheckSingle<F, EF>>,
     pub(crate) folding_randomness: MultilinearPoint<EF>,
     pub(crate) coefficients: CoefficientStorage<F, EF>,
-    pub(crate) prev_merkle_prover_data:
-        MerkleTree<F, u8, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>,
+
+    /// Prover data for the commitment is over the base field
+    pub(crate) commitment_merkle_prover_data: CommitmentMerkleTree<F, DIGEST_ELEMS>,
+    /// Prover data for the remaining rounds is over the extension field
+    /// None in the first round, or if the number of rounds is zero
+    pub(crate) merkle_prover_data: Option<RoundMerkleTree<F, EF, DIGEST_ELEMS>>,
+    /// Merkle proofs
     /// - The first element is the opened leaf values
     /// - The second element is the Merkle proof (siblings)
+    /// - commitment_merkle_proof is None going into a round
+    pub(crate) commitment_merkle_proof: Option<(Leafs<F>, Proof<DIGEST_ELEMS>)>,
     pub(crate) merkle_proofs: Vec<(Leafs<EF>, Proof<DIGEST_ELEMS>)>,
     pub(crate) randomness_vec: Vec<EF>,
     pub(crate) statement: Statement<EF>,
@@ -90,7 +99,7 @@ where
         prover_state: &mut ProverState<EF, F>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, DIGEST_ELEMS>,
-    ) -> ProofResult<WhirProof<EF, DIGEST_ELEMS>>
+    ) -> ProofResult<WhirProof<F, EF, DIGEST_ELEMS>>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
@@ -164,7 +173,9 @@ where
             sumcheck_prover,
             folding_randomness,
             coefficients: CoefficientStorage::Base(witness.polynomial),
-            prev_merkle_prover_data: witness.prover_data,
+            merkle_prover_data: None,
+            commitment_merkle_prover_data: witness.prover_data,
+            commitment_merkle_proof: None,
             merkle_proofs: vec![],
             randomness_vec,
             statement,
@@ -194,6 +205,7 @@ where
             .collect();
 
         Ok(WhirProof {
+            commitment_merkle_paths: round_state.commitment_merkle_proof.unwrap(),
             merkle_paths: round_state.merkle_proofs,
             statement_values_at_random_point,
         })
@@ -282,25 +294,58 @@ where
         )?;
 
         // Collect Merkle proofs for stir queries
-        let mut answers = Vec::new();
-        let mut merkle_proof = Vec::new();
-        for challenge in &stir_challenges_indexes {
-            let (leaf, proof) =
-                merkle_tree.open_batch(*challenge, &round_state.prev_merkle_prover_data);
-            answers.push(leaf[0].clone());
-            merkle_proof.push(proof);
-        }
+        let stir_evaluations = match &round_state.merkle_prover_data {
+            None => {
+                let mut answers: Vec<Vec<F>> = Vec::with_capacity(stir_challenges_indexes.len());
+                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
+                    Vec::with_capacity(stir_challenges_indexes.len());
+                let commitment_merkle =
+                    MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+                for challenge in &stir_challenges_indexes {
+                    let (commitment_leaf, commitment_root) = commitment_merkle
+                        .open_batch(*challenge, &round_state.commitment_merkle_prover_data);
+                    answers.push(commitment_leaf[0].clone());
+                    merkle_proof.push(commitment_root);
+                }
+                // Evaluate answers in the folding randomness.
+                let mut stir_evaluations = ood_answers;
+                let transformed: Vec<Vec<EF>> = answers
+                    .iter()
+                    .map(|inner| inner.iter().map(|&fel| EF::from(fel)).collect())
+                    .collect();
+                self.0.fold_optimisation.stir_evaluations_prover(
+                    round_state,
+                    &stir_challenges_indexes,
+                    &transformed,
+                    self.0.folding_factor,
+                    &mut stir_evaluations,
+                );
 
-        // Evaluate answers in the folding randomness.
-        let mut stir_evaluations = ood_answers;
-        self.0.fold_optimisation.stir_evaluations_prover(
-            round_state,
-            &stir_challenges_indexes,
-            &answers,
-            self.0.folding_factor,
-            &mut stir_evaluations,
-        );
-        round_state.merkle_proofs.push((answers, merkle_proof));
+                round_state.commitment_merkle_proof = Some((answers, merkle_proof));
+                stir_evaluations
+            }
+            Some(data) => {
+                let mut answers: Vec<Vec<EF>> = Vec::with_capacity(stir_challenges_indexes.len());
+                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
+                    Vec::with_capacity(stir_challenges_indexes.len());
+                for challenge in &stir_challenges_indexes {
+                    let (leaf, proof) = merkle_tree.open_batch(*challenge, data);
+                    answers.push(leaf[0].clone());
+                    merkle_proof.push(proof);
+                }
+                // Evaluate answers in the folding randomness.
+                let mut stir_evaluations = ood_answers;
+                self.0.fold_optimisation.stir_evaluations_prover(
+                    round_state,
+                    &stir_challenges_indexes,
+                    &answers,
+                    self.0.folding_factor,
+                    &mut stir_evaluations,
+                );
+                round_state.merkle_proofs.push((answers, merkle_proof));
+                stir_evaluations
+            }
+        };
 
         // PoW
         if round_params.pow_bits > 0. {
@@ -358,7 +403,7 @@ where
         round_state.sumcheck_prover = Some(sumcheck_prover);
         round_state.folding_randomness = folding_randomness;
         round_state.coefficients = CoefficientStorage::Extension(folded_coefficients);
-        round_state.prev_merkle_prover_data = prover_data;
+        round_state.merkle_prover_data = Some(prover_data);
 
         Ok(())
     }
@@ -392,15 +437,35 @@ where
             self.0.merkle_compress.clone(),
         ));
 
-        let mut answers = Vec::new();
-        let mut merkle_proof = Vec::new();
-        for challenge in final_challenge_indexes {
-            let (leaf, proof) = mmcs.open_batch(challenge, &round_state.prev_merkle_prover_data);
-            answers.push(leaf[0].clone());
-            merkle_proof.push(proof);
-        }
+        match &round_state.merkle_prover_data {
+            None => {
+                let mut answers: Vec<Vec<F>> = Vec::with_capacity(final_challenge_indexes.len());
+                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
+                    Vec::with_capacity(final_challenge_indexes.len());
+                let commitment_merkle =
+                    MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+                for challenge in final_challenge_indexes {
+                    let (commitment_leaf, commitment_root) = commitment_merkle
+                        .open_batch(challenge, &round_state.commitment_merkle_prover_data);
+                    answers.push(commitment_leaf[0].clone());
+                    merkle_proof.push(commitment_root);
+                }
 
-        round_state.merkle_proofs.push((answers, merkle_proof));
+                round_state.commitment_merkle_proof = Some((answers, merkle_proof));
+            }
+
+            Some(data) => {
+                let mut answers: Vec<Vec<EF>> = Vec::with_capacity(final_challenge_indexes.len());
+                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
+                    Vec::with_capacity(final_challenge_indexes.len());
+                for challenge in final_challenge_indexes {
+                    let (leaf, proof) = mmcs.open_batch(challenge, data);
+                    answers.push(leaf[0].clone());
+                    merkle_proof.push(proof);
+                }
+                round_state.merkle_proofs.push((answers, merkle_proof));
+            }
+        }
 
         // PoW
         if self.0.final_pow_bits > 0. {
