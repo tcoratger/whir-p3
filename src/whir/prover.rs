@@ -296,9 +296,8 @@ where
         // Collect Merkle proofs for stir queries
         let stir_evaluations = match &round_state.merkle_prover_data {
             None => {
-                let mut answers: Vec<Vec<F>> = Vec::with_capacity(stir_challenges_indexes.len());
-                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
-                    Vec::with_capacity(stir_challenges_indexes.len());
+                let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
+                let mut merkle_proof = Vec::with_capacity(stir_challenges_indexes.len());
                 let commitment_merkle =
                     MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
                 for challenge in &stir_challenges_indexes {
@@ -309,7 +308,7 @@ where
                 }
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
-                let transformed: Vec<Vec<EF>> = answers
+                let transformed: Vec<_> = answers
                     .iter()
                     .map(|inner| inner.iter().map(|&fel| EF::from(fel)).collect())
                     .collect();
@@ -325,9 +324,8 @@ where
                 stir_evaluations
             }
             Some(data) => {
-                let mut answers: Vec<Vec<EF>> = Vec::with_capacity(stir_challenges_indexes.len());
-                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
-                    Vec::with_capacity(stir_challenges_indexes.len());
+                let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
+                let mut merkle_proof = Vec::with_capacity(stir_challenges_indexes.len());
                 for challenge in &stir_challenges_indexes {
                     let (leaf, proof) = merkle_tree.open_batch(*challenge, data);
                     answers.push(leaf[0].clone());
@@ -439,9 +437,8 @@ where
 
         match &round_state.merkle_prover_data {
             None => {
-                let mut answers: Vec<Vec<F>> = Vec::with_capacity(final_challenge_indexes.len());
-                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
-                    Vec::with_capacity(final_challenge_indexes.len());
+                let mut answers = Vec::with_capacity(final_challenge_indexes.len());
+                let mut merkle_proof = Vec::with_capacity(final_challenge_indexes.len());
                 let commitment_merkle =
                     MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
                 for challenge in final_challenge_indexes {
@@ -455,9 +452,8 @@ where
             }
 
             Some(data) => {
-                let mut answers: Vec<Vec<EF>> = Vec::with_capacity(final_challenge_indexes.len());
-                let mut merkle_proof: Vec<Vec<[u8; DIGEST_ELEMS]>> =
-                    Vec::with_capacity(final_challenge_indexes.len());
+                let mut answers = Vec::with_capacity(final_challenge_indexes.len());
+                let mut merkle_proof = Vec::with_capacity(final_challenge_indexes.len());
                 for challenge in final_challenge_indexes {
                     let (leaf, proof) = mmcs.open_batch(challenge, data);
                     answers.push(leaf[0].clone());
