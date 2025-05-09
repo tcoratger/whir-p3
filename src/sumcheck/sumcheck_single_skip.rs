@@ -52,21 +52,13 @@ where
                 let weights_mat =
                     RowMajorMatrix::new(self.weights.evals().to_vec(), 1 << k).transpose();
 
-                // Choose a 2-adic generator of order 2^{k+1}, which defines a coset D of size 2^k.
-                // This lets us extend from domain {0,1}^k to a multiplicative domain of size 2^{k+1}.
-                let two_adic_gen = F::two_adic_generator(k + 1);
-
                 // Apply low-degree extension (LDE) to both:
                 // - Coefficients matrix (over F)
                 // - Weights matrix (over EF)
                 //
                 // This evaluates both over the multiplicative coset domain D.
-                let f_on_coset = dft
-                    .coset_lde_batch(f_mat, 1, two_adic_gen)
-                    .to_row_major_matrix();
-                let weights_on_coset = dft
-                    .coset_lde_algebra_batch(weights_mat, 1, two_adic_gen)
-                    .to_row_major_matrix();
+                let f_on_coset = dft.lde_batch(f_mat, 1).to_row_major_matrix();
+                let weights_on_coset = dft.lde_algebra_batch(weights_mat, 1).to_row_major_matrix();
 
                 // For each row (i.e. each fixed assignment to remaining variables):
                 // - Multiply pointwise: f(x) * w(x)
@@ -486,140 +478,139 @@ mod tests {
         // Evaluate on:
         //   [ shift·ω^0, shift·ω^1, ..., shift·ω^7 ]
         let omega8 = F::two_adic_generator(3);
-        let shift = omega8;
 
-        let f00 = cf00 * (shift * omega8.exp_u64(0)).exp_u64(0)
-            + cf01 * (shift * omega8.exp_u64(0)).exp_u64(1)
-            + cf02 * (shift * omega8.exp_u64(0)).exp_u64(2)
-            + cf03 * (shift * omega8.exp_u64(0)).exp_u64(3);
-        let f01 = cf00 * (shift * omega8.exp_u64(1)).exp_u64(0)
-            + cf01 * (shift * omega8.exp_u64(1)).exp_u64(1)
-            + cf02 * (shift * omega8.exp_u64(1)).exp_u64(2)
-            + cf03 * (shift * omega8.exp_u64(1)).exp_u64(3);
-        let f02 = cf00 * (shift * omega8.exp_u64(2)).exp_u64(0)
-            + cf01 * (shift * omega8.exp_u64(2)).exp_u64(1)
-            + cf02 * (shift * omega8.exp_u64(2)).exp_u64(2)
-            + cf03 * (shift * omega8.exp_u64(2)).exp_u64(3);
-        let f03 = cf00 * (shift * omega8.exp_u64(3)).exp_u64(0)
-            + cf01 * (shift * omega8.exp_u64(3)).exp_u64(1)
-            + cf02 * (shift * omega8.exp_u64(3)).exp_u64(2)
-            + cf03 * (shift * omega8.exp_u64(3)).exp_u64(3);
-        let f04 = cf00 * (shift * omega8.exp_u64(4)).exp_u64(0)
-            + cf01 * (shift * omega8.exp_u64(4)).exp_u64(1)
-            + cf02 * (shift * omega8.exp_u64(4)).exp_u64(2)
-            + cf03 * (shift * omega8.exp_u64(4)).exp_u64(3);
-        let f05 = cf00 * (shift * omega8.exp_u64(5)).exp_u64(0)
-            + cf01 * (shift * omega8.exp_u64(5)).exp_u64(1)
-            + cf02 * (shift * omega8.exp_u64(5)).exp_u64(2)
-            + cf03 * (shift * omega8.exp_u64(5)).exp_u64(3);
-        let f06 = cf00 * (shift * omega8.exp_u64(6)).exp_u64(0)
-            + cf01 * (shift * omega8.exp_u64(6)).exp_u64(1)
-            + cf02 * (shift * omega8.exp_u64(6)).exp_u64(2)
-            + cf03 * (shift * omega8.exp_u64(6)).exp_u64(3);
-        let f07 = cf00 * (shift * omega8.exp_u64(7)).exp_u64(0)
-            + cf01 * (shift * omega8.exp_u64(7)).exp_u64(1)
-            + cf02 * (shift * omega8.exp_u64(7)).exp_u64(2)
-            + cf03 * (shift * omega8.exp_u64(7)).exp_u64(3);
+        let f00 = cf00 * omega8.exp_u64(0 * 0)
+            + cf01 * omega8.exp_u64(0 * 1)
+            + cf02 * omega8.exp_u64(0 * 2)
+            + cf03 * omega8.exp_u64(0 * 3);
+        let f01 = cf00 * omega8.exp_u64(1 * 0)
+            + cf01 * omega8.exp_u64(1 * 1)
+            + cf02 * omega8.exp_u64(1 * 2)
+            + cf03 * omega8.exp_u64(1 * 3);
+        let f02 = cf00 * omega8.exp_u64(2 * 0)
+            + cf01 * omega8.exp_u64(2 * 1)
+            + cf02 * omega8.exp_u64(2 * 2)
+            + cf03 * omega8.exp_u64(2 * 3);
+        let f03 = cf00 * omega8.exp_u64(3 * 0)
+            + cf01 * omega8.exp_u64(3 * 1)
+            + cf02 * omega8.exp_u64(3 * 2)
+            + cf03 * omega8.exp_u64(3 * 3);
+        let f04 = cf00 * omega8.exp_u64(4 * 0)
+            + cf01 * omega8.exp_u64(4 * 1)
+            + cf02 * omega8.exp_u64(4 * 2)
+            + cf03 * omega8.exp_u64(4 * 3);
+        let f05 = cf00 * omega8.exp_u64(5 * 0)
+            + cf01 * omega8.exp_u64(5 * 1)
+            + cf02 * omega8.exp_u64(5 * 2)
+            + cf03 * omega8.exp_u64(5 * 3);
+        let f06 = cf00 * omega8.exp_u64(6 * 0)
+            + cf01 * omega8.exp_u64(6 * 1)
+            + cf02 * omega8.exp_u64(6 * 2)
+            + cf03 * omega8.exp_u64(6 * 3);
+        let f07 = cf00 * omega8.exp_u64(7 * 0)
+            + cf01 * omega8.exp_u64(7 * 1)
+            + cf02 * omega8.exp_u64(7 * 2)
+            + cf03 * omega8.exp_u64(7 * 3);
 
-        let f10 = cf10 * (shift * omega8.exp_u64(0)).exp_u64(0)
-            + cf11 * (shift * omega8.exp_u64(0)).exp_u64(1)
-            + cf12 * (shift * omega8.exp_u64(0)).exp_u64(2)
-            + cf13 * (shift * omega8.exp_u64(0)).exp_u64(3);
-        let f11 = cf10 * (shift * omega8.exp_u64(1)).exp_u64(0)
-            + cf11 * (shift * omega8.exp_u64(1)).exp_u64(1)
-            + cf12 * (shift * omega8.exp_u64(1)).exp_u64(2)
-            + cf13 * (shift * omega8.exp_u64(1)).exp_u64(3);
-        let f12 = cf10 * (shift * omega8.exp_u64(2)).exp_u64(0)
-            + cf11 * (shift * omega8.exp_u64(2)).exp_u64(1)
-            + cf12 * (shift * omega8.exp_u64(2)).exp_u64(2)
-            + cf13 * (shift * omega8.exp_u64(2)).exp_u64(3);
-        let f13 = cf10 * (shift * omega8.exp_u64(3)).exp_u64(0)
-            + cf11 * (shift * omega8.exp_u64(3)).exp_u64(1)
-            + cf12 * (shift * omega8.exp_u64(3)).exp_u64(2)
-            + cf13 * (shift * omega8.exp_u64(3)).exp_u64(3);
-        let f14 = cf10 * (shift * omega8.exp_u64(4)).exp_u64(0)
-            + cf11 * (shift * omega8.exp_u64(4)).exp_u64(1)
-            + cf12 * (shift * omega8.exp_u64(4)).exp_u64(2)
-            + cf13 * (shift * omega8.exp_u64(4)).exp_u64(3);
-        let f15 = cf10 * (shift * omega8.exp_u64(5)).exp_u64(0)
-            + cf11 * (shift * omega8.exp_u64(5)).exp_u64(1)
-            + cf12 * (shift * omega8.exp_u64(5)).exp_u64(2)
-            + cf13 * (shift * omega8.exp_u64(5)).exp_u64(3);
-        let f16 = cf10 * (shift * omega8.exp_u64(6)).exp_u64(0)
-            + cf11 * (shift * omega8.exp_u64(6)).exp_u64(1)
-            + cf12 * (shift * omega8.exp_u64(6)).exp_u64(2)
-            + cf13 * (shift * omega8.exp_u64(6)).exp_u64(3);
-        let f17 = cf10 * (shift * omega8.exp_u64(7)).exp_u64(0)
-            + cf11 * (shift * omega8.exp_u64(7)).exp_u64(1)
-            + cf12 * (shift * omega8.exp_u64(7)).exp_u64(2)
-            + cf13 * (shift * omega8.exp_u64(7)).exp_u64(3);
+        let f10 = cf10 * omega8.exp_u64(0 * 0)
+            + cf11 * omega8.exp_u64(0 * 1)
+            + cf12 * omega8.exp_u64(0 * 2)
+            + cf13 * omega8.exp_u64(0 * 3);
+        let f11 = cf10 * omega8.exp_u64(1 * 0)
+            + cf11 * omega8.exp_u64(1 * 1)
+            + cf12 * omega8.exp_u64(1 * 2)
+            + cf13 * omega8.exp_u64(1 * 3);
+        let f12 = cf10 * omega8.exp_u64(2 * 0)
+            + cf11 * omega8.exp_u64(2 * 1)
+            + cf12 * omega8.exp_u64(2 * 2)
+            + cf13 * omega8.exp_u64(2 * 3);
+        let f13 = cf10 * omega8.exp_u64(3 * 0)
+            + cf11 * omega8.exp_u64(3 * 1)
+            + cf12 * omega8.exp_u64(3 * 2)
+            + cf13 * omega8.exp_u64(3 * 3);
+        let f14 = cf10 * omega8.exp_u64(4 * 0)
+            + cf11 * omega8.exp_u64(4 * 1)
+            + cf12 * omega8.exp_u64(4 * 2)
+            + cf13 * omega8.exp_u64(4 * 3);
+        let f15 = cf10 * omega8.exp_u64(5 * 0)
+            + cf11 * omega8.exp_u64(5 * 1)
+            + cf12 * omega8.exp_u64(5 * 2)
+            + cf13 * omega8.exp_u64(5 * 3);
+        let f16 = cf10 * omega8.exp_u64(6 * 0)
+            + cf11 * omega8.exp_u64(6 * 1)
+            + cf12 * omega8.exp_u64(6 * 2)
+            + cf13 * omega8.exp_u64(6 * 3);
+        let f17 = cf10 * omega8.exp_u64(7 * 0)
+            + cf11 * omega8.exp_u64(7 * 1)
+            + cf12 * omega8.exp_u64(7 * 2)
+            + cf13 * omega8.exp_u64(7 * 3);
 
         // w
-        let w00 = cw00 * (shift * omega8.exp_u64(0)).exp_u64(0)
-            + cw01 * (shift * omega8.exp_u64(0)).exp_u64(1)
-            + cw02 * (shift * omega8.exp_u64(0)).exp_u64(2)
-            + cw03 * (shift * omega8.exp_u64(0)).exp_u64(3);
-        let w01 = cw00 * (shift * omega8.exp_u64(1)).exp_u64(0)
-            + cw01 * (shift * omega8.exp_u64(1)).exp_u64(1)
-            + cw02 * (shift * omega8.exp_u64(1)).exp_u64(2)
-            + cw03 * (shift * omega8.exp_u64(1)).exp_u64(3);
-        let w02 = cw00 * (shift * omega8.exp_u64(2)).exp_u64(0)
-            + cw01 * (shift * omega8.exp_u64(2)).exp_u64(1)
-            + cw02 * (shift * omega8.exp_u64(2)).exp_u64(2)
-            + cw03 * (shift * omega8.exp_u64(2)).exp_u64(3);
-        let w03 = cw00 * (shift * omega8.exp_u64(3)).exp_u64(0)
-            + cw01 * (shift * omega8.exp_u64(3)).exp_u64(1)
-            + cw02 * (shift * omega8.exp_u64(3)).exp_u64(2)
-            + cw03 * (shift * omega8.exp_u64(3)).exp_u64(3);
-        let w04 = cw00 * (shift * omega8.exp_u64(4)).exp_u64(0)
-            + cw01 * (shift * omega8.exp_u64(4)).exp_u64(1)
-            + cw02 * (shift * omega8.exp_u64(4)).exp_u64(2)
-            + cw03 * (shift * omega8.exp_u64(4)).exp_u64(3);
-        let w05 = cw00 * (shift * omega8.exp_u64(5)).exp_u64(0)
-            + cw01 * (shift * omega8.exp_u64(5)).exp_u64(1)
-            + cw02 * (shift * omega8.exp_u64(5)).exp_u64(2)
-            + cw03 * (shift * omega8.exp_u64(5)).exp_u64(3);
-        let w06 = cw00 * (shift * omega8.exp_u64(6)).exp_u64(0)
-            + cw01 * (shift * omega8.exp_u64(6)).exp_u64(1)
-            + cw02 * (shift * omega8.exp_u64(6)).exp_u64(2)
-            + cw03 * (shift * omega8.exp_u64(6)).exp_u64(3);
-        let w07 = cw00 * (shift * omega8.exp_u64(7)).exp_u64(0)
-            + cw01 * (shift * omega8.exp_u64(7)).exp_u64(1)
-            + cw02 * (shift * omega8.exp_u64(7)).exp_u64(2)
-            + cw03 * (shift * omega8.exp_u64(7)).exp_u64(3);
+        let w00 = cw00 * omega8.exp_u64(0 * 0)
+            + cw01 * omega8.exp_u64(0 * 1)
+            + cw02 * omega8.exp_u64(0 * 2)
+            + cw03 * omega8.exp_u64(0 * 3);
+        let w01 = cw00 * omega8.exp_u64(1 * 0)
+            + cw01 * omega8.exp_u64(1 * 1)
+            + cw02 * omega8.exp_u64(1 * 2)
+            + cw03 * omega8.exp_u64(1 * 3);
+        let w02 = cw00 * omega8.exp_u64(2 * 0)
+            + cw01 * omega8.exp_u64(2 * 1)
+            + cw02 * omega8.exp_u64(2 * 2)
+            + cw03 * omega8.exp_u64(2 * 3);
+        let w03 = cw00 * omega8.exp_u64(3 * 0)
+            + cw01 * omega8.exp_u64(3 * 1)
+            + cw02 * omega8.exp_u64(3 * 2)
+            + cw03 * omega8.exp_u64(3 * 3);
+        let w04 = cw00 * omega8.exp_u64(4 * 0)
+            + cw01 * omega8.exp_u64(4 * 1)
+            + cw02 * omega8.exp_u64(4 * 2)
+            + cw03 * omega8.exp_u64(4 * 3);
+        let w05 = cw00 * omega8.exp_u64(5 * 0)
+            + cw01 * omega8.exp_u64(5 * 1)
+            + cw02 * omega8.exp_u64(5 * 2)
+            + cw03 * omega8.exp_u64(5 * 3);
+        let w06 = cw00 * omega8.exp_u64(6 * 0)
+            + cw01 * omega8.exp_u64(6 * 1)
+            + cw02 * omega8.exp_u64(6 * 2)
+            + cw03 * omega8.exp_u64(6 * 3);
+        let w07 = cw00 * omega8.exp_u64(7 * 0)
+            + cw01 * omega8.exp_u64(7 * 1)
+            + cw02 * omega8.exp_u64(7 * 2)
+            + cw03 * omega8.exp_u64(7 * 3);
 
-        let w10 = cw10 * (shift * omega8.exp_u64(0)).exp_u64(0)
-            + cw11 * (shift * omega8.exp_u64(0)).exp_u64(1)
-            + cw12 * (shift * omega8.exp_u64(0)).exp_u64(2)
-            + cw13 * (shift * omega8.exp_u64(0)).exp_u64(3);
-        let w11 = cw10 * (shift * omega8.exp_u64(1)).exp_u64(0)
-            + cw11 * (shift * omega8.exp_u64(1)).exp_u64(1)
-            + cw12 * (shift * omega8.exp_u64(1)).exp_u64(2)
-            + cw13 * (shift * omega8.exp_u64(1)).exp_u64(3);
-        let w12 = cw10 * (shift * omega8.exp_u64(2)).exp_u64(0)
-            + cw11 * (shift * omega8.exp_u64(2)).exp_u64(1)
-            + cw12 * (shift * omega8.exp_u64(2)).exp_u64(2)
-            + cw13 * (shift * omega8.exp_u64(2)).exp_u64(3);
-        let w13 = cw10 * (shift * omega8.exp_u64(3)).exp_u64(0)
-            + cw11 * (shift * omega8.exp_u64(3)).exp_u64(1)
-            + cw12 * (shift * omega8.exp_u64(3)).exp_u64(2)
-            + cw13 * (shift * omega8.exp_u64(3)).exp_u64(3);
-        let w14 = cw10 * (shift * omega8.exp_u64(4)).exp_u64(0)
-            + cw11 * (shift * omega8.exp_u64(4)).exp_u64(1)
-            + cw12 * (shift * omega8.exp_u64(4)).exp_u64(2)
-            + cw13 * (shift * omega8.exp_u64(4)).exp_u64(3);
-        let w15 = cw10 * (shift * omega8.exp_u64(5)).exp_u64(0)
-            + cw11 * (shift * omega8.exp_u64(5)).exp_u64(1)
-            + cw12 * (shift * omega8.exp_u64(5)).exp_u64(2)
-            + cw13 * (shift * omega8.exp_u64(5)).exp_u64(3);
-        let w16 = cw10 * (shift * omega8.exp_u64(6)).exp_u64(0)
-            + cw11 * (shift * omega8.exp_u64(6)).exp_u64(1)
-            + cw12 * (shift * omega8.exp_u64(6)).exp_u64(2)
-            + cw13 * (shift * omega8.exp_u64(6)).exp_u64(3);
-        let w17 = cw10 * (shift * omega8.exp_u64(7)).exp_u64(0)
-            + cw11 * (shift * omega8.exp_u64(7)).exp_u64(1)
-            + cw12 * (shift * omega8.exp_u64(7)).exp_u64(2)
-            + cw13 * (shift * omega8.exp_u64(7)).exp_u64(3);
+        let w10 = cw10 * omega8.exp_u64(0 * 0)
+            + cw11 * omega8.exp_u64(0 * 1)
+            + cw12 * omega8.exp_u64(0 * 2)
+            + cw13 * omega8.exp_u64(0 * 3);
+        let w11 = cw10 * omega8.exp_u64(1 * 0)
+            + cw11 * omega8.exp_u64(1 * 1)
+            + cw12 * omega8.exp_u64(1 * 2)
+            + cw13 * omega8.exp_u64(1 * 3);
+        let w12 = cw10 * omega8.exp_u64(2 * 0)
+            + cw11 * omega8.exp_u64(2 * 1)
+            + cw12 * omega8.exp_u64(2 * 2)
+            + cw13 * omega8.exp_u64(2 * 3);
+        let w13 = cw10 * omega8.exp_u64(3 * 0)
+            + cw11 * omega8.exp_u64(3 * 1)
+            + cw12 * omega8.exp_u64(3 * 2)
+            + cw13 * omega8.exp_u64(3 * 3);
+        let w14 = cw10 * omega8.exp_u64(4 * 0)
+            + cw11 * omega8.exp_u64(4 * 1)
+            + cw12 * omega8.exp_u64(4 * 2)
+            + cw13 * omega8.exp_u64(4 * 3);
+        let w15 = cw10 * omega8.exp_u64(5 * 0)
+            + cw11 * omega8.exp_u64(5 * 1)
+            + cw12 * omega8.exp_u64(5 * 2)
+            + cw13 * omega8.exp_u64(5 * 3);
+        let w16 = cw10 * omega8.exp_u64(6 * 0)
+            + cw11 * omega8.exp_u64(6 * 1)
+            + cw12 * omega8.exp_u64(6 * 2)
+            + cw13 * omega8.exp_u64(6 * 3);
+        let w17 = cw10 * omega8.exp_u64(7 * 0)
+            + cw11 * omega8.exp_u64(7 * 1)
+            + cw12 * omega8.exp_u64(7 * 2)
+            + cw13 * omega8.exp_u64(7 * 3);
 
         let r0 = w00 * f00 + w10 * f10;
         let r1 = w01 * f01 + w11 * f11;
