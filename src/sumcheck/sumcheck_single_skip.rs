@@ -625,4 +625,56 @@ mod tests {
         // Check that the evaluations match the expected values
         assert_eq!(poly.evaluations(), vec![r0, r1, r2, r3, r4, r5, r6, r7]);
     }
+
+    #[test]
+    fn test_evaluate_univariate_poly_at_challenge_manual() {
+        // ------------------------------------------------------------
+        // Define a univariate polynomial v(X) = 1 + 2·X + 3·X² + 4·X³
+        //
+        // Let’s evaluate this polynomial at some point r = 7 using:
+        // 1. Manual evaluation (Horner's method)
+        // 2. DFT-based IDFT recovery from evaluations on coset, then Horner
+        // ------------------------------------------------------------
+
+        let c0 = EF4::from_u64(1);
+        let c1 = EF4::from_u64(2);
+        let c2 = EF4::from_u64(3);
+        let c3 = EF4::from_u64(4);
+        let coeffs = vec![c0, c1, c2, c3];
+
+        // Horner’s method for manual baseline
+        let x = EF4::from_u64(7);
+        let mut expected = EF4::ZERO;
+        for &coeff in coeffs.iter().rev() {
+            expected = expected * x + coeff;
+        }
+
+        // ------------------------------------------------------------
+        // Evaluate the polynomial on a multiplicative subgroup of size 4
+        // Domain = [1, ω, ω², ω³] where ω = primitive 4th root of unity
+        // ------------------------------------------------------------
+        let omega = F::two_adic_generator(2); // ω is primitive 4th root
+        let domain: Vec<F> = (0..4).map(|i| omega.exp_u64(i as u64)).collect();
+
+        // Evaluate v at each ω^i ∈ domain
+        let evals: Vec<EF4> = domain
+            .iter()
+            .map(|&z| {
+                let z_ext = EF4::from(z);
+                let mut acc = EF4::ZERO;
+                for &coeff in coeffs.iter().rev() {
+                    acc = acc * z_ext + coeff;
+                }
+                acc
+            })
+            .collect();
+
+        // ------------------------------------------------------------
+        // Use the DFT-based evaluation function under test
+        // ------------------------------------------------------------
+        let dft = Dft::default();
+        let actual = evaluate_univariate_poly_at_challenge::<F, EF4, _>(&evals, x, &dft);
+
+        assert_eq!(actual, expected);
+    }
 }
