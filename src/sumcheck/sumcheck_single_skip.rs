@@ -161,6 +161,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::erasing_op, clippy::identity_op)]
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_dft::NaiveDft;
