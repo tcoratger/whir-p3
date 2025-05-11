@@ -92,7 +92,7 @@ where
         // Commit to the Merkle tree
         let merkle_tree =
             MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
-        let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
+        let (root, prover_data) = merkle_tree.commit_matrix(folded_matrix);
 
         // Observe Merkle root in challenger
         prover_state.add_digest(root)?;

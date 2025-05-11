@@ -269,7 +269,7 @@ where
 
         let mmcs = MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
-        let (root, prover_data) = extension_mmcs.commit(vec![folded_matrix]);
+        let (root, prover_data) = extension_mmcs.commit_matrix(folded_matrix);
 
         // Observe Merkle root in challenger
         prover_state.add_digest(root)?;
