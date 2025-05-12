@@ -1361,7 +1361,7 @@ mod tests {
         // Create a statement with a single equality constraint: f(1) = 5
         let mut statement = Statement::new(1);
         let point = MultilinearPoint(vec![F::ONE]);
-        let weights = Weights::evaluation(point.clone());
+        let weights = Weights::evaluation(point);
         let eval = F::from_u64(5);
         statement.add_constraint(weights, eval);
 
@@ -1438,8 +1438,8 @@ mod tests {
         let point2 = MultilinearPoint(vec![F::ONE, F::ZERO]); // (X1=1, X2=0)
         let eval1 = F::from_u64(4);
         let eval2 = F::from_u64(5);
-        statement.add_constraint(Weights::evaluation(point1.clone()), eval1);
-        statement.add_constraint(Weights::evaluation(point2.clone()), eval2);
+        statement.add_constraint(Weights::evaluation(point1), eval1);
+        statement.add_constraint(Weights::evaluation(point2), eval2);
 
         // Instantiate prover
         let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
@@ -1551,8 +1551,8 @@ mod tests {
         let point2 = MultilinearPoint(vec![F::ONE, F::ONE, F::ZERO]); // (X1=1, X2=1, X3=0)
         let eval1 = F::from_u64(4);
         let eval2 = F::from_u64(25);
-        statement.add_constraint(Weights::evaluation(point1.clone()), eval1);
-        statement.add_constraint(Weights::evaluation(point2.clone()), eval2);
+        statement.add_constraint(Weights::evaluation(point1), eval1);
+        statement.add_constraint(Weights::evaluation(point2), eval2);
 
         // Instantiate prover
         let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
@@ -1649,8 +1649,8 @@ mod tests {
         let point2 = MultilinearPoint(vec![F::ONE, F::ONE]);
         let eval1 = F::from_u64(4);
         let eval2 = F::from_u64(10);
-        statement.add_constraint(Weights::evaluation(point1.clone()), eval1);
-        statement.add_constraint(Weights::evaluation(point2.clone()), eval2);
+        statement.add_constraint(Weights::evaluation(point1), eval1);
+        statement.add_constraint(Weights::evaluation(point2), eval2);
 
         // Instantiate the prover with the polynomial and constraint statement
         let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
@@ -1900,10 +1900,6 @@ mod tests {
             let sumcheck_evals: [_; 3] = verifier_state.next_scalars().unwrap();
             let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
 
-            println!("-----------------------");
-            println!("poly: {:?}", poly);
-            println!("-----------------------");
-
             // Verify sum over Boolean points {0,1} matches current sum
             let sum = poly.evaluations()[0] + poly.evaluations()[1];
             assert_eq!(
@@ -2108,6 +2104,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_compute_sumcheck_polynomials_mixed_fields_three_vars_with_skip() {
         // -------------------------------------------------------------
         // Define a multilinear polynomial in 3 variables:

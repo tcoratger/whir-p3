@@ -203,14 +203,14 @@ mod tests {
                     for num_points in num_points {
                         for soundness_type in soundness_type {
                             for pow_bits in pow_bits {
-                                println!("-------------------------------------");
-                                println!("num_variable: {:?}", num_variable);
-                                println!("folding_factor: {:?}", folding_factor);
-                                println!("num_points: {:?}", num_points);
-                                println!("soundness_type: {:?}", soundness_type);
-                                println!("pow_bits: {:?}", pow_bits);
-                                println!("fold_type: {:?}", fold_type);
-                                println!("-------------------------------------");
+                                // println!("-------------------------------------");
+                                // println!("num_variable: {:?}", num_variable);
+                                // println!("folding_factor: {:?}", folding_factor);
+                                // println!("num_points: {:?}", num_points);
+                                // println!("soundness_type: {:?}", soundness_type);
+                                // println!("pow_bits: {:?}", pow_bits);
+                                // println!("fold_type: {:?}", fold_type);
+                                // println!("-------------------------------------");
                                 make_whir_things(
                                     num_variable,
                                     FoldingFactor::Constant(folding_factor),
