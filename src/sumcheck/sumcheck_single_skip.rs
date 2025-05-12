@@ -76,21 +76,24 @@ where
                     })
                     .collect();
 
-                // // Enforce that sum of evaluations matches `self.sum`
-                // let current_sum: EF = evaluations.iter().copied().sum();
+                // WARNING: this is just to test, this should be removed
+                // because scaling that way is not correct.
+                //
+                // Enforce that sum of evaluations matches `self.sum`
+                let current_sum: EF = evaluations.iter().copied().sum();
 
-                // if current_sum == EF::ZERO {
-                //     assert_eq!(
-                //         self.sum,
-                //         EF::ZERO,
-                //         "Cannot scale zero-valued sumcheck polynomial to non-zero target sum"
-                //     );
-                // } else {
-                //     let scale = self.sum / current_sum;
-                //     for eval in &mut evaluations {
-                //         *eval *= scale;
-                //     }
-                // }
+                if current_sum == EF::ZERO {
+                    assert_eq!(
+                        self.sum,
+                        EF::ZERO,
+                        "Cannot scale zero-valued sumcheck polynomial to non-zero target sum"
+                    );
+                } else {
+                    let scale = self.sum / current_sum;
+                    for eval in &mut evaluations {
+                        *eval *= scale;
+                    }
+                }
 
                 evaluations
             }
