@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     fiat_shamir::{prover::ProverState, verifier::VerifierState},
-    whir::parameters::WhirConfig,
+    whir::{parameters::WhirConfig, utils::K_SKIP_SUMCHECK},
 };
 
 /// This is the separator between operations in the IO Pattern
@@ -297,7 +297,20 @@ where
     /// - Samples 1 scalar for folding randomness.
     /// - Optionally performs a PoW challenge if `pow_bits > 0`.
     pub fn add_sumcheck(&mut self, folding_factor: usize, pow_bits: f64) {
-        for _ in 0..folding_factor {
+        let mut is_univariate_skip = false;
+        // if folding_factor >= 2 {
+        //     self.add_scalars(8, "sumcheck_poly");
+        //     self.challenge_scalars(1, "folding_randomness");
+        //     self.challenge_scalars(1, "folding_randomness");
+        //     is_univariate_skip = true;
+        // }
+
+        let start = if is_univariate_skip {
+            K_SKIP_SUMCHECK
+        } else {
+            0
+        };
+        for _ in start..folding_factor {
             self.add_scalars(3, "sumcheck_poly");
             self.challenge_scalars(1, "folding_randomness");
             self.pow(pow_bits);

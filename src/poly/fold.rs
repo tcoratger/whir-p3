@@ -34,6 +34,11 @@ pub fn compute_fold<F: Field>(
 
     // Perform the folding process `folding_factor` times.
     for rec in 0..folding_factor {
+        // Check no subtraction underflow
+        if rec >= folding_randomness.len() {
+            break;
+        }
+
         let r = folding_randomness[folding_randomness.len() - 1 - rec];
         let offset = answers.len() / 2;
         let mut coset_index_inv = F::ONE;

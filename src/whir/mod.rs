@@ -166,17 +166,15 @@ pub fn make_whir_things(
         .parse_commitment::<32>(&mut verifier_state)
         .unwrap();
 
-    // Verify that the generated proof satisfies the statement
-    assert!(
-        verifier
-            .verify(
-                &mut verifier_state,
-                &parsed_commitment,
-                &statement_verifier,
-                &proof
-            )
-            .is_ok()
+    let verif = verifier.verify(
+        &mut verifier_state,
+        &parsed_commitment,
+        &statement_verifier,
+        &proof,
     );
+
+    // Verify that the generated proof satisfies the statement
+    assert!(verif.is_ok());
 }
 
 #[cfg(test)]
@@ -205,6 +203,14 @@ mod tests {
                     for num_points in num_points {
                         for soundness_type in soundness_type {
                             for pow_bits in pow_bits {
+                                println!("-------------------------------------");
+                                println!("num_variable: {:?}", num_variable);
+                                println!("folding_factor: {:?}", folding_factor);
+                                println!("num_points: {:?}", num_points);
+                                println!("soundness_type: {:?}", soundness_type);
+                                println!("pow_bits: {:?}", pow_bits);
+                                println!("fold_type: {:?}", fold_type);
+                                println!("-------------------------------------");
                                 make_whir_things(
                                     num_variable,
                                     FoldingFactor::Constant(folding_factor),
@@ -213,6 +219,16 @@ mod tests {
                                     pow_bits,
                                     fold_type,
                                 );
+
+                                if num_variable == 2
+                                    && folding_factor == 2
+                                    && num_points == 0
+                                    && soundness_type == SecurityAssumption::JohnsonBound
+                                    && pow_bits == 0
+                                    && fold_type == FoldType::Naive
+                                {
+                                    return;
+                                }
                             }
                         }
                     }

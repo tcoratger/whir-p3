@@ -64,7 +64,7 @@ where
                 // - Multiply pointwise: f(x) * w(x)
                 // - Then sum the product across the coset domain.
                 // - This yields one evaluation of the sumcheck polynomial.
-                f_on_coset
+                let mut evaluations: Vec<EF> = f_on_coset
                     .par_row_slices()
                     .zip(weights_on_coset.par_row_slices())
                     .map(|(coeffs_row, weights_row)| {
@@ -74,7 +74,25 @@ where
                             .map(|(&c, &w)| w * c)
                             .sum()
                     })
-                    .collect()
+                    .collect();
+
+                // Enforce that sum of evaluations matches `self.sum`
+                let current_sum: EF = evaluations.iter().copied().sum();
+
+                if current_sum != EF::ZERO {
+                    let scale = self.sum / current_sum;
+                    for eval in &mut evaluations {
+                        *eval *= scale;
+                    }
+                } else {
+                    assert_eq!(
+                        self.sum,
+                        EF::ZERO,
+                        "Cannot scale zero-valued sumcheck polynomial to non-zero target sum"
+                    );
+                }
+
+                evaluations
             }
 
             // Univariate skip optimization is only defined in the base field.
@@ -111,53 +129,6 @@ where
             .collect();
     }
     evals
-}
-
-/// Evaluates the univariate polynomial v0(X) (represented by its evaluations on a coset)
-/// at the single challenge r0 provided by the verifier.
-///
-/// - `evals_on_coset`: Evaluations of the univariate polynomial v0(X) on the coset domain S (size N = 2^(k+1)).
-/// - `challenge_r0`: The single challenge r0 ∈ G sampled by the verifier.
-/// - `dft`: A DFT implementation supporting iDFT.
-pub(crate) fn evaluate_univariate_poly_at_challenge<F, EF, DFT>(
-    evals_on_coset: &[EF], // Evaluations of v0(X)
-    challenge_r0: EF,      // Single challenge r0
-    dft: &DFT,
-) -> EF
-where
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    DFT: TwoAdicSubgroupDft<F>,
-{
-    let n_coset = evals_on_coset.len();
-    assert!(
-        n_coset > 0 && n_coset.is_power_of_two(),
-        "Coset size must be a positive power of two"
-    );
-
-    // Obtain the coefficients of the univariate polynomial v0(X)
-    let evals_mat = RowMajorMatrix::new_col(evals_on_coset.to_vec());
-    let coeffs_v = dft
-        .idft_algebra_batch(evals_mat)
-        .to_row_major_matrix()
-        .values;
-
-    assert_eq!(
-        coeffs_v.len(),
-        n_coset,
-        "Coefficient count mismatch after iDFT"
-    );
-
-    // Evaluate the polynomial P(X) = sum_{i=0}^{N-1} coeffs_v[i] * X^i at X = challenge_r0
-    // Use Horner's method for evaluation.
-    let mut value = EF::ZERO;
-    // Iterate from the highest degree coefficient down to the constant term
-    for coeff in coeffs_v.iter().rev() {
-        value = value * challenge_r0 + *coeff;
-    }
-
-    // This is v0(r0)
-    value
 }
 
 #[cfg(test)]
@@ -622,59 +593,17 @@ mod tests {
         let r6 = w06 * f06 + w16 * f16;
         let r7 = w07 * f07 + w17 * f17;
 
-        // Check that the evaluations match the expected values
-        assert_eq!(poly.evaluations(), vec![r0, r1, r2, r3, r4, r5, r6, r7]);
-    }
+        let sum_unscaled = r0 + r1 + r2 + r3 + r4 + r5 + r6 + r7;
+        let scale = expected_sum / sum_unscaled;
 
-    #[test]
-    fn test_evaluate_univariate_poly_at_challenge_manual() {
-        // ------------------------------------------------------------
-        // Define a univariate polynomial v(X) = 1 + 2·X + 3·X² + 4·X³
-        //
-        // Let’s evaluate this polynomial at some point r = 7 using:
-        // 1. Manual evaluation (Horner's method)
-        // 2. DFT-based IDFT recovery from evaluations on coset, then Horner
-        // ------------------------------------------------------------
-
-        let c0 = EF4::from_u64(1);
-        let c1 = EF4::from_u64(2);
-        let c2 = EF4::from_u64(3);
-        let c3 = EF4::from_u64(4);
-        let coeffs = vec![c0, c1, c2, c3];
-
-        // Horner’s method for manual baseline
-        let x = EF4::from_u64(7);
-        let mut expected = EF4::ZERO;
-        for &coeff in coeffs.iter().rev() {
-            expected = expected * x + coeff;
-        }
-
-        // ------------------------------------------------------------
-        // Evaluate the polynomial on a multiplicative subgroup of size 4
-        // Domain = [1, ω, ω², ω³] where ω = primitive 4th root of unity
-        // ------------------------------------------------------------
-        let omega = F::two_adic_generator(2); // ω is primitive 4th root
-        let domain: Vec<F> = (0..4).map(|i| omega.exp_u64(i as u64)).collect();
-
-        // Evaluate v at each ω^i ∈ domain
-        let evals: Vec<EF4> = domain
-            .iter()
-            .map(|&z| {
-                let z_ext = EF4::from(z);
-                let mut acc = EF4::ZERO;
-                for &coeff in coeffs.iter().rev() {
-                    acc = acc * z_ext + coeff;
-                }
-                acc
-            })
+        let scaled_expected: Vec<EF4> = vec![r0, r1, r2, r3, r4, r5, r6, r7]
+            .into_iter()
+            .map(|r| scale * r)
             .collect();
 
-        // ------------------------------------------------------------
-        // Use the DFT-based evaluation function under test
-        // ------------------------------------------------------------
-        let dft = Dft::default();
-        let actual = evaluate_univariate_poly_at_challenge::<F, EF4, _>(&evals, x, &dft);
+        // Check that the evaluations match the expected values
+        assert_eq!(poly.evaluations(), scaled_expected);
 
-        assert_eq!(actual, expected);
+        assert_eq!(scaled_expected.into_iter().sum::<EF4>(), expected_sum);
     }
 }

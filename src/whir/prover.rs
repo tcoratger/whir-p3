@@ -24,7 +24,7 @@ use crate::{
     whir::{
         parameters::RoundConfig,
         statement::Weights,
-        utils::{get_challenge_stir_queries, sample_ood_points},
+        utils::{K_SKIP_SUMCHECK, get_challenge_stir_queries, sample_ood_points},
     },
 };
 
@@ -138,7 +138,7 @@ where
                 prover_state,
                 self.0.folding_factor.at_round(0),
                 self.0.starting_folding_pow_bits,
-                None,
+                Some(K_SKIP_SUMCHECK),
                 dft,
             )?;
 
@@ -341,7 +341,7 @@ where
             prover_state,
             folding_factor_next,
             round_params.folding_pow_bits,
-            None,
+            Some(K_SKIP_SUMCHECK),
             dft,
         )?;
 
@@ -429,7 +429,7 @@ where
                     prover_state,
                     self.0.final_sumcheck_rounds,
                     self.0.final_folding_pow_bits,
-                    None,
+                    Some(K_SKIP_SUMCHECK),
                     dft,
                 )?;
 

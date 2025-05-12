@@ -36,7 +36,7 @@ pub(crate) struct ParsedRound<F> {
 ///
 /// The structure is designed to support recursive verification and evaluation
 /// of folded functions under STIR-style constraints.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub(crate) struct ParsedProof<F> {
     /// Initial random coefficients used to combine constraints before folding.
     pub(crate) initial_combination_randomness: Vec<F>,

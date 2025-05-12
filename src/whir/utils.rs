@@ -6,6 +6,8 @@ use crate::{
     poly::multilinear::MultilinearPoint,
 };
 
+pub(crate) const K_SKIP_SUMCHECK: usize = 0;
+
 /// Generates a list of unique challenge queries within a folded domain.
 ///
 /// Given a `domain_size` and `folding_factor`, this function:
