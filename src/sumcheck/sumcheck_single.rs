@@ -1582,11 +1582,33 @@ mod tests {
         let c8 = F::from_u64(8);
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
 
-        // Empty constraint system (no added equalities)
-        let statement = Statement::new(3);
+        // Create a statement with 5 equality constraints
+        let mut statement = Statement::new(3);
+        let points = vec![
+            MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]), // f(0,0,0) = 1
+            MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ZERO]),  // f(1,0,0) // f(1,0,0) = 3
+            MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ZERO]),   // f(1,1,0) = // f(1,1,0) = 11
+            MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ONE]),    // f(1,1,1) = 36
+            MultilinearPoint(vec![EF4::ZERO, EF4::ONE, EF4::ONE]),   // f(0,1,1) = 14
+        ];
+        let expected_evals: Vec<_> = vec![1, 3, 11, 36, 14]
+            .into_iter()
+            .map(EF4::from_u64)
+            .collect();
+        for (pt, ev) in points.into_iter().zip(expected_evals) {
+            statement.add_constraint(Weights::evaluation(pt), ev);
+        }
 
         // Instantiate the Sumcheck prover using base field coefficients and extension field EF4
         let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+
+        // Compute expected sum of evaluations from constraints
+        let expected_initial_sum: EF4 = EF4::from_u64(1)
+            + EF4::from_u64(3)
+            + EF4::from_u64(11)
+            + EF4::from_u64(36)
+            + EF4::from_u64(14);
+        assert_eq!(prover.sum, expected_initial_sum);
 
         // Number of folding rounds (equal to number of variables)
         let folding_factor = 3;
@@ -1619,6 +1641,38 @@ mod tests {
 
         // Ensure we received the expected number of folding randomness values
         assert_eq!(result.0.len(), folding_factor);
+
+        // Reconstruct verifier state to simulate the rounds
+        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+
+        // Start with the claimed sum before folding
+        let mut current_sum = expected_initial_sum;
+
+        for i in 0..folding_factor {
+            // Get the 3 evaluations of sumcheck polynomial h_i(X) at X = 0, 1, 2
+            let sumcheck_evals: [_; 3] = verifier_state.next_scalars().unwrap();
+            let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
+
+            // Verify sum over Boolean points {0,1} matches current sum
+            let sum = poly.evaluations()[0] + poly.evaluations()[1];
+            assert_eq!(
+                sum, current_sum,
+                "Sumcheck round {i}: sum rule failed (h(0) + h(1) != current_sum)"
+            );
+
+            // Sample random challenge r_i ∈ F and evaluate h_i(r_i)
+            let [r] = verifier_state.challenge_scalars().unwrap();
+            current_sum = poly.evaluate_at_point(&r.into());
+
+            // Apply grinding check if required
+            verifier_state.challenge_pow::<Blake3PoW>(pow_bits).unwrap();
+        }
+
+        // Final consistency check: last folded sum must match prover's final claimed sum
+        assert_eq!(
+            prover.sum, current_sum,
+            "Final folded sum does not match prover's claimed value"
+        );
     }
 
     proptest! {
