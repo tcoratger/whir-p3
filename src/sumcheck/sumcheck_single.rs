@@ -454,7 +454,8 @@ mod tests {
 
     #[test]
     fn test_sumcheck_single_initialization() {
-        // Polynomial with 2 variables: f(X1, X2) = 1 + 2*X1 + 3*X2 + 4*X1*X2
+        // Define a multilinear polynomial with 2 variables:
+        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -559,8 +560,8 @@ mod tests {
 
     #[test]
     fn test_sumcheck_single_with_equality_constraints() {
-        // Define a polynomial with 2 variables:
-        // f(X1, X2) = 1 + 2*X1 + 3*X2 + 4*X1*X2
+        // Define a multilinear polynomial with 2 variables:
+        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -637,7 +638,8 @@ mod tests {
 
     #[test]
     fn test_compute_sumcheck_polynomial_basic() {
-        // Polynomial with 2 variables: f(X1, X2) = c1 + c2*X1 + c3*X2 + c4*X1*X2
+        // Define a multilinear polynomial with 2 variables:
+        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -660,17 +662,8 @@ mod tests {
 
     #[test]
     fn test_compute_sumcheck_polynomial_with_equality_constraints() {
-        // ----------------------------------------------------------------
-        // Step 0: Define the multilinear polynomial
-        //
-        // f(X₀, X₁) = c₁ + c₂·X₁ + c₃·X₀ + c₄·X₀·X₁
-        //
-        // with coefficients:
-        //   c₁ = 1
-        //   c₂ = 2
-        //   c₃ = 3
-        //   c₄ = 4
-        // ----------------------------------------------------------------
+        // Define a multilinear polynomial with 2 variables:
+        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -915,8 +908,8 @@ mod tests {
 
     #[test]
     fn test_add_new_equality_single_constraint() {
-        // Polynomial with 2 variables:
-        // f(X1, X2) = c1 + c2*X1 + c3*X2 + c4*X1*X2
+        // Define a multilinear polynomial with 2 variables:
+        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -1058,8 +1051,8 @@ mod tests {
 
     #[test]
     fn test_compress_basic() {
-        // Polynomial with 2 variables:
-        // f(X1, X2) = c1 + c2*X1 + c3*X2 + c4*X1*X2
+        // Define a multilinear polynomial with 2 variables:
+        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -1236,8 +1229,8 @@ mod tests {
 
     #[test]
     fn test_compress_with_zero_randomness() {
-        // Polynomial with 2 variables:
-        // f(X1, X2) = c1 + c2*X1 + c3*X2 + c4*X1*X2
+        // Define a multilinear polynomial with 2 variables:
+        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -1500,8 +1493,8 @@ mod tests {
 
     #[test]
     fn test_compute_sumcheck_polynomials_edge_case_zero_folding() {
-        // Multilinear polynomial with 2 variables:
-        // f(X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
+        // Define a multilinear polynomial with 2 variables:
+        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -1609,8 +1602,8 @@ mod tests {
 
     #[test]
     fn test_compress_mixed_fields() {
-        // Define a 2-variable multilinear polynomial with base field coefficients:
-        // f(X1, X2) = 1 + 2*X1 + 3*X2 + 4*X1*X2
+        // Define a multilinear polynomial with 2 variables:
+        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
