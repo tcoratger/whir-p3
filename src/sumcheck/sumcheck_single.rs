@@ -2278,9 +2278,20 @@ mod tests {
         let sumcheck_evals: [_; 8] = verifier_state.next_scalars().unwrap();
         let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
 
-        // Check that h₀(X) evaluated over the coset still adds up to the expected sum
-        let actual_sum_over_coset: EF4 = sumcheck_evals.iter().copied().sum();
-        assert_eq!(actual_sum_over_coset, current_sum);
+        // Here we can take a multiplicative subgroup of size 4 (omega^4)
+        let omega4 = F::two_adic_generator(2);
+
+        // Interpolate the polynomial over the subgroup
+        let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);
+        let interpolation_0 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(0)))[0];
+        let interpolation_1 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(1)))[0];
+        let interpolation_2 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(2)))[0];
+        let interpolation_3 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(3)))[0];
+
+        // Compute the sum from the interpolations and compare with the expected sum
+        let sum_interpolation =
+            interpolation_0 + interpolation_1 + interpolation_2 + interpolation_3;
+        assert_eq!(sum_interpolation, current_sum);
 
         // Interpolate h₀(X) and update current sum using first challenge r₀
         let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);

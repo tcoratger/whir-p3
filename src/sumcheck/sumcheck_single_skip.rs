@@ -47,6 +47,9 @@ where
         // Only base field evaluations are supported for skipping.
         let out_vec = match &self.evaluation_of_p {
             EvaluationStorage::Base(evals_f) => {
+                // WARNING: here we must do something to enforce properly the expected sum (`self.sum`)
+                // We are not in a zerocheck case, so this requires some adaptions.
+
                 // Interpret polynomial evaluations as a 2D matrix
                 let f_mat = RowMajorMatrix::new(evals_f.evals().to_vec(), 1 << k).transpose();
                 let weights_mat =
@@ -64,7 +67,7 @@ where
                 // - Multiply pointwise: f(x) * w(x)
                 // - Then sum the product across the coset domain.
                 // - This yields one evaluation of the sumcheck polynomial.
-                let mut evaluations: Vec<EF> = f_on_coset
+                f_on_coset
                     .par_row_slices()
                     .zip(weights_on_coset.par_row_slices())
                     .map(|(coeffs_row, weights_row)| {
@@ -74,28 +77,7 @@ where
                             .map(|(&c, &w)| w * c)
                             .sum()
                     })
-                    .collect();
-
-                // WARNING: this is just to test, this should be removed
-                // because scaling that way is not correct.
-                //
-                // Enforce that sum of evaluations matches `self.sum`
-                let current_sum: EF = evaluations.iter().copied().sum();
-
-                if current_sum == EF::ZERO {
-                    assert_eq!(
-                        self.sum,
-                        EF::ZERO,
-                        "Cannot scale zero-valued sumcheck polynomial to non-zero target sum"
-                    );
-                } else {
-                    let scale = self.sum / current_sum;
-                    for eval in &mut evaluations {
-                        *eval *= scale;
-                    }
-                }
-
-                evaluations
+                    .collect()
             }
 
             // Univariate skip optimization is only defined in the base field.
@@ -140,6 +122,7 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_dft::NaiveDft;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_interpolation::interpolate_subgroup;
 
     use super::*;
     use crate::{
@@ -322,10 +305,16 @@ mod tests {
         // Constraint: f(1, 0, 1) = 99
         // ----------------------------------------------------------------
         let mut statement = Statement::new(3);
-        let constraint_point = MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ONE]);
-        let weights = Weights::evaluation(constraint_point);
-        let expected_sum = EF4::from_u64(99);
-        statement.add_constraint(weights, expected_sum);
+        statement.add_constraint(
+            Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO])),
+            EF4::from_u64(99),
+        );
+        statement.add_constraint(
+            Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ONE])),
+            EF4::from_u64(34),
+        );
+
+        let expected_sum = EF4::from_u64(99) + EF4::from_u64(34);
 
         let prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
 
@@ -596,17 +585,18 @@ mod tests {
         let r6 = w06 * f06 + w16 * f16;
         let r7 = w07 * f07 + w17 * f17;
 
-        let sum_unscaled = r0 + r1 + r2 + r3 + r4 + r5 + r6 + r7;
-        let scale = expected_sum / sum_unscaled;
+        // Here we can take a multiplicative subgroup of size 4 (omega^4)
+        let omega4 = F::two_adic_generator(2);
 
-        let scaled_expected: Vec<EF4> = vec![r0, r1, r2, r3, r4, r5, r6, r7]
-            .into_iter()
-            .map(|r| scale * r)
-            .collect();
+        // Interpolate the polynomial over the subgroup
+        let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);
+        let interpolation_0 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(0)))[0];
+        let interpolation_1 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(1)))[0];
+        let interpolation_2 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(2)))[0];
+        let interpolation_3 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(3)))[0];
 
-        // Check that the evaluations match the expected values
-        assert_eq!(poly.evaluations(), scaled_expected);
-
-        assert_eq!(scaled_expected.into_iter().sum::<EF4>(), expected_sum);
+        // Compute the sum from the interpolations and compare with the expected sum
+        let computed_sum = interpolation_0 + interpolation_1 + interpolation_2 + interpolation_3;
+        assert_eq!(computed_sum, expected_sum);
     }
 }
