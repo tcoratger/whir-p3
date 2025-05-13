@@ -512,8 +512,9 @@ mod tests {
 
     #[test]
     fn test_sumcheck_single_three_variables() {
-        // Polynomial with 3 variables:
-        // f(X1, X2, X3) = 1 + 2*X1 + 3*X2 + 4*X1*X2 + 5*X3 + 6*X1*X3 + 7*X2*X3 + 8*X1*X2*X3
+        // Define a multilinear polynomial in 3 variables:
+        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
+        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -595,8 +596,9 @@ mod tests {
 
     #[test]
     fn test_sumcheck_single_multiple_constraints() {
-        // Define a polynomial with 3 variables:
-        // f(X1, X2, X3) = c1 + c2*X1 + c3*X2 + c4*X3 + c5*X1*X2 + c6*X1*X3 + c7*X2*X3 + c8*X1*X2*X3
+        // Define a multilinear polynomial in 3 variables:
+        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
+        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -957,8 +959,9 @@ mod tests {
 
     #[test]
     fn test_add_new_equality_multiple_constraints() {
-        // Polynomial with 3 variables:
-        // f(X1, X2, X3) = c1 + c2*X1 + c3*X2 + c4*X1*X2 + c5*X3 + c6*X1*X3 + c7*X2*X3 + c8*X1*X2*X3
+        // Define a multilinear polynomial in 3 variables:
+        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
+        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -1130,8 +1133,9 @@ mod tests {
 
     #[test]
     fn test_compress_three_variables() {
-        // Polynomial with 3 variables:
-        // f(X1, X2, X3) = c1 + c2*X1 + c3*X2 + c4*X1*X2 + c5*X3 + c6*X1*X3 + c7*X2*X3 + c8*X1*X2*X3
+        // Define a multilinear polynomial in 3 variables:
+        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
+        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -1373,8 +1377,9 @@ mod tests {
 
     #[test]
     fn test_compute_sumcheck_polynomials_with_three_variables() {
-        // Multilinear polynomial with 3 variables:
-        // f(X1, X2, X3) = 1 + 2*X1 + 3*X2 + 4*X3 + 5*X1*X2 + 6*X1*X3 + 7*X2*X3 + 8*X1*X2*X3
+        // Define a multilinear polynomial in 3 variables:
+        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
+        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
@@ -1385,8 +1390,22 @@ mod tests {
         let c8 = F::from_u64(8);
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
 
-        let statement = Statement::new(3);
+        // Add two equality constraints:
+        // - f(0, 0, 1) = 4
+        // - f(1, 1, 0) = 25
+        let mut statement = Statement::new(3);
+        let point1 = MultilinearPoint(vec![F::ZERO, F::ZERO, F::ONE]); // (X1=0, X2=0, X3=1)
+        let point2 = MultilinearPoint(vec![F::ONE, F::ONE, F::ZERO]); // (X1=1, X2=1, X3=0)
+        let eval1 = F::from_u64(4);
+        let eval2 = F::from_u64(25);
+        statement.add_constraint(Weights::evaluation(point1), eval1);
+        statement.add_constraint(Weights::evaluation(point2), eval2);
+
+        // Instantiate prover
         let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
+
+        let expected_initial_sum = eval1 + eval2;
+        assert_eq!(prover.sum, expected_initial_sum);
 
         let folding_factor = 3;
         let pow_bits = 2.;
@@ -1413,7 +1432,44 @@ mod tests {
             .compute_sumcheck_polynomials::<Blake3PoW>(&mut prover_state, folding_factor, pow_bits)
             .unwrap();
 
+        // There should be exactly `folding_factor` sumcheck polynomials
         assert_eq!(result.0.len(), folding_factor);
+
+        // Initialize the verifier state for checking round-by-round
+        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+
+        // Initialize the sum to be verified round-by-round
+        let mut current_sum = expected_initial_sum;
+
+        for i in 0..folding_factor {
+            // Read the 3 evaluations of the sumcheck polynomial for this round
+            let sumcheck_evals: [_; 3] = verifier_state.next_scalars().unwrap();
+
+            // Construct the polynomial h_i(X) over 1 variable with those evaluations
+            let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
+
+            // Check that h_i(0) + h_i(1) equals the claimed current sum
+            let sum = poly.evaluations()[0] + poly.evaluations()[1];
+            assert_eq!(
+                sum, current_sum,
+                "Sumcheck round {i}: sum rule failed (h(0) + h(1) != current_sum)"
+            );
+
+            // Sample the next folding challenge r_i ∈ F
+            let [r] = verifier_state.challenge_scalars().unwrap();
+
+            // Fold the polynomial at r_i to get new claimed sum
+            current_sum = poly.evaluate_at_point(&r.into());
+
+            // Perform proof-of-work grinding check
+            verifier_state.challenge_pow::<Blake3PoW>(pow_bits).unwrap();
+        }
+
+        // After all rounds, the prover’s stored folded sum must match what verifier has
+        assert_eq!(
+            prover.sum, current_sum,
+            "Final folded sum does not match prover's claimed value"
+        );
     }
 
     #[test]
@@ -1590,8 +1646,9 @@ mod tests {
 
     #[test]
     fn test_compute_sumcheck_polynomials_mixed_fields_three_vars() {
-        // Define a multilinear polynomial with 3 variables:
-        // f(X1, X2, X3) = 1 + 2*X1 + 3*X2 + 4*X3 + 5*X1*X2 + 6*X1*X3 + 7*X2*X3 + 8*X1*X2*X3
+        // Define a multilinear polynomial in 3 variables:
+        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
+        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
