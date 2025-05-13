@@ -2236,25 +2236,36 @@ mod tests {
         // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
         //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
         // -------------------------------------------------------------
-        let c0 = F::from_u64(1);
-        let c1 = F::from_u64(2);
-        let c2 = F::from_u64(3);
-        let c3 = F::from_u64(4);
-        let c4 = F::from_u64(5);
-        let c5 = F::from_u64(6);
-        let c6 = F::from_u64(7);
-        let c7 = F::from_u64(8);
-        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
+        let c1 = F::from_u64(1);
+        let c2 = F::from_u64(2);
+        let c3 = F::from_u64(3);
+        let c4 = F::from_u64(4);
+        let c5 = F::from_u64(5);
+        let c6 = F::from_u64(6);
+        let c7 = F::from_u64(7);
+        let c8 = F::from_u64(8);
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
 
         // A closure representing the polynomial for evaluation at points
-        let f = |x0: F, x1: F, x2: F| {
-            c0 + c1 * x2
-                + c2 * x1
-                + c3 * x1 * x2
-                + c4 * x0
-                + c5 * x0 * x2
-                + c6 * x0 * x1
-                + c7 * x0 * x1 * x2
+        let f_extension = |x0: EF4, x1: EF4, x2: EF4| {
+            x2 * c2
+                + x1 * c3
+                + x1 * x2 * c4
+                + x0 * c5
+                + x0 * x2 * c6
+                + x0 * x1 * c7
+                + x0 * x1 * x2 * c8
+                + c1
+        };
+
+        let f_base = |x0: F, x1: F, x2: F| {
+            c1 + c2 * x2
+                + c3 * x1
+                + c4 * x1 * x2
+                + c5 * x0
+                + c6 * x0 * x2
+                + c7 * x0 * x1
+                + c8 * x0 * x1 * x2
         };
 
         // -------------------------------------------------------------
@@ -2264,35 +2275,35 @@ mod tests {
         let mut statement = Statement::new(3);
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO])),
-            EF4::from_u64(1),
+            f_extension(EF4::ZERO, EF4::ZERO, EF4::ZERO),
         );
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ONE])),
-            EF4::from_u64(3),
+            f_extension(EF4::ZERO, EF4::ZERO, EF4::ONE),
         );
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ONE, EF4::ZERO])),
-            EF4::from_u64(11),
+            f_extension(EF4::ZERO, EF4::ONE, EF4::ZERO),
         );
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ONE, EF4::ONE])),
-            EF4::from_u64(36),
+            f_extension(EF4::ZERO, EF4::ONE, EF4::ONE),
         );
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ZERO])),
-            EF4::from_u64(14),
+            f_extension(EF4::ONE, EF4::ZERO, EF4::ZERO),
         );
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ONE])),
-            EF4::from_u64(13),
+            f_extension(EF4::ONE, EF4::ZERO, EF4::ONE),
         );
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ZERO])),
-            EF4::from_u64(4),
+            f_extension(EF4::ONE, EF4::ONE, EF4::ZERO),
         );
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ONE])),
-            EF4::from_u64(34),
+            f_extension(EF4::ONE, EF4::ONE, EF4::ONE),
         );
 
         // -------------------------------------------------------------
@@ -2304,14 +2315,14 @@ mod tests {
         // -------------------------------------------------------------
         // Evaluate the polynomial manually at all 8 input points
         // -------------------------------------------------------------
-        let f_000 = f(F::ZERO, F::ZERO, F::ZERO);
-        let f_001 = f(F::ZERO, F::ZERO, F::ONE);
-        let f_010 = f(F::ZERO, F::ONE, F::ZERO);
-        let f_011 = f(F::ZERO, F::ONE, F::ONE);
-        let f_100 = f(F::ONE, F::ZERO, F::ZERO);
-        let f_101 = f(F::ONE, F::ZERO, F::ONE);
-        let f_110 = f(F::ONE, F::ONE, F::ZERO);
-        let f_111 = f(F::ONE, F::ONE, F::ONE);
+        let f_000 = f_base(F::ZERO, F::ZERO, F::ZERO);
+        let f_001 = f_base(F::ZERO, F::ZERO, F::ONE);
+        let f_010 = f_base(F::ZERO, F::ONE, F::ZERO);
+        let f_011 = f_base(F::ZERO, F::ONE, F::ONE);
+        let f_100 = f_base(F::ONE, F::ZERO, F::ZERO);
+        let f_101 = f_base(F::ONE, F::ZERO, F::ONE);
+        let f_110 = f_base(F::ONE, F::ONE, F::ZERO);
+        let f_111 = f_base(F::ONE, F::ONE, F::ONE);
 
         // -------------------------------------------------------------
         // Check that prover internally stores evaluations correctly and weights are consistent
@@ -2340,14 +2351,25 @@ mod tests {
         // Manually compute the expected weighted sum (constraint enforcement)
         // The sumcheck protocol must maintain this sum across folds
         // -------------------------------------------------------------
-        let expected_sum = EF4::from_u64(1)
-            + EF4::from_u64(3)
-            + EF4::from_u64(11)
-            + EF4::from_u64(36)
-            + EF4::from_u64(14)
-            + EF4::from_u64(13)
-            + EF4::from_u64(4)
-            + EF4::from_u64(34);
+
+        // Get the f evaluations
+        let evals_f = match prover.evaluation_of_p {
+            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
+            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
+        };
+        // Get the w evaluations
+        let evals_w = prover.weights.evals();
+
+        // Compute the expected sum manually via dot product
+        let expected_sum = evals_w[0] * evals_f[0]
+            + evals_w[1] * evals_f[1]
+            + evals_w[2] * evals_f[2]
+            + evals_w[3] * evals_f[3]
+            + evals_w[4] * evals_f[4]
+            + evals_w[5] * evals_f[5]
+            + evals_w[6] * evals_f[6]
+            + evals_w[7] * evals_f[7];
+
         assert_eq!(prover.sum, expected_sum);
 
         // -------------------------------------------------------------
@@ -2403,20 +2425,11 @@ mod tests {
         let sumcheck_evals: [_; 8] = verifier_state.next_scalars().unwrap();
         let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
 
-        // Here we can take a multiplicative subgroup of size 4 (omega^4)
-        let omega4 = F::two_adic_generator(2);
-
-        // Interpolate the polynomial over the subgroup
-        let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);
-        let interpolation_0 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(0)))[0];
-        let interpolation_1 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(1)))[0];
-        let interpolation_2 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(2)))[0];
-        let interpolation_3 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(3)))[0];
-
-        // Compute the sum from the interpolations and compare with the expected sum
-        let sum_interpolation =
-            interpolation_0 + interpolation_1 + interpolation_2 + interpolation_3;
-        assert_eq!(sum_interpolation, current_sum);
+        // Check the sum of the polynomial evaluations is correct
+        assert_eq!(
+            poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
+            current_sum
+        );
 
         // Interpolate h₀(X) and update current sum using first challenge r₀
         let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);

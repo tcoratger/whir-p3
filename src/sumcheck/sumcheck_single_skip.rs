@@ -122,7 +122,6 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_dft::NaiveDft;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
-    use p3_interpolation::interpolate_subgroup;
 
     use super::*;
     use crate::{
@@ -301,22 +300,62 @@ mod tests {
         let c7 = F::from_u64(8);
         let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
 
-        // ----------------------------------------------------------------
-        // Constraint: f(1, 0, 1) = 99
-        // ----------------------------------------------------------------
+        // ------------------------------------------------------------
+        // Manually evaluate f at each binary point
+        // f(X0, X1, X2) = c0 + c1·X2 + c2·X1 + c3·X1·X2
+        //              + c4·X0 + c5·X0·X2 + c6·X0·X1 + c7·X0·X1·X2
+        // ------------------------------------------------------------
+        let f_base = |x0: F, x1: F, x2: F| {
+            c0 + c1 * x2
+                + c2 * x1
+                + c3 * x1 * x2
+                + c4 * x0
+                + c5 * x0 * x2
+                + c6 * x0 * x1
+                + c7 * x0 * x1 * x2
+        };
+
+        let f_extension = |x0: EF4, x1: EF4, x2: EF4| {
+            x2 * c1
+                + x1 * c2
+                + x1 * x2 * c3
+                + x0 * c4
+                + x0 * x2 * c5
+                + x0 * x1 * c6
+                + x0 * x1 * x2 * c7
+                + c0
+        };
+
+        // Constraints
         let mut statement = Statement::new(3);
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO])),
-            EF4::from_u64(99),
+            f_extension(EF4::ZERO, EF4::ZERO, EF4::ZERO),
         );
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ONE])),
-            EF4::from_u64(34),
+            f_extension(EF4::ONE, EF4::ZERO, EF4::ONE),
         );
 
-        let expected_sum = EF4::from_u64(99) + EF4::from_u64(34);
-
         let prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+
+        // Get the f evaluations
+        let evals_f = match prover.evaluation_of_p {
+            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
+            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
+        };
+        // Get the w evaluations
+        let evals_w = prover.weights.evals();
+
+        // Compute the expected sum manually via dot product
+        let expected_sum = evals_w[0] * evals_f[0]
+            + evals_w[1] * evals_f[1]
+            + evals_w[2] * evals_f[2]
+            + evals_w[3] * evals_f[3]
+            + evals_w[4] * evals_f[4]
+            + evals_w[5] * evals_f[5]
+            + evals_w[6] * evals_f[6]
+            + evals_w[7] * evals_f[7];
 
         // ------------------------------------------------------------
         // Apply univariate skip optimization with k = 2:
@@ -341,30 +380,15 @@ mod tests {
         let poly = prover.compute_skipping_sumcheck_polynomial(&dft, k);
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
-        // ------------------------------------------------------------
-        // Manually evaluate f at each binary point
-        // f(X0, X1, X2) = c0 + c1·X2 + c2·X1 + c3·X1·X2
-        //              + c4·X0 + c5·X0·X2 + c6·X0·X1 + c7·X0·X1·X2
-        // ------------------------------------------------------------
-        let f = |x0: F, x1: F, x2: F| {
-            c0 + c1 * x2
-                + c2 * x1
-                + c3 * x1 * x2
-                + c4 * x0
-                + c5 * x0 * x2
-                + c6 * x0 * x1
-                + c7 * x0 * x1 * x2
-        };
-
         // Manually compute f at all 8 binary points (0,1)^3
-        let f_000 = f(F::ZERO, F::ZERO, F::ZERO);
-        let f_001 = f(F::ZERO, F::ZERO, F::ONE);
-        let f_010 = f(F::ZERO, F::ONE, F::ZERO);
-        let f_011 = f(F::ZERO, F::ONE, F::ONE);
-        let f_100 = f(F::ONE, F::ZERO, F::ZERO);
-        let f_101 = f(F::ONE, F::ZERO, F::ONE);
-        let f_110 = f(F::ONE, F::ONE, F::ZERO);
-        let f_111 = f(F::ONE, F::ONE, F::ONE);
+        let f_000 = f_base(F::ZERO, F::ZERO, F::ZERO);
+        let f_001 = f_base(F::ZERO, F::ZERO, F::ONE);
+        let f_010 = f_base(F::ZERO, F::ONE, F::ZERO);
+        let f_011 = f_base(F::ZERO, F::ONE, F::ONE);
+        let f_100 = f_base(F::ONE, F::ZERO, F::ZERO);
+        let f_101 = f_base(F::ONE, F::ZERO, F::ONE);
+        let f_110 = f_base(F::ONE, F::ONE, F::ZERO);
+        let f_111 = f_base(F::ONE, F::ONE, F::ONE);
 
         // Compute the evaluations of the **equality constraint polynomial**.
         //
@@ -376,7 +400,7 @@ mod tests {
         // Thus:
         //   - Only point (1,0,1) gets a 1
         //   - All other 7 points are 0
-        let w_000 = EF4::ZERO; // eq(0,0,0) = 0
+        let w_000 = EF4::ONE; // eq(0,0,0) = 1 (this is the constraint point)
         let w_001 = EF4::ZERO; // eq(0,0,1) = 0
         let w_010 = EF4::ZERO; // eq(0,1,0) = 0
         let w_011 = EF4::ZERO; // eq(0,1,1) = 0
@@ -384,6 +408,18 @@ mod tests {
         let w_101 = EF4::ONE; // eq(1,0,1) = 1 (this is the constraint point)
         let w_110 = EF4::ZERO; // eq(1,1,0) = 0
         let w_111 = EF4::ZERO; // eq(1,1,1) = 0
+
+        assert_eq!(
+            w_000 * f_000
+                + w_001 * f_001
+                + w_010 * f_010
+                + w_011 * f_011
+                + w_100 * f_100
+                + w_101 * f_101
+                + w_110 * f_110
+                + w_111 * f_111,
+            expected_sum
+        );
 
         // Construct a matrix representing f(X0, X1, X2) values.
         // Each row corresponds to a fixed (X1, X2) pair,
@@ -585,18 +621,13 @@ mod tests {
         let r6 = w06 * f06 + w16 * f16;
         let r7 = w07 * f07 + w17 * f17;
 
-        // Here we can take a multiplicative subgroup of size 4 (omega^4)
-        let omega4 = F::two_adic_generator(2);
+        // Check the polynomial evaluations are correct
+        assert_eq!(poly.evaluations(), vec![r0, r1, r2, r3, r4, r5, r6, r7]);
 
-        // Interpolate the polynomial over the subgroup
-        let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);
-        let interpolation_0 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(0)))[0];
-        let interpolation_1 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(1)))[0];
-        let interpolation_2 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(2)))[0];
-        let interpolation_3 = interpolate_subgroup(&evals_mat, EF4::from(omega4.exp_u64(3)))[0];
-
-        // Compute the sum from the interpolations and compare with the expected sum
-        let computed_sum = interpolation_0 + interpolation_1 + interpolation_2 + interpolation_3;
-        assert_eq!(computed_sum, expected_sum);
+        // Check the sum of the polynomial evaluations is correct
+        assert_eq!(
+            poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
+            expected_sum
+        );
     }
 }
