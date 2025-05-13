@@ -1303,8 +1303,12 @@ mod tests {
         let c2 = F::from_u64(2);
         let coeffs = CoefficientList::new(vec![c1, c2]);
 
-        // Create a statement with no equality constraints
-        let statement = Statement::new(1);
+        // Create a statement with a single equality constraint: f(1) = 5
+        let mut statement = Statement::new(1);
+        let point = MultilinearPoint(vec![F::ONE]);
+        let weights = Weights::evaluation(point);
+        let eval = F::from_u64(5);
+        statement.add_constraint(weights, eval);
 
         // Instantiate the Sumcheck prover
         let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
@@ -1325,6 +1329,9 @@ mod tests {
         let folding_factor = 1; // Minimum folding factor
         let pow_bits = 0.; // No grinding
 
+        // Check sum BEFORE running protocol
+        assert_eq!(prover.sum, eval);
+
         // Compute sumcheck polynomials
         let result = prover
             .compute_sumcheck_polynomials::<Blake3PoW>(&mut prover_state, folding_factor, pow_bits)
@@ -1332,6 +1339,25 @@ mod tests {
 
         // The result should contain `folding_factor` elements
         assert_eq!(result.0.len(), folding_factor);
+
+        // Reconstruct verifier state to manually validate the sumcheck round
+        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+
+        // Read the sumcheck polynomial evaluations: h(0), h(1), h(2)
+        let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars().unwrap();
+        let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
+
+        // Read the folding randomness challenge
+        let [folding_randomness] = verifier_state.challenge_scalars().unwrap();
+
+        // Check that sumcheck polynomial satisfies the sum rule:
+        //  h(0) + h(1) = claimed initial sum = eval = 5
+        let sum = sumcheck_poly_evals[0] + sumcheck_poly_evals[1];
+        assert_eq!(sum, eval);
+
+        // Check that the folded sum stored in prover matches h(r)
+        let expected_folded_sum = sumcheck_poly.evaluate_at_point(&folding_randomness.into());
+        assert_eq!(prover.sum, expected_folded_sum);
     }
 
     #[test]
