@@ -567,21 +567,29 @@ mod tests {
         let c3 = F::from_u64(3);
         let c4 = F::from_u64(4);
 
+        let f = |x0: F, x1: F| c1 + c2 * x1 + c3 * x0 + c4 * x0 * x1;
+
         // Convert the polynomial into coefficient form
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
 
         // Create a statement and introduce an equality constraint at (X1, X2) = (1,0)
         let mut statement = Statement::new(2);
-        let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
-        let weights = Weights::evaluation(point);
-        let eval = F::from_u64(5);
-        statement.add_constraint(weights, eval);
+        statement.add_constraint(
+            Weights::evaluation(MultilinearPoint(vec![F::ONE, F::ZERO])),
+            f(F::ONE, F::ZERO),
+        );
 
         // Instantiate the Sumcheck prover
         let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
 
-        // Expected sum update: sum = 5
-        assert_eq!(prover.sum, eval);
+        // Compute the expected sum manually
+        let dot_product = prover.weights.evals()[0] * f(F::ZERO, F::ZERO)
+            + prover.weights.evals()[1] * f(F::ZERO, F::ONE)
+            + prover.weights.evals()[2] * f(F::ONE, F::ZERO)
+            + prover.weights.evals()[3] * f(F::ONE, F::ONE);
+
+        // Expected sum update
+        assert_eq!(prover.sum, dot_product);
 
         // Expected evaluation table after wavelet transform
         let expected_evaluation_of_p = vec![c1, c1 + c2, c1 + c3, c1 + c2 + c3 + c4];
@@ -612,6 +620,16 @@ mod tests {
         // Convert the polynomial into coefficient form
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
 
+        let f = |x0: F, x1: F, x2: F| {
+            c1 + c2 * x2
+                + c3 * x1
+                + c4 * x1 * x2
+                + c5 * x0
+                + c6 * x0 * x2
+                + c7 * x0 * x1
+                + c8 * x0 * x1 * x2
+        };
+
         // Create a statement and introduce multiple equality constraints
         let mut statement = Statement::new(3);
 
@@ -622,8 +640,8 @@ mod tests {
         let weights1 = Weights::evaluation(point1);
         let weights2 = Weights::evaluation(point2);
 
-        let eval1 = F::from_u64(5);
-        let eval2 = F::from_u64(4);
+        let eval1 = f(F::ONE, F::ZERO, F::ONE);
+        let eval2 = f(F::ZERO, F::ONE, F::ZERO);
 
         statement.add_constraint(weights1, eval1);
         statement.add_constraint(weights2, eval2);
@@ -631,8 +649,24 @@ mod tests {
         // Instantiate the Sumcheck prover
         let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
 
-        // Expected sum update: sum = (5) + (4)
-        let expected_sum = eval1 + eval2;
+        // Get the f evaluations
+        let eval_f = match prover.evaluation_of_p {
+            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
+            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
+        };
+
+        // Get the w evaluations
+        let eval_w = prover.weights.evals();
+
+        // Expected sum update = dot product of weights and evaluations
+        let expected_sum = eval_f[0] * eval_w[0]
+            + eval_f[1] * eval_w[1]
+            + eval_f[2] * eval_w[2]
+            + eval_f[3] * eval_w[3]
+            + eval_f[4] * eval_w[4]
+            + eval_f[5] * eval_w[5]
+            + eval_f[6] * eval_w[6]
+            + eval_f[7] * eval_w[7];
         assert_eq!(prover.sum, expected_sum);
     }
 
@@ -671,6 +705,8 @@ mod tests {
 
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
 
+        let f = |x0: F, x1: F| c1 + c2 * x1 + c3 * x0 + c4 * x0 * x1;
+
         // ----------------------------------------------------------------
         // Step 1: Define an equality constraint
         //
@@ -680,7 +716,7 @@ mod tests {
         let mut statement = Statement::new(2);
         let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
         let weights = Weights::evaluation(point);
-        let eval = F::from_u64(5);
+        let eval = f(F::ONE, F::ZERO);
         statement.add_constraint(weights, eval);
 
         // Instantiate prover
@@ -689,8 +725,14 @@ mod tests {
         // Compute the sumcheck polynomial h(X)
         let sumcheck_poly = prover.compute_sumcheck_polynomial();
 
+        // Compute the expected sum manually
+        let dot_product = prover.weights.evals()[0] * f(F::ZERO, F::ZERO)
+            + prover.weights.evals()[1] * f(F::ZERO, F::ONE)
+            + prover.weights.evals()[2] * f(F::ONE, F::ZERO)
+            + prover.weights.evals()[3] * f(F::ONE, F::ONE);
+
         // Check sum consistency
-        assert_eq!(prover.sum, eval);
+        assert_eq!(prover.sum, dot_product);
 
         // ----------------------------------------------------------------
         // Step 2: Define the polynomials f and w manually
@@ -774,7 +816,7 @@ mod tests {
 
     #[test]
     fn test_compute_sumcheck_polynomial_with_equality_constraints_3vars() {
-        // Step 1: Define a multilinear polynomial with three variables:
+        // Define a multilinear polynomial with three variables:
         //
         //   f(X₀, X₁, X₂) = c₀
         //                 + c₁·X₂
@@ -805,25 +847,7 @@ mod tests {
 
         let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
 
-        // Step 2: Set up a sumcheck statement with a **single equality constraint**.
-        //
-        // The constraint is at the point (X₀,X₁,X₂) = (1,0,1),
-        // with expected evaluation value = 5.
-        let mut statement = Statement::new(3);
-        let point = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE]);
-        let weights = Weights::evaluation(point);
-
-        let expected_sum = F::from_u64(5);
-        statement.add_constraint(weights, expected_sum);
-
-        // Build prover and compute sumcheck polynomial.
-        let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-        let sumcheck_poly = prover.compute_sumcheck_polynomial();
-
-        // Sanity check: sum must match the constraint
-        assert_eq!(prover.sum, expected_sum);
-
-        // Step 3: Define f(x₀,x₁,x₂) explicitly as a function
+        // Define f(x₀,x₁,x₂) explicitly as a function
         let f = |x0: F, x1: F, x2: F| {
             c0 + c1 * x2
                 + c2 * x1
@@ -834,7 +858,43 @@ mod tests {
                 + c7 * x0 * x1 * x2
         };
 
-        // Step 4: Manually compute f at all 8 binary points (0,1)^3
+        // Set up a sumcheck statement with a **single equality constraint**.
+        //
+        // The constraint is at the point (X₀,X₁,X₂) = (1,0,1),
+        // with expected evaluation value = 5.
+        let mut statement = Statement::new(3);
+        let point = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE]);
+        let weights = Weights::evaluation(point);
+
+        let expected_sum = f(F::ONE, F::ZERO, F::ONE);
+        statement.add_constraint(weights, expected_sum);
+
+        // Build prover and compute sumcheck polynomial.
+        let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
+        let sumcheck_poly = prover.compute_sumcheck_polynomial();
+
+        // Get the f evaluations
+        let evals_f = match prover.evaluation_of_p {
+            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
+            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
+        };
+        // Get the w evaluations
+        let evals_w = prover.weights.evals();
+
+        // Compute the dot product of the evaluations
+        let dot_product = evals_w[0] * evals_f[0]
+            + evals_w[1] * evals_f[1]
+            + evals_w[2] * evals_f[2]
+            + evals_w[3] * evals_f[3]
+            + evals_w[4] * evals_f[4]
+            + evals_w[5] * evals_f[5]
+            + evals_w[6] * evals_f[6]
+            + evals_w[7] * evals_f[7];
+
+        // Sanity check: sum must match the constraint
+        assert_eq!(prover.sum, dot_product);
+
+        // Manually compute f at all 8 binary points (0,1)^3
         let ep_000 = f(F::ZERO, F::ZERO, F::ZERO);
         let ep_001 = f(F::ZERO, F::ZERO, F::ONE);
         let ep_010 = f(F::ZERO, F::ONE, F::ZERO);
@@ -844,7 +904,7 @@ mod tests {
         let ep_110 = f(F::ONE, F::ONE, F::ZERO);
         let ep_111 = f(F::ONE, F::ONE, F::ONE);
 
-        // Step 5: Compute the evaluations of the **equality constraint polynomial**.
+        // Compute the evaluations of the **equality constraint polynomial**.
         //
         // The equality constraint enforces X = (1,0,1).
         // The equality polynomial eq_{(1,0,1)}(X₀,X₁,X₂) evaluates to:
@@ -864,7 +924,7 @@ mod tests {
         let w_111 = F::ZERO; // eq(1,1,1) = 0
 
         // ----------------------------------------------------------------
-        // Step 6: Manually compute the coefficients (e₀, e₁, e₂) of the sumcheck polynomial
+        // Manually compute the coefficients (e₀, e₁, e₂) of the sumcheck polynomial
         //
         // Recall:
         // - e₀ = sum of f(x)·w(x) where x₀ = 0
@@ -889,7 +949,7 @@ mod tests {
         let e1 = prover.sum - e0.double() - e2;
 
         // ----------------------------------------------------------------
-        // Step 7: Manually compute evaluations of sumcheck polynomial at {0,1,2}
+        // Manually compute evaluations of sumcheck polynomial at {0,1,2}
         //
         // Recall:
         //   h(0) = e₀
@@ -916,6 +976,8 @@ mod tests {
         let c4 = F::from_u64(4);
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
 
+        let f = |x0: F, x1: F| c1 + c2 * x1 + c3 * x0 + c4 * x0 * x1;
+
         // Create an empty statement (no constraints initially)
         let statement = Statement::new(2);
 
@@ -926,20 +988,16 @@ mod tests {
         let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
         let weight = F::from_u64(2);
 
-        // Compute f(1,0) **without simplifications**
-        //
-        // f(1,0) = c1 + c2*X1 + c3*X2 + c4*X1*X2
-        //        = c1 + c2*(1) + c3*(0) + c4*(1)*(0)
-        let eval = c1 + c2 * F::ONE + c3 * F::ZERO + c4 * F::ONE * F::ZERO;
+        // Compute f(1,0)
+        let eval = f(F::ONE, F::ZERO);
 
         prover.add_new_equality(&[point.clone()], &[eval], &[weight]);
 
-        // Compute expected sum explicitly:
-        //
-        // sum = weight * eval
-        //     = (2 * (c1 + c2*(1) + c3*(0) + c4*(1)*(0)))
-        //
-        let expected_sum = weight * eval;
+        // Compute expected sum explicitly via dot product
+        let expected_sum = prover.weights.evals()[0] * f(F::ZERO, F::ZERO)
+            + prover.weights.evals()[1] * f(F::ZERO, F::ONE)
+            + prover.weights.evals()[2] * f(F::ONE, F::ZERO)
+            + prover.weights.evals()[3] * f(F::ONE, F::ONE);
         assert_eq!(prover.sum, expected_sum);
 
         // Compute the expected weight updates:
@@ -965,6 +1023,16 @@ mod tests {
         let c8 = F::from_u64(8);
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
 
+        let f = |x0: F, x1: F, x2: F| {
+            c1 + c2 * x2
+                + c3 * x1
+                + c4 * x1 * x2
+                + c5 * x0
+                + c6 * x0 * x2
+                + c7 * x0 * x1
+                + c8 * x0 * x1 * x2
+        };
+
         // Create an empty statement (no constraints initially)
         let statement = Statement::new(3);
 
@@ -978,44 +1046,32 @@ mod tests {
         let weight1 = F::from_u64(2);
         let weight2 = F::from_u64(3);
 
-        // Compute f(1,0,1) using the polynomial definition:
-        //
-        // f(1,0,1) = c1 + c2*X1 + c3*X2 + c4*X1*X2 + c5*X3 + c6*X1*X3 + c7*X2*X3 + c8*X1*X2*X3
-        //          = c1 + c2*(1) + c3*(0) + c4*(1)*(0) + c5*(1) + c6*(1)*(1) + c7*(0)*(1) +
-        // c8*(1)*(0)*(1)
-        let eval1 = c1
-            + c2 * F::ONE
-            + c3 * F::ZERO
-            + c4 * F::ONE * F::ZERO
-            + c5 * F::ONE
-            + c6 * F::ONE * F::ONE
-            + c7 * F::ZERO * F::ONE
-            + c8 * F::ONE * F::ZERO * F::ONE;
-
-        // Compute f(0,1,0) using the polynomial definition:
-        //
-        // f(0,1,0) = c1 + c2*X1 + c3*X2 + c4*X1*X2 + c5*X3 + c6*X1*X3 + c7*X2*X3 + c8*X1*X2*X3
-        //          = c1 + c2*(0) + c3*(1) + c4*(0)*(1) + c5*(0) + c6*(0)*(0) + c7*(1)*(0) +
-        // c8*(0)*(1)*(0)
-        let eval2 = c1
-            + c2 * F::ZERO
-            + c3 * F::ONE
-            + c4 * F::ZERO * F::ONE
-            + c5 * F::ZERO
-            + c6 * F::ZERO * F::ZERO
-            + c7 * F::ONE * F::ZERO
-            + c8 * F::ZERO * F::ONE * F::ZERO;
+        let f_101 = f(F::ONE, F::ZERO, F::ONE);
+        let f_010 = f(F::ZERO, F::ONE, F::ZERO);
 
         prover.add_new_equality(
             &[point1.clone(), point2.clone()],
-            &[eval1, eval2],
+            &[f_101, f_010],
             &[weight1, weight2],
         );
 
-        // Compute the expected sum manually:
-        //
-        // sum = (weight1 * eval1) + (weight2 * eval2)
-        let expected_sum = weight1 * eval1 + weight2 * eval2;
+        // Get the f evaluations
+        let evals_f = match prover.evaluation_of_p {
+            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
+            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
+        };
+        // Get the w evaluations
+        let evals_w = prover.weights.evals();
+
+        // Compute the expected sum manually via dot product
+        let expected_sum = evals_w[0] * evals_f[0]
+            + evals_w[1] * evals_f[1]
+            + evals_w[2] * evals_f[2]
+            + evals_w[3] * evals_f[3]
+            + evals_w[4] * evals_f[4]
+            + evals_w[5] * evals_f[5]
+            + evals_w[6] * evals_f[6]
+            + evals_w[7] * evals_f[7];
         assert_eq!(prover.sum, expected_sum);
 
         // Expected weight updates
@@ -1032,12 +1088,14 @@ mod tests {
         let c2 = F::from_u64(2);
         let coeffs = CoefficientList::new(vec![c1, c2]);
 
+        let f = |x0: F| c1 + c2 * x0;
+
         let statement = Statement::new(1);
         let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
 
         let point = MultilinearPoint(vec![F::ONE]);
         let weight = F::ZERO;
-        let eval = F::from_u64(5);
+        let eval = f(F::ONE);
 
         prover.add_new_equality(&[point], &[eval], &[weight]);
 
@@ -1296,11 +1354,13 @@ mod tests {
         let c2 = F::from_u64(2);
         let coeffs = CoefficientList::new(vec![c1, c2]);
 
+        let f = |x0: F| c1 + c2 * x0;
+
         // Create a statement with a single equality constraint: f(1) = 5
         let mut statement = Statement::new(1);
         let point = MultilinearPoint(vec![F::ONE]);
         let weights = Weights::evaluation(point);
-        let eval = F::from_u64(5);
+        let eval = f(F::ONE);
         statement.add_constraint(weights, eval);
 
         // Instantiate the Sumcheck prover
@@ -1322,8 +1382,10 @@ mod tests {
         let folding_factor = 1; // Minimum folding factor
         let pow_bits = 0.; // No grinding
 
-        // Check sum BEFORE running protocol
-        assert_eq!(prover.sum, eval);
+        // Check sum BEFORE running protocol via dot product
+        let expected_sum =
+            prover.weights.evals()[0] * f(F::ZERO) + prover.weights.evals()[1] * f(F::ONE);
+        assert_eq!(prover.sum, expected_sum);
 
         // Compute sumcheck polynomials
         let result = prover
@@ -1407,23 +1469,50 @@ mod tests {
         let c6 = F::from_u64(6);
         let c7 = F::from_u64(7);
         let c8 = F::from_u64(8);
+
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+
+        let f = |x0: F, x1: F, x2: F| {
+            c1 + c2 * x2
+                + c3 * x1
+                + c4 * x1 * x2
+                + c5 * x0
+                + c6 * x0 * x2
+                + c7 * x0 * x1
+                + c8 * x0 * x1 * x2
+        };
 
         // Add two equality constraints:
         // - f(0, 0, 1) = 4
         // - f(1, 1, 0) = 25
         let mut statement = Statement::new(3);
-        let point1 = MultilinearPoint(vec![F::ZERO, F::ZERO, F::ONE]); // (X1=0, X2=0, X3=1)
-        let point2 = MultilinearPoint(vec![F::ONE, F::ONE, F::ZERO]); // (X1=1, X2=1, X3=0)
-        let eval1 = F::from_u64(4);
-        let eval2 = F::from_u64(25);
+        let point1 = MultilinearPoint(vec![F::ZERO, F::ZERO, F::ONE]); // (0,0,1)
+        let point2 = MultilinearPoint(vec![F::ONE, F::ONE, F::ZERO]); // (1,1,0)
+        let eval1 = f(F::ZERO, F::ZERO, F::ONE);
+        let eval2 = f(F::ONE, F::ONE, F::ZERO);
         statement.add_constraint(Weights::evaluation(point1), eval1);
         statement.add_constraint(Weights::evaluation(point2), eval2);
 
         // Instantiate prover
         let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
 
-        let expected_initial_sum = eval1 + eval2;
+        // Get the f evaluations
+        let evals_f = match prover.evaluation_of_p {
+            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
+            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
+        };
+        // Get the w evaluations
+        let evals_w = prover.weights.evals();
+
+        // Compute the expected sum manually via dot product
+        let expected_initial_sum = evals_w[0] * evals_f[0]
+            + evals_w[1] * evals_f[1]
+            + evals_w[2] * evals_f[2]
+            + evals_w[3] * evals_f[3]
+            + evals_w[4] * evals_f[4]
+            + evals_w[5] * evals_f[5]
+            + evals_w[6] * evals_f[6]
+            + evals_w[7] * evals_f[7];
         assert_eq!(prover.sum, expected_initial_sum);
 
         let folding_factor = 3;
@@ -1499,7 +1588,10 @@ mod tests {
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
         let c4 = F::from_u64(4);
+
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
+
+        let f = |x0: F, x1: F| c1 + c2 * x1 + c3 * x0 + c4 * x0 * x1;
 
         // Construct a statement with two equality constraints:
         // f(0, 1) = 1 + 0 + 3*1 + 0 = 4
@@ -1507,8 +1599,8 @@ mod tests {
         let mut statement = Statement::new(2);
         let point1 = MultilinearPoint(vec![F::ZERO, F::ONE]);
         let point2 = MultilinearPoint(vec![F::ONE, F::ONE]);
-        let eval1 = F::from_u64(4);
-        let eval2 = F::from_u64(10);
+        let eval1 = f(F::ZERO, F::ONE);
+        let eval2 = f(F::ONE, F::ONE);
         statement.add_constraint(Weights::evaluation(point1), eval1);
         statement.add_constraint(Weights::evaluation(point2), eval2);
 
@@ -1531,7 +1623,10 @@ mod tests {
 
         // Verify that the prover's initial sum equals the expected constraint sum:
         // Since the two constraints are independent, the expected sum is:
-        let expected_sum = eval1 + eval2;
+        let expected_sum = prover.weights.evals()[0] * f(F::ZERO, F::ZERO)
+            + prover.weights.evals()[1] * f(F::ZERO, F::ONE)
+            + prover.weights.evals()[2] * f(F::ONE, F::ZERO)
+            + prover.weights.evals()[3] * f(F::ONE, F::ONE);
         assert_eq!(
             prover.sum, expected_sum,
             "Prover's initial sum does not match expected constraint sum"
@@ -1574,6 +1669,8 @@ mod tests {
         let c1 = F::from_u64(1); // Constant term
         let c2 = F::from_u64(2); // Coefficient of X1
 
+        let f = |x0: EF4| x0 * c2 + c1;
+
         // Coefficients in base field
         let coeffs = CoefficientList::new(vec![c1, c2]);
 
@@ -1585,14 +1682,16 @@ mod tests {
 
         // Add an equality constraint at point X1 = 1 with weight 2 and expected value 5
         let point = MultilinearPoint(vec![EF4::from(F::ONE)]); // (X1 = 1)
-        let eval = EF4::from(F::from_u64(5)); // f(1) = 5
+        let eval = f(EF4::from(F::ONE)); // f(1)
         let weight = EF4::from(F::from_u64(2)); // Constraint applied with weight 2
 
         // Apply the equality constraint
         prover.add_new_equality(&[point.clone()], &[eval], &[weight]);
 
-        // The sum should now be weight × eval = 2 × 5 = 10
-        assert_eq!(prover.sum, weight * eval);
+        // Check the expected sum via dot product
+        let expected_sum = prover.weights.evals()[0] * f(EF4::from(F::ZERO))
+            + prover.weights.evals()[1] * f(EF4::from(F::ONE));
+        assert_eq!(prover.sum, expected_sum);
 
         // Expected weight table updated using eq(X) = weight × eq_at_point(point)
         let mut expected_weights = vec![EF4::ZERO; 2];
@@ -1676,34 +1775,62 @@ mod tests {
         let c6 = F::from_u64(6);
         let c7 = F::from_u64(7);
         let c8 = F::from_u64(8);
+
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+
+        let f = |x0: EF4, x1: EF4, x2: EF4| {
+            x2 * c2
+                + x1 * c3
+                + x1 * x2 * c4
+                + x0 * c5
+                + x0 * x2 * c6
+                + x0 * x1 * c7
+                + x0 * x1 * x2 * c8
+                + c1
+        };
 
         // Create a statement with 5 equality constraints
         let mut statement = Statement::new(3);
-        let points = vec![
-            MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]), // f(0,0,0) = 1
-            MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ZERO]),  // f(1,0,0) // f(1,0,0) = 3
-            MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ZERO]),   // f(1,1,0) = // f(1,1,0) = 11
-            MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ONE]),    // f(1,1,1) = 36
-            MultilinearPoint(vec![EF4::ZERO, EF4::ONE, EF4::ONE]),   // f(0,1,1) = 14
-        ];
-        let expected_evals: Vec<_> = vec![1, 3, 11, 36, 14]
-            .into_iter()
-            .map(EF4::from_u64)
-            .collect();
-        for (pt, ev) in points.into_iter().zip(expected_evals) {
-            statement.add_constraint(Weights::evaluation(pt), ev);
-        }
+
+        let x_000 = MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]);
+        let x_100 = MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ZERO]);
+        let x_110 = MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ZERO]);
+        let x_111 = MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ONE]);
+        let x_011 = MultilinearPoint(vec![EF4::ZERO, EF4::ONE, EF4::ONE]);
+
+        let f_000 = f(EF4::ZERO, EF4::ZERO, EF4::ZERO);
+        let f_100 = f(EF4::ONE, EF4::ZERO, EF4::ZERO);
+        let f_110 = f(EF4::ONE, EF4::ONE, EF4::ZERO);
+        let f_111 = f(EF4::ONE, EF4::ONE, EF4::ONE);
+        let f_011 = f(EF4::ZERO, EF4::ONE, EF4::ONE);
+
+        statement.add_constraint(Weights::evaluation(x_000), f_000);
+        statement.add_constraint(Weights::evaluation(x_100), f_100);
+        statement.add_constraint(Weights::evaluation(x_110), f_110);
+        statement.add_constraint(Weights::evaluation(x_111), f_111);
+        statement.add_constraint(Weights::evaluation(x_011), f_011);
 
         // Instantiate the Sumcheck prover using base field coefficients and extension field EF4
         let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
 
-        // Compute expected sum of evaluations from constraints
-        let expected_initial_sum: EF4 = EF4::from_u64(1)
-            + EF4::from_u64(3)
-            + EF4::from_u64(11)
-            + EF4::from_u64(36)
-            + EF4::from_u64(14);
+        // Get the f evaluations
+        let evals_f = match prover.evaluation_of_p {
+            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
+            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
+        };
+        // Get the w evaluations
+        let evals_w = prover.weights.evals();
+
+        // Compute expected sum of evaluations via dot product
+        let expected_initial_sum = evals_w[0] * evals_f[0]
+            + evals_w[1] * evals_f[1]
+            + evals_w[2] * evals_f[2]
+            + evals_w[3] * evals_f[3]
+            + evals_w[4] * evals_f[4]
+            + evals_w[5] * evals_f[5]
+            + evals_w[6] * evals_f[6]
+            + evals_w[7] * evals_f[7];
+
         assert_eq!(prover.sum, expected_initial_sum);
 
         // Number of folding rounds (equal to number of variables)
