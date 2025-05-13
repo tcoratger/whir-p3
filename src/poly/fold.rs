@@ -1,4 +1,4 @@
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 
 /// Computes the folded value of a function evaluated on a coset.
 ///
@@ -23,49 +23,67 @@ use p3_field::Field;
 /// - \( o^{-1} \) is the inverse coset offset
 /// - \( g^{-i} \) is the inverse generator raised to index \( i \)
 /// - The function is recursively applied until the vector reduces to size 1.
-pub fn compute_fold<F: Field>(
+pub fn compute_fold<EF, F>(
     answers: &[F],
-    folding_randomness: &[F],
-    mut coset_offset_inv: F,
-    mut coset_gen_inv: F,
+    folding_randomness: &[EF],
+    mut coset_offset_inv: EF,
+    mut coset_gen_inv: EF,
     folding_factor: usize,
-) -> F {
-    let mut answers = answers.to_vec();
+) -> EF
+where
+    EF: Field + ExtensionField<F>,
+    F: Field,
+{
+    assert_eq!(
+        answers.len(),
+        1 << folding_factor,
+        "Invalid number of answers"
+    );
 
-    // Perform the folding process `folding_factor` times.
-    for rec in 0..folding_factor {
-        // Check no subtraction underflow
-        if rec >= folding_randomness.len() {
-            break;
-        }
-
-        let r = folding_randomness[folding_randomness.len() - 1 - rec];
-        let offset = answers.len() / 2;
-        let mut coset_index_inv = F::ONE;
-
-        // Compute the new folded values, iterating over the first half of `answers`.
-        for i in 0..offset {
-            let f0 = answers[i];
-            let f1 = answers[i + offset];
-            let point_inv = coset_offset_inv * coset_index_inv;
-
-            let left = f0 + f1;
-            let right = point_inv * (f0 - f1);
-
-            // Apply the folding transformation with randomness
-            answers[i] = (left + r * right).halve();
-            coset_index_inv *= coset_gen_inv;
-        }
-
-        // Reduce answers to half its size without allocating a new vector
-        answers.truncate(offset);
-
-        // Update for next iteration
-        coset_offset_inv *= coset_offset_inv;
-        coset_gen_inv *= coset_gen_inv;
+    if folding_factor == 0 {
+        return EF::from(*answers.first().unwrap());
     }
 
-    answers[0]
+    // We do the first folding step separately as in this step answers switches
+    // from a base field vector to an extension field vector.
+    let r = folding_randomness[folding_randomness.len() - 1];
+    let half = answers.len() / 2;
+    let (lo, hi) = answers.split_at(half);
+    let mut answers: Vec<EF> = lo
+        .iter()
+        .zip(hi)
+        .zip(coset_gen_inv.shifted_powers(r * coset_offset_inv))
+        .map(|((a, b), point_inv)| {
+            let left = *a + *b;
+            let right = *a - *b;
+            point_inv * right + left
+        })
+        .collect();
+
+    coset_offset_inv = coset_offset_inv.square();
+    coset_gen_inv = coset_gen_inv.square();
+
+    for r in folding_randomness[..folding_randomness.len() - 1]
+        .iter()
+        .rev()
+    {
+        let half = answers.len() / 2;
+        let (lo, hi) = answers.split_at_mut(half);
+        lo.iter_mut()
+            .zip(hi)
+            .zip(coset_gen_inv.shifted_powers(*r * coset_offset_inv))
+            .for_each(|((a, b), point_inv)| {
+                let left = *a + *b;
+                let right = *a - *b;
+                *a = point_inv * right + left;
+            });
+
+        answers.truncate(half);
+        coset_offset_inv = coset_offset_inv.square();
+        coset_gen_inv = coset_gen_inv.square();
+    }
+
+    answers.first().unwrap().div_2exp_u64(folding_factor as u64)
 }
 
 #[cfg(test)]

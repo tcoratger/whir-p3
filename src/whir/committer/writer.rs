@@ -1,11 +1,9 @@
-use p3_commit::{ExtensionMmcs, Mmcs};
+use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
-#[cfg(feature = "parallel")]
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 use super::Witness;
@@ -66,7 +64,7 @@ where
         let expansion = base_domain.size() / polynomial.num_coeffs();
 
         // Expand polynomial coefficients into evaluations over the domain
-        let evals = match self.0.fold_optimisation {
+        let folded_matrix = match self.0.fold_optimisation {
             FoldType::Naive => {
                 let evals = expand_from_coeff(dft, polynomial.coeffs(), expansion);
 
@@ -76,9 +74,7 @@ where
                 // Number of rows (one per subdomain)
                 let size_of_new_domain = evals.len() / folding_factor_exp;
 
-                RowMajorMatrix::new(evals, size_of_new_domain)
-                    .transpose()
-                    .values
+                RowMajorMatrix::new(evals, size_of_new_domain).transpose()
             }
             FoldType::ProverHelps => {
                 let mut coeffs = polynomial.coeffs().to_vec();
@@ -90,28 +86,13 @@ where
                 ))
                 // Get natural order of rows.
                 .to_row_major_matrix()
-                .values
             }
         };
 
-        // Convert to extension field (for future rounds)
-        #[cfg(feature = "parallel")]
-        let folded_evals: Vec<_> = evals.into_par_iter().map(EF::from).collect();
-        #[cfg(not(feature = "parallel"))]
-        let folded_evals: Vec<_> = evals.into_iter().map(EF::from).collect();
-
-        // Determine leaf size based on folding factor.
-        let fold_size = 1 << self.0.folding_factor.at_round(0);
-
-        // Convert folded evaluations into a RowMajorMatrix to satisfy the `Matrix<F>` trait
-        let folded_matrix = RowMajorMatrix::new(folded_evals, fold_size);
-
         // Commit to the Merkle tree
-        let merkle_tree = ExtensionMmcs::new(MerkleTreeMmcs::new(
-            self.0.merkle_hash.clone(),
-            self.0.merkle_compress.clone(),
-        ));
-        let (root, prover_data) = merkle_tree.commit(vec![folded_matrix]);
+        let merkle_tree =
+            MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+        let (root, prover_data) = merkle_tree.commit_matrix(folded_matrix);
 
         // Observe Merkle root in challenger
         prover_state.add_digest(root)?;

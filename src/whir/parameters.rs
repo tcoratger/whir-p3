@@ -1,6 +1,6 @@
 use std::{f64::consts::LOG2_10, marker::PhantomData};
 
-use p3_field::{BasedVectorSpace, ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
     domain::Domain,
@@ -77,7 +77,7 @@ where
         let protocol_security_level = whir_parameters
             .security_level
             .saturating_sub(whir_parameters.pow_bits);
-        let field_size_bits = EF::bits() * EF::DIMENSION * F::DIMENSION;
+        let field_size_bits = EF::bits();
         let mut log_inv_rate = whir_parameters.starting_log_inv_rate;
         let mut num_variables = mv_parameters.num_variables;
 
@@ -314,7 +314,8 @@ mod tests {
     type Poseidon2Sponge<Perm24> = PaddingFreeSponge<Perm24, 24, 16, 8>;
 
     /// Generates default WHIR parameters
-    fn default_whir_params() -> ProtocolParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
+    const fn default_whir_params()
+    -> ProtocolParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
         ProtocolParameters {
             initial_statement: true,
             security_level: 100,
