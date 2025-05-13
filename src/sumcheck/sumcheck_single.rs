@@ -1419,17 +1419,29 @@ mod tests {
     #[test]
     fn test_compute_sumcheck_polynomials_edge_case_zero_folding() {
         // Multilinear polynomial with 2 variables:
-        // f(X1, X2) = 1 + 2*X1 + 3*X2 + 4*X1*X2
+        // f(X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
         let c1 = F::from_u64(1);
         let c2 = F::from_u64(2);
         let c3 = F::from_u64(3);
         let c4 = F::from_u64(4);
         let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
 
-        let statement = Statement::new(2);
+        // Construct a statement with two equality constraints:
+        // f(0, 1) = 1 + 0 + 3*1 + 0 = 4
+        // f(1, 1) = 1 + 2*1 + 3*1 + 4*1 = 10
+        let mut statement = Statement::new(2);
+        let point1 = MultilinearPoint(vec![F::ZERO, F::ONE]);
+        let point2 = MultilinearPoint(vec![F::ONE, F::ONE]);
+        let eval1 = F::from_u64(4);
+        let eval2 = F::from_u64(10);
+        statement.add_constraint(Weights::evaluation(point1), eval1);
+        statement.add_constraint(Weights::evaluation(point2), eval2);
+
+        // Instantiate the prover with the polynomial and constraint statement
         let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
 
-        let folding_factor = 0; // Edge case: No folding
+        // With 0 folding rounds, this is an edge case: no polynomial rounds will be generated
+        let folding_factor = 0;
         let pow_bits = 1.;
 
         // No domain separator logic needed since we don't fold
@@ -1441,6 +1453,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.0.len(), 0);
+
+        // Verify that the prover's initial sum equals the expected constraint sum:
+        // Since the two constraints are independent, the expected sum is:
+        let expected_sum = eval1 + eval2;
+        assert_eq!(
+            prover.sum, expected_sum,
+            "Prover's initial sum does not match expected constraint sum"
+        );
     }
 
     #[test]
