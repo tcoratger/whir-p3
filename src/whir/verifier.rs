@@ -212,22 +212,7 @@ where
             let mut sumcheck_rounds =
                 Vec::with_capacity(self.params.folding_factor.at_round(r + 1));
 
-            let mut is_univariate_skip = false;
-
-            if self.params.folding_factor.at_round(r + 1) >= 2 {
-                let sumcheck_poly_evals: [_; 8] = verifier_state.next_scalars()?;
-                let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-                let [folding_randomness_single] = verifier_state.challenge_scalars()?;
-                sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
-                is_univariate_skip = true;
-            }
-
-            let start = if is_univariate_skip {
-                K_SKIP_SUMCHECK
-            } else {
-                0
-            };
-            for _ in start..self.params.folding_factor.at_round(r + 1) {
+            for _ in 0..self.params.folding_factor.at_round(r + 1) {
                 let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars()?;
                 let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
                 let [folding_randomness_single] = verifier_state.challenge_scalars()?;
