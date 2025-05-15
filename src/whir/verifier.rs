@@ -88,6 +88,7 @@ where
                 let sumcheck_poly_evals: [_; 8] = verifier_state.next_scalars()?;
                 let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
                 let [folding_randomness_single] = verifier_state.challenge_scalars()?;
+                let [_] = verifier_state.challenge_scalars()?;
                 sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
                 is_univariate_skip = true;
             }
@@ -460,8 +461,27 @@ where
 
         let mut prev_sumcheck = None;
 
+        println!("oulalalalalalal");
+
         // Initial sumcheck verification
         if let Some((poly, randomness)) = parsed.initial_sumcheck_rounds.first().cloned() {
+            println!("polyyyyy {:?}", poly);
+            println!("randomness {:?}", randomness);
+            println!("evaluations {:?}", evaluations);
+
+            let lhs = poly.evaluations().iter().step_by(2).copied().sum::<EF>();
+            let rhs = parsed_commitment
+                .ood_answers
+                .iter()
+                .copied()
+                .chain(evaluations.clone())
+                .zip(&parsed.initial_combination_randomness)
+                .map(|(ans, &rand)| ans * rand)
+                .sum::<EF>();
+
+            println!("lhs {:?}", lhs);
+            println!("rhs {:?}", rhs);
+
             if poly.sum_over_boolean_hypercube()
                 != parsed_commitment
                     .ood_answers

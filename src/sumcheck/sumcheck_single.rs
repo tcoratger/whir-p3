@@ -298,12 +298,19 @@ where
                 let sumcheck_poly = self.compute_skipping_sumcheck_polynomial(dft, k);
                 prover_state.add_scalars(sumcheck_poly.evaluations())?;
 
+                println!("evaluations of p {:?}", self.evaluation_of_p);
+                println!("evaluations of weights {:?}", self.weights);
+                println!("sumcheck polyyyyy {:?}", sumcheck_poly.evaluations());
+                println!("sum {:?}", self.sum);
+
+                // for _ in 0..k {
                 let [folding_randomness] = prover_state.challenge_scalars()?;
                 res.push(folding_randomness);
 
                 if pow_bits > 0. {
                     prover_state.challenge_pow::<S>(pow_bits)?;
                 }
+                // }
 
                 // // Apply k rounds of folding to p and weights
                 // let new_p = fold_k_times(
@@ -360,6 +367,8 @@ where
 
             self.compress(EF::ONE, &folding_randomness.into(), &sumcheck_poly);
         }
+
+        println!("res {:?}", res);
 
         res.reverse();
         Ok(MultilinearPoint(res))
