@@ -177,7 +177,7 @@ where
 
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
-        let expansion = new_domain.size() / folded_coefficients.num_coeffs();
+        let expansion = new_domain.size() / folded_evals.num_evals();
         let folded_matrix = {
             let mut coeffs = folded_coefficients.coeffs().to_vec();
             coeffs.resize(coeffs.len() * expansion, EF::ZERO);
