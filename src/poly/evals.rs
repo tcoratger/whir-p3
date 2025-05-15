@@ -1,4 +1,4 @@
-use std::ops::Index;
+use std::ops::Deref;
 
 use p3_field::{ExtensionField, Field};
 #[cfg(feature = "parallel")]
@@ -214,11 +214,11 @@ where
     }
 }
 
-impl<F> Index<usize> for EvaluationsList<F> {
-    type Output = F;
+impl<F> Deref for EvaluationsList<F> {
+    type Target = [F];
 
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.evals[index]
+    fn deref(&self) -> &Self::Target {
+        &self.evals
     }
 }
 
