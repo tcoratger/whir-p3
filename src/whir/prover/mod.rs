@@ -4,16 +4,11 @@ use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use round::RoundState;
 use serde::{Deserialize, Serialize};
 
-use super::{
-    WhirProof,
-    committer::{CommitmentMerkleTree, RoundMerkleTree, Witness},
-    parameters::WhirConfig,
-    statement::Statement,
-};
+use super::{WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
-    domain::Domain,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
     ntt::expand_from_coeff,
     parameters::FoldType,
@@ -30,35 +25,10 @@ use crate::{
     },
 };
 
+pub mod round;
+
 pub type Proof<const DIGEST_ELEMS: usize> = Vec<Vec<[u8; DIGEST_ELEMS]>>;
 pub type Leafs<F> = Vec<Vec<F>>;
-
-#[derive(Debug)]
-pub(crate) struct RoundState<EF, F, const DIGEST_ELEMS: usize>
-where
-    F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-{
-    pub(crate) round: usize,
-    pub(crate) domain: Domain<EF, F>,
-    pub(crate) sumcheck_prover: Option<SumcheckSingle<F, EF>>,
-    pub(crate) folding_randomness: MultilinearPoint<EF>,
-    pub(crate) coefficients: CoefficientStorage<F, EF>,
-
-    /// Prover data for the commitment is over the base field
-    pub(crate) commitment_merkle_prover_data: CommitmentMerkleTree<F, DIGEST_ELEMS>,
-    /// Prover data for the remaining rounds is over the extension field
-    /// None in the first round, or if the number of rounds is zero
-    pub(crate) merkle_prover_data: Option<RoundMerkleTree<F, EF, DIGEST_ELEMS>>,
-    /// Merkle proofs
-    /// - The first element is the opened leaf values
-    /// - The second element is the Merkle proof (siblings)
-    /// - commitment_merkle_proof is None going into a round
-    pub(crate) commitment_merkle_proof: Option<(Leafs<F>, Proof<DIGEST_ELEMS>)>,
-    pub(crate) merkle_proofs: Vec<(Leafs<EF>, Proof<DIGEST_ELEMS>)>,
-    pub(crate) randomness_vec: Vec<EF>,
-    pub(crate) statement: Statement<EF>,
-}
 
 #[derive(Debug)]
 pub struct Prover<EF, F, H, C, PowStrategy>(pub WhirConfig<EF, F, H, C, PowStrategy>)
