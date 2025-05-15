@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
@@ -36,6 +38,18 @@ where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField;
 
+impl<EF, F, H, C, PS> Deref for Prover<EF, F, H, C, PS>
+where
+    F: Field + TwoAdicField + PrimeField64,
+    EF: ExtensionField<F> + TwoAdicField,
+{
+    type Target = WhirConfig<EF, F, H, C, PS>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl<EF, F, H, C, PS> Prover<EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
@@ -67,7 +81,7 @@ where
         &self,
         dft: &D,
         prover_state: &mut ProverState<EF, F>,
-        mut statement: Statement<EF>,
+        statement: Statement<EF>,
         witness: Witness<EF, F, DIGEST_ELEMS>,
     ) -> ProofResult<WhirProof<F, EF, DIGEST_ELEMS>>
     where
@@ -83,73 +97,8 @@ where
                 && self.validate_witness(&witness)
         );
 
-        // Convert witness ood_points into constraints
-        let new_constraints = witness
-            .ood_points
-            .into_iter()
-            .zip(witness.ood_answers)
-            .map(|(point, evaluation)| {
-                let weights = Weights::evaluation(MultilinearPoint::expand_from_univariate(
-                    point,
-                    self.0.mv_parameters.num_variables,
-                ));
-                (weights, evaluation)
-            })
-            .collect();
-
-        statement.add_constraints_in_front(new_constraints);
-
-        let mut sumcheck_prover = None;
-        let folding_randomness = if self.0.initial_statement {
-            // If there is initial statement, then we run the sum-check for
-            // this initial statement.
-            let [combination_randomness_gen] = prover_state.challenge_scalars()?;
-
-            // Create the sumcheck prover
-            let mut sumcheck = SumcheckSingle::from_base_coeffs(
-                witness.polynomial.clone(),
-                &statement,
-                combination_randomness_gen,
-            );
-
-            // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS>(
-                prover_state,
-                self.0.folding_factor.at_round(0),
-                self.0.starting_folding_pow_bits,
-            )?;
-
-            sumcheck_prover = Some(sumcheck);
-            folding_randomness
-        } else {
-            // If there is no initial statement, there is no need to run the
-            // initial rounds of the sum-check, and the verifier directly sends
-            // the initial folding randomnesses.
-            let mut folding_randomness = vec![EF::ZERO; self.0.folding_factor.at_round(0)];
-            prover_state.fill_challenge_scalars(&mut folding_randomness)?;
-
-            if self.0.starting_folding_pow_bits > 0. {
-                prover_state.challenge_pow::<PS>(self.0.starting_folding_pow_bits)?;
-            }
-            MultilinearPoint(folding_randomness)
-        };
-        let mut randomness_vec = Vec::with_capacity(self.0.mv_parameters.num_variables);
-        randomness_vec.extend(folding_randomness.0.iter().rev().copied());
-        randomness_vec.resize(self.0.mv_parameters.num_variables, EF::ZERO);
-
-        let mut round_state = RoundState {
-            domain: self.0.starting_domain.clone(),
-            round: 0,
-            sumcheck_prover,
-            folding_randomness,
-            coefficients: CoefficientStorage::Base(witness.polynomial),
-            merkle_prover_data: None,
-            commitment_merkle_prover_data: witness.prover_data,
-            commitment_merkle_proof: None,
-            merkle_proofs: vec![],
-            randomness_vec,
-            statement,
-        };
+        let mut round_state =
+            RoundState::initialize_first_round_state(self, prover_state, statement, witness)?;
 
         // Run WHIR rounds
         for _round in 0..=self.0.n_rounds() {
