@@ -37,9 +37,9 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct SumcheckSingle<F, EF> {
     /// Evaluations of the polynomial `p(X)`.
-    evaluation_of_p: EvaluationStorage<F, EF>,
+    pub(crate) evaluation_of_p: EvaluationStorage<F, EF>,
     /// Evaluations of the equality polynomial used for enforcing constraints.
-    weights: EvaluationsList<EF>,
+    pub(crate) weights: EvaluationsList<EF>,
     /// Accumulated sum incorporating equality constraints.
     sum: EF,
     /// Marker for phantom type parameter `F`.
