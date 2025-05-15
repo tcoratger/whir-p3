@@ -71,6 +71,7 @@ impl FoldType {
     /// This method is used by the prover when deriving folded polynomial values at queried points.
     pub(crate) fn stir_evaluations_prover<EF, SubEF, F, const DIGEST_ELEMS: usize>(
         self,
+        round_index: usize,
         round_state: &RoundState<EF, F, DIGEST_ELEMS>,
         stir_challenges_indexes: &[usize],
         answers: &[Vec<SubEF>],
@@ -85,7 +86,7 @@ impl FoldType {
             Self::Naive => StirEvalContext::Naive {
                 domain_size: round_state.domain.backing_domain.size(),
                 domain_gen_inv: round_state.domain.backing_domain.element(1).inverse(),
-                round: round_state.round,
+                round: round_index,
                 stir_challenges_indexes,
                 folding_factor: &folding_factor,
                 folding_randomness: &round_state.folding_randomness,
