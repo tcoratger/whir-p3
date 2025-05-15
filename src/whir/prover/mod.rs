@@ -56,16 +56,51 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
 {
+    /// Validates that the total number of variables expected by the prover configuration
+    /// matches the number implied by the folding schedule and the final rounds.
+    ///
+    /// This ensures that the recursive folding in the sumcheck protocol terminates
+    /// precisely at the expected number of final variables.
+    ///
+    /// # Returns
+    /// `true` if the parameter configuration is consistent, `false` otherwise.
     fn validate_parameters(&self) -> bool {
         self.mv_parameters.num_variables
             == self.folding_factor.total_number(self.n_rounds()) + self.final_sumcheck_rounds
     }
 
+    /// Validates that the public statement is compatible with the configured number of variables.
+    ///
+    /// Ensures the following:
+    /// - The number of variables in the statement matches the prover's expectations
+    /// - If no initial statement is used, the statement must be empty
+    ///
+    /// # Parameters
+    /// - `statement`: The public constraints that the prover will use
+    ///
+    /// # Returns
+    /// `true` if the statement structure is valid for this protocol instance.
     fn validate_statement(&self, statement: &Statement<EF>) -> bool {
         statement.num_variables() == self.mv_parameters.num_variables
             && (self.initial_statement || statement.constraints.is_empty())
     }
 
+    /// Validates that the witness satisfies the structural requirements of the WHIR prover.
+    ///
+    /// Checks the following conditions:
+    /// - The number of OOD (out-of-domain) points equals the number of OOD answers
+    /// - If no initial statement is used, the OOD data must be empty
+    /// - The multilinear witness polynomial must match the expected number of variables
+    ///
+    /// # Parameters
+    /// - `witness`: The private witness to be verified for structural consistency
+    ///
+    /// # Returns
+    /// `true` if the witness structure matches expectations.
+    ///
+    /// # Panics
+    /// - Panics if OOD lengths are inconsistent
+    /// - Panics if OOD data is non-empty despite `initial_statement = false`
     fn validate_witness<const DIGEST_ELEMS: usize>(
         &self,
         witness: &Witness<EF, F, DIGEST_ELEMS>,
