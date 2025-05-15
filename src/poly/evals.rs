@@ -1,6 +1,8 @@
 use std::ops::Index;
 
 use p3_field::{ExtensionField, Field};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 use super::{lagrange_iterator::LagrangePolynomialIterator, multilinear::MultilinearPoint};
 
@@ -34,6 +36,17 @@ where
         match self {
             Self::Base(evals) => evals.num_variables(),
             Self::Extension(evals) => evals.num_variables(),
+        }
+    }
+
+    /// Folds the stored polynomial using the provided `folding_randomness`, returning a new
+    /// `EvaluationsList<EF>` with fewer variables.
+    ///
+    /// Works generically on both base and extension field representations.
+    pub(crate) fn fold(&self, folding_randomness: &MultilinearPoint<EF>) -> EvaluationsList<EF> {
+        match self {
+            Self::Base(cl) => cl.fold(folding_randomness),
+            Self::Extension(cl) => cl.fold(folding_randomness),
         }
     }
 }
@@ -150,6 +163,54 @@ where
             return self.evals[point.0].into();
         }
         eval_multilinear(&self.evals, &point.0)
+    }
+
+    /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
+    ///
+    /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
+    ///
+    /// \[
+    /// g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
+    /// \]
+    ///
+    /// where `folding_randomness = (r_0, ..., r_{k-1})` is a fixed assignment to the last `k` variables.
+    ///
+    /// This operation reduces the dimensionality of the polynomial:
+    ///
+    /// - Input: `f ∈ F^{2^n}`
+    /// - Output: `g ∈ EF^{2^{n-k}}`, where `EF` is an extension field of `F`
+    ///
+    /// # Arguments
+    /// - `folding_randomness`: The extension-field values to substitute for the last `k` variables.
+    ///
+    /// # Returns
+    /// - A new `EvaluationsList<EF>` representing the folded function over the remaining `n - k` variables.
+    ///
+    /// # Panics
+    /// - If the evaluation list is not sized `2^n` for some `n`.
+    #[must_use]
+    pub fn fold<EF>(&self, folding_randomness: &MultilinearPoint<EF>) -> EvaluationsList<EF>
+    where
+        EF: ExtensionField<F>,
+    {
+        let folding_factor = folding_randomness.num_variables();
+        #[cfg(not(feature = "parallel"))]
+        let evals = self
+            .evals
+            .chunks_exact(1 << folding_factor)
+            .map(|ev| eval_multilinear(ev, &folding_randomness.0))
+            .collect();
+        #[cfg(feature = "parallel")]
+        let evals = self
+            .evals
+            .par_chunks_exact(1 << folding_factor)
+            .map(|ev| eval_multilinear(ev, &folding_randomness.0))
+            .collect();
+
+        EvaluationsList {
+            evals,
+            num_variables: self.num_variables() - folding_factor,
+        }
     }
 }
 
@@ -757,5 +818,94 @@ mod tests {
 
         // Verify that result matches manual computation
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_folding_and_evaluation() {
+        // Set number of Boolean input variables n = 10.
+        let num_variables = 10;
+
+        // Build a multilinear polynomial f(x) = x with coefficients 0, 1, ..., 1023 in F
+        let coeffs = (0..(1 << num_variables)).map(F::from_u64).collect();
+
+        // Wrap into CoefficientList to access polynomial logic
+        let coeffs_list = CoefficientList::new(coeffs);
+
+        // Convert to EvaluationsList using a wavelet transform
+        let evals_list: EvaluationsList<F> = coeffs_list.into();
+
+        // Define a fixed evaluation point in F^n: [0, 35, 70, ..., 35*(n-1)]
+        let randomness: Vec<_> = (0..num_variables)
+            .map(|i| F::from_u64(35 * i as u64))
+            .collect();
+
+        // Try folding at every possible prefix of the randomness vector: k = 0 to n-1
+        for k in 0..num_variables {
+            // Use the first k values as the fold coordinates (we will substitute those)
+            let fold_part = randomness[0..k].to_vec();
+
+            // The remaining coordinates are used as the evaluation input into the folded poly
+            let eval_part = randomness[k..randomness.len()].to_vec();
+
+            // Convert to a MultilinearPoint (in EF) for folding
+            let fold_random = MultilinearPoint(fold_part.clone());
+
+            // Reconstruct the full point (x₀, ..., xₙ₋₁) = [eval_part || fold_part]
+            // Used to evaluate the original uncompressed polynomial
+            let eval_point = MultilinearPoint([eval_part.clone(), fold_part].concat());
+
+            // Fold the evaluation list over the last `k` variables
+            let folded = evals_list.fold(&fold_random);
+
+            // Verify correctness:
+            // folded(e) == original([e, r]) for all k
+            assert_eq!(
+                folded.evaluate(&MultilinearPoint(eval_part)),
+                evals_list.evaluate(&eval_point)
+            );
+        }
+    }
+
+    #[test]
+    fn test_fold_with_extension_one_var() {
+        // Define a 2-variable polynomial:
+        // f(X₀, X₁) = 1 + 2·X₁ + 3·X₀ + 4·X₀·X₁
+        let coeffs = vec![
+            F::from_u64(1), // constant
+            F::from_u64(2), // X₁
+            F::from_u64(3), // X₀
+            F::from_u64(4), // X₀·X₁
+        ];
+        let poly = CoefficientList::new(coeffs);
+
+        // Convert coefficients into an EvaluationsList (for testing the fold on evals)
+        let evals_list: EvaluationsList<F> = poly.clone().into();
+
+        // We fold over the last variable (X₁) by setting X₁ = 5 in EF4
+        let r1 = EF4::from_u64(5);
+
+        // Perform the fold: f(X₀, 5) becomes a new function g(X₀)
+        let folded = evals_list.fold(&MultilinearPoint(vec![r1]));
+
+        // For 10 test points x₀ = 0, 1, ..., 9
+        for x0_f in 0..10 {
+            // Lift to EF4 for extension-field evaluation
+            let x0 = EF4::from_u64(x0_f);
+
+            // Construct the full point (x₀, X₁ = 5)
+            let full_point = MultilinearPoint(vec![x0, r1]);
+
+            // Construct folded point (x₀)
+            let folded_point = MultilinearPoint(vec![x0]);
+
+            // Evaluate original poly at (x₀, 5)
+            let expected = poly.evaluate_at_extension(&full_point);
+
+            // Evaluate folded poly at x₀
+            let actual = folded.evaluate(&folded_point);
+
+            // Ensure the results agree
+            assert_eq!(expected, actual);
+        }
     }
 }
