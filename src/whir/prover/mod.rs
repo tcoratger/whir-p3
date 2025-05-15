@@ -212,10 +212,15 @@ where
                 }
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
+                // Exactly one growth
+                stir_evaluations.reserve_exact(answers.len());
 
-                stir_evaluations.extend(answers.iter().map(|answers| {
-                    CoefficientList::new(answers.clone()).evaluate(&round_state.folding_randomness)
-                }));
+                for answer in &answers {
+                    stir_evaluations.push(
+                        CoefficientList::new(answer.clone())
+                            .evaluate(&round_state.folding_randomness),
+                    );
+                }
 
                 round_state.commitment_merkle_proof = Some((answers, merkle_proof));
                 stir_evaluations
@@ -230,9 +235,15 @@ where
                 }
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
-                stir_evaluations.extend(answers.iter().map(|answers| {
-                    CoefficientList::new(answers.clone()).evaluate(&round_state.folding_randomness)
-                }));
+                // Exactly one growth
+                stir_evaluations.reserve_exact(answers.len());
+
+                for answer in &answers {
+                    stir_evaluations.push(
+                        CoefficientList::new(answer.clone())
+                            .evaluate(&round_state.folding_randomness),
+                    );
+                }
 
                 round_state.merkle_proofs.push((answers, merkle_proof));
                 stir_evaluations
