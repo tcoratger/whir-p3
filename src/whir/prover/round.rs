@@ -28,9 +28,6 @@ where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
 {
-    /// Current round index (starts from 0).
-    pub(crate) round: usize,
-
     /// The domain used in this round, including the size and generator.
     /// This is typically a scaled version of the previous round’s domain.
     pub(crate) domain: Domain<EF, F>,
@@ -166,7 +163,6 @@ where
 
         Ok(Self {
             domain: prover.starting_domain.clone(),
-            round: 0,
             sumcheck_prover,
             folding_randomness,
             coefficients: CoefficientStorage::Base(witness.polynomial),
@@ -328,9 +324,6 @@ mod tests {
         // Full randomness vector should be padded up to `num_variables`
         assert_eq!(state.randomness_vec.len(), num_variables);
 
-        // Round index should start at 0
-        assert_eq!(state.round, 0);
-
         // Domain should match the starting parameters
         assert_eq!(
             state.domain,
@@ -451,9 +444,6 @@ mod tests {
             ]
         );
 
-        // Round index starts at 0
-        assert_eq!(state.round, 0);
-
         // Domain should match expected domain: 2^3 = 8 elements with inverse rate = 1
         assert_eq!(
             state.domain,
@@ -538,9 +528,6 @@ mod tests {
 
         // Coefficients should match the original zero polynomial
         assert_eq!(state.coefficients, CoefficientStorage::Base(poly));
-
-        // First round index is always 0
-        assert_eq!(state.round, 0);
 
         // Domain must match the WHIR config's expected size
         assert_eq!(
@@ -644,9 +631,6 @@ mod tests {
                 assert_eq!(dot_product, sumcheck.sum);
             }
         }
-
-        // Round should be the first (index 0)
-        assert_eq!(state.round, 0);
 
         // Coefficient storage must match original polynomial
         assert_eq!(state.coefficients, CoefficientStorage::Base(poly));

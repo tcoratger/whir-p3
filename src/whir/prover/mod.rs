@@ -101,8 +101,8 @@ where
             RoundState::initialize_first_round_state(self, prover_state, statement, witness)?;
 
         // Run WHIR rounds
-        for _round in 0..=self.n_rounds() {
-            self.round(dft, prover_state, &mut round_state)?;
+        for round in 0..=self.n_rounds() {
+            self.round(round, dft, prover_state, &mut round_state)?;
         }
 
         // Extract WhirProof
@@ -133,6 +133,7 @@ where
     #[allow(clippy::too_many_lines)]
     fn round<D, const DIGEST_ELEMS: usize>(
         &self,
+        round_index: usize,
         dft: &D,
         prover_state: &mut ProverState<EF, F>,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
@@ -149,19 +150,19 @@ where
             .fold(&round_state.folding_randomness);
 
         let num_variables =
-            self.mv_parameters.num_variables - self.folding_factor.total_number(round_state.round);
+            self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
         // num_variables should match the folded_coefficients here.
         assert_eq!(num_variables, folded_coefficients.num_variables());
 
         // Base case: final round reached
-        if round_state.round == self.n_rounds() {
-            return self.final_round(prover_state, round_state, &folded_coefficients);
+        if round_index == self.n_rounds() {
+            return self.final_round(round_index, prover_state, round_state, &folded_coefficients);
         }
 
-        let round_params = &self.round_parameters[round_state.round];
+        let round_params = &self.round_parameters[round_index];
 
         // Compute the folding factors for later use
-        let folding_factor_next = self.folding_factor.at_round(round_state.round + 1);
+        let folding_factor_next = self.folding_factor.at_round(round_index + 1);
 
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
@@ -203,6 +204,7 @@ where
 
         // STIR Queries
         let (stir_challenges, stir_challenges_indexes) = self.compute_stir_queries(
+            round_index,
             prover_state,
             round_state,
             num_variables,
@@ -224,6 +226,7 @@ where
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
                 self.fold_optimisation.stir_evaluations_prover(
+                    round_index,
                     round_state,
                     &stir_challenges_indexes,
                     &answers,
@@ -247,6 +250,7 @@ where
                 self.0
                     .fold_optimisation
                     .stir_evaluations_prover::<_, EF, _, DIGEST_ELEMS>(
+                        round_index,
                         round_state,
                         &stir_challenges_indexes,
                         &answers,
@@ -297,7 +301,7 @@ where
             round_params.folding_pow_bits,
         )?;
 
-        let start_idx = self.folding_factor.total_number(round_state.round);
+        let start_idx = self.folding_factor.total_number(round_index);
         let dst_randomness =
             &mut round_state.randomness_vec[start_idx..][..folding_randomness.0.len()];
 
@@ -309,7 +313,6 @@ where
         }
 
         // Update round state
-        round_state.round += 1;
         round_state.domain = new_domain;
         round_state.sumcheck_prover = Some(sumcheck_prover);
         round_state.folding_randomness = folding_randomness;
@@ -321,6 +324,7 @@ where
 
     fn final_round<const DIGEST_ELEMS: usize>(
         &self,
+        round_index: usize,
         prover_state: &mut ProverState<EF, F>,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
@@ -337,7 +341,7 @@ where
             // The size of the original domain before folding
             round_state.domain.size(),
             // The folding factor we used to fold the previous polynomial
-            self.folding_factor.at_round(round_state.round),
+            self.folding_factor.at_round(round_index),
             self.final_queries,
             prover_state,
         )?;
@@ -396,7 +400,7 @@ where
                     self.final_folding_pow_bits,
                 )?;
 
-            let start_idx = self.folding_factor.total_number(round_state.round);
+            let start_idx = self.folding_factor.total_number(round_index);
             let rand_dst = &mut round_state.randomness_vec
                 [start_idx..start_idx + final_folding_randomness.0.len()];
 
@@ -413,6 +417,7 @@ where
 
     fn compute_stir_queries<const DIGEST_ELEMS: usize>(
         &self,
+        round_index: usize,
         prover_state: &mut ProverState<EF, F>,
         round_state: &RoundState<EF, F, DIGEST_ELEMS>,
         num_variables: usize,
@@ -421,7 +426,7 @@ where
     ) -> ProofResult<(Vec<MultilinearPoint<EF>>, Vec<usize>)> {
         let stir_challenges_indexes = get_challenge_stir_queries(
             round_state.domain.size(),
-            self.folding_factor.at_round(round_state.round),
+            self.folding_factor.at_round(round_index),
             round_params.num_queries,
             prover_state,
         )?;
@@ -430,7 +435,7 @@ where
         let domain_scaled_gen = round_state
             .domain
             .backing_domain
-            .element(1 << self.folding_factor.at_round(round_state.round));
+            .element(1 << self.folding_factor.at_round(round_index));
         let stir_challenges = ood_points
             .into_iter()
             .chain(
