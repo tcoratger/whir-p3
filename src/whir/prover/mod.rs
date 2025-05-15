@@ -98,7 +98,7 @@ where
         );
 
         let mut round_state =
-            RoundState::initialize_first_round_state(&self, prover_state, statement, witness)?;
+            RoundState::initialize_first_round_state(self, prover_state, statement, witness)?;
 
         // Run WHIR rounds
         for _round in 0..=self.0.n_rounds() {

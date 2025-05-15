@@ -164,7 +164,7 @@ where
         randomness_vec.extend(folding_randomness.0.iter().rev().copied());
         randomness_vec.resize(prover.mv_parameters.num_variables, EF::ZERO);
 
-        Ok(RoundState {
+        Ok(Self {
             domain: prover.starting_domain.clone(),
             round: 0,
             sumcheck_prover,
