@@ -93,29 +93,6 @@ where
     }
 }
 
-/// Folds a multilinear polynomial over `k` variables using random challenges.
-///
-/// This performs `k` rounds of the standard sumcheck folding operation:
-/// At each step, pairs of evaluations are linearly combined using a challenge `r`,
-/// effectively reducing the number of variables by 1.
-pub(crate) fn fold_k_times<F, EF>(evaluations: &[F], randomness: &[EF], k: usize) -> Vec<EF>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    let mut evals: Vec<_> = evaluations
-        .chunks_exact(2)
-        .map(|pair| randomness[0] * (pair[1] - pair[0]) + pair[0])
-        .collect();
-    for r in randomness.iter().take(k).skip(1) {
-        evals = evals
-            .chunks_exact(2)
-            .map(|pair| *r * (pair[1] - pair[0]) + pair[0])
-            .collect();
-    }
-    evals
-}
-
 #[cfg(test)]
 #[allow(clippy::erasing_op, clippy::identity_op)]
 mod tests {

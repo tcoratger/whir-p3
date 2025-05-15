@@ -312,19 +312,6 @@ where
                 }
                 // }
 
-                // // Apply k rounds of folding to p and weights
-                // let new_p = fold_k_times(
-                //     match &self.evaluation_of_p {
-                //         EvaluationStorage::Base(evals_f) => evals_f.evals(),
-                //         EvaluationStorage::Extension(_) => panic!(
-                //             "The univariate skip optimization should only occur in base field"
-                //         ),
-                //     },
-                //     &res,
-                //     k,
-                // );
-                // let new_weights = fold_k_times(self.weights.evals(), &res, k);
-
                 // Get evaluations of p
                 let evals_p = match &self.evaluation_of_p {
                     EvaluationStorage::Base(evals_f) => evals_f.evals(),
