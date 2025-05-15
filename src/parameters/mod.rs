@@ -1,13 +1,7 @@
-use std::{fmt::Display, marker::PhantomData, str::FromStr};
+use std::{fmt::Display, marker::PhantomData};
 
 use errors::SecurityAssumption;
-use p3_field::{ExtensionField, Field, TwoAdicField};
 use thiserror::Error;
-
-use crate::whir::{
-    parameters::WhirConfig, parsed_proof::ParsedProof, prover::round::RoundState,
-    stir_evaluations::StirEvalContext,
-};
 
 pub mod errors;
 
@@ -47,146 +41,6 @@ impl<F> MultivariateParameters<F> {
 impl<F> Display for MultivariateParameters<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Number of variables: {}", self.num_variables)
-    }
-}
-
-/// Defines the folding strategy for polynomial commitments.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FoldType {
-    /// A naive approach with minimal optimizations.
-    Naive,
-    /// A strategy where the prover aids in the folding process.
-    ProverHelps,
-}
-
-impl FoldType {
-    /// Computes folded evaluations for a single round of the proof,
-    /// based on the current folding strategy.
-    ///
-    /// Dispatches the STIR evaluation logic according to the chosen folding strategy.
-    ///
-    /// - If `Naive`, uses coset-based folding via `compute_fold`.
-    /// - If `ProverHelps`, assumes coefficients and evaluates directly at $\vec{r}$.
-    ///
-    /// This method is used by the prover when deriving folded polynomial values at queried points.
-    pub(crate) fn stir_evaluations_prover<EF, SubEF, F, const DIGEST_ELEMS: usize>(
-        self,
-        round_index: usize,
-        round_state: &RoundState<EF, F, DIGEST_ELEMS>,
-        stir_challenges_indexes: &[usize],
-        answers: &[Vec<SubEF>],
-        folding_factor: FoldingFactor,
-        stir_evaluations: &mut Vec<EF>,
-    ) where
-        F: Field + TwoAdicField,
-        SubEF: ExtensionField<F>,
-        EF: ExtensionField<SubEF> + ExtensionField<F> + TwoAdicField,
-    {
-        let ctx = match self {
-            Self::Naive => StirEvalContext::Naive {
-                domain_size: round_state.domain.backing_domain.size(),
-                domain_gen_inv: round_state.domain.backing_domain.element(1).inverse(),
-                round: round_index,
-                stir_challenges_indexes,
-                folding_factor: &folding_factor,
-                folding_randomness: &round_state.folding_randomness,
-            },
-            Self::ProverHelps => StirEvalContext::ProverHelps {
-                folding_randomness: &round_state.folding_randomness,
-            },
-        };
-        ctx.evaluate(answers, stir_evaluations);
-    }
-
-    /// Computes folded evaluations across all rounds of the proof,
-    /// based on the configured folding strategy.
-    ///
-    /// This function is used during proof verification by the verifier.
-    ///
-    /// # Returns
-    /// - A list of folded evaluations for each round, including the final round.
-    ///
-    /// # Strategy Behavior
-    ///
-    /// - If `Naive`, performs coset-based folding round by round.
-    /// - If `ProverHelps`, reuses the precomputed coefficient evaluations.
-    pub(crate) fn stir_evaluations_verifier<EF, F, H, C, PowStrategy>(
-        self,
-        parsed: &ParsedProof<EF>,
-        params: &WhirConfig<EF, F, H, C, PowStrategy>,
-    ) -> Vec<Vec<EF>>
-    where
-        F: Field + TwoAdicField,
-        EF: ExtensionField<F> + TwoAdicField,
-    {
-        match self {
-            Self::Naive => {
-                // Start with the domain size and the fold vector
-                let mut domain_size = params.starting_domain.backing_domain.size();
-                let mut result = Vec::with_capacity(parsed.rounds.len() + 1);
-
-                for (round_index, round) in parsed.rounds.iter().enumerate() {
-                    // Compute the folds for this round
-                    let mut round_evals = Vec::with_capacity(round.stir_challenges_indexes.len());
-                    let stir_evals_context = StirEvalContext::Naive {
-                        domain_size,
-                        domain_gen_inv: round.domain_gen_inv,
-                        round: round_index,
-                        stir_challenges_indexes: &round.stir_challenges_indexes,
-                        folding_factor: &params.folding_factor,
-                        folding_randomness: &round.folding_randomness,
-                    };
-                    stir_evals_context
-                        .evaluate::<EF>(&round.stir_challenges_answers, &mut round_evals);
-
-                    // Push the folds to the result
-                    result.push(round_evals);
-                    // Update the domain size
-                    domain_size /= 2;
-                }
-
-                // Final round
-                let final_round_index = parsed.rounds.len();
-                let mut final_evals = Vec::with_capacity(parsed.final_randomness_indexes.len());
-
-                let stir_evals_context = StirEvalContext::Naive {
-                    domain_size,
-                    domain_gen_inv: parsed.final_domain_gen_inv,
-                    round: final_round_index,
-                    stir_challenges_indexes: &parsed.final_randomness_indexes,
-                    folding_factor: &params.folding_factor,
-                    folding_randomness: &parsed.final_folding_randomness,
-                };
-
-                stir_evals_context
-                    .evaluate::<EF>(&parsed.final_randomness_answers, &mut final_evals);
-
-                result.push(final_evals);
-                result
-            }
-            Self::ProverHelps => parsed.compute_folds_helped(),
-        }
-    }
-}
-
-impl FromStr for FoldType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Naive" => Ok(Self::Naive),
-            "ProverHelps" => Ok(Self::ProverHelps),
-            _ => Err(format!("Invalid fold type specification: {s}")),
-        }
-    }
-}
-
-impl Display for FoldType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Naive => "Naive",
-            Self::ProverHelps => "ProverHelps",
-        })
     }
 }
 
@@ -335,8 +189,6 @@ pub struct ProtocolParameters<H, C> {
     pub security_level: usize,
     /// The number of bits required for proof-of-work (PoW).
     pub pow_bits: usize,
-    /// The folding optimization strategy.
-    pub fold_optimisation: FoldType,
     /// Hash used in the Merkle tree.
     pub merkle_hash: H,
     /// Compression method used in the Merkle tree.
@@ -352,8 +204,8 @@ impl<H, C> Display for ProtocolParameters<H, C> {
         )?;
         writeln!(
             f,
-            "Starting rate: 2^-{}, folding_factor: {:?}, fold_opt_type: {}",
-            self.starting_log_inv_rate, self.folding_factor, self.fold_optimisation,
+            "Starting rate: 2^-{}, folding_factor: {:?}",
+            self.starting_log_inv_rate, self.folding_factor,
         )
     }
 }
@@ -378,16 +230,6 @@ mod tests {
         let params = MultivariateParameters::<u32>::new(5);
         assert_eq!(params.num_variables, 5);
         assert_eq!(params.to_string(), "Number of variables: 5");
-    }
-
-    #[test]
-    fn test_fold_type_from_str() {
-        assert_eq!(FoldType::from_str("Naive"), Ok(FoldType::Naive));
-        assert_eq!(FoldType::from_str("ProverHelps"), Ok(FoldType::ProverHelps));
-
-        // Invalid cases
-        assert!(FoldType::from_str("Invalid").is_err());
-        assert!(FoldType::from_str("").is_err()); // Empty string
     }
 
     #[test]

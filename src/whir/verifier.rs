@@ -437,10 +437,7 @@ where
             whir_proof,
         )?;
 
-        let computed_folds = self
-            .params
-            .fold_optimisation
-            .stir_evaluations_verifier(&parsed, self.params);
+        let computed_folds = parsed.compute_folds_helped();
 
         let mut prev_sumcheck = None;
 

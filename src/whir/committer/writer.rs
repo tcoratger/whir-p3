@@ -9,8 +9,6 @@ use serde::{Deserialize, Serialize};
 use super::Witness;
 use crate::{
     fiat_shamir::{errors::ProofResult, prover::ProverState},
-    ntt::expand_from_coeff,
-    parameters::FoldType,
     poly::coeffs::CoefficientList,
     whir::{parameters::WhirConfig, utils::sample_ood_points},
 };
@@ -64,29 +62,16 @@ where
         let expansion = base_domain.size() / polynomial.num_coeffs();
 
         // Expand polynomial coefficients into evaluations over the domain
-        let folded_matrix = match self.0.fold_optimisation {
-            FoldType::Naive => {
-                let evals = expand_from_coeff(dft, polynomial.coeffs(), expansion);
-
-                // Compute the number of sub-cosets = 2^folding_factor
-                let folding_factor_exp = 1 << self.0.folding_factor.at_round(0);
-
-                // Number of rows (one per subdomain)
-                let size_of_new_domain = evals.len() / folding_factor_exp;
-
-                RowMajorMatrix::new(evals, size_of_new_domain).transpose()
-            }
-            FoldType::ProverHelps => {
-                let mut coeffs = polynomial.coeffs().to_vec();
-                coeffs.resize(coeffs.len() * expansion, F::ZERO);
-                // Do DFT on only interleaved polys to be folded.
-                dft.dft_batch(RowMajorMatrix::new(
-                    coeffs,
-                    1 << self.0.folding_factor.at_round(0),
-                ))
-                // Get natural order of rows.
-                .to_row_major_matrix()
-            }
+        let folded_matrix = {
+            let mut coeffs = polynomial.coeffs().to_vec();
+            coeffs.resize(coeffs.len() * expansion, F::ZERO);
+            // Do DFT on only interleaved polys to be folded.
+            dft.dft_batch(RowMajorMatrix::new(
+                coeffs,
+                1 << self.0.folding_factor.at_round(0),
+            ))
+            // Get natural order of rows.
+            .to_row_major_matrix()
         };
 
         // Commit to the Merkle tree
@@ -127,8 +112,7 @@ mod tests {
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         parameters::{
-            FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters,
-            errors::SecurityAssumption,
+            FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
         poly::multilinear::MultilinearPoint,
     };
@@ -166,7 +150,6 @@ mod tests {
             merkle_hash: field_hash,
             merkle_compress: compress,
             soundness_type: SecurityAssumption::CapacityBound,
-            fold_optimisation: FoldType::ProverHelps,
             starting_log_inv_rate: starting_rate,
         };
 
@@ -249,7 +232,6 @@ mod tests {
             merkle_hash: field_hash,
             merkle_compress: compress,
             soundness_type: SecurityAssumption::CapacityBound,
-            fold_optimisation: FoldType::ProverHelps,
             starting_log_inv_rate: starting_rate,
         };
 
@@ -297,7 +279,6 @@ mod tests {
             merkle_hash: field_hash,
             merkle_compress: compress,
             soundness_type: SecurityAssumption::CapacityBound,
-            fold_optimisation: FoldType::ProverHelps,
             starting_log_inv_rate: starting_rate,
         };
 
