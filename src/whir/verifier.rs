@@ -258,7 +258,6 @@ where
             self.params.final_queries,
             verifier_state,
         )?;
-
         let final_randomness_points: Vec<_> = final_randomness_indexes
             .iter()
             .map(|index| exp_domain_gen.exp_u64(*index as u64))
@@ -313,7 +312,6 @@ where
         }
 
         let mut final_sumcheck_rounds = Vec::with_capacity(self.params.final_sumcheck_rounds);
-
         for _ in 0..self.params.final_sumcheck_rounds {
             let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars()?;
             let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
