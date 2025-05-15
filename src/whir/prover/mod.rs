@@ -230,17 +230,6 @@ where
                 }
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
-                // self.0
-                //     .fold_optimisation
-                //     .stir_evaluations_prover::<_, EF, _, DIGEST_ELEMS>(
-                //         round_index,
-                //         round_state,
-                //         &stir_challenges_indexes,
-                //         &answers,
-                //         self.folding_factor,
-                //         &mut stir_evaluations,
-                //     );
-
                 stir_evaluations.extend(answers.iter().map(|answers| {
                     CoefficientList::new(answers.clone()).evaluate(&round_state.folding_randomness)
                 }));
