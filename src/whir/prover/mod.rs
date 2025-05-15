@@ -78,6 +78,27 @@ where
         witness.polynomial.num_variables() == self.mv_parameters.num_variables
     }
 
+    /// Executes the full WHIR prover protocol to produce the proof.
+    ///
+    /// This function takes the public statement and private witness, performs the
+    /// multi-round sumcheck-based polynomial folding protocol using DFTs, and returns
+    /// a proof that the witness satisfies the statement.
+    ///
+    /// The proof includes:
+    /// - Merkle authentication paths for each round's polynomial commitments
+    /// - Final evaluations of the public linear statement constraints at a random point
+    ///
+    /// # Parameters
+    /// - `dft`: A DFT backend used for evaluations
+    /// - `prover_state`: Mutable prover state used across rounds (transcript, randomness, etc.)
+    /// - `statement`: The public input, consisting of linear or nonlinear constraints
+    /// - `witness`: The private witness satisfying the constraints, including committed values
+    ///
+    /// # Returns
+    /// A `WhirProof` object containing Merkle paths and final evaluations, suitable for verification.
+    ///
+    /// # Errors
+    /// Returns an error if the witness or statement are invalid, or if a round fails.
     pub fn prove<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
@@ -95,35 +116,44 @@ where
         assert!(
             self.validate_parameters()
                 && self.validate_statement(&statement)
-                && self.validate_witness(&witness)
+                && self.validate_witness(&witness),
+            "Invalid prover parameters, statement, or witness"
         );
 
+        // Initialize the round state with inputs and initial polynomial data
         let mut round_state =
             RoundState::initialize_first_round_state(self, prover_state, statement, witness)?;
 
-        // Run WHIR rounds
+        // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
             self.round(round, dft, prover_state, &mut round_state)?;
         }
 
-        // Extract WhirProof
+        // Reverse the vector of verifier challenges (used as evaluation point)
+        //
+        // These challenges were pushed in round order; we reverse them to use as a single
+        // evaluation point for final statement consistency checks.
         round_state.randomness_vec.reverse();
+        let eval_point = MultilinearPoint(round_state.randomness_vec.clone());
+
+        // Evaluate the public linear statement constraints at the random point
+        //
+        // Only linear constraints are checked here, by evaluating their linear combination weights.
         let statement_values_at_random_point = round_state
             .statement
             .constraints
             .iter()
-            .filter_map(|(weights, _)| {
-                if let Weights::Linear { weight } = weights {
-                    Some(
-                        weight
-                            .eval_extension(&MultilinearPoint(round_state.randomness_vec.clone())),
-                    )
-                } else {
-                    None
-                }
+            .filter_map(|(weights, _)| match weights {
+                Weights::Linear { weight } => Some(weight.eval_extension(&eval_point)),
+                Weights::Evaluation { .. } => None,
             })
             .collect();
 
+        // Construct the final WHIR proof with all necessary Merkle proofs and evaluations
+        //
+        // The proof consists of:
+        //   - Merkle paths for polynomial commitments from all rounds
+        //   - Final evaluations of the public statement at the challenge point
         Ok(WhirProof {
             commitment_merkle_paths: round_state.commitment_merkle_proof.unwrap(),
             merkle_paths: round_state.merkle_proofs,
