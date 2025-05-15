@@ -57,13 +57,13 @@ where
     PS: PowStrategy,
 {
     fn validate_parameters(&self) -> bool {
-        self.0.mv_parameters.num_variables
-            == self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
+        self.mv_parameters.num_variables
+            == self.folding_factor.total_number(self.n_rounds()) + self.final_sumcheck_rounds
     }
 
     fn validate_statement(&self, statement: &Statement<EF>) -> bool {
-        statement.num_variables() == self.0.mv_parameters.num_variables
-            && (self.0.initial_statement || statement.constraints.is_empty())
+        statement.num_variables() == self.mv_parameters.num_variables
+            && (self.initial_statement || statement.constraints.is_empty())
     }
 
     fn validate_witness<const DIGEST_ELEMS: usize>(
@@ -71,10 +71,10 @@ where
         witness: &Witness<EF, F, DIGEST_ELEMS>,
     ) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
-        if !self.0.initial_statement {
+        if !self.initial_statement {
             assert!(witness.ood_points.is_empty());
         }
-        witness.polynomial.num_variables() == self.0.mv_parameters.num_variables
+        witness.polynomial.num_variables() == self.mv_parameters.num_variables
     }
 
     pub fn prove<D, const DIGEST_ELEMS: usize>(
@@ -101,7 +101,7 @@ where
             RoundState::initialize_first_round_state(self, prover_state, statement, witness)?;
 
         // Run WHIR rounds
-        for _round in 0..=self.0.n_rounds() {
+        for _round in 0..=self.n_rounds() {
             self.round(dft, prover_state, &mut round_state)?;
         }
 
@@ -148,30 +148,30 @@ where
             .coefficients
             .fold(&round_state.folding_randomness);
 
-        let num_variables = self.0.mv_parameters.num_variables
-            - self.0.folding_factor.total_number(round_state.round);
+        let num_variables =
+            self.mv_parameters.num_variables - self.folding_factor.total_number(round_state.round);
         // num_variables should match the folded_coefficients here.
         assert_eq!(num_variables, folded_coefficients.num_variables());
 
         // Base case: final round reached
-        if round_state.round == self.0.n_rounds() {
+        if round_state.round == self.n_rounds() {
             return self.final_round(prover_state, round_state, &folded_coefficients);
         }
 
-        let round_params = &self.0.round_parameters[round_state.round];
+        let round_params = &self.round_parameters[round_state.round];
 
         // Compute the folding factors for later use
-        let folding_factor_next = self.0.folding_factor.at_round(round_state.round + 1);
+        let folding_factor_next = self.folding_factor.at_round(round_state.round + 1);
 
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
-        let folded_matrix = match self.0.fold_optimisation {
+        let folded_matrix = match self.fold_optimisation {
             FoldType::Naive => {
                 let evals = expand_from_coeff(dft, folded_coefficients.coeffs(), expansion);
 
                 // Compute the number of sub-cosets = 2^folding_factor
-                let folding_factor_exp = 1 << self.0.folding_factor.at_round(0);
+                let folding_factor_exp = 1 << self.folding_factor.at_round(0);
 
                 // Number of rows (one per subdomain)
                 let size_of_new_domain = evals.len() / folding_factor_exp;
@@ -186,7 +186,7 @@ where
             }
         };
 
-        let mmcs = MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+        let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
         let (root, prover_data) = extension_mmcs.commit_matrix(folded_matrix);
 
@@ -223,11 +223,11 @@ where
                 }
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
-                self.0.fold_optimisation.stir_evaluations_prover(
+                self.fold_optimisation.stir_evaluations_prover(
                     round_state,
                     &stir_challenges_indexes,
                     &answers,
-                    self.0.folding_factor,
+                    self.folding_factor,
                     &mut stir_evaluations,
                 );
 
@@ -250,7 +250,7 @@ where
                         round_state,
                         &stir_challenges_indexes,
                         &answers,
-                        self.0.folding_factor,
+                        self.folding_factor,
                         &mut stir_evaluations,
                     );
                 round_state.merkle_proofs.push((answers, merkle_proof));
@@ -297,7 +297,7 @@ where
             round_params.folding_pow_bits,
         )?;
 
-        let start_idx = self.0.folding_factor.total_number(round_state.round);
+        let start_idx = self.folding_factor.total_number(round_state.round);
         let dst_randomness =
             &mut round_state.randomness_vec[start_idx..][..folding_randomness.0.len()];
 
@@ -337,13 +337,13 @@ where
             // The size of the original domain before folding
             round_state.domain.size(),
             // The folding factor we used to fold the previous polynomial
-            self.0.folding_factor.at_round(round_state.round),
-            self.0.final_queries,
+            self.folding_factor.at_round(round_state.round),
+            self.final_queries,
             prover_state,
         )?;
 
         // Every query requires opening these many in the previous Merkle tree
-        let mmcs = MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+        let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
 
         match &round_state.merkle_prover_data {
@@ -374,12 +374,12 @@ where
         }
 
         // PoW
-        if self.0.final_pow_bits > 0. {
-            prover_state.challenge_pow::<PS>(self.0.final_pow_bits)?;
+        if self.final_pow_bits > 0. {
+            prover_state.challenge_pow::<PS>(self.final_pow_bits)?;
         }
 
         // Run final sumcheck if required
-        if self.0.final_sumcheck_rounds > 0 {
+        if self.final_sumcheck_rounds > 0 {
             let final_folding_randomness = round_state
                 .sumcheck_prover
                 .clone()
@@ -392,11 +392,11 @@ where
                 })
                 .compute_sumcheck_polynomials::<PS>(
                     prover_state,
-                    self.0.final_sumcheck_rounds,
-                    self.0.final_folding_pow_bits,
+                    self.final_sumcheck_rounds,
+                    self.final_folding_pow_bits,
                 )?;
 
-            let start_idx = self.0.folding_factor.total_number(round_state.round);
+            let start_idx = self.folding_factor.total_number(round_state.round);
             let rand_dst = &mut round_state.randomness_vec
                 [start_idx..start_idx + final_folding_randomness.0.len()];
 
@@ -421,7 +421,7 @@ where
     ) -> ProofResult<(Vec<MultilinearPoint<EF>>, Vec<usize>)> {
         let stir_challenges_indexes = get_challenge_stir_queries(
             round_state.domain.size(),
-            self.0.folding_factor.at_round(round_state.round),
+            self.folding_factor.at_round(round_state.round),
             round_params.num_queries,
             prover_state,
         )?;
@@ -430,7 +430,7 @@ where
         let domain_scaled_gen = round_state
             .domain
             .backing_domain
-            .element(1 << self.0.folding_factor.at_round(round_state.round));
+            .element(1 << self.folding_factor.at_round(round_state.round));
         let stir_challenges = ood_points
             .into_iter()
             .chain(
