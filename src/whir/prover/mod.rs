@@ -179,7 +179,7 @@ where
 
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
-        let expansion = new_domain.size() / folded_coefficients.num_coeffs();
+        let expansion = new_domain.size() / folded_evals.num_evals();
         let folded_matrix = match self.fold_optimisation {
             FoldType::Naive => {
                 let evals = expand_from_coeff(dft, folded_coefficients.coeffs(), expansion);
