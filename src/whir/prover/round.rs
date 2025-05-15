@@ -197,8 +197,7 @@ mod tests {
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         parameters::{
-            FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters,
-            errors::SecurityAssumption,
+            FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
         poly::{coeffs::CoefficientList, evals::EvaluationStorage},
         whir::{WhirConfig, committer::writer::CommitmentWriter},
@@ -243,7 +242,6 @@ mod tests {
             merkle_compress: MyCompress::new(ByteHash {}),
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
-            fold_optimisation: FoldType::Naive,
         };
 
         // Combine the multivariate and protocol parameters into a full WHIR config

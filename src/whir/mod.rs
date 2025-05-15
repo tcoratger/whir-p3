@@ -13,8 +13,7 @@ use verifier::Verifier;
 use crate::{
     fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
-        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters,
-        errors::SecurityAssumption,
+        FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::prover::Proof,
@@ -25,7 +24,6 @@ pub mod parameters;
 pub mod parsed_proof;
 pub mod prover;
 pub mod statement;
-pub mod stir_evaluations;
 pub mod utils;
 pub mod verifier;
 
@@ -52,7 +50,6 @@ pub fn make_whir_things(
     num_points: usize,
     soundness_type: SecurityAssumption,
     pow_bits: usize,
-    fold_type: FoldType,
 ) {
     // Number of coefficients = 2^num_variables
     let num_coeffs = 1 << num_variables;
@@ -75,7 +72,6 @@ pub fn make_whir_things(
         merkle_compress,
         soundness_type,
         starting_log_inv_rate: 1,
-        fold_optimisation: fold_type,
     };
 
     // Combine protocol and polynomial parameters into a single config
@@ -171,7 +167,7 @@ pub fn make_whir_things(
 mod tests {
     use crate::{
         parameters::errors::SecurityAssumption,
-        whir::{FoldType, FoldingFactor, make_whir_things},
+        whir::{FoldingFactor, make_whir_things},
     };
 
     #[test]
@@ -182,26 +178,22 @@ mod tests {
             SecurityAssumption::CapacityBound,
             SecurityAssumption::UniqueDecoding,
         ];
-        let fold_types = [FoldType::Naive, FoldType::ProverHelps];
         let num_points = [0, 1, 2];
         let pow_bits = [0, 5, 10];
 
         for folding_factor in folding_factors {
             let num_variables = folding_factor..=3 * folding_factor;
             for num_variable in num_variables {
-                for fold_type in fold_types {
-                    for num_points in num_points {
-                        for soundness_type in soundness_type {
-                            for pow_bits in pow_bits {
-                                make_whir_things(
-                                    num_variable,
-                                    FoldingFactor::Constant(folding_factor),
-                                    num_points,
-                                    soundness_type,
-                                    pow_bits,
-                                    fold_type,
-                                );
-                            }
+                for num_points in num_points {
+                    for soundness_type in soundness_type {
+                        for pow_bits in pow_bits {
+                            make_whir_things(
+                                num_variable,
+                                FoldingFactor::Constant(folding_factor),
+                                num_points,
+                                soundness_type,
+                                pow_bits,
+                            );
                         }
                     }
                 }

@@ -5,8 +5,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use crate::{
     domain::Domain,
     parameters::{
-        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters,
-        errors::SecurityAssumption,
+        FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },
 };
 
@@ -43,7 +42,6 @@ where
 
     pub folding_factor: FoldingFactor,
     pub round_parameters: Vec<RoundConfig>,
-    pub fold_optimisation: FoldType,
 
     pub final_queries: usize,
     pub final_pow_bits: f64,
@@ -202,7 +200,6 @@ where
             final_pow_bits,
             final_sumcheck_rounds,
             final_folding_pow_bits,
-            fold_optimisation: whir_parameters.fold_optimisation,
             final_log_inv_rate: log_inv_rate,
             pow_strategy: PhantomData,
             merkle_hash: whir_parameters.merkle_hash,
@@ -324,7 +321,6 @@ mod tests {
             merkle_hash: Poseidon2Sponge::new(44), // Just a placeholder
             merkle_compress: Poseidon2Compression::new(55), // Just a placeholder
             soundness_type: SecurityAssumption::CapacityBound,
-            fold_optimisation: FoldType::ProverHelps,
             starting_log_inv_rate: 1,
         }
     }

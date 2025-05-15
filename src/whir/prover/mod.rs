@@ -12,8 +12,6 @@ use serde::{Deserialize, Serialize};
 use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
-    ntt::expand_from_coeff,
-    parameters::FoldType,
     poly::{
         coeffs::{CoefficientList, CoefficientStorage},
         evals::{EvaluationStorage, EvaluationsList},
@@ -179,25 +177,12 @@ where
 
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
-        let expansion = new_domain.size() / folded_evals.num_evals();
-        let folded_matrix = match self.fold_optimisation {
-            FoldType::Naive => {
-                let evals = expand_from_coeff(dft, folded_coefficients.coeffs(), expansion);
-
-                // Compute the number of sub-cosets = 2^folding_factor
-                let folding_factor_exp = 1 << self.folding_factor.at_round(0);
-
-                // Number of rows (one per subdomain)
-                let size_of_new_domain = evals.len() / folding_factor_exp;
-
-                RowMajorMatrix::new(evals, size_of_new_domain).transpose()
-            }
-            FoldType::ProverHelps => {
-                let mut coeffs = folded_coefficients.coeffs().to_vec();
-                coeffs.resize(coeffs.len() * expansion, EF::ZERO);
-                // Do DFT on only interleaved polys to be folded.
-                dft.dft_algebra_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor_next))
-            }
+        let expansion = new_domain.size() / folded_coefficients.num_coeffs();
+        let folded_matrix = {
+            let mut coeffs = folded_coefficients.coeffs().to_vec();
+            coeffs.resize(coeffs.len() * expansion, EF::ZERO);
+            // Do DFT on only interleaved polys to be folded.
+            dft.dft_algebra_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor_next))
         };
 
         let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
@@ -238,14 +223,15 @@ where
                 }
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
-                self.fold_optimisation.stir_evaluations_prover(
-                    round_index,
-                    round_state,
-                    &stir_challenges_indexes,
-                    &answers,
-                    self.folding_factor,
-                    &mut stir_evaluations,
-                );
+                // Exactly one growth
+                stir_evaluations.reserve_exact(answers.len());
+
+                for answer in &answers {
+                    stir_evaluations.push(
+                        CoefficientList::new(answer.clone())
+                            .evaluate(&round_state.folding_randomness),
+                    );
+                }
 
                 round_state.commitment_merkle_proof = Some((answers, merkle_proof));
                 stir_evaluations
@@ -260,16 +246,16 @@ where
                 }
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
-                self.0
-                    .fold_optimisation
-                    .stir_evaluations_prover::<_, EF, _, DIGEST_ELEMS>(
-                        round_index,
-                        round_state,
-                        &stir_challenges_indexes,
-                        &answers,
-                        self.folding_factor,
-                        &mut stir_evaluations,
+                // Exactly one growth
+                stir_evaluations.reserve_exact(answers.len());
+
+                for answer in &answers {
+                    stir_evaluations.push(
+                        CoefficientList::new(answer.clone())
+                            .evaluate(&round_state.folding_randomness),
                     );
+                }
+
                 round_state.merkle_proofs.push((answers, merkle_proof));
                 stir_evaluations
             }
