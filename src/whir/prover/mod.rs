@@ -16,6 +16,7 @@ use crate::{
     parameters::FoldType,
     poly::{
         coeffs::{CoefficientList, CoefficientStorage},
+        evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
     sumcheck::sumcheck_single::SumcheckSingle,
@@ -151,14 +152,24 @@ where
             .coefficients
             .fold(&round_state.folding_randomness);
 
+        let folded_evals = round_state
+            .evaluations
+            .fold(&round_state.folding_randomness);
+
         let num_variables =
             self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
-        // num_variables should match the folded_coefficients here.
-        assert_eq!(num_variables, folded_coefficients.num_variables());
+        // The number of variables at the given round should match the folded number of variables.
+        assert_eq!(num_variables, folded_evals.num_variables());
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
-            return self.final_round(round_index, prover_state, round_state, &folded_coefficients);
+            return self.final_round(
+                round_index,
+                prover_state,
+                round_state,
+                &folded_coefficients,
+                &folded_evals,
+            );
         }
 
         let round_params = &self.round_parameters[round_index];
@@ -283,15 +294,15 @@ where
                 );
                 sumcheck_prover
             } else {
-                let mut statement = Statement::new(folded_coefficients.num_variables());
+                let mut statement = Statement::new(folded_evals.num_variables());
 
                 for (point, eval) in stir_challenges.into_iter().zip(stir_evaluations) {
                     let weights = Weights::evaluation(point);
                     statement.add_constraint(weights, eval);
                 }
 
-                SumcheckSingle::from_extension_coeffs(
-                    folded_coefficients.clone(),
+                SumcheckSingle::from_extension_evals(
+                    folded_evals.clone(),
                     &statement,
                     combination_randomness[1],
                 )
@@ -319,6 +330,7 @@ where
         round_state.sumcheck_prover = Some(sumcheck_prover);
         round_state.folding_randomness = folding_randomness;
         round_state.coefficients = CoefficientStorage::Extension(folded_coefficients);
+        round_state.evaluations = EvaluationStorage::Extension(folded_evals);
         round_state.merkle_prover_data = Some(prover_data);
 
         Ok(())
@@ -330,6 +342,7 @@ where
         prover_state: &mut ProverState<EF, F>,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
+        folded_evaluations: &EvaluationsList<EF>,
     ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
@@ -390,8 +403,8 @@ where
                 .sumcheck_prover
                 .clone()
                 .unwrap_or_else(|| {
-                    SumcheckSingle::from_extension_coeffs(
-                        folded_coefficients.clone(),
+                    SumcheckSingle::from_extension_evals(
+                        folded_evaluations.clone(),
                         &round_state.statement,
                         EF::ONE,
                     )

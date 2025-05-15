@@ -73,6 +73,20 @@ where
         }
     }
 
+    pub fn from_base_evals(
+        evals: EvaluationsList<F>,
+        statement: &Statement<EF>,
+        combination_randomness: EF,
+    ) -> Self {
+        let (weights, sum) = statement.combine(combination_randomness);
+        Self {
+            evaluation_of_p: EvaluationStorage::Base(evals),
+            weights,
+            sum,
+            phantom: std::marker::PhantomData,
+        }
+    }
+
     /// Constructs a new `SumcheckSingle` instance from polynomial coefficients in extension field.
     ///
     /// This function:
@@ -89,6 +103,20 @@ where
         let (weights, sum) = statement.combine(combination_randomness);
         Self {
             evaluation_of_p: EvaluationStorage::Extension(coeffs.into()),
+            weights,
+            sum,
+            phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn from_extension_evals(
+        evals: EvaluationsList<EF>,
+        statement: &Statement<EF>,
+        combination_randomness: EF,
+    ) -> Self {
+        let (weights, sum) = statement.combine(combination_randomness);
+        Self {
+            evaluation_of_p: EvaluationStorage::Extension(evals),
             weights,
             sum,
             phantom: std::marker::PhantomData,
