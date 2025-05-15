@@ -1,6 +1,5 @@
 use p3_field::Field;
 
-use super::stir_evaluations::StirEvalContext;
 use crate::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
@@ -80,12 +79,10 @@ where
     pub(crate) fn compute_folds_helped(&self) -> Vec<Vec<F>> {
         // Closure to apply folding evaluation logic.
         let evaluate_answers = |answers: &[Vec<F>], randomness: &MultilinearPoint<F>| {
-            let mut out = Vec::with_capacity(answers.len());
-            StirEvalContext::ProverHelps {
-                folding_randomness: randomness,
-            }
-            .evaluate(answers, &mut out);
-            out
+            answers
+                .iter()
+                .map(|answers| CoefficientList::new(answers.clone()).evaluate(randomness))
+                .collect()
         };
 
         let mut result: Vec<_> = self
