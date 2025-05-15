@@ -5,7 +5,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use thiserror::Error;
 
 use crate::whir::{
-    parameters::WhirConfig, parsed_proof::ParsedProof, prover::RoundState,
+    parameters::WhirConfig, parsed_proof::ParsedProof, prover::round::RoundState,
     stir_evaluations::StirEvalContext,
 };
 
