@@ -298,12 +298,11 @@ where
     /// - Optionally performs a PoW challenge if `pow_bits > 0`.
     pub fn add_sumcheck(&mut self, folding_factor: usize, pow_bits: f64) {
         let mut is_univariate_skip = false;
-        // if folding_factor >= 2 {
-        //     self.add_scalars(8, "sumcheck_poly");
-        //     self.challenge_scalars(1, "folding_randomness");
-        //     self.challenge_scalars(1, "folding_randomness");
-        //     is_univariate_skip = true;
-        // }
+        if folding_factor >= 2 {
+            self.add_scalars(8, "sumcheck_poly");
+            self.challenge_scalars(1, "folding_randomness");
+            is_univariate_skip = true;
+        }
 
         let start = if is_univariate_skip {
             K_SKIP_SUMCHECK

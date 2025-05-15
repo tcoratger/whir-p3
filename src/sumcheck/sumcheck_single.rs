@@ -13,7 +13,7 @@ use crate::{
         evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
-    sumcheck::{sumcheck_single_skip::fold_k_times, utils::sumcheck_quadratic},
+    sumcheck::utils::sumcheck_quadratic,
     utils::eval_eq,
     whir::statement::Statement,
 };
@@ -298,27 +298,40 @@ where
                 let sumcheck_poly = self.compute_skipping_sumcheck_polynomial(dft, k);
                 prover_state.add_scalars(sumcheck_poly.evaluations())?;
 
-                for _ in 0..k {
-                    let [folding_randomness] = prover_state.challenge_scalars()?;
-                    res.push(folding_randomness);
+                let [folding_randomness] = prover_state.challenge_scalars()?;
+                res.push(folding_randomness);
 
-                    if pow_bits > 0. {
-                        prover_state.challenge_pow::<S>(pow_bits)?;
-                    }
+                if pow_bits > 0. {
+                    prover_state.challenge_pow::<S>(pow_bits)?;
                 }
 
-                // Apply k rounds of folding to p and weights
-                let new_p = fold_k_times(
-                    match &self.evaluation_of_p {
-                        EvaluationStorage::Base(evals_f) => evals_f.evals(),
-                        EvaluationStorage::Extension(_) => panic!(
-                            "The univariate skip optimization should only occur in base field"
-                        ),
-                    },
-                    &res,
-                    k,
-                );
-                let new_weights = fold_k_times(self.weights.evals(), &res, k);
+                // // Apply k rounds of folding to p and weights
+                // let new_p = fold_k_times(
+                //     match &self.evaluation_of_p {
+                //         EvaluationStorage::Base(evals_f) => evals_f.evals(),
+                //         EvaluationStorage::Extension(_) => panic!(
+                //             "The univariate skip optimization should only occur in base field"
+                //         ),
+                //     },
+                //     &res,
+                //     k,
+                // );
+                // let new_weights = fold_k_times(self.weights.evals(), &res, k);
+
+                // Get evaluations of p
+                let evals_p = match &self.evaluation_of_p {
+                    EvaluationStorage::Base(evals_f) => evals_f.evals(),
+                    EvaluationStorage::Extension(_) => {
+                        panic!("The univariate skip optimization should only occur in base field")
+                    }
+                };
+
+                let f_mat = RowMajorMatrix::new(evals_p.to_vec(), 1 << k).transpose();
+                let weights_mat =
+                    RowMajorMatrix::new(self.weights.evals().to_vec(), 1 << k).transpose();
+
+                let new_p = interpolate_subgroup(&f_mat, folding_randomness);
+                let new_weights = interpolate_subgroup(&weights_mat, folding_randomness);
 
                 self.evaluation_of_p = EvaluationStorage::Extension(EvaluationsList::new(new_p));
                 self.weights = EvaluationsList::new(new_weights);
@@ -2388,7 +2401,6 @@ mod tests {
 
         // Step 2: derive a folding challenge scalar from transcript
         domsep.challenge_scalars(1, "tag");
-        domsep.challenge_scalars(1, "tag");
 
         // Step 1: absorb 3 evaluations of the sumcheck polynomial h(X)
         domsep.add_scalars(3, "tag");
@@ -2411,9 +2423,11 @@ mod tests {
             .unwrap();
 
         // -------------------------------------------------------------
-        // Ensure we received exactly 3 challenge points (folding_factor)
+        // Ensure we received exactly 2 challenge points:
+        // - 1 challenge for the first two skipped rounds
+        // - 1 challenge for the final regular round
         // -------------------------------------------------------------
-        assert_eq!(result.0.len(), 3);
+        assert_eq!(result.0.len(), 2);
 
         // -------------------------------------------------------------
         // Replay verifier's side using same Fiat-Shamir transcript
@@ -2434,7 +2448,6 @@ mod tests {
         // Interpolate h₀(X) and update current sum using first challenge r₀
         let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);
         let [r] = verifier_state.challenge_scalars().unwrap();
-        let [_] = verifier_state.challenge_scalars().unwrap(); // skip dummy
 
         current_sum = interpolate_subgroup(&evals_mat, r)[0];
 
