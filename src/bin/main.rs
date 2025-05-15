@@ -9,7 +9,7 @@ use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
-        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters, default_max_pow,
+        FoldingFactor, MultivariateParameters, ProtocolParameters, default_max_pow,
         errors::SecurityAssumption,
     },
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
@@ -54,9 +54,6 @@ struct Args {
 
     #[arg(long = "sec", default_value = "CapacityBound")]
     soundness_type: SecurityAssumption,
-
-    #[arg(long = "fold_type", default_value = "ProverHelps")]
-    fold_optimisation: FoldType,
 }
 
 fn main() {
@@ -73,7 +70,6 @@ fn main() {
     let starting_rate = args.rate;
     let reps = args.verifier_repetitions;
     let folding_factor = FoldingFactor::Constant(args.folding_factor);
-    let fold_optimisation = args.fold_optimisation;
     let soundness_type = args.soundness_type;
     let num_evaluations = args.num_evaluations;
 
@@ -100,7 +96,6 @@ fn main() {
         merkle_compress,
         soundness_type,
         starting_log_inv_rate: starting_rate,
-        fold_optimisation,
     };
 
     let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);

@@ -8,7 +8,6 @@ use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    WhirProof,
     committer::reader::ParsedCommitment,
     parsed_proof::ParsedRound,
     statement::{StatementVerifier, VerifierWeights},
@@ -23,7 +22,10 @@ use crate::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     utils::expand_randomness,
-    whir::{parameters::WhirConfig, parsed_proof::ParsedProof, utils::K_SKIP_SUMCHECK},
+    whir::{
+        parameters::WhirConfig, parsed_proof::ParsedProof, prover::proof::WhirProof,
+        utils::K_SKIP_SUMCHECK,
+    },
 };
 
 #[derive(Debug)]
@@ -84,14 +86,14 @@ where
             sumcheck_rounds.reserve_exact(self.params.folding_factor.at_round(0));
 
             let mut is_univariate_skip = false;
-            if self.params.folding_factor.at_round(0) >= 2 {
-                let sumcheck_poly_evals: [_; 8] = verifier_state.next_scalars()?;
-                let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-                let [folding_randomness_single] = verifier_state.challenge_scalars()?;
-                let [_] = verifier_state.challenge_scalars()?;
-                sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
-                is_univariate_skip = true;
-            }
+            // if self.params.folding_factor.at_round(0) >= 2 {
+            //     let sumcheck_poly_evals: [_; 8] = verifier_state.next_scalars()?;
+            //     let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
+            //     let [folding_randomness_single] = verifier_state.challenge_scalars()?;
+            //     let [_] = verifier_state.challenge_scalars()?;
+            //     sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
+            //     is_univariate_skip = true;
+            // }
 
             let start = if is_univariate_skip {
                 K_SKIP_SUMCHECK
@@ -454,34 +456,12 @@ where
             whir_proof,
         )?;
 
-        let computed_folds = self
-            .params
-            .fold_optimisation
-            .stir_evaluations_verifier(&parsed, self.params);
+        let computed_folds = parsed.compute_folds_helped();
 
         let mut prev_sumcheck = None;
 
-        println!("oulalalalalalal");
-
         // Initial sumcheck verification
         if let Some((poly, randomness)) = parsed.initial_sumcheck_rounds.first().cloned() {
-            println!("polyyyyy {:?}", poly);
-            println!("randomness {:?}", randomness);
-            println!("evaluations {:?}", evaluations);
-
-            let lhs = poly.evaluations().iter().step_by(2).copied().sum::<EF>();
-            let rhs = parsed_commitment
-                .ood_answers
-                .iter()
-                .copied()
-                .chain(evaluations.clone())
-                .zip(&parsed.initial_combination_randomness)
-                .map(|(ans, &rand)| ans * rand)
-                .sum::<EF>();
-
-            println!("lhs {:?}", lhs);
-            println!("rhs {:?}", rhs);
-
             if poly.sum_over_boolean_hypercube()
                 != parsed_commitment
                     .ood_answers

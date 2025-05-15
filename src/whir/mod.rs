@@ -7,15 +7,13 @@ use p3_monty_31::dft::RecursiveDft;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use parameters::WhirConfig;
 use prover::{Leafs, Prover};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use statement::{Statement, StatementVerifier, Weights};
 use verifier::Verifier;
 
 use crate::{
     fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
-        FoldType, FoldingFactor, MultivariateParameters, ProtocolParameters,
-        errors::SecurityAssumption,
+        FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::prover::Proof,
@@ -26,21 +24,8 @@ pub mod parameters;
 pub mod parsed_proof;
 pub mod prover;
 pub mod statement;
-pub mod stir_evaluations;
 pub mod utils;
 pub mod verifier;
-
-// Only includes the authentication paths
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "F: Serialize, EF: Serialize, [u8; DIGEST_ELEMS]: Serialize",
-    deserialize = "F: DeserializeOwned, EF: DeserializeOwned, [u8; DIGEST_ELEMS]: DeserializeOwned",
-))]
-pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
-    pub commitment_merkle_paths: (Leafs<F>, Proof<DIGEST_ELEMS>),
-    pub merkle_paths: Vec<(Leafs<EF>, Proof<DIGEST_ELEMS>)>,
-    pub statement_values_at_random_point: Vec<EF>,
-}
 
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
@@ -65,7 +50,6 @@ pub fn make_whir_things(
     num_points: usize,
     soundness_type: SecurityAssumption,
     pow_bits: usize,
-    fold_type: FoldType,
 ) {
     // Number of coefficients = 2^num_variables
     let num_coeffs = 1 << num_variables;
@@ -88,7 +72,6 @@ pub fn make_whir_things(
         merkle_compress,
         soundness_type,
         starting_log_inv_rate: 1,
-        fold_optimisation: fold_type,
     };
 
     // Combine protocol and polynomial parameters into a single config
@@ -182,7 +165,7 @@ pub fn make_whir_things(
 mod tests {
     use crate::{
         parameters::errors::SecurityAssumption,
-        whir::{FoldType, FoldingFactor, make_whir_things},
+        whir::{FoldingFactor, make_whir_things},
     };
 
     #[test]
@@ -193,43 +176,37 @@ mod tests {
             SecurityAssumption::CapacityBound,
             SecurityAssumption::UniqueDecoding,
         ];
-        let fold_types = [FoldType::Naive, FoldType::ProverHelps];
         let num_points = [0, 1, 2];
         let pow_bits = [0, 5, 10];
 
         for folding_factor in folding_factors {
             let num_variables = folding_factor..=3 * folding_factor;
             for num_variable in num_variables {
-                for fold_type in fold_types {
-                    for num_points in num_points {
-                        for soundness_type in soundness_type {
-                            for pow_bits in pow_bits {
-                                println!("-------------------------------------");
-                                println!("num_variable: {:?}", num_variable);
-                                println!("folding_factor: {:?}", folding_factor);
-                                println!("num_points: {:?}", num_points);
-                                println!("soundness_type: {:?}", soundness_type);
-                                println!("pow_bits: {:?}", pow_bits);
-                                println!("fold_type: {:?}", fold_type);
-                                println!("-------------------------------------");
-                                make_whir_things(
-                                    num_variable,
-                                    FoldingFactor::Constant(folding_factor),
-                                    num_points,
-                                    soundness_type,
-                                    pow_bits,
-                                    fold_type,
-                                );
+                for num_points in num_points {
+                    for soundness_type in soundness_type {
+                        for pow_bits in pow_bits {
+                            println!("-------------------------------------");
+                            println!("num_variable: {:?}", num_variable);
+                            println!("folding_factor: {:?}", folding_factor);
+                            println!("num_points: {:?}", num_points);
+                            println!("soundness_type: {:?}", soundness_type);
+                            println!("pow_bits: {:?}", pow_bits);
+                            println!("-------------------------------------");
+                            make_whir_things(
+                                num_variable,
+                                FoldingFactor::Constant(folding_factor),
+                                num_points,
+                                soundness_type,
+                                pow_bits,
+                            );
 
-                                if num_variable == 2
-                                    && folding_factor == 2
-                                    && num_points == 0
-                                    && soundness_type == SecurityAssumption::JohnsonBound
-                                    && pow_bits == 0
-                                    && fold_type == FoldType::Naive
-                                {
-                                    return;
-                                }
+                            if num_variable == 2
+                                && folding_factor == 2
+                                && num_points == 0
+                                && soundness_type == SecurityAssumption::JohnsonBound
+                                && pow_bits == 0
+                            {
+                                // return;
                             }
                         }
                     }
