@@ -142,6 +142,7 @@ where
                 combination_randomness_gen,
             );
 
+            println!("avant2");
             // Compute sumcheck polynomials and return the folding randomness values
             let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS, _>(
                 prover_state,
@@ -150,6 +151,7 @@ where
                 Some(K_SKIP_SUMCHECK),
                 dft,
             )?;
+            println!("apres2");
 
             sumcheck_prover = Some(sumcheck);
             folding_randomness
@@ -378,7 +380,7 @@ where
             prover_state,
             folding_factor_next,
             round_params.folding_pow_bits,
-            Some(K_SKIP_SUMCHECK),
+            None,
             dft,
         )?;
 
@@ -481,7 +483,7 @@ where
                     prover_state,
                     self.0.final_sumcheck_rounds,
                     self.0.final_folding_pow_bits,
-                    Some(K_SKIP_SUMCHECK),
+                    None,
                     dft,
                 )?;
 
