@@ -14,7 +14,7 @@ use crate::{ntt::wavelet::wavelet_transform, poly::multilinear::MultilinearPoint
 ///
 /// This abstraction allows operating generically on both base and extension
 /// field coefficients, similar to `EvaluationStorage`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum CoefficientStorage<F, EF> {
     /// Coefficients over the base field `F`.
     Base(CoefficientList<F>),
@@ -74,7 +74,7 @@ where
 /// - `coeffs[1]` → Coefficient of `X₂`
 /// - `coeffs[2]` → Coefficient of `X₁`
 /// - `coeffs[4]` → Coefficient of `X₀`
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct CoefficientList<F> {
     /// List of coefficients, stored in **lexicographic order**.
     /// For `n` variables, `coeffs.len() == 2^n`.

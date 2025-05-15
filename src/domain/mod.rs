@@ -10,7 +10,7 @@ pub mod radix2;
 ///
 /// This domain is constructed over a multiplicative subgroup of a finite field, enabling
 /// efficient Fast Fourier Transforms (FFTs).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Domain<EF, F>
 where
     F: Field + TwoAdicField,

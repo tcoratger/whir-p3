@@ -41,7 +41,7 @@ pub struct SumcheckSingle<F, EF> {
     /// Evaluations of the equality polynomial used for enforcing constraints.
     pub(crate) weights: EvaluationsList<EF>,
     /// Accumulated sum incorporating equality constraints.
-    sum: EF,
+    pub(crate) sum: EF,
     /// Marker for phantom type parameter `F`.
     phantom: std::marker::PhantomData<F>,
 }
