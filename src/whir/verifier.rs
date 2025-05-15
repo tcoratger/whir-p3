@@ -8,7 +8,6 @@ use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    WhirProof,
     committer::reader::ParsedCommitment,
     parsed_proof::ParsedRound,
     statement::{StatementVerifier, VerifierWeights},
@@ -23,7 +22,7 @@ use crate::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     utils::expand_randomness,
-    whir::{parameters::WhirConfig, parsed_proof::ParsedProof},
+    whir::{parameters::WhirConfig, parsed_proof::ParsedProof, prover::proof::WhirProof},
 };
 
 #[derive(Debug)]

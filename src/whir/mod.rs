@@ -7,7 +7,6 @@ use p3_monty_31::dft::RecursiveDft;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use parameters::WhirConfig;
 use prover::{Leafs, Prover};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use statement::{Statement, StatementVerifier, Weights};
 use verifier::Verifier;
 
@@ -29,18 +28,6 @@ pub mod statement;
 pub mod stir_evaluations;
 pub mod utils;
 pub mod verifier;
-
-// Only includes the authentication paths
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "F: Serialize, EF: Serialize, [u8; DIGEST_ELEMS]: Serialize",
-    deserialize = "F: DeserializeOwned, EF: DeserializeOwned, [u8; DIGEST_ELEMS]: DeserializeOwned",
-))]
-pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
-    pub commitment_merkle_paths: (Leafs<F>, Proof<DIGEST_ELEMS>),
-    pub merkle_paths: Vec<(Leafs<EF>, Proof<DIGEST_ELEMS>)>,
-    pub statement_values_at_random_point: Vec<EF>,
-}
 
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
