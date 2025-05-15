@@ -9,7 +9,7 @@ use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use round::RoundState;
 use serde::{Deserialize, Serialize};
 
-use super::{WhirProof, committer::Witness, parameters::WhirConfig, statement::Statement};
+use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
     ntt::expand_from_coeff,
@@ -22,11 +22,13 @@ use crate::{
     utils::expand_randomness,
     whir::{
         parameters::RoundConfig,
+        prover::proof::WhirProof,
         statement::Weights,
         utils::{get_challenge_stir_queries, sample_ood_points},
     },
 };
 
+pub mod proof;
 pub mod round;
 
 pub type Proof<const DIGEST_ELEMS: usize> = Vec<Vec<[u8; DIGEST_ELEMS]>>;
