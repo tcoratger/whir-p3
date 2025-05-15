@@ -212,7 +212,7 @@ where
             prover_state,
             round_params.ood_samples,
             num_variables,
-            |point| folded_coefficients.evaluate(point),
+            |point| folded_evals.evaluate(point),
         )?;
 
         // STIR Queries
