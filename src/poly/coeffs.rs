@@ -467,21 +467,39 @@ mod tests {
 
     #[test]
     fn test_folding_and_evaluation() {
+        // Set the number of Boolean variables (so the polynomial has 2^num_variables entries).
         let num_variables = 10;
+
+        // Build a polynomial with coefficients f(x) = [0, 1, 2, ..., 2^10 - 1] ∈ F
         let coeffs = (0..(1 << num_variables)).map(F::from_u64).collect();
+
+        // Wrap the raw coefficients into a CoefficientList for multilinear operations
         let coeffs_list = CoefficientList::new(coeffs);
 
+        // Build a fixed evaluation point in F^10 by setting the i-th variable to 35 * i
         let randomness: Vec<_> = (0..num_variables)
             .map(|i| F::from_u64(35 * i as u64))
             .collect();
-        for k in 0..num_variables {
-            let fold_part = randomness[0..k].to_vec();
-            let eval_part = randomness[k..randomness.len()].to_vec();
 
+        // Try folding at every prefix length k = 0..10
+        for k in 0..num_variables {
+            // Take the first `k` coordinates as folding randomness
+            let fold_part = randomness[0..k].to_vec();
+
+            // The remaining coordinates will form the evaluation point for the folded poly
+            let eval_part = randomness[k..].to_vec();
+
+            // Convert `fold_part` into a MultilinearPoint to fold the polynomial
             let fold_random = MultilinearPoint(fold_part.clone());
+
+            // Evaluate the original polynomial at the point [eval_part || fold_part]
+            // to check folding + evaluation match full evaluation
             let eval_point = MultilinearPoint([eval_part.clone(), fold_part].concat());
 
+            // Perform the folding step: reduce the polynomial to fewer variables
             let folded = coeffs_list.fold(&fold_random);
+
+            // Check that folding followed by evaluation matches direct evaluation
             assert_eq!(
                 folded.evaluate(&MultilinearPoint(eval_part)),
                 coeffs_list.evaluate(&eval_point)
