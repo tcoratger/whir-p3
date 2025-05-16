@@ -383,8 +383,6 @@ where
             self.compress(EF::ONE, &folding_randomness.into(), &sumcheck_poly);
         }
 
-        println!("res {:?}", res);
-
         res.reverse();
         Ok(MultilinearPoint(res))
     }
