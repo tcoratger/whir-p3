@@ -1,10 +1,15 @@
 use std::ops::Deref;
 
 use p3_field::{ExtensionField, Field};
+use p3_matrix::dense::RowMajorMatrix;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use super::{lagrange_iterator::LagrangePolynomialIterator, multilinear::MultilinearPoint};
+use super::{
+    coeffs::CoefficientList, lagrange_iterator::LagrangePolynomialIterator,
+    multilinear::MultilinearPoint,
+};
+use crate::ntt::wavelet::inverse_wavelet_transform;
 
 /// A wrapper enum that holds evaluation data for a multilinear polynomial,
 /// either over the base field `F` or an extension field `EF`.
@@ -283,6 +288,17 @@ where
             };
             f0 + (f1 - f0) * *x
         }
+    }
+}
+
+impl<F> From<EvaluationsList<F>> for CoefficientList<F>
+where
+    F: Field,
+{
+    fn from(value: EvaluationsList<F>) -> Self {
+        let mut evals = RowMajorMatrix::new_col(value.evals);
+        inverse_wavelet_transform(&mut evals.as_view_mut());
+        Self::new(evals.values)
     }
 }
 
