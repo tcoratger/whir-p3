@@ -243,8 +243,8 @@ where
                 prover_state,
                 round_state,
                 &folded_coefficients,
-                dft,
                 &folded_evaluations,
+                dft,
             );
         }
 
@@ -407,8 +407,8 @@ where
         prover_state: &mut ProverState<EF, F>,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
-        dft: &D,
         folded_evaluations: &EvaluationsList<EF>,
+        dft: &D,
     ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
