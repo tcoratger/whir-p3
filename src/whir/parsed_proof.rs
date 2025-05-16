@@ -77,27 +77,23 @@ where
     /// - A vector of vectors, where each inner vector contains the evaluated result
     ///   of each multilinear polynomial at its corresponding folding point.
     pub(crate) fn compute_folds_helped(&self) -> Vec<Vec<F>> {
-        // Closure to apply folding evaluation logic.
-        let evaluate_answers = |answers: &[Vec<F>], randomness: &MultilinearPoint<F>| {
-            answers
-                .iter()
-                .map(|answers| CoefficientList::new(answers.clone()).evaluate(randomness))
-                .collect()
-        };
-
-        let mut result: Vec<_> = self
-            .rounds
+        self.rounds
             .iter()
-            .map(|round| {
-                evaluate_answers(&round.stir_challenges_answers, &round.folding_randomness)
+            .map(|r| {
+                r.stir_challenges_answers
+                    .iter()
+                    .map(|a| CoefficientList::new(a.clone()).evaluate(&r.folding_randomness))
+                    .collect()
             })
-            .collect();
-
-        result.push(evaluate_answers(
-            &self.final_randomness_answers,
-            &self.final_folding_randomness,
-        ));
-        result
+            .chain(std::iter::once(
+                self.final_randomness_answers
+                    .iter()
+                    .map(|a| {
+                        CoefficientList::new(a.clone()).evaluate(&self.final_folding_randomness)
+                    })
+                    .collect(),
+            ))
+            .collect()
     }
 }
 
