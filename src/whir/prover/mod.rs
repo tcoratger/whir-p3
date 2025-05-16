@@ -210,10 +210,25 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
     {
-        let folded_evals = round_state
-            .evaluations
-            .fold(&round_state.folding_randomness);
+        // - If a sumcheck already exists, use its evaluations
+        // - Otherwise, fold the evaluations from the previous round
+        let folded_evals = if let Some(sumcheck) = &round_state.sumcheck_prover {
+            match &sumcheck.evaluation_of_p {
+                EvaluationStorage::Base(_) => {
+                    panic!("After a first round, the evaluations must be in the extension field")
+                }
+                EvaluationStorage::Extension(f) => f.clone(),
+            }
+        } else {
+            round_state
+                .evaluations
+                .fold(&round_state.folding_randomness)
+        };
 
+        // Convert the folded evaluations into coefficients
+        //
+        // TODO: This is a bit wasteful since we already have the same information
+        // in the evaluation domain. For now, we keep it for the DFT but it is to be removed.
         let folded_coefficients = folded_evals.clone().into();
 
         let num_variables =
