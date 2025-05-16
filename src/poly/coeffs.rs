@@ -999,5 +999,57 @@ mod tests {
                 prop_assert_eq!(folded_base.evaluate(&point), folded_ext.evaluate(&point));
             }
         }
+
+        #[test]
+        fn prop_eval_coeff_roundtrip_varying_size(
+            // Random power-of-two length exponent: generates sizes 2^0 to 2^10
+            log_len in 0usize..=10,
+            // Overallocate to 1024, we'll truncate later
+            coeffs in prop::collection::vec(0u64..100_000, 1 << 10)
+        ) {
+            // Compute length as power of two
+            let len = 1 << log_len;
+
+            // Take the first `len` elements and convert to field elements
+            let input: Vec<F> = coeffs.into_iter().take(len).map(F::from_u64).collect();
+
+            // Wrap input as an EvaluationsList
+            let evals = EvaluationsList::new(input);
+
+            // Apply inverse wavelet transform to get coefficients
+            let coeffs = CoefficientList::from(evals.clone());
+
+            // Apply forward wavelet transform to get evaluations back
+            let roundtrip = EvaluationsList::from(coeffs);
+
+            // Final assertion: roundtrip must be exact
+            prop_assert_eq!(roundtrip.evals(), evals.evals());
+        }
+    }
+
+    #[test]
+    fn test_evaluations_to_coefficients_roundtrip() {
+        // Construct evaluations in lex order for a 3-variable polynomial
+        // Example polynomial: f(x₀, x₁, x₂) = x₂ + 2x₁ + 3x₀ + 4x₀x₁ + 5x₀x₂ + ...
+        let evals = vec![
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(4),
+            F::from_u64(5),
+            F::from_u64(6),
+            F::from_u64(7),
+            F::from_u64(8),
+        ];
+        let original = EvaluationsList::new(evals);
+
+        // Convert evaluations → coefficients via wavelet inverse
+        let coeffs = CoefficientList::from(original.clone());
+
+        // Convert back: coefficients → evaluations via wavelet
+        let recovered = EvaluationsList::from(coeffs);
+
+        // The recovered evaluations must exactly match the original
+        assert_eq!(recovered.evals(), original.evals());
     }
 }

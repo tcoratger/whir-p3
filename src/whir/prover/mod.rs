@@ -13,7 +13,8 @@ use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
     poly::{
-        coeffs::{CoefficientList, CoefficientStorage},
+        coeffs::CoefficientList,
+        evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
     sumcheck::sumcheck_single::SumcheckSingle,
@@ -56,16 +57,51 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
 {
+    /// Validates that the total number of variables expected by the prover configuration
+    /// matches the number implied by the folding schedule and the final rounds.
+    ///
+    /// This ensures that the recursive folding in the sumcheck protocol terminates
+    /// precisely at the expected number of final variables.
+    ///
+    /// # Returns
+    /// `true` if the parameter configuration is consistent, `false` otherwise.
     fn validate_parameters(&self) -> bool {
         self.mv_parameters.num_variables
             == self.folding_factor.total_number(self.n_rounds()) + self.final_sumcheck_rounds
     }
 
+    /// Validates that the public statement is compatible with the configured number of variables.
+    ///
+    /// Ensures the following:
+    /// - The number of variables in the statement matches the prover's expectations
+    /// - If no initial statement is used, the statement must be empty
+    ///
+    /// # Parameters
+    /// - `statement`: The public constraints that the prover will use
+    ///
+    /// # Returns
+    /// `true` if the statement structure is valid for this protocol instance.
     fn validate_statement(&self, statement: &Statement<EF>) -> bool {
         statement.num_variables() == self.mv_parameters.num_variables
             && (self.initial_statement || statement.constraints.is_empty())
     }
 
+    /// Validates that the witness satisfies the structural requirements of the WHIR prover.
+    ///
+    /// Checks the following conditions:
+    /// - The number of OOD (out-of-domain) points equals the number of OOD answers
+    /// - If no initial statement is used, the OOD data must be empty
+    /// - The multilinear witness polynomial must match the expected number of variables
+    ///
+    /// # Parameters
+    /// - `witness`: The private witness to be verified for structural consistency
+    ///
+    /// # Returns
+    /// `true` if the witness structure matches expectations.
+    ///
+    /// # Panics
+    /// - Panics if OOD lengths are inconsistent
+    /// - Panics if OOD data is non-empty despite `initial_statement = false`
     fn validate_witness<const DIGEST_ELEMS: usize>(
         &self,
         witness: &Witness<EF, F, DIGEST_ELEMS>,
@@ -77,6 +113,27 @@ where
         witness.polynomial.num_variables() == self.mv_parameters.num_variables
     }
 
+    /// Executes the full WHIR prover protocol to produce the proof.
+    ///
+    /// This function takes the public statement and private witness, performs the
+    /// multi-round sumcheck-based polynomial folding protocol using DFTs, and returns
+    /// a proof that the witness satisfies the statement.
+    ///
+    /// The proof includes:
+    /// - Merkle authentication paths for each round's polynomial commitments
+    /// - Final evaluations of the public linear statement constraints at a random point
+    ///
+    /// # Parameters
+    /// - `dft`: A DFT backend used for evaluations
+    /// - `prover_state`: Mutable prover state used across rounds (transcript, randomness, etc.)
+    /// - `statement`: The public input, consisting of linear or nonlinear constraints
+    /// - `witness`: The private witness satisfying the constraints, including committed values
+    ///
+    /// # Returns
+    /// A `WhirProof` object containing Merkle paths and final evaluations, suitable for verification.
+    ///
+    /// # Errors
+    /// Returns an error if the witness or statement are invalid, or if a round fails.
     pub fn prove<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
@@ -94,35 +151,44 @@ where
         assert!(
             self.validate_parameters()
                 && self.validate_statement(&statement)
-                && self.validate_witness(&witness)
+                && self.validate_witness(&witness),
+            "Invalid prover parameters, statement, or witness"
         );
 
+        // Initialize the round state with inputs and initial polynomial data
         let mut round_state =
             RoundState::initialize_first_round_state(self, dft, prover_state, statement, witness)?;
 
-        // Run WHIR rounds
+        // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
             self.round(round, dft, prover_state, &mut round_state)?;
         }
 
-        // Extract WhirProof
+        // Reverse the vector of verifier challenges (used as evaluation point)
+        //
+        // These challenges were pushed in round order; we reverse them to use as a single
+        // evaluation point for final statement consistency checks.
         round_state.randomness_vec.reverse();
+        let eval_point = MultilinearPoint(round_state.randomness_vec);
+
+        // Evaluate the public linear statement constraints at the random point
+        //
+        // Only linear constraints are checked here, by evaluating their linear combination weights.
         let statement_values_at_random_point = round_state
             .statement
             .constraints
             .iter()
-            .filter_map(|(weights, _)| {
-                if let Weights::Linear { weight } = weights {
-                    Some(
-                        weight
-                            .eval_extension(&MultilinearPoint(round_state.randomness_vec.clone())),
-                    )
-                } else {
-                    None
-                }
+            .filter_map(|(weights, _)| match weights {
+                Weights::Linear { weight } => Some(weight.eval_extension(&eval_point)),
+                Weights::Evaluation { .. } => None,
             })
             .collect();
 
+        // Construct the final WHIR proof with all necessary Merkle proofs and evaluations
+        //
+        // The proof consists of:
+        //   - Merkle paths for polynomial commitments from all rounds
+        //   - Final evaluations of the public statement at the challenge point
         Ok(WhirProof {
             commitment_merkle_paths: round_state.commitment_merkle_proof.unwrap(),
             merkle_paths: round_state.merkle_proofs,
@@ -144,15 +210,31 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
     {
-        // Fold the coefficients
-        let folded_coefficients = round_state
-            .coefficients
-            .fold(&round_state.folding_randomness);
+        // - If a sumcheck already exists, use its evaluations
+        // - Otherwise, fold the evaluations from the previous round
+        let folded_evaluations = if let Some(sumcheck) = &round_state.sumcheck_prover {
+            match &sumcheck.evaluation_of_p {
+                EvaluationStorage::Base(_) => {
+                    panic!("After a first round, the evaluations must be in the extension field")
+                }
+                EvaluationStorage::Extension(f) => f.clone(),
+            }
+        } else {
+            round_state
+                .evaluations
+                .fold(&round_state.folding_randomness)
+        };
+
+        // Convert the folded evaluations into coefficients
+        //
+        // TODO: This is a bit wasteful since we already have the same information
+        // in the evaluation domain. For now, we keep it for the DFT but it is to be removed.
+        let folded_coefficients = folded_evaluations.clone().into();
 
         let num_variables =
             self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
-        // num_variables should match the folded_coefficients here.
-        assert_eq!(num_variables, folded_coefficients.num_variables());
+        // The number of variables at the given round should match the folded number of variables.
+        assert_eq!(num_variables, folded_evaluations.num_variables());
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
@@ -162,6 +244,7 @@ where
                 round_state,
                 &folded_coefficients,
                 dft,
+                &folded_evaluations,
             );
         }
 
@@ -172,7 +255,7 @@ where
 
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
-        let expansion = new_domain.size() / folded_coefficients.num_coeffs();
+        let expansion = new_domain.size() / folded_evaluations.num_evals();
         let folded_matrix = {
             let mut coeffs = folded_coefficients.coeffs().to_vec();
             coeffs.resize(coeffs.len() * expansion, EF::ZERO);
@@ -192,7 +275,7 @@ where
             prover_state,
             round_params.ood_samples,
             num_variables,
-            |point| folded_coefficients.evaluate(point),
+            |point| folded_evaluations.evaluate(point),
         )?;
 
         // STIR Queries
@@ -275,15 +358,15 @@ where
                 );
                 sumcheck_prover
             } else {
-                let mut statement = Statement::new(folded_coefficients.num_variables());
+                let mut statement = Statement::new(folded_evaluations.num_variables());
 
                 for (point, eval) in stir_challenges.into_iter().zip(stir_evaluations) {
                     let weights = Weights::evaluation(point);
                     statement.add_constraint(weights, eval);
                 }
 
-                SumcheckSingle::from_extension_coeffs(
-                    folded_coefficients.clone(),
+                SumcheckSingle::from_extension_evals(
+                    folded_evaluations.clone(),
                     &statement,
                     combination_randomness[1],
                 )
@@ -312,7 +395,7 @@ where
         round_state.domain = new_domain;
         round_state.sumcheck_prover = Some(sumcheck_prover);
         round_state.folding_randomness = folding_randomness;
-        round_state.coefficients = CoefficientStorage::Extension(folded_coefficients);
+        round_state.evaluations = EvaluationStorage::Extension(folded_evaluations);
         round_state.merkle_prover_data = Some(prover_data);
 
         Ok(())
@@ -325,6 +408,7 @@ where
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
         dft: &D,
+        folded_evaluations: &EvaluationsList<EF>,
     ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
@@ -386,8 +470,8 @@ where
                 .sumcheck_prover
                 .clone()
                 .unwrap_or_else(|| {
-                    SumcheckSingle::from_extension_coeffs(
-                        folded_coefficients.clone(),
+                    SumcheckSingle::from_extension_evals(
+                        folded_evaluations.clone(),
                         &round_state.statement,
                         EF::ONE,
                     )

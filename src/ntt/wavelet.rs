@@ -3,6 +3,125 @@ use p3_matrix::{Matrix, dense::RowMajorMatrixViewMut};
 #[cfg(feature = "parallel")]
 use {super::utils::workload_size, rayon::prelude::*};
 
+/// Perform the inverse wavelet transform on each row of a matrix.
+///
+/// This is a wrapper for `inverse_wavelet_transform_batch`, applying the inverse transform
+/// over the full height of the matrix. Assumes the matrix has a power-of-two height.
+///
+/// This function is typically used to recover coefficients of a multilinear polynomial
+/// from its evaluation form (e.g. after forward wavelet transform).
+///
+/// # Panics
+/// Panics in debug mode if the matrix height is not a power of two.
+pub fn inverse_wavelet_transform<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>) {
+    let height = mat.height();
+    debug_assert!(height.is_power_of_two());
+    inverse_wavelet_transform_batch(mat, height);
+}
+
+/// Apply the inverse wavelet transform in-place to a matrix, grouped into batches of `size` rows.
+///
+/// The matrix is assumed to contain evaluations of a multilinear polynomial.
+/// This function inverts the recursive structure of the forward wavelet transform,
+/// recovering the original coefficient representation for each batch.
+///
+/// Optimized paths exist for sizes 2, 4, and 8, and larger powers of two are handled recursively.
+/// Parallelism is applied when beneficial.
+///
+/// # Parameters
+/// - `mat`: Mutable view of the matrix to transform in-place.
+/// - `size`: Number of rows per transform block (must be a power of two).
+///
+/// # Panics
+/// Panics in debug mode if:
+/// - `size` is not a power of two,
+/// - `mat.height()` is not divisible by `size`.
+pub fn inverse_wavelet_transform_batch<F: Field>(
+    mat: &mut RowMajorMatrixViewMut<'_, F>,
+    size: usize,
+) {
+    debug_assert!(mat.height() % size == 0 && size.is_power_of_two());
+
+    #[cfg(feature = "parallel")]
+    if mat.height() > workload_size::<F>() && mat.height() != size {
+        // Split into chunks of `chunk_rows` for parallelism if possible.
+        let num_chunks_approx = mat.height() / std::cmp::max(size, workload_size::<F>());
+        let chunk_rows = ((mat.height() / size) / std::cmp::max(1, num_chunks_approx)) * size;
+        let chunk_rows = std::cmp::max(size, chunk_rows);
+
+        if chunk_rows > 0 && mat.height() % chunk_rows == 0 && chunk_rows != mat.height() {
+            mat.par_row_chunks_mut(chunk_rows)
+                .for_each(|mut chunk| inverse_wavelet_transform_batch(&mut chunk, size));
+            return;
+        }
+    }
+
+    match size {
+        0 | 1 => {} // No operation for size 0 or 1
+        2 => {
+            for v in mat.row_chunks_exact_mut(2) {
+                v.values[1] -= v.values[0];
+            }
+        }
+        4 => {
+            for v in mat.row_chunks_exact_mut(4) {
+                v.values[3] -= v.values[1];
+                v.values[2] -= v.values[0];
+                v.values[3] -= v.values[2];
+                v.values[1] -= v.values[0];
+            }
+        }
+        8 => {
+            for v in mat.row_chunks_exact_mut(8) {
+                // Undo top-level cross-accumulations
+                v.values[7] -= v.values[3];
+                v.values[6] -= v.values[2];
+                v.values[5] -= v.values[1];
+                v.values[4] -= v.values[0];
+
+                // Undo second block (v[4] to v[7])
+                v.values[7] -= v.values[5];
+                v.values[6] -= v.values[4];
+                v.values[7] -= v.values[6];
+                v.values[5] -= v.values[4];
+
+                // Undo first block (v[0] to v[3])
+                v.values[3] -= v.values[1];
+                v.values[2] -= v.values[0];
+                v.values[3] -= v.values[2];
+                v.values[1] -= v.values[0];
+            }
+        }
+        n => {
+            // Recursive case: undo forward structure step-by-step.
+
+            // Choose factors: n = n1 * n2, where n1 = 2^{floor(k/2)}, n2 = 2^{ceil(k/2)}
+            let n1 = 1 << (n.trailing_zeros() / 2);
+            let n2 = size / n1;
+
+            // Undo the second transpose (forward had new(..., n2).transpose())
+            // Current layout: n2 rows × n1 columns → transpose using width = n1
+            mat.par_row_chunks_exact_mut(n1 * n2).for_each(|chunk| {
+                let m = RowMajorMatrixViewMut::new(chunk.values, n1).transpose();
+                chunk.values.copy_from_slice(&m.values);
+            });
+
+            // Apply inverse wavelet transform to each n2-sized block
+            inverse_wavelet_transform_batch(mat, n2);
+
+            // Undo the first transpose (forward had new(..., n1).transpose())
+            // Current layout: n1 rows × n2 columns → transpose using width = n2
+            mat.par_row_chunks_exact_mut(n1 * n2).for_each(|chunk| {
+                let m = RowMajorMatrixViewMut::new(chunk.values, n2).transpose();
+                chunk.values.copy_from_slice(&m.values);
+            });
+
+            // Apply inverse wavelet transform to each n1-sized block
+            inverse_wavelet_transform_batch(mat, n1);
+        }
+    }
+}
+
 /// In-place Fast Wavelet Transform on a matrix view.
 ///
 /// Applies the kernel:
@@ -101,6 +220,7 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
     use p3_matrix::dense::RowMajorMatrix;
+    use proptest::prelude::*;
 
     use super::*;
 
@@ -296,5 +416,43 @@ mod tests {
             F::from_u64(expected_last_chunk_sum),
             "Final element mismatch"
         );
+    }
+
+    #[test]
+    fn test_wavelet_roundtrip() {
+        let values = (1..=32).map(F::from_u64).collect::<Vec<_>>();
+        let original = values.clone();
+
+        let mut mat = RowMajorMatrix::new_col(values);
+        wavelet_transform(&mut mat.as_view_mut());
+        inverse_wavelet_transform(&mut mat.as_view_mut());
+
+        assert_eq!(mat.values, original);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_wavelet_roundtrip(values in prop::collection::vec(0u64..u64::from(u32::MAX), 1..=100).prop_map(|v| {
+            let size = 1 << v.len().ilog2(); // Truncate to nearest power of 2
+            v.into_iter().take(size).collect::<Vec<_>>()
+        })) {
+            // Convert u64 input values into field elements
+            let values: Vec<F> = values.into_iter().map(F::from_u64).collect();
+
+            // Clone the original values for later comparison
+            let original = values.clone();
+
+            // Wrap values in a column-major matrix
+            let mut mat = RowMajorMatrix::new_col(values);
+
+            // Apply the forward wavelet transform
+            wavelet_transform(&mut mat.as_view_mut());
+
+            // Apply the inverse wavelet transform
+            inverse_wavelet_transform(&mut mat.as_view_mut());
+
+            // Ensure roundtrip: output matches original input
+            prop_assert_eq!(mat.values, original);
+        }
     }
 }

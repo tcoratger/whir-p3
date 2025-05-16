@@ -5,7 +5,10 @@ use super::{Leafs, Proof, Prover};
 use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
-    poly::{coeffs::CoefficientStorage, multilinear::MultilinearPoint},
+    poly::{
+        evals::{EvaluationStorage, EvaluationsList},
+        multilinear::MultilinearPoint,
+    },
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{CommitmentMerkleTree, RoundMerkleTree, Witness},
@@ -42,9 +45,9 @@ where
     /// Length equals the folding factor at this round.
     pub(crate) folding_randomness: MultilinearPoint<EF>,
 
-    /// The multilinear polynomial coefficients at the start of this round.
+    /// The multilinear polynomial evaluations at the start of this round.
     /// These are updated by folding the previous round’s coefficients using `folding_randomness`.
-    pub(crate) coefficients: CoefficientStorage<F, EF>,
+    pub(crate) evaluations: EvaluationStorage<F, EF>,
 
     /// Merkle commitment prover data for the **base field** polynomial from the first round.
     /// This is used to open values at queried locations.
@@ -127,6 +130,8 @@ where
 
         statement.add_constraints_in_front(new_constraints);
 
+        let evals_p: EvaluationsList<F> = witness.polynomial.clone().into();
+
         let mut sumcheck_prover = None;
         let folding_randomness = if prover.initial_statement {
             // If there is initial statement, then we run the sum-check for
@@ -134,8 +139,8 @@ where
             let [combination_randomness_gen] = prover_state.challenge_scalars()?;
 
             // Create the sumcheck prover
-            let mut sumcheck = SumcheckSingle::from_base_coeffs(
-                witness.polynomial.clone(),
+            let mut sumcheck = SumcheckSingle::from_base_evals(
+                evals_p.clone(),
                 &statement,
                 combination_randomness_gen,
             );
@@ -171,7 +176,7 @@ where
             domain: prover.starting_domain.clone(),
             sumcheck_prover,
             folding_randomness,
-            coefficients: CoefficientStorage::Base(witness.polynomial),
+            evaluations: EvaluationStorage::Base(evals_p),
             merkle_prover_data: None,
             commitment_merkle_prover_data: witness.prover_data,
             commitment_merkle_proof: None,
@@ -534,7 +539,7 @@ mod tests {
         );
 
         // Coefficients should match the original zero polynomial
-        assert_eq!(state.coefficients, CoefficientStorage::Base(poly));
+        assert_eq!(state.evaluations, EvaluationStorage::Base(poly.into()));
 
         // Domain must match the WHIR config's expected size
         assert_eq!(
@@ -640,8 +645,8 @@ mod tests {
             }
         }
 
-        // Coefficient storage must match original polynomial
-        assert_eq!(state.coefficients, CoefficientStorage::Base(poly));
+        // Evaluation storage must match original polynomial
+        assert_eq!(state.evaluations, EvaluationStorage::Base(poly.into()));
 
         // Domain should match expected size and rate
         assert_eq!(
