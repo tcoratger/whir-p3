@@ -17,7 +17,7 @@ use crate::ntt::wavelet::inverse_wavelet_transform;
 /// This abstraction allows operating generically on both base and extension
 /// field evaluations, as used in sumcheck protocols and other polynomial
 /// computations.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum EvaluationStorage<F, EF> {
     /// Evaluation data over the base field `F`.
     Base(EvaluationsList<F>),
@@ -60,7 +60,7 @@ where
 /// over the hypercube `{0,1}^{num_variables}`.
 ///
 /// The vector `evals` contains function evaluations at **lexicographically ordered** points.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct EvaluationsList<F> {
     /// Stores evaluations in **lexicographic order**.
     evals: Vec<F>,
@@ -848,7 +848,7 @@ mod tests {
         let coeffs_list = CoefficientList::new(coeffs);
 
         // Convert to EvaluationsList using a wavelet transform
-        let evals_list: EvaluationsList<F> = coeffs_list.into();
+        let evals_list: EvaluationsList<F> = coeffs_list.clone().into();
 
         // Define a fixed evaluation point in F^n: [0, 35, 70, ..., 35*(n-1)]
         let randomness: Vec<_> = (0..num_variables)
@@ -871,12 +871,27 @@ mod tests {
             let eval_point = MultilinearPoint([eval_part.clone(), fold_part].concat());
 
             // Fold the evaluation list over the last `k` variables
-            let folded = evals_list.fold(&fold_random);
+            let folded_evals = evals_list.fold(&fold_random);
+
+            // Verify that the number of variables has been folded correctly
+            assert_eq!(folded_evals.num_variables(), num_variables - k);
+
+            // Fold the coefficients list over the last `k` variables
+            let folded_coeffs = coeffs_list.fold(&fold_random);
+
+            // Verify that the number of variables has been folded correctly
+            assert_eq!(folded_coeffs.num_variables(), num_variables - k);
 
             // Verify correctness:
             // folded(e) == original([e, r]) for all k
             assert_eq!(
-                folded.evaluate(&MultilinearPoint(eval_part)),
+                folded_evals.evaluate(&MultilinearPoint(eval_part.clone())),
+                evals_list.evaluate(&eval_point)
+            );
+
+            // Compare with the coefficient list equivalent
+            assert_eq!(
+                folded_coeffs.evaluate(&MultilinearPoint(eval_part)),
                 evals_list.evaluate(&eval_point)
             );
         }

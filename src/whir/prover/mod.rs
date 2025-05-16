@@ -13,7 +13,8 @@ use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
     poly::{
-        coeffs::{CoefficientList, CoefficientStorage},
+        coeffs::CoefficientList,
+        evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
     sumcheck::sumcheck_single::SumcheckSingle,
@@ -209,19 +210,41 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
     {
-        // Fold the coefficients
-        let folded_coefficients = round_state
-            .coefficients
-            .fold(&round_state.folding_randomness);
+        // - If a sumcheck already exists, use its evaluations
+        // - Otherwise, fold the evaluations from the previous round
+        let folded_evals = if let Some(sumcheck) = &round_state.sumcheck_prover {
+            match &sumcheck.evaluation_of_p {
+                EvaluationStorage::Base(_) => {
+                    panic!("After a first round, the evaluations must be in the extension field")
+                }
+                EvaluationStorage::Extension(f) => f.clone(),
+            }
+        } else {
+            round_state
+                .evaluations
+                .fold(&round_state.folding_randomness)
+        };
+
+        // Convert the folded evaluations into coefficients
+        //
+        // TODO: This is a bit wasteful since we already have the same information
+        // in the evaluation domain. For now, we keep it for the DFT but it is to be removed.
+        let folded_coefficients = folded_evals.clone().into();
 
         let num_variables =
             self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
-        // num_variables should match the folded_coefficients here.
-        assert_eq!(num_variables, folded_coefficients.num_variables());
+        // The number of variables at the given round should match the folded number of variables.
+        assert_eq!(num_variables, folded_evals.num_variables());
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
-            return self.final_round(round_index, prover_state, round_state, &folded_coefficients);
+            return self.final_round(
+                round_index,
+                prover_state,
+                round_state,
+                &folded_coefficients,
+                &folded_evals,
+            );
         }
 
         let round_params = &self.round_parameters[round_index];
@@ -231,7 +254,7 @@ where
 
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
-        let expansion = new_domain.size() / folded_coefficients.num_coeffs();
+        let expansion = new_domain.size() / folded_evals.num_evals();
         let folded_matrix = {
             let mut coeffs = folded_coefficients.coeffs().to_vec();
             coeffs.resize(coeffs.len() * expansion, EF::ZERO);
@@ -251,7 +274,7 @@ where
             prover_state,
             round_params.ood_samples,
             num_variables,
-            |point| folded_coefficients.evaluate(point),
+            |point| folded_evals.evaluate(point),
         )?;
 
         // STIR Queries
@@ -334,15 +357,15 @@ where
                 );
                 sumcheck_prover
             } else {
-                let mut statement = Statement::new(folded_coefficients.num_variables());
+                let mut statement = Statement::new(folded_evals.num_variables());
 
                 for (point, eval) in stir_challenges.into_iter().zip(stir_evaluations) {
                     let weights = Weights::evaluation(point);
                     statement.add_constraint(weights, eval);
                 }
 
-                SumcheckSingle::from_extension_coeffs(
-                    folded_coefficients.clone(),
+                SumcheckSingle::from_extension_evals(
+                    folded_evals.clone(),
                     &statement,
                     combination_randomness[1],
                 )
@@ -369,7 +392,7 @@ where
         round_state.domain = new_domain;
         round_state.sumcheck_prover = Some(sumcheck_prover);
         round_state.folding_randomness = folding_randomness;
-        round_state.coefficients = CoefficientStorage::Extension(folded_coefficients);
+        round_state.evaluations = EvaluationStorage::Extension(folded_evals);
         round_state.merkle_prover_data = Some(prover_data);
 
         Ok(())
@@ -381,6 +404,7 @@ where
         prover_state: &mut ProverState<EF, F>,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
+        folded_evaluations: &EvaluationsList<EF>,
     ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
@@ -441,8 +465,8 @@ where
                 .sumcheck_prover
                 .clone()
                 .unwrap_or_else(|| {
-                    SumcheckSingle::from_extension_coeffs(
-                        folded_coefficients.clone(),
+                    SumcheckSingle::from_extension_evals(
+                        folded_evaluations.clone(),
                         &round_state.statement,
                         EF::ONE,
                     )
