@@ -61,18 +61,15 @@ where
         // Compute expansion factor based on the domain size and polynomial length.
         let expansion = base_domain.size() / polynomial.num_coeffs();
 
-        // Expand polynomial coefficients into evaluations over the domain
-        let folded_matrix = {
-            let mut coeffs = polynomial.coeffs().to_vec();
-            coeffs.resize(coeffs.len() * expansion, F::ZERO);
-            // Do DFT on only interleaved polys to be folded.
-            dft.dft_batch(RowMajorMatrix::new(
-                coeffs,
-                1 << self.0.folding_factor.at_round(0),
-            ))
-            // Get natural order of rows.
-            .to_row_major_matrix()
-        };
+        // Pad coefficients with zeros to match the domain size
+        let mut coeffs = polynomial.coeffs().to_vec();
+        coeffs.resize(coeffs.len() * expansion, F::ZERO);
+
+        // Perform DFT on the padded coefficient matrix
+        let width = 1 << self.0.folding_factor.at_round(0);
+        let folded_matrix = dft
+            .dft_batch(RowMajorMatrix::new(coeffs, width))
+            .to_row_major_matrix();
 
         // Commit to the Merkle tree
         let merkle_tree =
