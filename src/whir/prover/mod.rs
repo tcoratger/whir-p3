@@ -13,7 +13,7 @@ use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
     poly::{
-        coeffs::{CoefficientList, CoefficientStorage},
+        coeffs::CoefficientList,
         evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
@@ -210,14 +210,11 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
     {
-        // Fold the coefficients
-        let folded_coefficients = round_state
-            .coefficients
-            .fold(&round_state.folding_randomness);
-
         let folded_evals = round_state
             .evaluations
             .fold(&round_state.folding_randomness);
+
+        let folded_coefficients = folded_evals.clone().into();
 
         let num_variables =
             self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
@@ -380,7 +377,6 @@ where
         round_state.domain = new_domain;
         round_state.sumcheck_prover = Some(sumcheck_prover);
         round_state.folding_randomness = folding_randomness;
-        round_state.coefficients = CoefficientStorage::Extension(folded_coefficients);
         round_state.evaluations = EvaluationStorage::Extension(folded_evals);
         round_state.merkle_prover_data = Some(prover_data);
 

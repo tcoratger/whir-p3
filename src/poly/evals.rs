@@ -17,7 +17,7 @@ use crate::ntt::wavelet::inverse_wavelet_transform;
 /// This abstraction allows operating generically on both base and extension
 /// field evaluations, as used in sumcheck protocols and other polynomial
 /// computations.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum EvaluationStorage<F, EF> {
     /// Evaluation data over the base field `F`.
     Base(EvaluationsList<F>),
@@ -60,7 +60,7 @@ where
 /// over the hypercube `{0,1}^{num_variables}`.
 ///
 /// The vector `evals` contains function evaluations at **lexicographically ordered** points.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct EvaluationsList<F> {
     /// Stores evaluations in **lexicographic order**.
     evals: Vec<F>,
