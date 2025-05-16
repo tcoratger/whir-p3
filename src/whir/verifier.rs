@@ -85,17 +85,14 @@ where
             // Initial sumcheck
             sumcheck_rounds.reserve_exact(self.params.folding_factor.at_round(0));
 
-            let mut is_univariate_skip = false;
-            // if self.params.folding_factor.at_round(0) >= 2 {
-            //     let sumcheck_poly_evals: [_; 8] = verifier_state.next_scalars()?;
-            //     let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-            //     let [folding_randomness_single] = verifier_state.challenge_scalars()?;
-            //     let [_] = verifier_state.challenge_scalars()?;
-            //     sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
-            //     is_univariate_skip = true;
-            // }
+            if self.params.is_univariate_skip {
+                let sumcheck_poly_evals: [_; 8] = verifier_state.next_scalars()?;
+                let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
+                let [folding_randomness_single] = verifier_state.challenge_scalars()?;
+                sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
+            }
 
-            let start = if is_univariate_skip {
+            let start = if self.params.is_univariate_skip {
                 K_SKIP_SUMCHECK
             } else {
                 0

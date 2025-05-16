@@ -193,6 +193,8 @@ pub struct ProtocolParameters<H, C> {
     pub merkle_hash: H,
     /// Compression method used in the Merkle tree.
     pub merkle_compress: C,
+    /// Whether to univariate skip technique is used.
+    pub is_univariate_skip: bool,
 }
 
 impl<H, C> Display for ProtocolParameters<H, C> {

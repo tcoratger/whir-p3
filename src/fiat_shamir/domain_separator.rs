@@ -250,6 +250,7 @@ where
             self.add_sumcheck(
                 params.folding_factor.at_round(0),
                 params.starting_folding_pow_bits,
+                params.is_univariate_skip,
                 true,
             );
         } else {
@@ -270,6 +271,7 @@ where
             self.add_sumcheck(
                 params.folding_factor.at_round(round + 1),
                 r.folding_pow_bits,
+                params.is_univariate_skip,
                 false,
             );
             domain_size >>= 1;
@@ -288,6 +290,7 @@ where
         self.add_sumcheck(
             params.final_sumcheck_rounds,
             params.final_folding_pow_bits,
+            params.is_univariate_skip,
             false,
         );
     }
@@ -302,15 +305,19 @@ where
     /// - Samples 3 scalars for the sumcheck polynomial.
     /// - Samples 1 scalar for folding randomness.
     /// - Optionally performs a PoW challenge if `pow_bits > 0`.
-    pub fn add_sumcheck(&mut self, folding_factor: usize, pow_bits: f64, is_skip: bool) {
-        let mut is_univariate_skip = false;
-        // if folding_factor >= 2 && is_skip {
-        //     self.add_scalars(8, "sumcheck_poly");
-        //     self.challenge_scalars(1, "folding_randomness");
-        //     is_univariate_skip = true;
-        // }
+    pub fn add_sumcheck(
+        &mut self,
+        folding_factor: usize,
+        pow_bits: f64,
+        is_univariate_skip: bool,
+        apply_skip: bool,
+    ) {
+        if is_univariate_skip && apply_skip {
+            self.add_scalars(8, "sumcheck_poly");
+            self.challenge_scalars(1, "folding_randomness");
+        }
 
-        let start = if is_univariate_skip && is_skip {
+        let start = if is_univariate_skip && apply_skip {
             K_SKIP_SUMCHECK
         } else {
             0

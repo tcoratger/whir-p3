@@ -72,6 +72,7 @@ pub fn make_whir_things(
         merkle_compress,
         soundness_type,
         starting_log_inv_rate: 1,
+        is_univariate_skip: false,
     };
 
     // Combine protocol and polynomial parameters into a single config

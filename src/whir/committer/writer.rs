@@ -148,6 +148,7 @@ mod tests {
             merkle_compress: compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
+            is_univariate_skip: false,
         };
 
         // Define multivariate parameters for the polynomial.
@@ -230,6 +231,7 @@ mod tests {
             merkle_compress: compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
+            is_univariate_skip: false,
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
@@ -277,6 +279,7 @@ mod tests {
             merkle_compress: compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
+            is_univariate_skip: false,
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);

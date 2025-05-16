@@ -96,6 +96,7 @@ fn main() {
         merkle_compress,
         soundness_type,
         starting_log_inv_rate: starting_rate,
+        is_univariate_skip: false,
     };
 
     let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);

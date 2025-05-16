@@ -2,6 +2,7 @@ use std::{f64::consts::LOG2_10, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
+use super::utils::K_SKIP_SUMCHECK;
 use crate::{
     domain::Domain,
     parameters::{
@@ -55,6 +56,8 @@ where
     // Merkle tree parameters
     pub merkle_hash: H,
     pub merkle_compress: C,
+
+    pub is_univariate_skip: bool,
 }
 
 impl<EF, F, H, C, PowStrategy> WhirConfig<EF, F, H, C, PowStrategy>
@@ -184,6 +187,11 @@ where
         let final_folding_pow_bits =
             0_f64.max(whir_parameters.security_level as f64 - (field_size_bits - 1) as f64);
 
+        let is_univariate_skip = whir_parameters.is_univariate_skip
+            && whir_parameters.initial_statement
+            && K_SKIP_SUMCHECK >= 2
+            && K_SKIP_SUMCHECK <= whir_parameters.folding_factor.at_round(0);
+
         Self {
             security_level: whir_parameters.security_level,
             max_pow_bits: whir_parameters.pow_bits,
@@ -204,6 +212,7 @@ where
             pow_strategy: PhantomData,
             merkle_hash: whir_parameters.merkle_hash,
             merkle_compress: whir_parameters.merkle_compress,
+            is_univariate_skip,
         }
     }
 
@@ -322,6 +331,7 @@ mod tests {
             merkle_compress: Poseidon2Compression::new(55), // Just a placeholder
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
+            is_univariate_skip: false,
         }
     }
 
