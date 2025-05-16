@@ -212,7 +212,7 @@ where
     {
         // - If a sumcheck already exists, use its evaluations
         // - Otherwise, fold the evaluations from the previous round
-        let folded_evals = if let Some(sumcheck) = &round_state.sumcheck_prover {
+        let folded_evaluations = if let Some(sumcheck) = &round_state.sumcheck_prover {
             match &sumcheck.evaluation_of_p {
                 EvaluationStorage::Base(_) => {
                     panic!("After a first round, the evaluations must be in the extension field")
@@ -229,12 +229,12 @@ where
         //
         // TODO: This is a bit wasteful since we already have the same information
         // in the evaluation domain. For now, we keep it for the DFT but it is to be removed.
-        let folded_coefficients = folded_evals.clone().into();
+        let folded_coefficients = folded_evaluations.clone().into();
 
         let num_variables =
             self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
         // The number of variables at the given round should match the folded number of variables.
-        assert_eq!(num_variables, folded_evals.num_variables());
+        assert_eq!(num_variables, folded_evaluations.num_variables());
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
@@ -243,7 +243,7 @@ where
                 prover_state,
                 round_state,
                 &folded_coefficients,
-                &folded_evals,
+                &folded_evaluations,
             );
         }
 
@@ -254,7 +254,7 @@ where
 
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
-        let expansion = new_domain.size() / folded_evals.num_evals();
+        let expansion = new_domain.size() / folded_evaluations.num_evals();
         let folded_matrix = {
             let mut coeffs = folded_coefficients.coeffs().to_vec();
             coeffs.resize(coeffs.len() * expansion, EF::ZERO);
@@ -274,7 +274,7 @@ where
             prover_state,
             round_params.ood_samples,
             num_variables,
-            |point| folded_evals.evaluate(point),
+            |point| folded_evaluations.evaluate(point),
         )?;
 
         // STIR Queries
@@ -357,7 +357,7 @@ where
                 );
                 sumcheck_prover
             } else {
-                let mut statement = Statement::new(folded_evals.num_variables());
+                let mut statement = Statement::new(folded_evaluations.num_variables());
 
                 for (point, eval) in stir_challenges.into_iter().zip(stir_evaluations) {
                     let weights = Weights::evaluation(point);
@@ -365,7 +365,7 @@ where
                 }
 
                 SumcheckSingle::from_extension_evals(
-                    folded_evals.clone(),
+                    folded_evaluations.clone(),
                     &statement,
                     combination_randomness[1],
                 )
@@ -392,7 +392,7 @@ where
         round_state.domain = new_domain;
         round_state.sumcheck_prover = Some(sumcheck_prover);
         round_state.folding_randomness = folding_randomness;
-        round_state.evaluations = EvaluationStorage::Extension(folded_evals);
+        round_state.evaluations = EvaluationStorage::Extension(folded_evaluations);
         round_state.merkle_prover_data = Some(prover_data);
 
         Ok(())
