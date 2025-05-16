@@ -9,11 +9,10 @@ use crate::{
         evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
-    sumcheck::sumcheck_single::SumcheckSingle,
+    sumcheck::{K_SKIP_SUMCHECK, sumcheck_single::SumcheckSingle},
     whir::{
         committer::{CommitmentMerkleTree, RoundMerkleTree, Witness},
         statement::{Statement, Weights},
-        utils::K_SKIP_SUMCHECK,
     },
 };
 

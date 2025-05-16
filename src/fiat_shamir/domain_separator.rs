@@ -10,7 +10,8 @@ use super::{
 };
 use crate::{
     fiat_shamir::{prover::ProverState, verifier::VerifierState},
-    whir::{parameters::WhirConfig, utils::K_SKIP_SUMCHECK},
+    sumcheck::K_SKIP_SUMCHECK,
+    whir::parameters::WhirConfig,
 };
 
 /// This is the separator between operations in the IO Pattern

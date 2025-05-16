@@ -20,12 +20,9 @@ use crate::{
         verifier::VerifierState,
     },
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
-    sumcheck::sumcheck_polynomial::SumcheckPolynomial,
+    sumcheck::{K_SKIP_SUMCHECK, sumcheck_polynomial::SumcheckPolynomial},
     utils::expand_randomness,
-    whir::{
-        parameters::WhirConfig, parsed_proof::ParsedProof, prover::proof::WhirProof,
-        utils::K_SKIP_SUMCHECK,
-    },
+    whir::{parameters::WhirConfig, parsed_proof::ParsedProof, prover::proof::WhirProof},
 };
 
 #[derive(Debug)]

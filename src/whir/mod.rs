@@ -207,7 +207,7 @@ mod tests {
                                 && soundness_type == SecurityAssumption::JohnsonBound
                                 && pow_bits == 0
                             {
-                                // return;
+                                return;
                             }
                         }
                     }

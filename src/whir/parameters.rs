@@ -2,12 +2,12 @@ use std::{f64::consts::LOG2_10, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use super::utils::K_SKIP_SUMCHECK;
 use crate::{
     domain::Domain,
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },
+    sumcheck::K_SKIP_SUMCHECK,
 };
 
 #[derive(Debug, Clone)]
