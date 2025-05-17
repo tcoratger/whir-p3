@@ -17,7 +17,7 @@ use crate::{
         evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
-    sumcheck::sumcheck_single::SumcheckSingle,
+    sumcheck::{K_SKIP_SUMCHECK, LOG_K_SKIP_SUMCHECK, sumcheck_single::SumcheckSingle},
     utils::expand_randomness,
     whir::{
         parameters::RoundConfig,
@@ -184,6 +184,13 @@ where
             })
             .collect();
 
+        println!("fin du prover");
+        println!(
+            "commitment_merkle_proof {:?}",
+            round_state.commitment_merkle_proof
+        );
+        println!("merkle_proofs {:?}", round_state.merkle_proofs);
+
         // Construct the final WHIR proof with all necessary Merkle proofs and evaluations
         //
         // The proof consists of:
@@ -210,6 +217,7 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
     {
+        println!("round_index: {}", round_index);
         // - If a sumcheck already exists, use its evaluations
         // - Otherwise, fold the evaluations from the previous round
         let folded_evaluations = if let Some(sumcheck) = &round_state.sumcheck_prover {
@@ -225,6 +233,10 @@ where
                 .fold(&round_state.folding_randomness)
         };
 
+        println!("folded_evaluations {:?}", folded_evaluations);
+
+        println!("round_index1: {}", round_index);
+
         // Convert the folded evaluations into coefficients
         //
         // TODO: This is a bit wasteful since we already have the same information
@@ -235,6 +247,9 @@ where
             self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
         // The number of variables at the given round should match the folded number of variables.
         assert_eq!(num_variables, folded_evaluations.num_variables());
+
+        println!("num_variables {:?}", num_variables);
+        println!("round_index2: {}", round_index);
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
@@ -416,6 +431,9 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
     {
+        println!("final_round");
+        println!("round_index: {}", round_index);
+        println!("folded_coefficients {:?}", folded_coefficients);
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_scalars(folded_coefficients.coeffs())?;
         // Final verifier queries and answers. The indices are over the folded domain.
@@ -437,12 +455,22 @@ where
                 let mut answers = Vec::with_capacity(final_challenge_indexes.len());
                 let mut merkle_proof = Vec::with_capacity(final_challenge_indexes.len());
 
+                println!(
+                    "round_state.commitment_merkle_prover_data {:?}",
+                    round_state.commitment_merkle_prover_data
+                );
+                println!("challenges {:?}", final_challenge_indexes);
+
                 for challenge in final_challenge_indexes {
+                    println!("challenge {:?}", challenge);
                     let (commitment_leaf, commitment_root) =
                         mmcs.open_batch(challenge, &round_state.commitment_merkle_prover_data);
                     answers.push(commitment_leaf[0].clone());
                     merkle_proof.push(commitment_root);
                 }
+
+                println!("answers {:?}", answers);
+                println!("merkle_proof {:?}", merkle_proof);
 
                 round_state.commitment_merkle_proof = Some((answers, merkle_proof));
             }

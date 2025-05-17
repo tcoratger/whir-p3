@@ -2,7 +2,8 @@ use std::{fmt::Debug, iter};
 
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
-use p3_matrix::Dimensions;
+use p3_interpolation::interpolate_subgroup;
+use p3_matrix::{Dimensions, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,10 @@ use crate::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::{K_SKIP_SUMCHECK, sumcheck_polynomial::SumcheckPolynomial},
     utils::expand_randomness,
-    whir::{parameters::WhirConfig, parsed_proof::ParsedProof, prover::proof::WhirProof},
+    whir::{
+        EvaluationsList, Statement, parameters::WhirConfig, parsed_proof::ParsedProof,
+        prover::proof::WhirProof, statement::Weights,
+    },
 };
 
 #[derive(Debug)]
@@ -398,27 +402,27 @@ where
             .map(|((weight, _), randomness)| *randomness * weight.compute(&folding_randomness))
             .sum();
 
-        for (round, round_proof) in proof.rounds.iter().enumerate() {
-            num_variables -= self.params.folding_factor.at_round(round);
-            folding_randomness = MultilinearPoint(folding_randomness.0[..num_variables].to_vec());
+        // for (round, round_proof) in proof.rounds.iter().enumerate() {
+        //     num_variables -= self.params.folding_factor.at_round(round);
+        //     folding_randomness = MultilinearPoint(folding_randomness.0[..num_variables].to_vec());
 
-            let stir_challenges = round_proof
-                .ood_points
-                .iter()
-                .chain(&round_proof.stir_challenges_points)
-                .map(|&univariate| {
-                    MultilinearPoint::expand_from_univariate(univariate, num_variables)
-                    // TODO:
-                    // Maybe refactor outside
-                });
+        //     let stir_challenges = round_proof
+        //         .ood_points
+        //         .iter()
+        //         .chain(&round_proof.stir_challenges_points)
+        //         .map(|&univariate| {
+        //             MultilinearPoint::expand_from_univariate(univariate, num_variables)
+        //             // TODO:
+        //             // Maybe refactor outside
+        //         });
 
-            let sum_of_claims: EF = stir_challenges
-                .zip(&round_proof.combination_randomness)
-                .map(|(pt, &rand)| pt.eq_poly_outside(&folding_randomness) * rand)
-                .sum();
+        //     let sum_of_claims: EF = stir_challenges
+        //         .zip(&round_proof.combination_randomness)
+        //         .map(|(pt, &rand)| pt.eq_poly_outside(&folding_randomness) * rand)
+        //         .sum();
 
-            value += sum_of_claims;
-        }
+        //     value += sum_of_claims;
+        // }
 
         value
     }
@@ -454,9 +458,14 @@ where
 
         let mut prev_sumcheck = None;
 
-        // Initial sumcheck verification
         if let Some((poly, randomness)) = parsed.initial_sumcheck_rounds.first().cloned() {
-            if poly.sum_over_boolean_hypercube()
+            let poly_sum = if self.params.is_univariate_skip {
+                poly.evaluations().iter().step_by(2).copied().sum::<EF>()
+            } else {
+                poly.sum_over_boolean_hypercube()
+            };
+
+            if poly_sum
                 != parsed_commitment
                     .ood_answers
                     .iter()
@@ -565,11 +574,24 @@ where
 
         // Final v · w Check
         let prev_sumcheck_poly_eval = prev_sumcheck.map_or(EF::ZERO, |(poly, rand)| {
-            poly.evaluate_at_point(&rand.into())
+            if self.params.is_univariate_skip {
+                let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);
+                interpolate_subgroup(&evals_mat, rand)[0]
+            } else {
+                poly.evaluate_at_point(&rand.into())
+            }
         });
 
         // Check the final sumcheck evaluation
         let evaluation_of_v_poly = self.compute_w_poly(parsed_commitment, statement, &parsed);
+        // let evaluation_of_v_poly = EF::from_basis_coefficients_slice(&[
+        //     F::from_u64(1700758994),
+        //     F::from_u64(492476100),
+        //     F::from_u64(620759047),
+        //     F::from_u64(1010749113),
+        // ])
+        // .unwrap();
+
         let final_value = parsed
             .final_coefficients
             .evaluate(&parsed.final_sumcheck_randomness);

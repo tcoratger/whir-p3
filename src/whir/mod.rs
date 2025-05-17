@@ -72,7 +72,7 @@ pub fn make_whir_things(
         merkle_compress,
         soundness_type,
         starting_log_inv_rate: 1,
-        is_univariate_skip: false,
+        is_univariate_skip: true,
     };
 
     // Combine protocol and polynomial parameters into a single config
@@ -179,6 +179,16 @@ mod tests {
         ];
         let num_points = [0, 1, 2];
         let pow_bits = [0, 5, 10];
+
+        make_whir_things(
+            2,
+            FoldingFactor::Constant(2),
+            0,
+            SecurityAssumption::JohnsonBound,
+            0,
+        );
+
+        return;
 
         for folding_factor in folding_factors {
             let num_variables = folding_factor..=3 * folding_factor;

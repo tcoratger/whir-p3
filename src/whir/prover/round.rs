@@ -127,7 +127,12 @@ where
             })
             .collect();
 
+        println!("new_constraints round init {:?}", new_constraints);
+
         statement.add_constraints_in_front(new_constraints);
+
+        println!("statement round init {:?}", statement);
+        println!("witness.polynomial {:?}", witness.polynomial);
 
         let evals_p: EvaluationsList<F> = witness.polynomial.clone().into();
 
@@ -142,6 +147,11 @@ where
                 evals_p.clone(),
                 &statement,
                 combination_randomness_gen,
+            );
+
+            println!(
+                "folding_factor round: {}",
+                prover.folding_factor.at_round(0)
             );
 
             // Compute sumcheck polynomials and return the folding randomness values

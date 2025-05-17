@@ -1,4 +1,6 @@
-use p3_field::{ExtensionField, Field};
+use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_interpolation::interpolate_subgroup;
+use p3_matrix::dense::RowMajorMatrix;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -318,7 +320,10 @@ impl<F: Field> VerifierWeights<F> {
     /// **Precondition:**
     /// - If `self` is in linear mode, `term` must be `Some(F)`, otherwise the behavior is
     ///   undefined.
-    pub fn compute(&self, folding_randomness: &MultilinearPoint<F>) -> F {
+    pub fn compute(&self, folding_randomness: &MultilinearPoint<F>) -> F
+    where
+        F: TwoAdicField,
+    {
         match self {
             Self::Evaluation { point } => point.eq_poly_outside(folding_randomness),
             Self::Linear { term, .. } => term.unwrap(),
@@ -411,10 +416,16 @@ impl<F: Field> StatementVerifier<F> {
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_dft::NaiveDft;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use proptest::prelude::*;
 
     use super::*;
+    use crate::{
+        fiat_shamir::{DefaultHash, domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+        poly::coeffs::CoefficientList,
+        sumcheck::sumcheck_single::SumcheckSingle,
+    };
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
@@ -741,5 +752,96 @@ mod tests {
 
             prop_assert_eq!(result_f, result_ef);
         }
+    }
+
+    #[test]
+    fn test_verifier_weights_evaluation() {
+        // Define a multilinear polynomial with 2 variables:
+        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
+        let c1 = F::from_u64(1);
+        let c2 = F::from_u64(2);
+        let c3 = F::from_u64(3);
+        let c4 = F::from_u64(4);
+
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
+
+        // A closure representing the polynomial for evaluation at points
+        let f_extension = |x0: EF4, x1: EF4| x1 * c2 + x0 * c3 + x0 * x1 * c4 + c1;
+
+        // -------------------------------------------------------------
+        // Construct an evaluation statement by specifying equality constraints
+        // Each constraint is of the form f(x) = value for x in {0,1}^2
+        // -------------------------------------------------------------
+        let mut statement = Statement::new(2);
+        statement.add_constraint(
+            Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ZERO])),
+            f_extension(EF4::ZERO, EF4::ZERO),
+        );
+        statement.add_constraint(
+            Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ONE])),
+            f_extension(EF4::ZERO, EF4::ONE),
+        );
+
+        // Construct the verifier weights at the same points
+        let verifier_weight1 = VerifierWeights::Evaluation {
+            point: MultilinearPoint(vec![EF4::ZERO, EF4::ZERO]),
+        };
+        let verifier_weight2 = VerifierWeights::Evaluation {
+            point: MultilinearPoint(vec![EF4::ZERO, EF4::ONE]),
+        };
+
+        // -------------------------------------------------------------
+        // Create the prover instance using the coefficients and constraints
+        // The prover evaluates the polynomial at all 8 Boolean points and stores results
+        // -------------------------------------------------------------
+        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+
+        // -------------------------------------------------------------
+        // Set up sumcheck protocol with:
+        // - 2 rounds of folding (equal to 2 variables)
+        // - 2-round univariate skip enabled
+        // -------------------------------------------------------------
+        let folding_factor = 2;
+        let pow_bits = 0.;
+
+        // Create domain separator for Fiat-Shamir transcript simulation
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("test");
+
+        // Step 1: absorb 3 evaluations of the sumcheck polynomial h(X)
+        domsep.add_scalars(8, "tag");
+
+        // Step 2: derive a folding challenge scalar from transcript
+        domsep.challenge_scalars(1, "tag");
+
+        // // Register interactions with the transcript for each round
+        // for _ in 0..folding_factor {
+        //     // Absorb 3 field values (sumcheck evaluations at X = 0, 1, 2)
+        //     domsep.add_scalars(3, "tag");
+
+        //     // Sample 1 field challenge (folding randomness)
+        //     domsep.challenge_scalars(1, "tag");
+        // }
+
+        // Convert domain separator into prover state object
+        let mut prover_state = domsep.to_prover_state();
+
+        // Run sumcheck with k = 2 skipped rounds and 1 regular round
+        let result = prover
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+                Some(2), // skip 2 variables at once
+                &NaiveDft,
+            )
+            .unwrap();
+
+        println!("randomness {:?}", result);
+        println!("weights {:?}", prover.weights);
+
+        let sum = verifier_weight1.compute(&result) + verifier_weight2.compute(&result);
+
+        // We should get the expected sum
+        assert_eq!(sum, prover.weights.evals()[0]);
     }
 }

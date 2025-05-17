@@ -10,6 +10,7 @@ use super::Witness;
 use crate::{
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::coeffs::CoefficientList,
+    sumcheck::K_SKIP_SUMCHECK,
     whir::{parameters::WhirConfig, utils::sample_ood_points},
 };
 
@@ -58,6 +59,9 @@ where
         // Retrieve the base domain, ensuring it is set.
         let base_domain = self.0.starting_domain.base_domain.unwrap();
 
+        println!("base_domain size {:?}", base_domain.size());
+        println!("polynomial.num_coeffs() {:?}", polynomial.num_coeffs());
+
         // Compute expansion factor based on the domain size and polynomial length.
         let expansion = base_domain.size() / polynomial.num_coeffs();
 
@@ -66,10 +70,19 @@ where
         coeffs.resize(coeffs.len() * expansion, F::ZERO);
 
         // Perform DFT on the padded coefficient matrix
-        let width = 1 << self.0.folding_factor.at_round(0);
+        let width = if self.0.is_univariate_skip {
+            // 1 << (self.0.folding_factor.at_round(0) / K_SKIP_SUMCHECK)
+            (1 << self.0.folding_factor.at_round(0))
+        } else {
+            1 << self.0.folding_factor.at_round(0)
+        };
+        println!("width {:?}", width);
+        println!("coeffs {:?}", coeffs);
         let folded_matrix = dft
             .dft_batch(RowMajorMatrix::new(coeffs, width))
             .to_row_major_matrix();
+
+        println!("folded_matrix {:?}", folded_matrix);
 
         // Commit to the Merkle tree
         let merkle_tree =

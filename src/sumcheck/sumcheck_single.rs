@@ -326,11 +326,6 @@ where
                 let sumcheck_poly = self.compute_skipping_sumcheck_polynomial(dft, k);
                 prover_state.add_scalars(sumcheck_poly.evaluations())?;
 
-                println!("evaluations of p {:?}", self.evaluation_of_p);
-                println!("evaluations of weights {:?}", self.weights);
-                println!("sumcheck polyyyyy {:?}", sumcheck_poly.evaluations());
-                println!("sum {:?}", self.sum);
-
                 // for _ in 0..k {
                 let [folding_randomness] = prover_state.challenge_scalars()?;
                 res.push(folding_randomness);
