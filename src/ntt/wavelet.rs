@@ -1,7 +1,9 @@
 use p3_field::{Field, PackedValue};
 use p3_matrix::{Matrix, dense::RowMajorMatrixViewMut, util::reverse_matrix_index_bits};
 use p3_util::log2_strict_usize;
-use {super::utils::workload_size, rayon::prelude::*};
+use rayon::prelude::*;
+
+use super::utils::workload_size;
 
 /// Perform the inverse wavelet transform on each row of a matrix.
 ///
