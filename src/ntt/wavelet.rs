@@ -1,7 +1,10 @@
-use p3_field::Field;
-use p3_matrix::{Matrix, dense::RowMajorMatrixViewMut};
+use p3_field::{Field, PackedValue};
+use p3_matrix::{Matrix, dense::RowMajorMatrixViewMut, util::reverse_matrix_index_bits};
+use p3_util::log2_strict_usize;
 #[cfg(feature = "parallel")]
-use {super::utils::workload_size, rayon::prelude::*};
+use rayon::prelude::*;
+
+use super::utils::workload_size;
 
 /// Perform the inverse wavelet transform on each row of a matrix.
 ///
@@ -131,100 +134,128 @@ pub fn inverse_wavelet_transform_batch<F: Field>(
 /// Assumes the number of rows is a power of two.
 pub fn wavelet_transform<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>) {
     let height = mat.height();
-    debug_assert!(height.is_power_of_two());
-    wavelet_transform_batch(mat, height);
+    let log_height = log2_strict_usize(height);
+    let half_log = log_height / 2;
+    let rough_sqrt_height = 1 << half_log;
+
+    // When applying the wavelet transform in parallel, we want to try and split up the work
+    // into medium sized chunks which fit nicely on the different cores.
+    // As a rough rule of thumb, we will use chunks of size `workload_size::<F>()` unless the
+    // transform is much larger than this.
+    let num_par_rows = (workload_size::<F>() / mat.width())
+        .next_power_of_two()
+        .max(rough_sqrt_height)
+        .min(height);
+
+    // If `height < workload_size::<F>() / mat.width()` there isn't a huge advantage to
+    // parallelizing the work so we just use a single core.
+
+    let log_num_par_rows = log2_strict_usize(num_par_rows);
+    let half_log_num_par_rows = log_num_par_rows / 2;
+
+    assert!(log_num_par_rows >= half_log);
+
+    // When possible we want to maximise the amount of work done on a given core avoiding
+    // passing information between cores as much as possible. The strategy is to split the
+    // matrix into `num_par_row` chunks, send each chunk to a core and do the first
+    // `log_num_par_rows` rounds on that core.
+    // We then do the remaining `log_height - log_num_par_rows` using `par_row_chunks_exact_mut`
+    // in the standard way. This avoids needing any large scale data fiddling (e.g. doing
+    // a reverse_matrix_index_bits on the entire matrix) which seems to
+    // cost more than the time it saves.
+
+    // Split the matrix into `num_par_rows` chunks.
+    mat.par_row_chunks_exact_mut(num_par_rows)
+        .for_each(|mut chunk| {
+            // As each core has access to `num_par_rows`, it can do
+            // `log_num_par_rows` passes of the wavelet kernel.
+
+            // The `i`'th pass takes `2^{i + 1}` rows, splits them in half to get `lo` and `hi`,
+            // and sets `hi += lo`. If we bit reverse the rows, then the `i`'th pass will take
+            // `2^{log_num_par_rows - i}` rows. We want to take as many rows as possible as this
+            // will let us use SIMD instructions. Hence we want to start with things bit-reversed
+            // but switch to the original order halfway through.
+
+            // Initial index reversal. Note that this is very cheap as chunk is small and all contained
+            // in the L1 cache.
+            reverse_matrix_index_bits(&mut chunk);
+            // Perform passes `0` through `half_log_num_par_rows - 1`.
+            for i in 0..half_log_num_par_rows {
+                let block_size = 1 << (log_num_par_rows - i);
+
+                // Apply the wavelet kernel on blocks of size `block_size`.
+                wavelet_kernel(&mut chunk, block_size);
+            }
+
+            // Revert rows to initial ordering.
+            reverse_matrix_index_bits(&mut chunk);
+            // Perform passes `half_log_num_par_rows` through `log_num_par_rows - 1`.
+            for i in half_log_num_par_rows..log_num_par_rows {
+                let block_size = 1 << (i + 1);
+
+                // Apply the wavelet kernel on blocks of size `block_size`.
+                wavelet_kernel(&mut chunk, block_size);
+            }
+        });
+
+    // Do the final `log_height - log_num_par_rows` passes.
+    for i in log_num_par_rows..log_height {
+        let block_size = 1 << (i + 1);
+        // Apply the wavelet kernel on blocks of size `block_size`.
+        par_wavelet_kernel(mat, block_size);
+    }
 }
 
-pub fn wavelet_transform_batch<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>, size: usize) {
-    debug_assert!(mat.height() % size == 0 && size.is_power_of_two());
+/// Apply the wavelet kernel on blocks of a given size on a single core.
+///
+/// Intended for use in cases where mat fits on a single core and block size is large
+/// enough to benefit from SIMD instructions.
+fn wavelet_kernel<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>, block_size: usize) {
+    let half_block_size = mat.width() * block_size / 2;
+    mat.row_chunks_exact_mut(block_size).for_each(|block| {
+        let (lo, hi) = block.values.split_at_mut(half_block_size);
+        let (pack_lo, sfx_lo) = F::Packing::pack_slice_with_suffix_mut(lo);
+        let (pack_hi, sfx_hi) = F::Packing::pack_slice_with_suffix_mut(hi);
+        pack_hi.iter_mut().zip(pack_lo).for_each(|(hi, lo)| {
+            *hi += *lo;
+        });
+        sfx_hi.iter_mut().zip(sfx_lo).for_each(|(hi, lo)| {
+            *hi += *lo;
+        });
+    });
+}
 
-    #[cfg(feature = "parallel")]
-    if mat.height() > workload_size::<F>() && mat.height() != size {
-        let chunk_rows = size * std::cmp::max(1, workload_size::<F>() / size);
-        mat.par_row_chunks_mut(chunk_rows)
-            .for_each(|mut chunk| wavelet_transform_batch(&mut chunk, size));
-        return;
-    }
-
-    match size {
-        0 | 1 => {}
-        2 => {
-            for v in mat.row_chunks_exact_mut(2) {
-                v.values[1] += v.values[0];
-            }
-        }
-        4 => {
-            for v in mat.row_chunks_exact_mut(4) {
-                v.values[1] += v.values[0];
-                v.values[3] += v.values[2];
-                v.values[2] += v.values[0];
-                v.values[3] += v.values[1];
-            }
-        }
-        8 => {
-            for v in mat.row_chunks_exact_mut(8) {
-                v.values[1] += v.values[0];
-                v.values[3] += v.values[2];
-                v.values[2] += v.values[0];
-                v.values[3] += v.values[1];
-                v.values[5] += v.values[4];
-                v.values[7] += v.values[6];
-                v.values[6] += v.values[4];
-                v.values[7] += v.values[5];
-                v.values[4] += v.values[0];
-                v.values[5] += v.values[1];
-                v.values[6] += v.values[2];
-                v.values[7] += v.values[3];
-            }
-        }
-        16 => {
-            for mut v in mat.row_chunks_exact_mut(16) {
-                for v in v.row_chunks_exact_mut(4) {
-                    v.values[1] += v.values[0];
-                    v.values[3] += v.values[2];
-                    v.values[2] += v.values[0];
-                    v.values[3] += v.values[1];
-                }
-                let (a, mut v) = v.split_rows_mut(4);
-                let (b, mut v) = v.split_rows_mut(4);
-                let (c, d) = v.split_rows_mut(4);
-                for i in 0..4 {
-                    b.values[i] += a.values[i];
-                    d.values[i] += c.values[i];
-                    c.values[i] += a.values[i];
-                    d.values[i] += b.values[i];
-                }
-            }
-        }
-        n => {
-            let n1 = 1 << (n.trailing_zeros() / 2);
-            let n2 = size / n1;
-
-            wavelet_transform_batch(mat, n1);
-            mat.par_row_chunks_exact_mut(n1 * n2).for_each(|matrix| {
-                let m = RowMajorMatrixViewMut::new(matrix.values, n1).transpose();
-                matrix.values.copy_from_slice(&m.values);
-            });
-
-            wavelet_transform_batch(mat, n2);
-            mat.par_row_chunks_exact_mut(n1 * n2).for_each(|matrix| {
-                let m = RowMajorMatrixViewMut::new(matrix.values, n2).transpose();
-                matrix.values.copy_from_slice(&m.values);
-            });
-        }
-    }
+/// Apply the wavelet kernel on blocks of a given size making use of parallelization.
+///
+/// Intended for use in cases where mat does not fit on a single core and block_size is large.
+fn par_wavelet_kernel<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>, block_size: usize) {
+    let half_block_size = mat.width() * block_size / 2;
+    mat.par_row_chunks_exact_mut(block_size).for_each(|block| {
+        let (lo, hi) = block.values.split_at_mut(half_block_size);
+        let (pack_lo, sfx_lo) = F::Packing::pack_slice_with_suffix_mut(lo);
+        let (pack_hi, sfx_hi) = F::Packing::pack_slice_with_suffix_mut(hi);
+        pack_hi.iter_mut().zip(pack_lo).for_each(|(hi, lo)| {
+            *hi += *lo;
+        });
+        sfx_hi.iter_mut().zip(sfx_lo).for_each(|(hi, lo)| {
+            *hi += *lo;
+        });
+    });
 }
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
+
     use p3_baby_bear::BabyBear;
-    use p3_field::PrimeCharacteristicRing;
+    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_matrix::dense::RowMajorMatrix;
     use proptest::prelude::*;
 
     use super::*;
 
     type F = BabyBear;
+    type EF = BinomialExtensionField<F, 4>;
 
     #[test]
     fn test_wavelet_transform_single_element() {
@@ -369,53 +400,23 @@ mod tests {
     }
 
     #[test]
-    fn test_wavelet_transform_batch_parallel_chunks() {
-        // Define the size for the wavelet transform batch
-        let batch_size = 2_i32.pow(20) as usize;
-        // Ensure values.len() > size to enter parallel execution
-        let total_size = batch_size * 4;
-        let values = (1..=total_size as u64).map(F::from_u64).collect::<Vec<_>>();
+    fn test_wavelet_transform_extension() {
+        let size = 2_i32.pow(16) as u32;
+        let values = (1..=size)
+            .map(|i| {
+                EF::from_basis_coefficients_iter((0..4).map(|j| F::from_u32(4 * i + j))).unwrap()
+            })
+            .collect::<Vec<_>>();
 
-        // Keep a copy to compare later
-        let original_values = values.clone();
+        let mut mat_ef = RowMajorMatrix::new_col(values);
+        let mut mat_base = mat_ef.clone().flatten_to_base::<F>();
 
-        let mut mat = RowMajorMatrix::new_col(values);
+        wavelet_transform(&mut mat_ef.as_view_mut());
+        wavelet_transform(&mut mat_base.as_view_mut());
 
-        // Run batch transform on 256-sized chunks
-        wavelet_transform_batch(&mut mat.as_view_mut(), batch_size);
+        let out_ef = RowMajorMatrix::new_col(EF::reconstitute_from_base(mat_base.values));
 
-        // Verify that the first chunk has been transformed correctly
-        let mut mat1 = RowMajorMatrix::new_col(original_values[..batch_size].to_vec());
-
-        wavelet_transform_batch(&mut mat1.as_view_mut(), batch_size);
-        assert_eq!(mat.values[..batch_size], mat1.values);
-
-        // Ensure that the transformation occurred separately for each chunk
-        for i in 1..4 {
-            let start = i * batch_size;
-            let end = start + batch_size;
-
-            let mut mat_loop = RowMajorMatrix::new_col(original_values[start..end].to_vec());
-            wavelet_transform_batch(&mut mat_loop.as_view_mut(), batch_size);
-
-            assert_eq!(
-                mat.values[start..end],
-                mat_loop.values,
-                "Mismatch in chunk {i}"
-            );
-        }
-
-        // Ensure the first element remains unchanged
-        assert_eq!(mat.values[0], F::from_u64(1));
-
-        // Ensure the last element has accumulated all values from its own chunk
-        let expected_last_chunk_sum =
-            (total_size as u64 - batch_size as u64 + 1..=total_size as u64).sum::<u64>();
-        assert_eq!(
-            mat.values[total_size - 1],
-            F::from_u64(expected_last_chunk_sum),
-            "Final element mismatch"
-        );
+        assert_eq!(mat_ef, out_ef);
     }
 
     #[test]
@@ -428,6 +429,18 @@ mod tests {
         inverse_wavelet_transform(&mut mat.as_view_mut());
 
         assert_eq!(mat.values, original);
+    }
+
+    #[test]
+    fn test_wavelet_roundtrip_vlarge() {
+        let values = (1..=(1 << 20)).map(F::from_u64).collect::<Vec<_>>();
+        let original = values.clone();
+
+        let mut mat = RowMajorMatrix::new_col(values);
+        wavelet_transform(&mut mat.as_view_mut());
+        inverse_wavelet_transform(&mut mat.as_view_mut());
+
+        assert_eq!(mat.values, original, "Roundtrip failed");
     }
 
     proptest! {
