@@ -228,7 +228,7 @@ pub fn wavelet_transform<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>) {
 
 /// Apply the wavelet kernel on blocks of a given size on a single core.
 fn wavelet_kernel<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>, block_size: usize) {
-    let half_block_size = block_size / 2;
+    let half_block_size = mat.width() * block_size / 2;
     mat.row_chunks_exact_mut(block_size).for_each(|block| {
         let (lo, hi) = block.values.split_at_mut(half_block_size);
         let (pack_lo, sfx_lo) = F::Packing::pack_slice_with_suffix_mut(lo);
@@ -244,7 +244,7 @@ fn wavelet_kernel<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>, block_size: 
 
 /// Apply the wavelet kernel on blocks of a given size making use of parallelization.
 fn par_wavelet_kernel<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>, block_size: usize) {
-    let half_block_size = block_size / 2;
+    let half_block_size = mat.width() * block_size / 2;
     mat.par_row_chunks_exact_mut(block_size).for_each(|block| {
         let (lo, hi) = block.values.split_at_mut(half_block_size);
         let (pack_lo, sfx_lo) = F::Packing::pack_slice_with_suffix_mut(lo);
@@ -263,13 +263,14 @@ mod tests {
     use core::panic;
 
     use p3_baby_bear::BabyBear;
-    use p3_field::PrimeCharacteristicRing;
+    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_matrix::dense::RowMajorMatrix;
     use proptest::prelude::*;
 
     use super::*;
 
     type F = BabyBear;
+    type EF = BinomialExtensionField<F, 4>;
 
     #[test]
     fn test_wavelet_transform_single_element() {
@@ -411,6 +412,26 @@ mod tests {
         // Verify last element has accumulated all previous values
         let expected_last = (1..=size).sum::<u64>();
         assert_eq!(mat.values[size as usize - 1], F::from_u64(expected_last));
+    }
+
+    #[test]
+    fn test_wavelet_transform_extension() {
+        let size = 2_i32.pow(16) as u32;
+        let values = (1..=size)
+            .map(|i| {
+                EF::from_basis_coefficients_iter((0..4).map(|j| F::from_u32(4 * i + j))).unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let mut mat_ef = RowMajorMatrix::new_col(values);
+        let mut mat_base = mat_ef.clone().flatten_to_base::<F>();
+
+        wavelet_transform(&mut mat_ef.as_view_mut());
+        wavelet_transform(&mut mat_base.as_view_mut());
+
+        let out_ef = RowMajorMatrix::new_col(EF::reconstitute_from_base(mat_base.values));
+
+        assert_eq!(mat_ef, out_ef);
     }
 
     #[test]
