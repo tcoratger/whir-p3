@@ -5,6 +5,7 @@ use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
+use parsed_round::ParsedRound;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -21,14 +22,11 @@ use crate::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     utils::expand_randomness,
-    whir::{
-        parameters::WhirConfig,
-        prover::proof::WhirProof,
-        verifier::parsed_proof::{ParsedProof, ParsedRound},
-    },
+    whir::{parameters::WhirConfig, prover::proof::WhirProof, verifier::parsed_proof::ParsedProof},
 };
 
 pub mod parsed_proof;
+pub mod parsed_round;
 
 #[derive(Debug)]
 pub struct Verifier<'a, EF, F, H, C, PowStrategy>
