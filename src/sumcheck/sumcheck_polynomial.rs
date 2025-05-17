@@ -12,7 +12,7 @@ use crate::poly::multilinear::MultilinearPoint;
 #[derive(Debug, Clone)]
 pub struct SumcheckPolynomial<F> {
     /// Number of variables in the polynomial (defines the dimension of the evaluation domain).
-    n_variables: usize,
+    pub(crate) n_variables: usize,
     /// Vector of function evaluations at points in `{0,1,2}^n_variables`, stored in lexicographic
     /// order.
     evaluations: Vec<F>,

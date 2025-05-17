@@ -1,7 +1,9 @@
-use p3_field::Field;
+use p3_field::{Field, TwoAdicField};
+use p3_interpolation::interpolate_subgroup;
+use p3_matrix::dense::RowMajorMatrix;
 
 use crate::{
-    poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
+    poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
 };
 
@@ -65,7 +67,7 @@ pub(crate) struct ParsedProof<F> {
 
 impl<F> ParsedProof<F>
 where
-    F: Field,
+    F: Field + TwoAdicField,
 {
     /// Computes all intermediate fold evaluations using prover-assisted folding.
     ///
@@ -89,6 +91,27 @@ where
                 self.final_randomness_answers
                     .iter()
                     .map(|a| {
+                        println!("coeffs: {:?}", a.clone());
+                        println!("coeffs len {:?}", a.len());
+                        println!(
+                            "folding randomness: {:?}",
+                            self.final_folding_randomness.clone()
+                        );
+
+                        let coeffs = CoefficientList::new(a.clone());
+
+                        if coeffs.num_variables() != self.final_folding_randomness.num_variables() {
+                            let evals: EvaluationsList<F> = coeffs.into();
+                            let mat_evals = RowMajorMatrix::new_col(evals.evals().to_vec());
+                            let toto = interpolate_subgroup(
+                                &mat_evals,
+                                self.final_folding_randomness.0[0],
+                            )[0];
+                            return toto;
+                        }
+
+                        println!("evaluation normale");
+
                         CoefficientList::new(a.clone()).evaluate(&self.final_folding_randomness)
                     })
                     .collect(),

@@ -1,3 +1,4 @@
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
 use super::{Leafs, Proof, Prover};
@@ -8,7 +9,7 @@ use crate::{
         evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
-    sumcheck::sumcheck_single::SumcheckSingle,
+    sumcheck::{K_SKIP_SUMCHECK, sumcheck_single::SumcheckSingle},
     whir::{
         committer::{CommitmentMerkleTree, RoundMerkleTree, Witness},
         statement::{Statement, Weights},
@@ -101,14 +102,16 @@ where
     ///
     /// This function should be called once at the beginning of the proof, before entering the
     /// main WHIR folding loop.
-    pub(crate) fn initialize_first_round_state<H, C, PS>(
+    pub(crate) fn initialize_first_round_state<D, H, C, PS>(
         prover: &Prover<EF, F, H, C, PS>,
+        dft: &D,
         prover_state: &mut ProverState<EF, F>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, DIGEST_ELEMS>,
     ) -> ProofResult<Self>
     where
         PS: PowStrategy,
+        D: TwoAdicSubgroupDft<F>,
     {
         // Convert witness ood_points into constraints
         let new_constraints = witness
@@ -124,7 +127,12 @@ where
             })
             .collect();
 
+        println!("new_constraints round init {:?}", new_constraints);
+
         statement.add_constraints_in_front(new_constraints);
+
+        println!("statement round init {:?}", statement);
+        println!("witness.polynomial {:?}", witness.polynomial);
 
         let evals_p: EvaluationsList<F> = witness.polynomial.clone().into();
 
@@ -141,11 +149,18 @@ where
                 combination_randomness_gen,
             );
 
+            println!(
+                "folding_factor round: {}",
+                prover.folding_factor.at_round(0)
+            );
+
             // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS>(
+            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS, _>(
                 prover_state,
                 prover.folding_factor.at_round(0),
                 prover.starting_folding_pow_bits,
+                Some(K_SKIP_SUMCHECK),
+                dft,
             )?;
 
             sumcheck_prover = Some(sumcheck);
@@ -238,6 +253,7 @@ mod tests {
             merkle_compress: MyCompress::new(ByteHash {}),
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
+            is_univariate_skip: false,
         };
 
         // Combine the multivariate and protocol parameters into a full WHIR config
@@ -312,6 +328,7 @@ mod tests {
         // Initialize the round state using the setup configuration and witness
         let state = RoundState::initialize_first_round_state(
             &Prover(config.clone()),
+            &NaiveDft,
             &mut prover_state,
             statement,
             witness,
@@ -391,6 +408,7 @@ mod tests {
         // Run the first round state initialization (this will trigger sumcheck)
         let state = RoundState::initialize_first_round_state(
             &Prover(config.clone()),
+            &NaiveDft,
             &mut prover_state,
             statement,
             witness,
@@ -489,6 +507,7 @@ mod tests {
         // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
         let state = RoundState::initialize_first_round_state(
             &Prover(config.clone()),
+            &NaiveDft,
             &mut prover_state,
             statement,
             witness,
@@ -597,6 +616,7 @@ mod tests {
         // Run the first round initialization
         let state = RoundState::initialize_first_round_state(
             &Prover(config.clone()),
+            &NaiveDft,
             &mut prover_state,
             statement,
             witness,

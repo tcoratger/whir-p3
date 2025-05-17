@@ -10,6 +10,7 @@ use super::{
 };
 use crate::{
     fiat_shamir::{prover::ProverState, verifier::VerifierState},
+    sumcheck::K_SKIP_SUMCHECK,
     whir::parameters::WhirConfig,
 };
 
@@ -250,6 +251,8 @@ where
             self.add_sumcheck(
                 params.folding_factor.at_round(0),
                 params.starting_folding_pow_bits,
+                params.is_univariate_skip,
+                true,
             );
         } else {
             self.challenge_scalars(params.folding_factor.at_round(0), "folding_randomness");
@@ -269,6 +272,8 @@ where
             self.add_sumcheck(
                 params.folding_factor.at_round(round + 1),
                 r.folding_pow_bits,
+                params.is_univariate_skip,
+                false,
             );
             domain_size >>= 1;
         }
@@ -283,7 +288,12 @@ where
 
         self.squeeze(domain_size_bytes * params.final_queries, "final_queries");
         self.pow(params.final_pow_bits);
-        self.add_sumcheck(params.final_sumcheck_rounds, params.final_folding_pow_bits);
+        self.add_sumcheck(
+            params.final_sumcheck_rounds,
+            params.final_folding_pow_bits,
+            params.is_univariate_skip,
+            false,
+        );
     }
 
     pub fn add_digest(&mut self, label: &str) {
@@ -296,8 +306,24 @@ where
     /// - Samples 3 scalars for the sumcheck polynomial.
     /// - Samples 1 scalar for folding randomness.
     /// - Optionally performs a PoW challenge if `pow_bits > 0`.
-    pub fn add_sumcheck(&mut self, folding_factor: usize, pow_bits: f64) {
-        for _ in 0..folding_factor {
+    pub fn add_sumcheck(
+        &mut self,
+        folding_factor: usize,
+        pow_bits: f64,
+        is_univariate_skip: bool,
+        apply_skip: bool,
+    ) {
+        if is_univariate_skip && apply_skip {
+            self.add_scalars(8, "sumcheck_poly");
+            self.challenge_scalars(1, "folding_randomness");
+        }
+
+        let start = if is_univariate_skip && apply_skip {
+            K_SKIP_SUMCHECK
+        } else {
+            0
+        };
+        for _ in start..folding_factor {
             self.add_scalars(3, "sumcheck_poly");
             self.challenge_scalars(1, "folding_randomness");
             self.pow(pow_bits);

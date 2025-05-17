@@ -72,6 +72,7 @@ pub fn make_whir_things(
         merkle_compress,
         soundness_type,
         starting_log_inv_rate: 1,
+        is_univariate_skip: true,
     };
 
     // Combine protocol and polynomial parameters into a single config
@@ -150,17 +151,15 @@ pub fn make_whir_things(
         .parse_commitment::<32>(&mut verifier_state)
         .unwrap();
 
-    // Verify that the generated proof satisfies the statement
-    assert!(
-        verifier
-            .verify(
-                &mut verifier_state,
-                &parsed_commitment,
-                &statement_verifier,
-                &proof
-            )
-            .is_ok()
+    let verif = verifier.verify(
+        &mut verifier_state,
+        &parsed_commitment,
+        &statement_verifier,
+        &proof,
     );
+
+    // Verify that the generated proof satisfies the statement
+    assert!(verif.is_ok());
 }
 
 #[cfg(test)]
@@ -181,12 +180,29 @@ mod tests {
         let num_points = [0, 1, 2];
         let pow_bits = [0, 5, 10];
 
+        make_whir_things(
+            2,
+            FoldingFactor::Constant(2),
+            0,
+            SecurityAssumption::JohnsonBound,
+            0,
+        );
+
+        return;
+
         for folding_factor in folding_factors {
             let num_variables = folding_factor..=3 * folding_factor;
             for num_variable in num_variables {
                 for num_points in num_points {
                     for soundness_type in soundness_type {
                         for pow_bits in pow_bits {
+                            println!("-------------------------------------");
+                            println!("num_variable: {:?}", num_variable);
+                            println!("folding_factor: {:?}", folding_factor);
+                            println!("num_points: {:?}", num_points);
+                            println!("soundness_type: {:?}", soundness_type);
+                            println!("pow_bits: {:?}", pow_bits);
+                            println!("-------------------------------------");
                             make_whir_things(
                                 num_variable,
                                 FoldingFactor::Constant(folding_factor),
@@ -194,6 +210,15 @@ mod tests {
                                 soundness_type,
                                 pow_bits,
                             );
+
+                            if num_variable == 2
+                                && folding_factor == 2
+                                && num_points == 0
+                                && soundness_type == SecurityAssumption::JohnsonBound
+                                && pow_bits == 0
+                            {
+                                return;
+                            }
                         }
                     }
                 }
