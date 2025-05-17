@@ -275,27 +275,31 @@ where
         SumcheckPolynomial::new(vec![eval_0, eval_1, eval_2], 1)
     }
 
-    /// Implements `folding_factor` rounds of the sumcheck protocol.
+    /// Executes the sumcheck protocol for a multilinear polynomial with optional **univariate skip**.
     ///
-    /// The sumcheck protocol progressively reduces the number of variables in a multilinear
-    /// polynomial. At each step, a quadratic polynomial is derived and verified.
+    /// This function performs `folding_factor` rounds of the sumcheck protocol:
     ///
-    /// Given a polynomial \( p(X_1, \dots, X_n) \), this function iteratively applies the
-    /// transformation:
+    /// - At each round, a univariate polynomial is sent representing a partial sum over a subset of variables.
+    /// - The verifier responds with a random challenge that is used to fix one variable.
+    /// - Optionally, the first `k` rounds can be skipped using the **univariate skip** optimization,
+    ///   which collapses multiple Boolean variables at once over a multiplicative subgroup.
     ///
-    /// \begin{equation}
-    /// h(X) = \sum_b p(b, X) \cdot w(b, X)
-    /// \end{equation}
+    /// The univariate skip is performed entirely in the base field and reduces expensive extension field
+    /// computations, improving prover efficiency.
     ///
-    /// where:
-    /// - \( b \) are points in \{0,1,2\}.
-    /// - \( w(b, X) \) represents generic weights applied to \( p(b, X) \).
-    /// - \( h(X) \) is a quadratic polynomial in \( X \).
+    /// # Arguments
+    /// - `prover_state`: The state of the prover, managing Fiat-Shamir transcript and PoW grinding.
+    /// - `folding_factor`: Number of variables to fold in total.
+    /// - `pow_bits`: Number of PoW bits used to delay the prover (0.0 to disable).
+    /// - `k_skip`: Optional number of initial variables to skip using the univariate optimization.
+    /// - `dft`: A two-adic FFT backend used for low-degree extensions over cosets.
     ///
-    /// This function:
-    /// - Samples random values to progressively reduce the polynomial.
-    /// - Applies proof-of-work grinding if required.
-    /// - Returns the sampled folding randomness values used in each reduction step.
+    /// # Returns
+    /// A `MultilinearPoint<EF>` representing the verifier's challenges across all folded variables.
+    ///
+    /// # Panics
+    /// - If `folding_factor > num_variables()`
+    /// - If univariate skip is attempted with evaluations in the extension field.
     pub fn compute_sumcheck_polynomials<S, DFT>(
         &mut self,
         prover_state: &mut ProverState<EF, F>,
@@ -310,63 +314,77 @@ where
         S: PowStrategy,
         DFT: TwoAdicSubgroupDft<F>,
     {
-        assert!(
-            self.num_variables() >= folding_factor,
-            "Not enough variables to fold"
-        );
+        // Will store the verifier's folding challenges for each round.
         let mut res = Vec::with_capacity(folding_factor);
 
+        // Track number of rounds already skipped.
+        let mut skip = 0;
+
         // Optional univariate skip
-        let skip = match k_skip {
-            // We apply a k-skip if:
-            // - k >= 2 (to avoid using the univariate skip uselessly)
-            // - k <= folding_factor (to be sure we don't skip more rounds than folding factor)
-            Some(k) if k >= 2 && k <= folding_factor => {
-                // Apply univariate skip over the first k variables
+        if let Some(k) = k_skip {
+            if k >= 2 && k <= folding_factor {
+                // Collapse the first k variables via a univariate evaluation over a multiplicative coset.
                 let (sumcheck_poly, f_mat, w_mat) =
                     self.compute_skipping_sumcheck_polynomial(dft, k);
+
+                // Send the evaluations of the univariate polynomial (length 2^k) to the verifier.
                 prover_state.add_scalars(sumcheck_poly.evaluations())?;
 
+                // Receive the verifier challenge for this entire collapsed round.
                 let [folding_randomness] = prover_state.challenge_scalars()?;
                 res.push(folding_randomness);
 
+                // Optional proof-of-work challenge to delay prover.
                 if pow_bits > 0. {
                     prover_state.challenge_pow::<S>(pow_bits)?;
                 }
 
-                let new_weights = interpolate_subgroup(&w_mat, folding_randomness);
+                // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
+                let new_p = interpolate_subgroup(&f_mat, folding_randomness);
+                let new_w = interpolate_subgroup(&w_mat, folding_randomness);
 
-                self.evaluation_of_p = EvaluationStorage::Extension(EvaluationsList::new(
-                    interpolate_subgroup(&f_mat, folding_randomness),
-                ));
-                self.weights = EvaluationsList::new(new_weights);
+                // Update polynomial and weights with reduced dimensionality.
+                self.evaluation_of_p = EvaluationStorage::Extension(EvaluationsList::new(new_p));
+                self.weights = EvaluationsList::new(new_w);
 
-                // Update the sum state variable
-                self.sum = interpolate_subgroup(
+                // Compute the new target sum after folding.
+                let folded_poly_eval = interpolate_subgroup(
                     &RowMajorMatrix::new_col(sumcheck_poly.evaluations().to_vec()),
-                    res[0],
-                )[0];
+                    folding_randomness,
+                );
+                self.sum = folded_poly_eval[0];
 
-                k
+                // We've skipped `k` variables with one univariate round.
+                skip = k;
             }
-            _ => 0, // No skip
-        };
+        }
 
+        // Standard round-by-round folding
+        // Proceed with one-variable-per-round folding for remaining variables.
         for _ in skip..folding_factor {
+            // Compute the quadratic sumcheck polynomial for the current variable.
             let sumcheck_poly = self.compute_sumcheck_polynomial();
+
+            // Send polynomial evaluations to verifier.
             prover_state.add_scalars(sumcheck_poly.evaluations())?;
+
+            // Sample verifier challenge.
             let [folding_randomness] = prover_state.challenge_scalars()?;
             res.push(folding_randomness);
 
-            // Do PoW if needed
+            // Optional PoW grinding.
             if pow_bits > 0. {
                 prover_state.challenge_pow::<S>(pow_bits)?;
             }
 
+            // Fold the polynomial and weight evaluations over the new challenge.
             self.compress(EF::ONE, &folding_randomness.into(), &sumcheck_poly);
         }
 
+        // Reverse challenges to maintain order from X₀ to Xₙ.
         res.reverse();
+
+        // Return the full vector of verifier challenges as a multilinear point.
         Ok(MultilinearPoint(res))
     }
 
