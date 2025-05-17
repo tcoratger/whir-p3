@@ -76,6 +76,14 @@ where
         }
     }
 
+    /// Constructs a new `SumcheckSingle` instance from evaluations in the base field.
+    ///
+    /// This function:
+    /// - Uses precomputed evaluations of the polynomial `p` over the Boolean hypercube.
+    /// - Applies the given constraint `Statement` using a random linear combination.
+    /// - Initializes internal sumcheck state with weights and expected sum.
+    ///
+    /// The base field evaluations are stored without transformation.
     pub fn from_base_evals(
         evals: EvaluationsList<F>,
         statement: &Statement<EF>,
@@ -112,6 +120,15 @@ where
         }
     }
 
+    /// Constructs a new `SumcheckSingle` instance from evaluations in the extension field.
+    ///
+    /// This function:
+    /// - Uses precomputed evaluations of the polynomial `p` over the Boolean hypercube,
+    ///   where `p` is already represented over the extension field `EF`.
+    /// - Applies the provided `Statement` to compute equality weights and the expected sum.
+    /// - Initializes the internal state used in the sumcheck protocol.
+    ///
+    /// This is the entry point when the polynomial is defined directly over `EF`.
     pub fn from_extension_evals(
         evals: EvaluationsList<EF>,
         statement: &Statement<EF>,
