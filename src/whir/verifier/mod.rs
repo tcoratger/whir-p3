@@ -60,15 +60,12 @@ where
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
-        let mmcs = ExtensionMmcs::new(MerkleTreeMmcs::new(
-            self.params.merkle_hash.clone(),
-            self.params.merkle_compress.clone(),
-        ));
-
-        let commitment_mmcs = MerkleTreeMmcs::new(
+        let mmcs = MerkleTreeMmcs::new(
             self.params.merkle_hash.clone(),
             self.params.merkle_compress.clone(),
         );
+
+        let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
 
         let mut sumcheck_rounds = Vec::new();
         let mut folding_randomness;
@@ -159,29 +156,29 @@ where
                     let indexed_answers: Vec<F> =
                         answers[i].iter().map(|v| v.as_base().unwrap()).collect();
 
-                    commitment_mmcs
-                        .verify_batch(
-                            &prev_root,
-                            &dimensions,
-                            stir_challenges_index,
-                            &[indexed_answers],
-                            &merkle_proof[i],
-                        )
-                        .map_err(|_| ProofError::InvalidProof)?;
+                    mmcs.verify_batch(
+                        &prev_root,
+                        &dimensions,
+                        stir_challenges_index,
+                        &[indexed_answers],
+                        &merkle_proof[i],
+                    )
+                    .map_err(|_| ProofError::InvalidProof)?;
                     stir_challenges_answers = answers
                         .iter()
                         .map(|inner| inner.iter().map(|&f_el| EF::from(f_el)).collect())
                         .collect();
                 } else {
                     let (answers, merkle_proof) = &whir_proof.merkle_paths[r - 1];
-                    mmcs.verify_batch(
-                        &prev_root,
-                        &dimensions,
-                        stir_challenges_index,
-                        &[answers[i].clone()],
-                        &merkle_proof[i],
-                    )
-                    .map_err(|_| ProofError::InvalidProof)?;
+                    extension_mmcs
+                        .verify_batch(
+                            &prev_root,
+                            &dimensions,
+                            stir_challenges_index,
+                            &[answers[i].clone()],
+                            &merkle_proof[i],
+                        )
+                        .map_err(|_| ProofError::InvalidProof)?;
                     stir_challenges_answers.clone_from(answers);
                 }
             }
@@ -261,15 +258,14 @@ where
                 &whir_proof.commitment_merkle_paths;
 
             for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
-                commitment_mmcs
-                    .verify_batch(
-                        &prev_root,
-                        &dimensions,
-                        stir_challenges_index,
-                        &[commitment_randomness_answers[i].clone()],
-                        &commitment_merkle_proof[i],
-                    )
-                    .map_err(|_| ProofError::InvalidProof)?;
+                mmcs.verify_batch(
+                    &prev_root,
+                    &dimensions,
+                    stir_challenges_index,
+                    &[commitment_randomness_answers[i].clone()],
+                    &commitment_merkle_proof[i],
+                )
+                .map_err(|_| ProofError::InvalidProof)?;
             }
 
             commitment_randomness_answers
@@ -281,14 +277,15 @@ where
                 &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
 
             for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
-                mmcs.verify_batch(
-                    &prev_root,
-                    &dimensions,
-                    stir_challenges_index,
-                    &[final_randomness_answers[i].clone()],
-                    &final_merkle_proof[i],
-                )
-                .map_err(|_| ProofError::InvalidProof)?;
+                extension_mmcs
+                    .verify_batch(
+                        &prev_root,
+                        &dimensions,
+                        stir_challenges_index,
+                        &[final_randomness_answers[i].clone()],
+                        &final_merkle_proof[i],
+                    )
+                    .map_err(|_| ProofError::InvalidProof)?;
             }
 
             final_randomness_answers.clone()
