@@ -13,32 +13,32 @@ where
     EF: ExtensionField<F>,
 {
     /// Computes the sumcheck polynomial using the **univariate skip** optimization,
-    /// and returns intermediate matrices for reuse.
+    /// folding the first `k` variables in a single step, and returns intermediate matrices for reuse.
     ///
-    /// This method folds the first `k` variables in one step, skipping `k` rounds of the
-    /// classical sumcheck protocol. Instead of deriving a quadratic in each round, we compute
-    /// a single univariate polynomial of degree up to `2^k - 1` in one shot.
+    /// This method skips `k` rounds of classical sumcheck by evaluating the polynomial over
+    /// a structured domain of the form `D × H^{n-k}`, where `D` is a multiplicative coset of size `2^{k+1}`.
     ///
-    /// The resulting polynomial is evaluated over a multiplicative coset of size `2^{k+1}`,
-    /// and captures the sum:
+    /// It returns a univariate polynomial `h(X)` of degree ≤ `2^k - 1`, defined as:
     ///
     /// \begin{equation}
-    /// h(X) = \sum_{b \in \{0,1\}^k} p(b, X) \cdot w(b, X)
+    /// h(X) = \sum_{b \in \{0,1\}^{n-k}} p(X, b) \cdot w(X, b)
     /// \end{equation}
+    ///
+    /// where `X` ranges over the coset and each `b` represents an assignment to the remaining variables.
     ///
     /// # Inputs
     /// - `dft`: A two-adic DFT backend used to perform low-degree extension over a coset domain.
-    /// - `k`: The number of initial variables to fold via skipping.
+    /// - `k`: Number of initial variables to skip via univariate folding.
     ///
     /// # Output
     /// - A tuple:
-    ///   - `SumcheckPolynomial<EF>`: The folded univariate polynomial as evaluation vector.
-    ///   - `RowMajorMatrix<F>`: The matrix of input evaluations reshaped as `(2^k, remaining)` before LDE.
-    ///   - `RowMajorMatrix<EF>`: The corresponding weights matrix reshaped to match.
+    ///   - `SumcheckPolynomial<EF>`: The folded univariate polynomial evaluated over the coset.
+    ///   - `RowMajorMatrix<F>`: Matrix view of base field evaluations reshaped as `(2^k, 2^{n-k})`.
+    ///   - `RowMajorMatrix<EF>`: Matrix view of extension field weights, reshaped similarly.
     ///
     /// # Constraints
-    /// - Only base field evaluation storage is supported. This function panics if the polynomial
-    ///   is already stored in the extension field.
+    /// - This method requires base field evaluations (`EvaluationStorage::Base`).
+    ///   It panics if the polynomial is already stored in the extension field.
     pub fn compute_skipping_sumcheck_polynomial<DFT>(
         &self,
         dft: &DFT,
@@ -61,22 +61,34 @@ where
         // Only base field evaluations are supported for skipping.
         let (out_vec, f, w) = match &self.evaluation_of_p {
             EvaluationStorage::Base(evals_f) => {
-                // Interpret `p` as a 2D matrix of shape:
-                // - Rows: 2^k (assignments to skipped variables)
-                // - Columns: 2^{n-k} (assignments to remaining variables)
+                // Reinterpret the flat evaluation vector as a matrix of shape:
+                // - Rows: 2^k (assignments to the first k variables, which we skip)
+                // - Columns: 2^{n-k} (assignments to the remaining variables)
+                //
+                // The transpose operation converts from row-major evaluations over {0,1}^n
+                // into a layout where each row corresponds to a fixed setting of the remaining variables.
                 let f_mat = RowMajorMatrix::new(evals_f.evals().to_vec(), 1 << k).transpose();
                 // Similarly reshape weights to align with p
                 let weights_mat =
                     RowMajorMatrix::new(self.weights.evals().to_vec(), 1 << k).transpose();
 
-                // Perform LDE (low-degree extension) on both matrices over a coset of size 2^{k+1}
+                // Apply low-degree extension (LDE) over a multiplicative coset of size 2^{k+1}
+                // to both the function and weights matrices:
+                // - Each row in f_mat is extended from size 2^k to 2^{k+1} over the coset domain.
+                // - The same is done for weights_mat, but with values in the extension field EF.
                 let f_on_coset = dft.lde_batch(f_mat.clone(), 1).to_row_major_matrix();
                 let weights_on_coset = dft
                     .lde_algebra_batch(weights_mat.clone(), 1)
                     .to_row_major_matrix();
 
-                // For each row (assignment to remaining variables), compute:
-                // sum_i f_i(x) * w_i(x) across the coset
+                // After LDE, each row corresponds to a fixed assignment to the remaining variables,
+                // and contains the univariate evaluations over the coset (length 2^{k+1}).
+                //
+                // We now compute the sumcheck polynomial:
+                // - For each row, compute the pointwise product f(x) * w(x)
+                // - Then sum across x in the coset to collapse that row into a scalar
+                //
+                // This yields one evaluation of the final univariate sumcheck polynomial per row.
                 let result: Vec<EF> = f_on_coset
                     .par_row_slices()
                     .zip(weights_on_coset.par_row_slices())
