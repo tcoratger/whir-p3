@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     committer::reader::ParsedCommitment,
-    parsed_proof::ParsedRound,
     statement::{StatementVerifier, VerifierWeights},
     utils::get_challenge_stir_queries,
 };
@@ -22,8 +21,14 @@ use crate::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     utils::expand_randomness,
-    whir::{parameters::WhirConfig, parsed_proof::ParsedProof, prover::proof::WhirProof},
+    whir::{
+        parameters::WhirConfig,
+        prover::proof::WhirProof,
+        verifier::parsed_proof::{ParsedProof, ParsedRound},
+    },
 };
+
+pub mod parsed_proof;
 
 #[derive(Debug)]
 pub struct Verifier<'a, EF, F, H, C, PowStrategy>

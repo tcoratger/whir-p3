@@ -21,7 +21,6 @@ use crate::{
 
 pub mod committer;
 pub mod parameters;
-pub mod parsed_proof;
 pub mod prover;
 pub mod statement;
 pub mod utils;
