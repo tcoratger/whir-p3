@@ -12,22 +12,33 @@ where
     F: Field + TwoAdicField,
     EF: ExtensionField<F>,
 {
-    /// Computes the sumcheck polynomial using the **univariate skip** optimization.
+    /// Computes the sumcheck polynomial using the **univariate skip** optimization,
+    /// and returns intermediate matrices for reuse.
     ///
-    /// This method folds the first `k` variables in one step, skipping `k` rounds of sumcheck.
-    /// The result is a univariate polynomial over a multiplicative coset of size `2^{k+1}`.
+    /// This method folds the first `k` variables in one step, skipping `k` rounds of the
+    /// classical sumcheck protocol. Instead of deriving a quadratic in each round, we compute
+    /// a single univariate polynomial of degree up to `2^k - 1` in one shot.
     ///
-    /// # Input
-    /// - `dft`: A DFT implementation over the base field `F`.
-    /// - `k`: The number of initial variables to skip (fold) in one shot.
+    /// The resulting polynomial is evaluated over a multiplicative coset of size `2^{k+1}`,
+    /// and captures the sum:
+    ///
+    /// \begin{equation}
+    /// h(X) = \sum_{b \in \{0,1\}^k} p(b, X) \cdot w(b, X)
+    /// \end{equation}
+    ///
+    /// # Inputs
+    /// - `dft`: A two-adic DFT backend used to perform low-degree extension over a coset domain.
+    /// - `k`: The number of initial variables to fold via skipping.
     ///
     /// # Output
-    /// - A degree-`2^k - 1` univariate polynomial over the extension field `EF`,
-    ///   returned as a `SumcheckPolynomial<EF>`.
+    /// - A tuple:
+    ///   - `SumcheckPolynomial<EF>`: The folded univariate polynomial as evaluation vector.
+    ///   - `RowMajorMatrix<F>`: The matrix of input evaluations reshaped as `(2^k, remaining)` before LDE.
+    ///   - `RowMajorMatrix<EF>`: The corresponding weights matrix reshaped to match.
     ///
     /// # Constraints
-    /// - This function assumes that the original polynomial and weights are defined over the **base field**.
-    /// - It panics if the polynomial is already defined over the extension field.
+    /// - Only base field evaluation storage is supported. This function panics if the polynomial
+    ///   is already stored in the extension field.
     pub fn compute_skipping_sumcheck_polynomial<DFT>(
         &self,
         dft: &DFT,
@@ -40,8 +51,7 @@ where
     where
         DFT: TwoAdicSubgroupDft<F>,
     {
-        // Ensure we have at least `k` variables to skip.
-        // Otherwise, univariate skip is not applicable.
+        // Ensure we have enough variables to perform k-fold skipping.
         assert!(
             self.num_variables() >= k,
             "Need at least k variables to apply univariate skip on k variables"
@@ -51,54 +61,45 @@ where
         // Only base field evaluations are supported for skipping.
         let (out_vec, f, w) = match &self.evaluation_of_p {
             EvaluationStorage::Base(evals_f) => {
-                // WARNING: here we must do something to enforce properly the expected sum (`self.sum`)
-                // We are not in a zerocheck case, so this requires some adaptions.
-
-                // Interpret polynomial evaluations as a 2D matrix
+                // Interpret `p` as a 2D matrix of shape:
+                // - Rows: 2^k (assignments to skipped variables)
+                // - Columns: 2^{n-k} (assignments to remaining variables)
                 let f_mat = RowMajorMatrix::new(evals_f.evals().to_vec(), 1 << k).transpose();
+                // Similarly reshape weights to align with p
                 let weights_mat =
                     RowMajorMatrix::new(self.weights.evals().to_vec(), 1 << k).transpose();
 
-                // Apply low-degree extension (LDE) to both:
-                // - Coefficients matrix (over F)
-                // - Weights matrix (over EF)
-                //
-                // This evaluates both over the multiplicative coset domain D.
+                // Perform LDE (low-degree extension) on both matrices over a coset of size 2^{k+1}
                 let f_on_coset = dft.lde_batch(f_mat.clone(), 1).to_row_major_matrix();
                 let weights_on_coset = dft
                     .lde_algebra_batch(weights_mat.clone(), 1)
                     .to_row_major_matrix();
 
-                // For each row (i.e. each fixed assignment to remaining variables):
-                // - Multiply pointwise: f(x) * w(x)
-                // - Then sum the product across the coset domain.
-                // - This yields one evaluation of the sumcheck polynomial.
-                (
-                    f_on_coset
-                        .par_row_slices()
-                        .zip(weights_on_coset.par_row_slices())
-                        .map(|(coeffs_row, weights_row)| {
-                            coeffs_row
-                                .iter()
-                                .zip(weights_row.iter())
-                                .map(|(&c, &w)| w * c)
-                                .sum()
-                        })
-                        .collect(),
-                    f_mat,
-                    weights_mat,
-                )
+                // For each row (assignment to remaining variables), compute:
+                // sum_i f_i(x) * w_i(x) across the coset
+                let result: Vec<EF> = f_on_coset
+                    .par_row_slices()
+                    .zip(weights_on_coset.par_row_slices())
+                    .map(|(coeffs_row, weights_row)| {
+                        coeffs_row
+                            .iter()
+                            .zip(weights_row.iter())
+                            .map(|(&c, &w)| w * c)
+                            .sum()
+                    })
+                    .collect();
+
+                (result, f_mat, weights_mat)
             }
 
-            // Univariate skip optimization is only defined in the base field.
-            // If the input is already in the extension field, abort.
+            // If the polynomial is already in extension form, univariate skip is not valid.
             EvaluationStorage::Extension(_) => {
                 panic!("The univariate skip optimization should only occur in base field")
             }
         };
 
-        // Return a univariate polynomial over EF with the collected values.
-        // These values are evaluations of the folded polynomial over the coset.
+        // Return the sumcheck polynomial and the intermediate pre-LDE matrices
+
         (SumcheckPolynomial::new(out_vec, 1), f, w)
     }
 }

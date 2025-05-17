@@ -334,17 +334,18 @@ where
                     prover_state.challenge_pow::<S>(pow_bits)?;
                 }
 
-                let new_p = interpolate_subgroup(&f_mat, folding_randomness);
                 let new_weights = interpolate_subgroup(&w_mat, folding_randomness);
 
-                self.evaluation_of_p = EvaluationStorage::Extension(EvaluationsList::new(new_p));
+                self.evaluation_of_p = EvaluationStorage::Extension(EvaluationsList::new(
+                    interpolate_subgroup(&f_mat, folding_randomness),
+                ));
                 self.weights = EvaluationsList::new(new_weights);
 
-                let evals_mat = RowMajorMatrix::new(sumcheck_poly.evaluations().to_vec(), 1);
-                let next_sum = interpolate_subgroup(&evals_mat, res[0])[0];
-
                 // Update the sum state variable
-                self.sum = next_sum;
+                self.sum = interpolate_subgroup(
+                    &RowMajorMatrix::new_col(sumcheck_poly.evaluations().to_vec()),
+                    res[0],
+                )[0];
 
                 k
             }
