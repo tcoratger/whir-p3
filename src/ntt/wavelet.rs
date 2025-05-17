@@ -1,6 +1,7 @@
 use p3_field::{Field, PackedValue};
 use p3_matrix::{Matrix, dense::RowMajorMatrixViewMut, util::reverse_matrix_index_bits};
 use p3_util::log2_strict_usize;
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use super::utils::workload_size;
