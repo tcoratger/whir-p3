@@ -1,3 +1,4 @@
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
 use super::{Leafs, Proof, Prover};
@@ -101,14 +102,16 @@ where
     ///
     /// This function should be called once at the beginning of the proof, before entering the
     /// main WHIR folding loop.
-    pub(crate) fn initialize_first_round_state<H, C, PS>(
+    pub(crate) fn initialize_first_round_state<H, C, PS, D>(
         prover: &Prover<EF, F, H, C, PS>,
         prover_state: &mut ProverState<EF, F>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, DIGEST_ELEMS>,
+        dft: &D,
     ) -> ProofResult<Self>
     where
         PS: PowStrategy,
+        D: TwoAdicSubgroupDft<F>,
     {
         // Convert witness ood_points into constraints
         let new_constraints = witness
@@ -142,10 +145,12 @@ where
             );
 
             // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS>(
+            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS, _>(
                 prover_state,
                 prover.folding_factor.at_round(0),
                 prover.starting_folding_pow_bits,
+                None,
+                dft,
             )?;
 
             sumcheck_prover = Some(sumcheck);
@@ -315,6 +320,7 @@ mod tests {
             &mut prover_state,
             statement,
             witness,
+            &NaiveDft,
         )
         .unwrap();
 
@@ -394,6 +400,7 @@ mod tests {
             &mut prover_state,
             statement,
             witness,
+            &NaiveDft,
         )
         .unwrap();
 
@@ -492,6 +499,7 @@ mod tests {
             &mut prover_state,
             statement,
             witness,
+            &NaiveDft,
         )
         .unwrap();
 
@@ -600,6 +608,7 @@ mod tests {
             &mut prover_state,
             statement,
             witness,
+            &NaiveDft,
         )
         .expect("RoundState initialization failed");
 
