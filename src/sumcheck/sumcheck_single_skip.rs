@@ -32,7 +32,11 @@ where
         &self,
         dft: &DFT,
         k: usize,
-    ) -> SumcheckPolynomial<EF>
+    ) -> (
+        SumcheckPolynomial<EF>,
+        RowMajorMatrix<F>,
+        RowMajorMatrix<EF>,
+    )
     where
         DFT: TwoAdicSubgroupDft<F>,
     {
@@ -45,7 +49,7 @@ where
 
         // Evaluate based on the storage format of the polynomial:
         // Only base field evaluations are supported for skipping.
-        let out_vec = match &self.evaluation_of_p {
+        let (out_vec, f, w) = match &self.evaluation_of_p {
             EvaluationStorage::Base(evals_f) => {
                 // WARNING: here we must do something to enforce properly the expected sum (`self.sum`)
                 // We are not in a zerocheck case, so this requires some adaptions.
@@ -60,24 +64,30 @@ where
                 // - Weights matrix (over EF)
                 //
                 // This evaluates both over the multiplicative coset domain D.
-                let f_on_coset = dft.lde_batch(f_mat, 1).to_row_major_matrix();
-                let weights_on_coset = dft.lde_algebra_batch(weights_mat, 1).to_row_major_matrix();
+                let f_on_coset = dft.lde_batch(f_mat.clone(), 1).to_row_major_matrix();
+                let weights_on_coset = dft
+                    .lde_algebra_batch(weights_mat.clone(), 1)
+                    .to_row_major_matrix();
 
                 // For each row (i.e. each fixed assignment to remaining variables):
                 // - Multiply pointwise: f(x) * w(x)
                 // - Then sum the product across the coset domain.
                 // - This yields one evaluation of the sumcheck polynomial.
-                f_on_coset
-                    .par_row_slices()
-                    .zip(weights_on_coset.par_row_slices())
-                    .map(|(coeffs_row, weights_row)| {
-                        coeffs_row
-                            .iter()
-                            .zip(weights_row.iter())
-                            .map(|(&c, &w)| w * c)
-                            .sum()
-                    })
-                    .collect()
+                (
+                    f_on_coset
+                        .par_row_slices()
+                        .zip(weights_on_coset.par_row_slices())
+                        .map(|(coeffs_row, weights_row)| {
+                            coeffs_row
+                                .iter()
+                                .zip(weights_row.iter())
+                                .map(|(&c, &w)| w * c)
+                                .sum()
+                        })
+                        .collect(),
+                    f_mat,
+                    weights_mat,
+                )
             }
 
             // Univariate skip optimization is only defined in the base field.
@@ -89,7 +99,7 @@ where
 
         // Return a univariate polynomial over EF with the collected values.
         // These values are evaluations of the folded polynomial over the coset.
-        SumcheckPolynomial::new(out_vec, 1)
+        (SumcheckPolynomial::new(out_vec, 1), f, w)
     }
 }
 
@@ -146,7 +156,7 @@ mod tests {
         // using `coset_lde_batch` (low-degree extension via DFT).
         // ----------------------------------------------------------------
         let dft = Dft::default();
-        let poly = prover.compute_skipping_sumcheck_polynomial(&dft, 1);
+        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(&dft, 1);
 
         // ----------------------------------------------------------------
         // Sum over the Boolean hypercube {0,1}:
@@ -208,7 +218,7 @@ mod tests {
         // using DFT on a multiplicative coset of size 2^{k+1} = 8.
         // ----------------------------------------------------------------
         let dft = Dft::default();
-        let poly = prover.compute_skipping_sumcheck_polynomial(&dft, 2);
+        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(&dft, 2);
 
         // ----------------------------------------------------------------
         // Finally, the sum over {0,1} values of X2 must also be zero
@@ -354,7 +364,7 @@ mod tests {
         // ------------------------------------------------------------
         // Compute the polynomial using the function under test
         // ------------------------------------------------------------
-        let poly = prover.compute_skipping_sumcheck_polynomial(&dft, k);
+        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(&dft, k);
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3

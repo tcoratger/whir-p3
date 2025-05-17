@@ -323,7 +323,8 @@ where
             // - k <= folding_factor (to be sure we don't skip more rounds than folding factor)
             Some(k) if k >= 2 && k <= folding_factor => {
                 // Apply univariate skip over the first k variables
-                let sumcheck_poly = self.compute_skipping_sumcheck_polynomial(dft, k);
+                let (sumcheck_poly, f_mat, w_mat) =
+                    self.compute_skipping_sumcheck_polynomial(dft, k);
                 prover_state.add_scalars(sumcheck_poly.evaluations())?;
 
                 let [folding_randomness] = prover_state.challenge_scalars()?;
@@ -333,20 +334,8 @@ where
                     prover_state.challenge_pow::<S>(pow_bits)?;
                 }
 
-                // Get evaluations of p
-                let evals_p = match &self.evaluation_of_p {
-                    EvaluationStorage::Base(evals_f) => evals_f.evals(),
-                    EvaluationStorage::Extension(_) => {
-                        panic!("The univariate skip optimization should only occur in base field")
-                    }
-                };
-
-                let f_mat = RowMajorMatrix::new(evals_p.to_vec(), 1 << k).transpose();
-                let weights_mat =
-                    RowMajorMatrix::new(self.weights.evals().to_vec(), 1 << k).transpose();
-
                 let new_p = interpolate_subgroup(&f_mat, folding_randomness);
-                let new_weights = interpolate_subgroup(&weights_mat, folding_randomness);
+                let new_weights = interpolate_subgroup(&w_mat, folding_randomness);
 
                 self.evaluation_of_p = EvaluationStorage::Extension(EvaluationsList::new(new_p));
                 self.weights = EvaluationsList::new(new_weights);
