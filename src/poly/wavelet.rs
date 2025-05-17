@@ -4,7 +4,7 @@ use p3_util::log2_strict_usize;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use super::utils::workload_size;
+use crate::whir::utils::workload_size;
 
 /// In-place Fast Wavelet Transform on a matrix view.
 ///

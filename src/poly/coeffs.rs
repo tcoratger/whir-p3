@@ -7,7 +7,7 @@ use {
 };
 
 use super::{dense::WhirDensePolynomial, evals::EvaluationsList};
-use crate::{ntt::wavelet::wavelet_transform, poly::multilinear::MultilinearPoint};
+use crate::poly::{multilinear::MultilinearPoint, wavelet::wavelet_transform};
 
 /// A wrapper enum that holds coefficient data for a multilinear polynomial,
 /// either over the base field `F` or an extension field `EF`.
