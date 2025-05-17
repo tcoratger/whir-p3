@@ -82,7 +82,7 @@ where
 
         for _ in 0..num_variables {
             res.push(cur);
-            cur = cur * cur; // Compute y^(2^k) at each step
+            cur = cur.square(); // Compute y^(2^k) at each step
         }
 
         res.reverse();
