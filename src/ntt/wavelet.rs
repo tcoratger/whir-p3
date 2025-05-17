@@ -138,7 +138,7 @@ pub fn wavelet_transform<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>) {
 
     // When applying the wavelet transform in parallel, we want to try and split up the work
     // into medium sized chunks which fit nicely on the different cores.
-    // As a rough rule of thumb, we will use chuncks of size `workload_size::<F>()` unless the
+    // As a rough rule of thumb, we will use chunks of size `workload_size::<F>()` unless the
     // transform is much larger than this.
     let num_par_rows = (workload_size::<F>() / mat.width())
         .next_power_of_two()
