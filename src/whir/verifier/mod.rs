@@ -1,17 +1,12 @@
 use std::{fmt::Debug, iter};
 
-use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
-use p3_matrix::Dimensions;
-use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
-use parsed_round::ParsedRound;
 use serde::{Deserialize, Serialize};
 
 use super::{
     committer::reader::ParsedCommitment,
     statement::{StatementVerifier, VerifierWeights},
-    utils::get_challenge_stir_queries,
 };
 use crate::{
     fiat_shamir::{
@@ -19,9 +14,7 @@ use crate::{
         pow::traits::PowStrategy,
         verifier::VerifierState,
     },
-    poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
-    sumcheck::sumcheck_polynomial::SumcheckPolynomial,
-    utils::expand_randomness,
+    poly::multilinear::MultilinearPoint,
     whir::{parameters::WhirConfig, prover::proof::WhirProof, verifier::parsed_proof::ParsedProof},
 };
 
@@ -45,290 +38,6 @@ where
 {
     pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {
         Self { params }
-    }
-
-    #[allow(clippy::too_many_lines)]
-    fn parse_proof<const DIGEST_ELEMS: usize>(
-        &self,
-        verifier_state: &mut VerifierState<'_, EF, F>,
-        parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
-        statement_points_len: usize,
-        whir_proof: &WhirProof<F, EF, DIGEST_ELEMS>,
-    ) -> ProofResult<ParsedProof<EF>>
-    where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
-        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-    {
-        let mmcs = MerkleTreeMmcs::new(
-            self.params.merkle_hash.clone(),
-            self.params.merkle_compress.clone(),
-        );
-
-        let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
-
-        let mut sumcheck_rounds = Vec::new();
-        let mut folding_randomness;
-        let initial_combination_randomness;
-
-        if self.params.initial_statement {
-            // Derive combination randomness and first sumcheck polynomial
-            let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
-            initial_combination_randomness = expand_randomness(
-                combination_randomness_gen,
-                parsed_commitment.ood_points.len() + statement_points_len,
-            );
-
-            // Initial sumcheck
-            sumcheck_rounds.reserve_exact(self.params.folding_factor.at_round(0));
-            for _ in 0..self.params.folding_factor.at_round(0) {
-                let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars()?;
-                let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-                let [folding_randomness_single] = verifier_state.challenge_scalars()?;
-                sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
-
-                if self.params.starting_folding_pow_bits > 0. {
-                    verifier_state.challenge_pow::<PS>(self.params.starting_folding_pow_bits)?;
-                }
-            }
-
-            folding_randomness =
-                MultilinearPoint(sumcheck_rounds.iter().map(|&(_, r)| r).rev().collect());
-        } else {
-            assert_eq!(parsed_commitment.ood_points.len(), 0);
-            assert_eq!(statement_points_len, 0);
-
-            initial_combination_randomness = vec![EF::ONE];
-
-            let mut folding_randomness_vec = vec![EF::ZERO; self.params.folding_factor.at_round(0)];
-            verifier_state.fill_challenge_scalars(&mut folding_randomness_vec)?;
-            folding_randomness = MultilinearPoint(folding_randomness_vec);
-
-            // PoW
-            if self.params.starting_folding_pow_bits > 0. {
-                verifier_state.challenge_pow::<PS>(self.params.starting_folding_pow_bits)?;
-            }
-        }
-
-        let mut prev_root = parsed_commitment.root;
-        let mut domain_gen = self.params.starting_domain.backing_domain.group_gen();
-        let mut exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(0));
-        let mut domain_gen_inv = self.params.starting_domain.backing_domain.group_gen_inv();
-        let mut domain_size = self.params.starting_domain.size();
-        let mut rounds = vec![];
-
-        for r in 0..self.params.n_rounds() {
-            let round_params = &self.params.round_parameters[r];
-            let fold_r = self.params.folding_factor.at_round(r);
-
-            let new_root = verifier_state.read_digest()?;
-
-            let mut ood_points = vec![EF::ZERO; round_params.ood_samples];
-            let mut ood_answers = vec![EF::ZERO; round_params.ood_samples];
-            if round_params.ood_samples > 0 {
-                verifier_state.fill_challenge_scalars(&mut ood_points)?;
-                verifier_state.fill_next_scalars(&mut ood_answers)?;
-            }
-
-            let stir_challenges_indexes = get_challenge_stir_queries(
-                domain_size,
-                fold_r,
-                round_params.num_queries,
-                verifier_state,
-            )?;
-
-            let stir_challenges_points = stir_challenges_indexes
-                .iter()
-                .map(|index| exp_domain_gen.exp_u64(*index as u64))
-                .collect();
-
-            // Verify Merkle openings using `verify_batch`
-            let dimensions = vec![Dimensions {
-                height: domain_size >> fold_r,
-                width: 1 << fold_r,
-            }];
-
-            let mut stir_challenges_answers = Vec::new();
-
-            for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
-                if r == 0 {
-                    let (answers, merkle_proof) = &whir_proof.commitment_merkle_paths;
-                    let indexed_answers: Vec<F> =
-                        answers[i].iter().map(|v| v.as_base().unwrap()).collect();
-
-                    mmcs.verify_batch(
-                        &prev_root,
-                        &dimensions,
-                        stir_challenges_index,
-                        &[indexed_answers],
-                        &merkle_proof[i],
-                    )
-                    .map_err(|_| ProofError::InvalidProof)?;
-                    stir_challenges_answers = answers
-                        .iter()
-                        .map(|inner| inner.iter().map(|&f_el| EF::from(f_el)).collect())
-                        .collect();
-                } else {
-                    let (answers, merkle_proof) = &whir_proof.merkle_paths[r - 1];
-                    extension_mmcs
-                        .verify_batch(
-                            &prev_root,
-                            &dimensions,
-                            stir_challenges_index,
-                            &[answers[i].clone()],
-                            &merkle_proof[i],
-                        )
-                        .map_err(|_| ProofError::InvalidProof)?;
-                    stir_challenges_answers.clone_from(answers);
-                }
-            }
-
-            if round_params.pow_bits > 0. {
-                verifier_state.challenge_pow::<PS>(round_params.pow_bits)?;
-            }
-
-            let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
-            let combination_randomness = expand_randomness(
-                combination_randomness_gen,
-                stir_challenges_indexes.len() + round_params.ood_samples,
-            );
-
-            let mut sumcheck_rounds =
-                Vec::with_capacity(self.params.folding_factor.at_round(r + 1));
-
-            for _ in 0..self.params.folding_factor.at_round(r + 1) {
-                let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars()?;
-                let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-                let [folding_randomness_single] = verifier_state.challenge_scalars()?;
-                sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
-
-                if round_params.folding_pow_bits > 0. {
-                    verifier_state.challenge_pow::<PS>(round_params.folding_pow_bits)?;
-                }
-            }
-
-            let new_folding_randomness =
-                MultilinearPoint(sumcheck_rounds.iter().map(|&(_, r)| r).rev().collect());
-
-            rounds.push(ParsedRound {
-                folding_randomness: folding_randomness.clone(),
-                ood_points,
-                ood_answers,
-                stir_challenges_indexes,
-                stir_challenges_points,
-                stir_challenges_answers: stir_challenges_answers.clone(),
-                combination_randomness,
-                sumcheck_rounds,
-                domain_gen_inv,
-            });
-
-            folding_randomness = new_folding_randomness;
-
-            prev_root = new_root;
-            domain_gen = domain_gen * domain_gen;
-            exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(r + 1));
-            domain_gen_inv = domain_gen_inv * domain_gen_inv;
-            domain_size /= 2;
-        }
-
-        let mut final_coefficients = vec![EF::ZERO; 1 << self.params.final_sumcheck_rounds];
-        verifier_state.fill_next_scalars(&mut final_coefficients)?;
-        let final_coefficients = CoefficientList::new(final_coefficients);
-
-        let fold_last = self.params.folding_factor.at_round(self.params.n_rounds());
-        let final_randomness_indexes = get_challenge_stir_queries(
-            domain_size,
-            fold_last,
-            self.params.final_queries,
-            verifier_state,
-        )?;
-        let final_randomness_points: Vec<_> = final_randomness_indexes
-            .iter()
-            .map(|index| exp_domain_gen.exp_u64(*index as u64))
-            .collect();
-
-        let dimensions = vec![Dimensions {
-            width: 1 << fold_last,
-            height: domain_size >> fold_last,
-        }];
-
-        // Final Merkle verification
-        let final_randomness_answers: Vec<Vec<EF>> = if whir_proof.merkle_paths.is_empty() {
-            let (commitment_randomness_answers, commitment_merkle_proof) =
-                &whir_proof.commitment_merkle_paths;
-
-            for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
-                mmcs.verify_batch(
-                    &prev_root,
-                    &dimensions,
-                    stir_challenges_index,
-                    &[commitment_randomness_answers[i].clone()],
-                    &commitment_merkle_proof[i],
-                )
-                .map_err(|_| ProofError::InvalidProof)?;
-            }
-
-            commitment_randomness_answers
-                .iter()
-                .map(|inner| inner.iter().map(|&f_el| EF::from(f_el)).collect())
-                .collect()
-        } else {
-            let (final_randomness_answers, final_merkle_proof) =
-                &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
-
-            for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
-                extension_mmcs
-                    .verify_batch(
-                        &prev_root,
-                        &dimensions,
-                        stir_challenges_index,
-                        &[final_randomness_answers[i].clone()],
-                        &final_merkle_proof[i],
-                    )
-                    .map_err(|_| ProofError::InvalidProof)?;
-            }
-
-            final_randomness_answers.clone()
-        };
-
-        if self.params.final_pow_bits > 0. {
-            verifier_state.challenge_pow::<PS>(self.params.final_pow_bits)?;
-        }
-
-        let mut final_sumcheck_rounds = Vec::with_capacity(self.params.final_sumcheck_rounds);
-        for _ in 0..self.params.final_sumcheck_rounds {
-            let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars()?;
-            let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-            let [folding_randomness_single] = verifier_state.challenge_scalars()?;
-            final_sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
-
-            if self.params.final_folding_pow_bits > 0. {
-                verifier_state.challenge_pow::<PS>(self.params.final_folding_pow_bits)?;
-            }
-        }
-
-        let final_sumcheck_randomness = MultilinearPoint(
-            final_sumcheck_rounds
-                .iter()
-                .map(|&(_, r)| r)
-                .rev()
-                .collect(),
-        );
-
-        Ok(ParsedProof {
-            initial_combination_randomness,
-            initial_sumcheck_rounds: sumcheck_rounds,
-            rounds,
-            final_domain_gen_inv: domain_gen_inv,
-            final_folding_randomness: folding_randomness,
-            final_randomness_indexes,
-            final_randomness_points,
-            final_randomness_answers,
-            final_sumcheck_rounds,
-            final_sumcheck_randomness,
-            final_coefficients,
-            statement_values_at_random_point: whir_proof.statement_values_at_random_point.clone(),
-        })
     }
 
     fn compute_w_poly<const DIGEST_ELEMS: usize>(
@@ -430,7 +139,8 @@ where
             .map(|(_, eval)| *eval)
             .collect();
 
-        let parsed = self.parse_proof(
+        let parsed = ParsedProof::from_prover_output(
+            self,
             verifier_state,
             parsed_commitment,
             statement.constraints.len(),
