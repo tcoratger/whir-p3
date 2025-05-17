@@ -9,7 +9,7 @@ use super::{
     coeffs::CoefficientList, lagrange_iterator::LagrangePolynomialIterator,
     multilinear::MultilinearPoint,
 };
-use crate::ntt::wavelet::inverse_wavelet_transform;
+use crate::poly::wavelet::inverse_wavelet_transform;
 
 /// A wrapper enum that holds evaluation data for a multilinear polynomial,
 /// either over the base field `F` or an extension field `EF`.
