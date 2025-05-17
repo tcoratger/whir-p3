@@ -1086,7 +1086,7 @@ mod tests {
         // Compute f(1,0)
         let eval = f(F::ONE, F::ZERO);
 
-        prover.add_new_equality(&[point.clone()], &[eval], &[weight]);
+        prover.add_new_equality(std::slice::from_ref(&point), &[eval], &[weight]);
 
         // Compute expected sum explicitly via dot product
         let expected_sum = prover.weights.evals()[0] * f(F::ZERO, F::ZERO)
@@ -1866,7 +1866,7 @@ mod tests {
         let weight = EF4::from(F::from_u64(2)); // Constraint applied with weight 2
 
         // Apply the equality constraint
-        prover.add_new_equality(&[point.clone()], &[eval], &[weight]);
+        prover.add_new_equality(std::slice::from_ref(&point), &[eval], &[weight]);
 
         // Check the expected sum via dot product
         let expected_sum = prover.weights.evals()[0] * f(EF4::from(F::ZERO))
