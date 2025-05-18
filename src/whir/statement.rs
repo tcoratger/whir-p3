@@ -396,11 +396,11 @@ impl<F: Field> StatementVerifier<F> {
             match weights {
                 Weights::Linear { weight, .. } => {
                     let weights = VerifierWeights::linear(weight.num_variables(), None);
-                    verifier.add_constraint(weights.clone(), *sum);
+                    verifier.add_constraint(weights, *sum);
                 }
                 Weights::Evaluation { point } => {
                     let weights = VerifierWeights::evaluation(point.clone());
-                    verifier.add_constraint(weights.clone(), *sum);
+                    verifier.add_constraint(weights, *sum);
                 }
             }
         }
