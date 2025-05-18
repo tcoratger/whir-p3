@@ -175,8 +175,7 @@ where
             for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
                 if r == 0 {
                     let (answers, merkle_proof) = &whir_proof.commitment_merkle_paths;
-                    let indexed_answers: Vec<SF> =
-                        answers[i].iter().map(|v| v.as_base().unwrap()).collect();
+                    let indexed_answers = answers[i].iter().map(|v| v.as_base().unwrap()).collect();
 
                     mmcs.verify_batch(
                         &prev_root,
@@ -188,7 +187,7 @@ where
                     .map_err(|_| ProofError::InvalidProof)?;
                     stir_challenges_answers = answers
                         .iter()
-                        .map(|inner| inner.iter().map(|&f_el| F::from(f_el)).collect())
+                        .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
                         .collect();
                 } else {
                     let (answers, merkle_proof) = &whir_proof.merkle_paths[r - 1];
@@ -279,7 +278,7 @@ where
         }];
 
         // Final Merkle verification
-        let final_randomness_answers: Vec<Vec<F>> = if whir_proof.merkle_paths.is_empty() {
+        let final_randomness_answers = if whir_proof.merkle_paths.is_empty() {
             let (commitment_randomness_answers, commitment_merkle_proof) =
                 &whir_proof.commitment_merkle_paths;
 
@@ -296,7 +295,7 @@ where
 
             commitment_randomness_answers
                 .iter()
-                .map(|inner| inner.iter().map(|&f_el| F::from(f_el)).collect())
+                .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
                 .collect()
         } else {
             let (final_randomness_answers, final_merkle_proof) =
