@@ -159,10 +159,7 @@ where
                 verifier_state,
             )?;
 
-            let stir_challenges_points = stir_challenges_indexes
-                .iter()
-                .map(|index| exp_domain_gen.exp_u64(*index as u64))
-                .collect();
+            let mut stir_challenges_points = Vec::with_capacity(stir_challenges_indexes.len());
 
             // Verify Merkle openings using `verify_batch`
             let dimensions = vec![Dimensions {
@@ -173,6 +170,7 @@ where
             let mut stir_challenges_answers = Vec::new();
 
             for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
+                stir_challenges_points.push(exp_domain_gen.exp_u64(stir_challenges_index as u64));
                 if r == 0 {
                     let (answers, merkle_proof) = &whir_proof.commitment_merkle_paths;
                     let indexed_answers = answers[i].iter().map(|v| v.as_base().unwrap()).collect();
