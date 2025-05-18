@@ -9,7 +9,7 @@ use crate::poly::multilinear::MultilinearPoint;
 /// evaluation points.
 ///
 /// Given `n_variables`, the number of stored evaluations is `3^n_variables`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SumcheckPolynomial<F> {
     /// Number of variables in the polynomial (defines the dimension of the evaluation domain).
     n_variables: usize,
