@@ -2,37 +2,101 @@ use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
 use crate::{
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, verifier::VerifierState},
-    sumcheck::sumcheck_polynomial::SumcheckPolynomial,
+    sumcheck::{K_SKIP_SUMCHECK, sumcheck_polynomial::SumcheckPolynomial},
 };
 
-/// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier state.
+/// Extract a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript.
 ///
-/// - `num_rounds`: Number of sumcheck rounds to extract.
-/// - `pow_bits`: Optional PoW challenge after each round (0 disables).
-/// - `verifier_state`: Verifier interaction state.
+/// In the sumcheck protocol, the verifier must interpret a transcript of interactions to recover:
+/// - One polynomial per round (typically of degree ≤ 2, with 3 evaluations)
+/// - One challenge scalar (verifier randomness) used to reduce the sum
 ///
-/// Returns a vector of `(SumcheckPolynomial, folding_randomness)` tuples.
+/// This function handles two modes:
+///
+/// - **Standard mode** (`is_univariate_skip = false`):
+///   Interprets each round as a degree-2 polynomial with 3 evaluations.
+///
+/// - **Univariate skip mode** (`is_univariate_skip = true`):
+///   The first `K_SKIP_SUMCHECK` variables are skipped in a single step using a degree-d univariate polynomial
+///   with `2^{k+1}` evaluations (coset LDE domain). This reduces round count by `K_SKIP_SUMCHECK - 1`.
+///
+/// # Arguments
+///
+/// - `verifier_state`: Verifier's Fiat–Shamir transcript state.
+/// - `num_rounds`: Total number of variables to fold (includes skipped and non-skipped).
+/// - `pow_bits`: Optional proof-of-work bits; if nonzero, a PoW challenge is expected after each round.
+/// - `is_univariate_skip`: Whether the first round skips `K_SKIP_SUMCHECK` variables at once.
+///
+/// # Returns
+///
+/// A vector of `(SumcheckPolynomial, folding_randomness)` tuples, in the order they appear in the transcript.
 pub(crate) fn read_sumcheck_rounds<EF, F, PS>(
     verifier_state: &mut VerifierState<'_, EF, F>,
     num_rounds: usize,
     pow_bits: f64,
+    is_univariate_skip: bool,
 ) -> ProofResult<Vec<(SumcheckPolynomial<EF>, EF)>>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
 {
-    let mut result = Vec::with_capacity(num_rounds);
-    for _ in 0..num_rounds {
-        let evals: [_; 3] = verifier_state.next_scalars()?;
+    // Calculate how many `(poly, rand)` pairs to expect based on skip mode
+    //
+    // If skipping: we do 1 large round for the skip, and the remaining normally
+    let effective_rounds = if is_univariate_skip {
+        1 + (num_rounds - K_SKIP_SUMCHECK)
+    } else {
+        num_rounds
+    };
+
+    // Preallocate vector to hold all (poly, randomness) pairs
+    let mut result = Vec::with_capacity(effective_rounds);
+
+    // Handle the univariate skip case
+    if is_univariate_skip {
+        // Read `2^{k+1}` evaluations (size of coset domain) for the skipping polynomial
+        let evals = verifier_state.next_scalars::<{ 1 << (K_SKIP_SUMCHECK + 1) }>()?;
+
+        // Interpolate into a univariate polynomial (over the coset domain)
         let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+
+        // Sample the challenge scalar r₀ ∈ 𝔽 for this round
         let [rand] = verifier_state.challenge_scalars()?;
+
+        // Record this round’s data
         result.push((poly, rand));
 
+        // Optional: apply proof-of-work query
         if pow_bits > 0.0 {
             verifier_state.challenge_pow::<PS>(pow_bits)?;
         }
     }
+
+    // Continue with the remaining sumcheck rounds (each using 3 evaluations)
+    let start_round = if is_univariate_skip {
+        K_SKIP_SUMCHECK // skip the first k rounds
+    } else {
+        0
+    };
+
+    for _ in start_round..num_rounds {
+        // Extract the 3 evaluations of the quadratic sumcheck polynomial h(X)
+        let evals = verifier_state.next_scalars::<3>()?;
+        let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+
+        // Sample the next verifier folding randomness rᵢ
+        let [rand] = verifier_state.challenge_scalars()?;
+
+        // Store this round’s polynomial and randomness
+        result.push((poly, rand));
+
+        // Optional PoW interaction (grinding resistance)
+        if pow_bits > 0.0 {
+            verifier_state.challenge_pow::<PS>(pow_bits)?;
+        }
+    }
+
     Ok(result)
 }
 
@@ -41,6 +105,8 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_dft::NaiveDft;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_interpolation::interpolate_subgroup;
+    use p3_matrix::dense::RowMajorMatrix;
 
     use super::*;
     use crate::{
@@ -196,6 +262,7 @@ mod tests {
             &mut verifier_state,
             folding_factor,
             pow_bits,
+            false,
         )
         .unwrap();
 
@@ -223,6 +290,151 @@ mod tests {
                 result_sumcheck.0[i], r.1,
                 "Mismatch in reverse order randomness at index {i}"
             );
+        }
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn test_read_sumcheck_rounds_with_univariate_skip() {
+        // -------------------------------------------------------------
+        // Define a multilinear polynomial in K = K_SKIP_SUMCHECK + 3 variables.
+        // The number of coefficients must be 2^K.
+        // -------------------------------------------------------------
+        const K_SKIP: usize = K_SKIP_SUMCHECK;
+        const NUM_VARS: usize = K_SKIP + 3;
+        let num_points = 1 << NUM_VARS;
+
+        // Construct simple deterministic coefficients f = [1, 2, ..., 2^K]
+        let coeffs: Vec<F> = (1..=num_points).map(F::from_u64).collect();
+        let coeffs = CoefficientList::new(coeffs);
+
+        assert_eq!(coeffs.num_variables(), NUM_VARS);
+
+        // -------------------------------------------------------------
+        // Construct a Statement by evaluating f at several Boolean points
+        // These evaluations will serve as equality constraints
+        // -------------------------------------------------------------
+        let mut statement = Statement::new(NUM_VARS);
+        for i in 0..5 {
+            let bool_point: Vec<_> = (0..NUM_VARS)
+                .map(|j| {
+                    if (i >> j) & 1 == 1 {
+                        EF4::ONE
+                    } else {
+                        EF4::ZERO
+                    }
+                })
+                .collect();
+            let ml_point = MultilinearPoint(bool_point.clone());
+            let expected_val = coeffs.evaluate_at_extension(&ml_point);
+            statement.add_constraint(Weights::evaluation(ml_point), expected_val);
+        }
+
+        // -------------------------------------------------------------
+        // Construct prover with base coefficients
+        // -------------------------------------------------------------
+        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+
+        // Compute expected weighted sum: dot product of f(b) * w(b)
+        let evals_f = match prover.evaluation_of_p {
+            EvaluationStorage::Base(ref evals) => evals.evals(),
+            _ => panic!("Expected base evaluation"),
+        };
+        let evals_w = prover.weights.evals();
+
+        let expected_sum = evals_f
+            .iter()
+            .zip(evals_w)
+            .map(|(a, b)| *b * *a)
+            .sum::<EF4>();
+        assert_eq!(prover.sum, expected_sum);
+
+        // -------------------------------------------------------------
+        // Simulate Fiat-Shamir transcript
+        // Reserve interactions for:
+        // - 1 skipped round: 2^k_skip + 1 values
+        // - remaining rounds: 3 values each
+        // -------------------------------------------------------------
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("test");
+        domsep.add_scalars(1 << (K_SKIP + 1), "skip");
+        domsep.challenge_scalars(1, "skip");
+
+        for _ in 0..(NUM_VARS - K_SKIP) {
+            domsep.add_scalars(3, "round");
+            domsep.challenge_scalars(1, "round");
+        }
+
+        // Convert to prover state
+        let mut prover_state = domsep.to_prover_state();
+
+        // -------------------------------------------------------------
+        // Run prover-side folding
+        // -------------------------------------------------------------
+        let result_sumcheck = prover
+            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+                &mut prover_state,
+                NUM_VARS,
+                0.0,
+                Some(K_SKIP),
+                &NaiveDft,
+            )
+            .unwrap();
+
+        // -------------------------------------------------------------
+        // Manually extract expected sumcheck rounds by replaying transcript
+        // -------------------------------------------------------------
+        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+        let mut expected = Vec::new();
+
+        // First skipped round (wide DFT LDE)
+        let evals: [_; 1 << (K_SKIP + 1)] = verifier_state.next_scalars().unwrap();
+        let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+        let [r0] = verifier_state.challenge_scalars().unwrap();
+        expected.push((poly.clone(), r0));
+
+        let mat = RowMajorMatrix::new(evals.to_vec(), 1);
+        let mut current_sum = interpolate_subgroup(&mat, r0)[0];
+
+        // Remaining quadratic rounds
+        for _ in 0..(NUM_VARS - K_SKIP) {
+            let evals: [_; 3] = verifier_state.next_scalars().unwrap();
+            let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+            let [r] = verifier_state.challenge_scalars().unwrap();
+            assert_eq!(poly.evaluations()[0] + poly.evaluations()[1], current_sum);
+            current_sum = poly.evaluate_at_point(&r.into());
+            expected.push((poly, r));
+        }
+
+        // -------------------------------------------------------------
+        // Use read_sumcheck_rounds with skip enabled
+        // -------------------------------------------------------------
+        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+        let result =
+            read_sumcheck_rounds::<EF4, F, Blake3PoW>(&mut verifier_state, NUM_VARS, 0.0, true)
+                .unwrap();
+
+        // Check length:
+        // - 1 randomness for the first K skipped rounds
+        // - 1 randomness for each regular round
+        assert_eq!(result.len(), NUM_VARS - K_SKIP + 1);
+
+        // Check each extracted (poly, rand)
+        for (i, ((expected_poly, expected_rand), (actual_poly, actual_rand))) in
+            expected.iter().zip(&result).enumerate()
+        {
+            assert_eq!(
+                actual_poly, expected_poly,
+                "Mismatch in round {i} polynomial"
+            );
+            assert_eq!(
+                actual_rand, expected_rand,
+                "Mismatch in round {i} randomness"
+            );
+        }
+
+        // Check reverse-order folding randomness vs result_sumcheck.0
+        for (i, (_, actual_rand)) in result.iter().rev().enumerate() {
+            assert_eq!(result_sumcheck.0[i], *actual_rand);
         }
     }
 }

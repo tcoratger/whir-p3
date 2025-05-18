@@ -101,6 +101,7 @@ where
                 verifier_state,
                 verifier.params.folding_factor.at_round(0),
                 verifier.params.starting_folding_pow_bits,
+                false,
             )?);
 
             folding_randomness =
@@ -214,6 +215,7 @@ where
                 verifier_state,
                 verifier.params.folding_factor.at_round(r + 1),
                 round_params.folding_pow_bits,
+                false,
             )?;
 
             let new_folding_randomness =
@@ -315,6 +317,7 @@ where
             verifier_state,
             verifier.params.final_sumcheck_rounds,
             verifier.params.final_folding_pow_bits,
+            false,
         )?;
 
         let final_sumcheck_randomness = MultilinearPoint(
