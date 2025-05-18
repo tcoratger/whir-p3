@@ -173,16 +173,16 @@ where
                 stir_challenges_points.push(exp_domain_gen.exp_u64(stir_challenges_index as u64));
                 if r == 0 {
                     let (answers, merkle_proof) = &whir_proof.commitment_merkle_paths;
-                    let indexed_answers = answers[i].iter().map(|v| v.as_base().unwrap()).collect();
 
                     mmcs.verify_batch(
                         &prev_root,
                         &dimensions,
                         stir_challenges_index,
-                        &[indexed_answers],
+                        &[answers[i].iter().map(|v| v.as_base().unwrap()).collect()],
                         &merkle_proof[i],
                     )
                     .map_err(|_| ProofError::InvalidProof)?;
+
                     stir_challenges_answers = answers
                         .iter()
                         .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
