@@ -338,7 +338,7 @@ mod tests {
         // Compute expected weighted sum: dot product of f(b) * w(b)
         let evals_f = match prover.evaluation_of_p {
             EvaluationStorage::Base(ref evals) => evals.evals(),
-            _ => panic!("Expected base evaluation"),
+            EvaluationStorage::Extension(_) => panic!("Expected base evaluation"),
         };
         let evals_w = prover.weights.evals();
 
@@ -390,7 +390,7 @@ mod tests {
         let evals: [_; 1 << (K_SKIP + 1)] = verifier_state.next_scalars().unwrap();
         let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
         let [r0] = verifier_state.challenge_scalars().unwrap();
-        expected.push((poly.clone(), r0));
+        expected.push((poly, r0));
 
         let mat = RowMajorMatrix::new(evals.to_vec(), 1);
         let mut current_sum = interpolate_subgroup(&mat, r0)[0];
