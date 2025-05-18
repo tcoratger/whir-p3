@@ -20,6 +20,7 @@ use crate::{
 
 pub mod parsed_proof;
 pub mod parsed_round;
+pub mod utils;
 
 #[derive(Debug)]
 pub struct Verifier<'a, EF, F, H, C, PowStrategy>

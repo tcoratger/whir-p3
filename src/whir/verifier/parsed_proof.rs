@@ -7,7 +7,7 @@ use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
-use super::{Verifier, parsed_round::ParsedRound};
+use super::{Verifier, parsed_round::ParsedRound, utils::read_sumcheck_rounds};
 use crate::{
     fiat_shamir::{
         errors::{ProofError, ProofResult},
@@ -94,19 +94,14 @@ where
                 parsed_commitment.ood_points.len() + statement_points_len,
             );
 
-            // Initial sumcheck
-            sumcheck_rounds.reserve_exact(verifier.params.folding_factor.at_round(0));
-            for _ in 0..verifier.params.folding_factor.at_round(0) {
-                let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars()?;
-                let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-                let [folding_randomness_single] = verifier_state.challenge_scalars()?;
-                sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
-
-                if verifier.params.starting_folding_pow_bits > 0. {
-                    verifier_state
-                        .challenge_pow::<PS>(verifier.params.starting_folding_pow_bits)?;
-                }
-            }
+            // Initial sumcheck, we read:
+            // - The sumcheck polynomials produced by the prover,
+            // - The folding randomness used in each corresponding round
+            sumcheck_rounds.extend(read_sumcheck_rounds::<_, _, PS>(
+                verifier_state,
+                verifier.params.folding_factor.at_round(0),
+                verifier.params.starting_folding_pow_bits,
+            )?);
 
             folding_randomness =
                 MultilinearPoint(sumcheck_rounds.iter().map(|&(_, r)| r).rev().collect());
@@ -212,19 +207,14 @@ where
                 stir_challenges_indexes.len() + round_params.ood_samples,
             );
 
-            let mut sumcheck_rounds =
-                Vec::with_capacity(verifier.params.folding_factor.at_round(r + 1));
-
-            for _ in 0..verifier.params.folding_factor.at_round(r + 1) {
-                let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars()?;
-                let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-                let [folding_randomness_single] = verifier_state.challenge_scalars()?;
-                sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
-
-                if round_params.folding_pow_bits > 0. {
-                    verifier_state.challenge_pow::<PS>(round_params.folding_pow_bits)?;
-                }
-            }
+            // We read:
+            // - The sumcheck polynomials produced by the prover,
+            // - The folding randomness used in each corresponding round
+            let sumcheck_rounds = read_sumcheck_rounds::<_, _, PS>(
+                verifier_state,
+                verifier.params.folding_factor.at_round(r + 1),
+                round_params.folding_pow_bits,
+            )?;
 
             let new_folding_randomness =
                 MultilinearPoint(sumcheck_rounds.iter().map(|&(_, r)| r).rev().collect());
@@ -318,17 +308,14 @@ where
             verifier_state.challenge_pow::<PS>(verifier.params.final_pow_bits)?;
         }
 
-        let mut final_sumcheck_rounds = Vec::with_capacity(verifier.params.final_sumcheck_rounds);
-        for _ in 0..verifier.params.final_sumcheck_rounds {
-            let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars()?;
-            let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-            let [folding_randomness_single] = verifier_state.challenge_scalars()?;
-            final_sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
-
-            if verifier.params.final_folding_pow_bits > 0. {
-                verifier_state.challenge_pow::<PS>(verifier.params.final_folding_pow_bits)?;
-            }
-        }
+        // Read the final sumcheck rounds:
+        // - The sumcheck polynomials produced by the prover,
+        // - The folding randomness used in each corresponding round
+        let final_sumcheck_rounds = read_sumcheck_rounds::<_, _, PS>(
+            verifier_state,
+            verifier.params.final_sumcheck_rounds,
+            verifier.params.final_folding_pow_bits,
+        )?;
 
         let final_sumcheck_randomness = MultilinearPoint(
             final_sumcheck_rounds
