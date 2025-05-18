@@ -10,4 +10,4 @@ pub mod utils;
 ///
 /// This optimization keeps the work in the base field and reduces the number of expensive
 /// extension field rounds.
-pub const K_SKIP_SUMCHECK: usize = 2;
+pub const K_SKIP_SUMCHECK: usize = 5;
