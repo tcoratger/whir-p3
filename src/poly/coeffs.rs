@@ -275,6 +275,7 @@ impl<F> CoefficientList<F> {
         self.coeffs.len()
     }
 
+    #[must_use]
     pub fn to_evaluations<B: Field>(self) -> EvaluationsList<F>
     where
         F: ExtensionField<B>,
