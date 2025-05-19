@@ -2,40 +2,53 @@ use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
 use crate::{
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, verifier::VerifierState},
+    poly::multilinear::MultilinearPoint,
     sumcheck::{K_SKIP_SUMCHECK, sumcheck_polynomial::SumcheckPolynomial},
 };
 
-/// Extract a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript.
+/// A single sumcheck round:
+/// - A univariate polynomial,
+/// - Its corresponding folding randomness.
+type SumcheckRound<F> = (SumcheckPolynomial<F>, F);
+
+/// The full vector of folding randomness values, in reverse round order.
+type SumcheckRandomness<F> = MultilinearPoint<F>;
+
+/// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
+/// and computes the corresponding `MultilinearPoint` folding randomness in reverse order.
 ///
-/// In the sumcheck protocol, the verifier must interpret a transcript of interactions to recover:
-/// - One polynomial per round (typically of degree ≤ 2, with 3 evaluations)
-/// - One challenge scalar (verifier randomness) used to reduce the sum
+/// This function reads from the Fiat–Shamir transcript to simulate verifier interaction
+/// in the sumcheck protocol. For each round, it recovers:
+/// - One univariate polynomial (usually degree ≤ 2) sent by the prover.
+/// - One challenge scalar chosen by the verifier (folding randomness).
 ///
-/// This function handles two modes:
+/// ## Modes
 ///
 /// - **Standard mode** (`is_univariate_skip = false`):
-///   Interprets each round as a degree-2 polynomial with 3 evaluations.
+///   Each round represents a single variable being folded.
+///   The polynomial is evaluated at 3 points, typically `{0, 1, r}` for quadratic reduction.
 ///
 /// - **Univariate skip mode** (`is_univariate_skip = true`):
-///   The first `K_SKIP_SUMCHECK` variables are skipped in a single step using a degree-d univariate polynomial
-///   with `2^{k+1}` evaluations (coset LDE domain). This reduces round count by `K_SKIP_SUMCHECK - 1`.
+///   The first `K_SKIP_SUMCHECK` variables are folded simultaneously by evaluating a single univariate polynomial
+///   over a coset of size `2^{k+1}`. This yields a larger polynomial but avoids several later rounds.
 ///
 /// # Arguments
 ///
-/// - `verifier_state`: Verifier's Fiat–Shamir transcript state.
-/// - `num_rounds`: Total number of variables to fold (includes skipped and non-skipped).
-/// - `pow_bits`: Optional proof-of-work bits; if nonzero, a PoW challenge is expected after each round.
-/// - `is_univariate_skip`: Whether the first round skips `K_SKIP_SUMCHECK` variables at once.
+/// - `verifier_state`: The verifier's Fiat–Shamir transcript state.
+/// - `num_rounds`: Total number of variables being folded.
+/// - `pow_bits`: Optional proof-of-work difficulty (0 disables PoW).
+/// - `is_univariate_skip`: If true, apply the univariate skip optimization on the first `K_SKIP_SUMCHECK` variables.
 ///
 /// # Returns
 ///
-/// A vector of `(SumcheckPolynomial, folding_randomness)` tuples, in the order they appear in the transcript.
+/// - A vector of `(SumcheckPolynomial, folding_randomness)` tuples in forward round order.
+/// - A `MultilinearPoint` of folding randomness values in reverse order.
 pub(crate) fn read_sumcheck_rounds<EF, F, PS>(
     verifier_state: &mut VerifierState<'_, EF, F>,
     num_rounds: usize,
     pow_bits: f64,
     is_univariate_skip: bool,
-) -> ProofResult<Vec<(SumcheckPolynomial<EF>, EF)>>
+) -> ProofResult<(Vec<SumcheckRound<EF>>, SumcheckRandomness<EF>)>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -97,7 +110,11 @@ where
         }
     }
 
-    Ok(result)
+    // We should reverse the order of the randomness points:
+    // This is because the randomness points are originally reverted at the end of the sumcheck rounds.
+    let randomness = MultilinearPoint(result.iter().map(|&(_, r)| r).rev().collect());
+
+    Ok((result, randomness))
 }
 
 #[cfg(test)]
@@ -258,7 +275,7 @@ mod tests {
         // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
         let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
 
-        let result = read_sumcheck_rounds::<EF4, F, Blake3PoW>(
+        let (sumcheck_rounds, randomness) = read_sumcheck_rounds::<EF4, F, Blake3PoW>(
             &mut verifier_state,
             folding_factor,
             pow_bits,
@@ -267,11 +284,11 @@ mod tests {
         .unwrap();
 
         // Check that number of parsed rounds is correct
-        assert_eq!(result.len(), folding_factor);
+        assert_eq!(sumcheck_rounds.len(), folding_factor);
 
         // Verify that parsed (poly, randomness) tuples match those we simulated
         for (i, ((expected_poly, expected_rand), (actual_poly, actual_rand))) in
-            expected.iter().zip(result.iter()).enumerate()
+            expected.iter().zip(sumcheck_rounds.iter()).enumerate()
         {
             assert_eq!(
                 actual_poly, expected_poly,
@@ -284,13 +301,21 @@ mod tests {
         }
 
         // Check that sumcheck result's final points (reverse order) match the parsed randomness
-        assert_eq!(result_sumcheck.0.len(), result.len());
-        for (i, r) in result.iter().rev().enumerate() {
+        assert_eq!(result_sumcheck.0.len(), sumcheck_rounds.len());
+        for (i, r) in sumcheck_rounds.iter().rev().enumerate() {
             assert_eq!(
                 result_sumcheck.0[i], r.1,
                 "Mismatch in reverse order randomness at index {i}"
             );
         }
+
+        // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
+        let expected_randomness =
+            MultilinearPoint(expected.iter().map(|&(_, r)| r).rev().collect());
+        assert_eq!(
+            randomness, expected_randomness,
+            "Mismatch in full MultilinearPoint folding randomness"
+        );
     }
 
     #[test]
@@ -409,18 +434,18 @@ mod tests {
         // Use read_sumcheck_rounds with skip enabled
         // -------------------------------------------------------------
         let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
-        let result =
+        let (sumcheck_rounds, randomness) =
             read_sumcheck_rounds::<EF4, F, Blake3PoW>(&mut verifier_state, NUM_VARS, 0.0, true)
                 .unwrap();
 
         // Check length:
         // - 1 randomness for the first K skipped rounds
         // - 1 randomness for each regular round
-        assert_eq!(result.len(), NUM_VARS - K_SKIP + 1);
+        assert_eq!(sumcheck_rounds.len(), NUM_VARS - K_SKIP + 1);
 
         // Check each extracted (poly, rand)
         for (i, ((expected_poly, expected_rand), (actual_poly, actual_rand))) in
-            expected.iter().zip(&result).enumerate()
+            expected.iter().zip(&sumcheck_rounds).enumerate()
         {
             assert_eq!(
                 actual_poly, expected_poly,
@@ -433,8 +458,16 @@ mod tests {
         }
 
         // Check reverse-order folding randomness vs result_sumcheck.0
-        for (i, (_, actual_rand)) in result.iter().rev().enumerate() {
+        for (i, (_, actual_rand)) in sumcheck_rounds.iter().rev().enumerate() {
             assert_eq!(result_sumcheck.0[i], *actual_rand);
         }
+
+        // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
+        let expected_randomness =
+            MultilinearPoint(expected.iter().map(|&(_, r)| r).rev().collect());
+        assert_eq!(
+            randomness, expected_randomness,
+            "Mismatch in full MultilinearPoint folding randomness"
+        );
     }
 }
