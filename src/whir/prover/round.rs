@@ -173,8 +173,6 @@ where
             let mut randomness_vec = Vec::with_capacity(prover.mv_parameters.num_variables);
             randomness_vec.extend(folding_randomness.0.iter().rev().copied());
             randomness_vec.resize(prover.mv_parameters.num_variables, EF::ZERO);
-            // let mut coeffs = F::zero_vec(expanded_size);
-            // coeffs[..initial_size].copy_from_slice(polynomial.coeffs());
             randomness_vec
         });
 
