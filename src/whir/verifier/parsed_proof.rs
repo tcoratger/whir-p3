@@ -130,7 +130,7 @@ where
             domain_gen_inv: domain.group_gen_inv(),
             exp_domain_gen: domain
                 .group_gen()
-                .exp_u64(1 << verifier.folding_factor.at_round(0)),
+                .exp_power_of_2(verifier.folding_factor.at_round(0)),
             domain_size: verifier.starting_domain.size(),
             mmcs: mmcs.clone(),
             extension_mmcs: extension_mmcs.clone(),

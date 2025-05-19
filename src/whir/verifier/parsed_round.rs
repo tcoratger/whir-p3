@@ -198,7 +198,7 @@ where
         self.domain_gen = self.domain_gen.square();
         self.exp_domain_gen = self
             .domain_gen
-            .exp_u64(1 << verifier.folding_factor.at_round(r + 1));
+            .exp_power_of_2(verifier.folding_factor.at_round(r + 1));
         self.domain_gen_inv = self.domain_gen_inv.square();
         self.domain_size /= 2;
 
