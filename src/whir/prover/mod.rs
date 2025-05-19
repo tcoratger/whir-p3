@@ -49,7 +49,7 @@ where
     type Target = WhirConfig<EF, F, H, C, PS>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0
     }
 }
 
