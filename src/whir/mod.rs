@@ -123,7 +123,7 @@ pub fn make_whir_things(
         .unwrap();
 
     // Generate a proof using the prover
-    let prover = Prover(params.clone());
+    let prover = Prover(&params);
 
     // Extract verifier-side version of the statement (only public data)
     let statement_verifier = StatementVerifier::from_statement(&statement);

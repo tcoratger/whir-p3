@@ -146,7 +146,7 @@ fn main() {
         .unwrap();
 
     // Generate a proof using the prover
-    let prover = Prover(params.clone());
+    let prover = Prover(&params);
 
     let dft_prover = Radix2DitParallel::<F>::default();
 

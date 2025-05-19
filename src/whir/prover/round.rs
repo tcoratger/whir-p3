@@ -103,7 +103,7 @@ where
     /// This function should be called once at the beginning of the proof, before entering the
     /// main WHIR folding loop.
     pub(crate) fn initialize_first_round_state<H, C, PS, D>(
-        prover: &Prover<EF, F, H, C, PS>,
+        prover: &Prover<'_, EF, F, H, C, PS>,
         prover_state: &mut ProverState<EF, F>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, DIGEST_ELEMS>,
@@ -316,7 +316,7 @@ mod tests {
 
         // Initialize the round state using the setup configuration and witness
         let state = RoundState::initialize_first_round_state(
-            &Prover(config.clone()),
+            &Prover(&config),
             &mut prover_state,
             statement,
             witness,
@@ -396,7 +396,7 @@ mod tests {
 
         // Run the first round state initialization (this will trigger sumcheck)
         let state = RoundState::initialize_first_round_state(
-            &Prover(config.clone()),
+            &Prover(&config),
             &mut prover_state,
             statement,
             witness,
@@ -495,7 +495,7 @@ mod tests {
 
         // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
         let state = RoundState::initialize_first_round_state(
-            &Prover(config.clone()),
+            &Prover(&config),
             &mut prover_state,
             statement,
             witness,
@@ -604,7 +604,7 @@ mod tests {
 
         // Run the first round initialization
         let state = RoundState::initialize_first_round_state(
-            &Prover(config.clone()),
+            &Prover(&config),
             &mut prover_state,
             statement,
             witness,
