@@ -3,7 +3,6 @@ use rand::{
     Rng,
     distr::{Distribution, StandardUniform},
 };
-use tracing::instrument;
 
 use super::hypercube::BinaryHypercubePoint;
 

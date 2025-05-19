@@ -4,7 +4,7 @@ use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use tracing::{debug_span, info_span, instrument};
+use tracing::{debug_span, instrument};
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{

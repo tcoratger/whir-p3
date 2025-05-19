@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::Hash;
-use tracing::instrument;
 
 use super::{
     DefaultHash, UnitToBytes,
