@@ -216,6 +216,8 @@ where
         }
     }
 
+    /// Convert from a list of evaluations to a list of
+    /// multilinear coefficients.
     #[must_use]
     pub fn to_coefficients<B: Field>(self) -> CoefficientList<F>
     where

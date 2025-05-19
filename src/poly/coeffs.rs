@@ -275,6 +275,8 @@ impl<F> CoefficientList<F> {
         self.coeffs.len()
     }
 
+    /// Convert from a list of multilinear coefficients to a list of
+    /// evaluations over the hypercube.
     #[must_use]
     pub fn to_evaluations<B: Field>(self) -> EvaluationsList<F>
     where
@@ -1014,11 +1016,9 @@ mod tests {
             // Wrap input as an EvaluationsList
             let evals = EvaluationsList::new(input);
 
-            // Apply inverse wavelet transform to get coefficients
-            let coeffs = evals.clone().to_coefficients();
-
-            // Apply forward wavelet transform to get evaluations back
-            let roundtrip = coeffs.to_evaluations();
+            // Apply inverse wavelet transform to get coefficients followed
+            // by forward wavelet transform to get evaluations back.
+            let roundtrip = evals.clone().to_coefficients().to_evaluations();
 
             // Final assertion: roundtrip must be exact
             prop_assert_eq!(roundtrip.evals(), evals.evals());
@@ -1041,13 +1041,11 @@ mod tests {
         ];
         let original = EvaluationsList::new(evals);
 
-        // Convert evaluations → coefficients via wavelet inverse
-        let coeffs = original.clone().to_coefficients();
-
-        // Convert back: coefficients → evaluations via wavelet
-        let recovered = coeffs.to_evaluations();
+        // Apply inverse wavelet transform to get coefficients followed
+        // by forward wavelet transform to get evaluations back.
+        let roundtrip = original.clone().to_coefficients().to_evaluations();
 
         // The recovered evaluations must exactly match the original
-        assert_eq!(recovered.evals(), original.evals());
+        assert_eq!(roundtrip.evals(), original.evals());
     }
 }

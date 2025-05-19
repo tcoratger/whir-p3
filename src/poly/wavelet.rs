@@ -1,3 +1,48 @@
+//! This module implements the wavelet transform which converts between the hypercube evaluation
+//! and coefficient domains of multilinear polynomials.
+//!
+//! Lets focus on the case where we have `3` variables. Then a multilinear polynomial is a polynomial of the form
+//! ```text
+//!     p(x_1, x_2, x_3) = p_0 + p_1 * x_1 + p_2 * x_2 + p_3 * x_1 * x_2 + p_4 * x_3 +
+//!                             p_5 * x_1 * x_3 + p_6 * x_2 * x_3 + p_7 * x_1 * x_2 * x_3
+//!````
+//! and it's evaluations on the hypercube are given by
+//! ```text
+//!     p(0, 0, 0) = p_0
+//!     p(1, 0, 0) = p_0 + p_1
+//!     p(0, 1, 0) = p_0 + p_2
+//!     p(1, 1, 0) = p_0 + p_1 + p_2 + p_3
+//!     p(0, 0, 1) = p_0 + p_4
+//!     p(1, 0, 1) = p_0 + p_1 + p_4 + p_5
+//!     p(0, 1, 1) = p_0 + p_2 + p_4 + p_6
+//!     p(1, 1, 1) = p_0 + p_1 + p_2 + p_3 + p_4 + p_5 + p_6 + p_7
+//! ```
+//!
+//! The idea of the wavelet transform is to compute this via an FFT-like divide and conquer algorithm. Starting
+//! with the evaluation vector `p = [p0, p_1, p_2, p_3, p_4, p_5, p_6, p_7]` we apply the kernel
+//! ```text
+//!     [1 0]
+//!     [1 1]
+//! ```
+//! On chunks of sizes `2, 4` and `8` respectively which looks like
+//! ```text
+//!    [p_0, p_1, p_2, p_3, p_4, p_5, p_6, p_7] -> [p_0, p_0 + p_1, p_2, p_2 + p_3, p_4, p_4 + p_5, p_6, p_6 + p_7]
+//!                                             -> [p_0, p_0 + p_1, p_0 + p_2, p_0 + p_1 + p_2 + p_3,
+//!                                                     p_4, p_4 + p_5, p_4 + p_6, p_4 + p_5 + p_6 + p_7]
+//!                                             -> [p_0, p_0 + p_1, p_0 + p_2, p_0 + p_1 + p_2 + p_3,
+//!                                                     p_0 + p_4, p_0 + p_1 + p_4 + p_5, p_0 + p_2 + p_4 + p_6,
+//!                                                     p_0 + p_1 + p_2 + p_3 + p_4 + p_5 + p_6 + p_7]
+//! ```
+//! As can be easily seen, in each pass we do `N/2` additions (where `N = 2^{num_variables} = |vec|`)
+//! leading to an algebraic complexity of `N log(N)/2`.
+//!
+//! The inverse transform is essentially identical except it uses the inverse kernel
+//! ```text
+//!     [1  0]
+//!     [-1 1]
+//! ```
+//! and applies the rounds in the reverse order.
+
 use std::marker::PhantomData;
 
 use p3_field::{BasedVectorSpace, Field, PackedValue};
@@ -12,25 +57,41 @@ use rayon::prelude::*;
 
 use crate::whir::utils::workload_size;
 
+/// A kernel which converts between the hypercube evaluation and coefficient domains for
+/// a multilinear polynomial.
+///
+/// This works for both a single polynomial as well as
+/// a batch of polynomials given as a `RowMajorMatrix`. Moreover, as this transformation
+/// is linear, it supports polynomials with coefficients/evaluations in any
+/// vector space `V` over the field `F`. In general, given a polynomial in an extension
+/// field `EF`, using `Radix2WaveletKernel<F>` should be preferred over `Radix2WaveletKernel<EF>`
+/// as the former will be faster.
+///
+/// This converts between these domains using an FFT-like transform with to `N log(N)/2` algebraic complexity.
 #[derive(Default, Clone, Debug)]
 pub struct Radix2WaveletKernel<F: Field> {
     _phantom: PhantomData<F>,
 }
 
 impl<F: Field> Radix2WaveletKernel<F> {
+    /// Convert from a vector of multilinear coefficients to a vector of hypercube evaluations.
+    ///
+    /// # Panics
+    /// Panics if the number of rows is not a power of two.
     #[must_use]
     pub fn wavelet_transform(&self, vec: Vec<F>) -> Vec<F> {
         let mat = RowMajorMatrix::new_col(vec);
         self.wavelet_transform_batch(mat).values
     }
 
-    /// In-place Fast Wavelet Transform on a matrix view.
+    /// Convert every column of the matrix from multilinear coefficients to hypercube evaluations.
     ///
-    /// Applies the kernel:
-    ///   [1 0]
-    ///   [1 1]
-    ///
-    /// Assumes the number of rows is a power of two.
+    /// This is the inverse of `inverse_wavelet_transform_batch` and it's implementation is similar.
+    /// - Decompose as much work as possible into per-core chunks for efficient parallelization.
+    /// - Use bit-reversal to maximize SIMD-friendly access patterns on each core.
+    /// - Apply remaining global rounds using further parallelization.
+    /// # Panics
+    /// Panics if the number of rows is not a power of two.
     #[must_use]
     pub fn wavelet_transform_batch(&self, mut mat: RowMajorMatrix<F>) -> RowMajorMatrix<F> {
         let height = mat.height();
@@ -108,6 +169,14 @@ impl<F: Field> Radix2WaveletKernel<F> {
         mat
     }
 
+    /// Convert from a vector of multilinear coefficients to a vector of hypercube evaluations.
+    ///
+    /// This flattens to the base field and applies the base field wavelet transform before
+    /// reconstituting back to the original vector space elements. This is valid as the
+    /// wavelet transform is linear.
+    ///
+    /// # Panics
+    /// Panics if the number of rows is not a power of two.
     #[must_use]
     pub fn wavelet_transform_algebra<V: BasedVectorSpace<F> + Clone + Send + Sync>(
         &self,
@@ -117,6 +186,14 @@ impl<F: Field> Radix2WaveletKernel<F> {
         self.wavelet_transform_algebra_batch(mat).values
     }
 
+    /// Convert every column of the matrix from multilinear coefficients to hypercube evaluations.
+    ///
+    /// This flattens to the base field and applies the base field wavelet transform before
+    /// reconstituting back to the original vector space elements. This is valid as the
+    /// wavelet transform is linear.
+    ///
+    /// # Panics
+    /// Panics if the number of rows is not a power of two.
     #[must_use]
     pub fn wavelet_transform_algebra_batch<V: BasedVectorSpace<F> + Clone + Send + Sync>(
         &self,
@@ -132,30 +209,25 @@ impl<F: Field> Radix2WaveletKernel<F> {
         )
     }
 
+    /// Convert from a vector of hypercube evaluations to a vector of multilinear coefficients.
+    ///
+    /// # Panics
+    /// Panics if the number of rows is not a power of two.
     #[must_use]
     fn inverse_wavelet_transform(&self, vec: Vec<F>) -> Vec<F> {
         let mat = RowMajorMatrix::new_col(vec);
         self.inverse_wavelet_transform_batch(mat).values
     }
 
-    /// Perform the inverse wavelet transform on each row of a matrix.
+    /// Convert every column of the matrix from hypercube evaluations to multilinear coefficients.
     ///
-    /// This function reverses the operation of `wavelet_transform`, recovering the original
-    /// coefficients of a multilinear polynomial from its wavelet-transformed evaluation form.
-    ///
-    /// The implementation mirrors `wavelet_transform`, with the same core ideas:
-    /// - Decompose work into per-core chunks for efficient parallelization.
-    /// - Use bit-reversal to maximize SIMD-friendly access patterns in early rounds.
-    /// - Apply high-order passes in-place using SIMD, undoing the transform step `hi -= lo`.
-    ///
-    /// For a matrix of height `2^k`, this function performs `k` rounds in reverse order:
-    /// - The high-order rounds are done in place without reversing.
-    /// - Then each chunk is reversed and lower-order rounds are applied.
-    /// - The rows are then restored to original order.
-    /// - Finally, any remaining global rounds are applied in parallel.
+    /// This is the inverse of `wavelet_transform_batch` and it's implementation is similar.
+    /// - Decompose as much work as possible into per-core chunks for efficient parallelization.
+    /// - Use bit-reversal to maximize SIMD-friendly access patterns on each core.
+    /// - Apply remaining global rounds using further parallelization.
     ///
     /// # Panics
-    /// Panics in debug mode if the matrix height is not a power of two.
+    /// Panics if the number of rows is not a power of two.
     #[must_use]
     pub fn inverse_wavelet_transform_batch(&self, mut mat: RowMajorMatrix<F>) -> RowMajorMatrix<F> {
         let height = mat.height();
@@ -206,6 +278,14 @@ impl<F: Field> Radix2WaveletKernel<F> {
         mat
     }
 
+    /// Convert from a vector of hypercube evaluations to a vector of multilinear coefficients.
+    ///
+    /// This flattens to the base field and applies the base field wavelet transform before
+    /// reconstituting back to the original vector space elements. This is valid as the
+    /// wavelet transform is linear.
+    ///
+    /// # Panics
+    /// Panics if the number of rows is not a power of two.
     #[must_use]
     pub fn inverse_wavelet_transform_algebra<V: BasedVectorSpace<F> + Clone + Send + Sync>(
         &self,
@@ -215,6 +295,14 @@ impl<F: Field> Radix2WaveletKernel<F> {
         self.inverse_wavelet_transform_algebra_batch(mat).values
     }
 
+    /// Convert every column of the matrix from hypercube evaluations to multilinear coefficients.
+    ///
+    /// This flattens to the base field and applies the base field wavelet transform before
+    /// reconstituting back to the original vector space elements. This is valid as the
+    /// wavelet transform is linear.
+    ///
+    /// # Panics
+    /// Panics if the number of rows is not a power of two.
     #[must_use]
     pub fn inverse_wavelet_transform_algebra_batch<V: BasedVectorSpace<F> + Clone + Send + Sync>(
         &self,
