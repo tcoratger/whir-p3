@@ -256,10 +256,7 @@ where
             verifier.params.final_queries,
             verifier_state,
         )?;
-        let final_randomness_points: Vec<_> = final_randomness_indexes
-            .iter()
-            .map(|index| exp_domain_gen.exp_u64(*index as u64))
-            .collect();
+        let mut final_randomness_points = Vec::with_capacity(final_randomness_indexes.len());
 
         let dimensions = vec![Dimensions {
             width: 1 << fold_last,
@@ -272,6 +269,7 @@ where
                 &whir_proof.commitment_merkle_paths;
 
             for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
+                final_randomness_points.push(exp_domain_gen.exp_u64(stir_challenges_index as u64));
                 mmcs.verify_batch(
                     &prev_root,
                     &dimensions,
