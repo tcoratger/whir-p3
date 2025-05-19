@@ -178,7 +178,7 @@ mod tests {
         let polynomial = CoefficientList::new((0..32).map(|_| rng.random()).collect());
 
         // Instantiate the committer using the test config.
-        let committer = CommitmentWriter::new(params.clone());
+        let committer = CommitmentWriter::new(&params);
 
         // Use a DFT engine to expand/fold the polynomial for evaluation.
         let dft = Radix2DitParallel::default();
@@ -219,7 +219,7 @@ mod tests {
         let polynomial = CoefficientList::new((0..16).map(|_| rng.random()).collect());
 
         // Set up the committer and DFT engine.
-        let committer = CommitmentWriter::new(params.clone());
+        let committer = CommitmentWriter::new(&params);
         let dft = Radix2DitParallel::default();
 
         // Begin the transcript and commit to the statement parameters.
@@ -261,7 +261,7 @@ mod tests {
         let polynomial = CoefficientList::new((0..1024).map(|_| rng.random()).collect());
 
         // Initialize the committer and DFT engine.
-        let committer = CommitmentWriter::new(params.clone());
+        let committer = CommitmentWriter::new(&params);
         let dft = Radix2DitParallel::default();
 
         // Start a new transcript and commit to the public parameters.
