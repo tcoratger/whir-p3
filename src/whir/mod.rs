@@ -156,7 +156,7 @@ pub fn make_whir_things(
                 &mut verifier_state,
                 &parsed_commitment,
                 &statement_verifier,
-                &proof
+                &proof,
             )
             .is_ok()
     );
