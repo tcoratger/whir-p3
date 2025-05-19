@@ -103,7 +103,7 @@ where
     }
 }
 
-impl<'a, EF, F, H, C, PowStrategy> Deref for CommitmentWriter<'a, EF, F, H, C, PowStrategy>
+impl<EF, F, H, C, PowStrategy> Deref for CommitmentWriter<'_, EF, F, H, C, PowStrategy>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
