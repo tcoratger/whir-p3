@@ -96,14 +96,16 @@ where
             // Initial sumcheck, we read:
             // - The sumcheck polynomials produced by the prover,
             // - The folding randomness used in each corresponding round
-            sumcheck_rounds.extend(read_sumcheck_rounds::<_, _, PS>(
-                verifier_state,
-                verifier.params.folding_factor.at_round(0),
-                verifier.params.starting_folding_pow_bits,
-                false,
-            )?);
+            let (initial_sumcheck_rounds, initial_sumcheck_randomness) =
+                read_sumcheck_rounds::<_, _, PS>(
+                    verifier_state,
+                    verifier.params.folding_factor.at_round(0),
+                    verifier.params.starting_folding_pow_bits,
+                    false,
+                )?;
+            sumcheck_rounds.extend(initial_sumcheck_rounds);
 
-            MultilinearPoint(sumcheck_rounds.iter().map(|&(_, r)| r).rev().collect())
+            initial_sumcheck_randomness
         } else {
             assert_eq!(parsed_commitment.ood_points.len(), 0);
             assert_eq!(statement_points_len, 0);
@@ -210,15 +212,12 @@ where
             // We read:
             // - The sumcheck polynomials produced by the prover,
             // - The folding randomness used in each corresponding round
-            let sumcheck_rounds = read_sumcheck_rounds::<_, _, PS>(
+            let (sumcheck_rounds, new_folding_randomness) = read_sumcheck_rounds::<_, _, PS>(
                 verifier_state,
                 verifier.params.folding_factor.at_round(r + 1),
                 round_params.folding_pow_bits,
                 false,
             )?;
-
-            let new_folding_randomness =
-                MultilinearPoint(sumcheck_rounds.iter().map(|&(_, r)| r).rev().collect());
 
             rounds.push(ParsedRound {
                 folding_randomness: folding_randomness.clone(),
@@ -310,20 +309,12 @@ where
         // Read the final sumcheck rounds:
         // - The sumcheck polynomials produced by the prover,
         // - The folding randomness used in each corresponding round
-        let final_sumcheck_rounds = read_sumcheck_rounds::<_, _, PS>(
+        let (final_sumcheck_rounds, final_sumcheck_randomness) = read_sumcheck_rounds::<_, _, PS>(
             verifier_state,
             verifier.params.final_sumcheck_rounds,
             verifier.params.final_folding_pow_bits,
             false,
         )?;
-
-        let final_sumcheck_randomness = MultilinearPoint(
-            final_sumcheck_rounds
-                .iter()
-                .map(|&(_, r)| r)
-                .rev()
-                .collect(),
-        );
 
         Ok(Self {
             initial_combination_randomness,
