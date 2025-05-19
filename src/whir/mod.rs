@@ -21,7 +21,6 @@ use crate::{
 
 pub mod committer;
 pub mod parameters;
-pub mod parsed_proof;
 pub mod prover;
 pub mod statement;
 pub mod utils;
@@ -115,7 +114,7 @@ pub fn make_whir_things(
     let mut prover_state = domainsep.to_prover_state();
 
     // Commit to the polynomial and produce a witness
-    let committer = CommitmentWriter::new(params.clone());
+    let committer = CommitmentWriter::new(&params);
 
     let dft_committer = RecursiveDft::<F>::default();
 
@@ -124,7 +123,7 @@ pub fn make_whir_things(
         .unwrap();
 
     // Generate a proof using the prover
-    let prover = Prover(params.clone());
+    let prover = Prover(&params);
 
     // Extract verifier-side version of the statement (only public data)
     let statement_verifier = StatementVerifier::from_statement(&statement);
@@ -157,7 +156,7 @@ pub fn make_whir_things(
                 &mut verifier_state,
                 &parsed_commitment,
                 &statement_verifier,
-                &proof
+                &proof,
             )
             .is_ok()
     );

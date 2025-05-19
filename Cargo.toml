@@ -51,6 +51,7 @@ p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4
 p3-dft = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4" }
 p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4" }
 p3-maybe-rayon = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4", optional = true }
+p3-interpolation = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4" }
 itertools = "0.14"
 thiserror = "2.0"
 rand = "0.9"
@@ -62,7 +63,7 @@ clap = { version = "4.4.17", features = ["derive"] }
 bincode = { version = "2.0", features = ["serde"] }
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.6"
 proptest = "1.0"
 
 [features]

@@ -18,7 +18,6 @@ use crate::{
         multilinear::MultilinearPoint,
     },
     sumcheck::sumcheck_single::SumcheckSingle,
-    utils::expand_randomness,
     whir::{
         parameters::RoundConfig,
         prover::proof::WhirProof,
@@ -34,12 +33,15 @@ pub type Proof<const DIGEST_ELEMS: usize> = Vec<Vec<[u8; DIGEST_ELEMS]>>;
 pub type Leafs<F> = Vec<Vec<F>>;
 
 #[derive(Debug)]
-pub struct Prover<EF, F, H, C, PowStrategy>(pub WhirConfig<EF, F, H, C, PowStrategy>)
+pub struct Prover<'a, EF, F, H, C, PowStrategy>(
+    /// Reference to the protocol configuration shared across prover components.
+    pub &'a WhirConfig<EF, F, H, C, PowStrategy>,
+)
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField;
 
-impl<EF, F, H, C, PS> Deref for Prover<EF, F, H, C, PS>
+impl<EF, F, H, C, PS> Deref for Prover<'_, EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -47,11 +49,11 @@ where
     type Target = WhirConfig<EF, F, H, C, PS>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0
     }
 }
 
-impl<EF, F, H, C, PS> Prover<EF, F, H, C, PS>
+impl<EF, F, H, C, PS> Prover<'_, EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -157,7 +159,7 @@ where
 
         // Initialize the round state with inputs and initial polynomial data
         let mut round_state =
-            RoundState::initialize_first_round_state(self, prover_state, statement, witness)?;
+            RoundState::initialize_first_round_state(self, prover_state, statement, witness, dft)?;
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
@@ -244,6 +246,7 @@ where
                 round_state,
                 &folded_coefficients,
                 &folded_evaluations,
+                dft,
             );
         }
 
@@ -345,8 +348,10 @@ where
 
         // Randomness for combination
         let [combination_randomness_gen] = prover_state.challenge_scalars()?;
-        let combination_randomness =
-            expand_randomness(combination_randomness_gen, stir_challenges.len());
+        let combination_randomness: Vec<_> = combination_randomness_gen
+            .powers()
+            .take(stir_challenges.len())
+            .collect();
 
         let mut sumcheck_prover =
             if let Some(mut sumcheck_prover) = round_state.sumcheck_prover.take() {
@@ -371,10 +376,12 @@ where
                 )
             };
 
-        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS>(
+        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS, _>(
             prover_state,
             folding_factor_next,
             round_params.folding_pow_bits,
+            None,
+            dft,
         )?;
 
         let start_idx = self.folding_factor.total_number(round_index);
@@ -398,18 +405,20 @@ where
         Ok(())
     }
 
-    fn final_round<const DIGEST_ELEMS: usize>(
+    fn final_round<D, const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
         prover_state: &mut ProverState<EF, F>,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
         folded_evaluations: &EvaluationsList<EF>,
+        dft: &D,
     ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        D: TwoAdicSubgroupDft<F>,
     {
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_scalars(folded_coefficients.coeffs())?;
@@ -471,10 +480,12 @@ where
                         EF::ONE,
                     )
                 })
-                .compute_sumcheck_polynomials::<PS>(
+                .compute_sumcheck_polynomials::<PS, _>(
                     prover_state,
                     self.final_sumcheck_rounds,
                     self.final_folding_pow_bits,
+                    None,
+                    dft,
                 )?;
 
             let start_idx = self.folding_factor.total_number(round_index);

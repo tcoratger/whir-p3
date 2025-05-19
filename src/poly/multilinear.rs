@@ -82,7 +82,7 @@ where
 
         for _ in 0..num_variables {
             res.push(cur);
-            cur = cur * cur; // Compute y^(2^k) at each step
+            cur = cur.square(); // Compute y^(2^k) at each step
         }
 
         res.reverse();
@@ -196,6 +196,7 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+    use proptest::prelude::*;
     use rand::rng;
 
     use super::*;
@@ -583,6 +584,37 @@ mod tests {
     }
 
     #[test]
+    fn test_eq_poly_outside_manual_comparison() {
+        // Construct the first multilinear point with arbitrary non-binary field values
+        let x00 = F::from_u8(17);
+        let x01 = F::from_u8(56);
+        let x02 = F::from_u8(5);
+        let x03 = F::from_u8(12);
+        let ml_point1 = MultilinearPoint(vec![x00, x01, x02, x03]);
+
+        // Construct the second multilinear point with different non-binary field values
+        let x10 = F::from_u8(43);
+        let x11 = F::from_u8(5);
+        let x12 = F::from_u8(54);
+        let x13 = F::from_u8(242);
+        let ml_point2 = MultilinearPoint(vec![x10, x11, x12, x13]);
+
+        // Compute the equality polynomial between ml_point1 and ml_point2
+        let result = ml_point1.eq_poly_outside(&ml_point2);
+
+        // Manually compute the expected result of the equality polynomial:
+        // eq(c, p) = ∏ (c_i * p_i + (1 - c_i) * (1 - p_i))
+        // This formula evaluates to 1 iff c_i == p_i for all i, and < 1 otherwise
+        let expected = (x00 * x10 + (F::ONE - x00) * (F::ONE - x10))
+            * (x01 * x11 + (F::ONE - x01) * (F::ONE - x11))
+            * (x02 * x12 + (F::ONE - x02) * (F::ONE - x12))
+            * (x03 * x13 + (F::ONE - x03) * (F::ONE - x13));
+
+        // Assert that the method and manual computation yield the same result
+        assert_eq!(result, expected);
+    }
+
+    #[test]
     fn test_eq_poly_outside_large_match() {
         let ml_point1 = MultilinearPoint(vec![
             F::ONE,
@@ -859,5 +891,30 @@ mod tests {
             all_same_count < K,
             "rand generated uniform points in all {K} trials"
         );
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_eq_poly_outside_matches_manual(
+            (coords1, coords2) in prop::collection::vec(0u8..=250, 1..=8).prop_flat_map(|v1| {
+                let len = v1.len();
+                prop::collection::vec(0u8..=250, len).prop_map(move |v2| (v1.clone(), v2))
+            })
+        ) {
+            // Convert both u8 vectors to field elements
+            let p1 = MultilinearPoint(coords1.iter().copied().map(F::from_u8).collect());
+            let p2 = MultilinearPoint(coords2.iter().copied().map(F::from_u8).collect());
+
+            // Evaluate eq_poly_outside
+            let result = p1.eq_poly_outside(&p2);
+
+            // Compute expected value using manual formula:
+            // eq(c, p) = ∏ (c_i * p_i + (1 - c_i)(1 - p_i))
+            let expected = p1.0.iter().zip(&p2.0).fold(F::ONE, |acc, (&a, &b)| {
+                acc * (a * b + (F::ONE - a) * (F::ONE - b))
+            });
+
+            prop_assert_eq!(result, expected);
+        }
     }
 }

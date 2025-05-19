@@ -2,7 +2,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, 
 use p3_baby_bear::BabyBear;
 use p3_field::PrimeCharacteristicRing;
 use p3_matrix::dense::RowMajorMatrix;
-use whir_p3::ntt::wavelet::wavelet_transform;
+use whir_p3::poly::wavelet::wavelet_transform;
 
 /// Benchmark the single‑matrix in‑place transform on matrices whose height is a power of two.
 fn bench_wavelet_transform(c: &mut Criterion) {
