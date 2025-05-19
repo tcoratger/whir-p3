@@ -83,10 +83,9 @@ where
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
 
         let mut sumcheck_rounds = Vec::new();
-        let mut folding_randomness;
         let initial_combination_randomness;
 
-        if verifier.params.initial_statement {
+        let mut folding_randomness = if verifier.params.initial_statement {
             // Derive combination randomness and first sumcheck polynomial
             let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
             initial_combination_randomness = expand_randomness(
@@ -104,8 +103,7 @@ where
                 false,
             )?);
 
-            folding_randomness =
-                MultilinearPoint(sumcheck_rounds.iter().map(|&(_, r)| r).rev().collect());
+            MultilinearPoint(sumcheck_rounds.iter().map(|&(_, r)| r).rev().collect())
         } else {
             assert_eq!(parsed_commitment.ood_points.len(), 0);
             assert_eq!(statement_points_len, 0);
@@ -115,13 +113,14 @@ where
             let mut folding_randomness_vec =
                 vec![F::ZERO; verifier.params.folding_factor.at_round(0)];
             verifier_state.fill_challenge_scalars(&mut folding_randomness_vec)?;
-            folding_randomness = MultilinearPoint(folding_randomness_vec);
 
             // PoW
             if verifier.params.starting_folding_pow_bits > 0. {
                 verifier_state.challenge_pow::<PS>(verifier.params.starting_folding_pow_bits)?;
             }
-        }
+
+            MultilinearPoint(folding_randomness_vec)
+        };
 
         let mut prev_root = parsed_commitment.root;
         let mut domain_gen = verifier.params.starting_domain.backing_domain.group_gen();
