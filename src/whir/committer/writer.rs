@@ -67,11 +67,15 @@ where
         let base_domain = self.starting_domain.base_domain.unwrap();
 
         // Compute expansion factor based on the domain size and polynomial length.
-        let expansion = base_domain.size() / polynomial.num_coeffs();
+        let initial_size = polynomial.num_coeffs();
+        let expanded_size = base_domain.size();
 
         // Pad coefficients with zeros to match the domain size
-        let mut coeffs = polynomial.coeffs().to_vec();
-        info_span!("expand_coeffs").in_scope(|| coeffs.resize(coeffs.len() * expansion, F::ZERO));
+        let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
+            let mut coeffs = F::zero_vec(expanded_size);
+            coeffs[..initial_size].copy_from_slice(polynomial.coeffs());
+            coeffs
+        });
 
         // Perform DFT on the padded coefficient matrix
         let width = 1 << self.folding_factor.at_round(0);
