@@ -7,7 +7,7 @@ use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
+use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
@@ -71,18 +71,21 @@ where
 
         // Pad coefficients with zeros to match the domain size
         let mut coeffs = polynomial.coeffs().to_vec();
-        coeffs.resize(coeffs.len() * expansion, F::ZERO);
+        info_span!("expand_coeffs").in_scope(|| coeffs.resize(coeffs.len() * expansion, F::ZERO));
 
         // Perform DFT on the padded coefficient matrix
         let width = 1 << self.folding_factor.at_round(0);
-        let folded_matrix = dft
-            .dft_batch(RowMajorMatrix::new(coeffs, width))
-            .to_row_major_matrix();
+        let folded_matrix =
+            info_span!("dft", height = coeffs.len() / width, width).in_scope(|| {
+                dft.dft_batch(RowMajorMatrix::new(coeffs, width))
+                    .to_row_major_matrix()
+            });
 
         // Commit to the Merkle tree
         let merkle_tree =
             MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
-        let (root, prover_data) = merkle_tree.commit_matrix(folded_matrix);
+        let (root, prover_data) =
+            info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
 
         // Observe Merkle root in challenger
         prover_state.add_digest(root)?;
