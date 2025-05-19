@@ -18,7 +18,7 @@ use crate::{
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     whir::{
         committer::reader::ParsedCommitment, prover::proof::WhirProof,
-        utils::get_challenge_stir_queries,
+        utils::get_challenge_stir_queries, verifier::parsed_round::VerifierRoundState,
     },
 };
 
@@ -84,7 +84,7 @@ where
         let mut sumcheck_rounds = Vec::new();
         let initial_combination_randomness;
 
-        let mut folding_randomness = if verifier.params.initial_statement {
+        let folding_randomness = if verifier.params.initial_statement {
             // Derive combination randomness and first sumcheck polynomial
             let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
             initial_combination_randomness = combination_randomness_gen
@@ -123,122 +123,23 @@ where
             MultilinearPoint(folding_randomness_vec)
         };
 
-        let mut prev_root = parsed_commitment.root;
-        let mut domain_gen = verifier.params.starting_domain.backing_domain.group_gen();
-        let mut exp_domain_gen =
-            domain_gen.exp_u64(1 << verifier.params.folding_factor.at_round(0));
-        let mut domain_gen_inv = verifier
-            .params
-            .starting_domain
-            .backing_domain
-            .group_gen_inv();
-        let mut domain_size = verifier.params.starting_domain.size();
-        let mut rounds = vec![];
+        let domain = &verifier.params.starting_domain.backing_domain;
+        let mut round_state = VerifierRoundState {
+            prev_root: parsed_commitment.root,
+            folding_randomness,
+            domain_gen: domain.group_gen(),
+            domain_gen_inv: domain.group_gen_inv(),
+            exp_domain_gen: domain
+                .group_gen()
+                .exp_u64(1 << verifier.params.folding_factor.at_round(0)),
+            domain_size: verifier.params.starting_domain.size(),
+            mmcs: mmcs.clone(),
+            extension_mmcs: extension_mmcs.clone(),
+        };
 
-        for r in 0..verifier.params.n_rounds() {
-            let round_params = &verifier.params.round_parameters[r];
-            let fold_r = verifier.params.folding_factor.at_round(r);
-
-            let new_root = verifier_state.read_digest()?;
-
-            let mut ood_points = vec![F::ZERO; round_params.ood_samples];
-            let mut ood_answers = vec![F::ZERO; round_params.ood_samples];
-            if round_params.ood_samples > 0 {
-                verifier_state.fill_challenge_scalars(&mut ood_points)?;
-                verifier_state.fill_next_scalars(&mut ood_answers)?;
-            }
-
-            let stir_challenges_indexes = get_challenge_stir_queries(
-                domain_size,
-                fold_r,
-                round_params.num_queries,
-                verifier_state,
-            )?;
-
-            let mut stir_challenges_points = Vec::with_capacity(stir_challenges_indexes.len());
-
-            // Verify Merkle openings using `verify_batch`
-            let dimensions = vec![Dimensions {
-                height: domain_size >> fold_r,
-                width: 1 << fold_r,
-            }];
-
-            let mut stir_challenges_answers = Vec::new();
-
-            for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
-                stir_challenges_points.push(exp_domain_gen.exp_u64(stir_challenges_index as u64));
-                if r == 0 {
-                    let (answers, merkle_proof) = &whir_proof.commitment_merkle_paths;
-
-                    mmcs.verify_batch(
-                        &prev_root,
-                        &dimensions,
-                        stir_challenges_index,
-                        &[answers[i].iter().map(|v| v.as_base().unwrap()).collect()],
-                        &merkle_proof[i],
-                    )
-                    .map_err(|_| ProofError::InvalidProof)?;
-
-                    stir_challenges_answers = answers
-                        .iter()
-                        .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
-                        .collect();
-                } else {
-                    let (answers, merkle_proof) = &whir_proof.merkle_paths[r - 1];
-                    extension_mmcs
-                        .verify_batch(
-                            &prev_root,
-                            &dimensions,
-                            stir_challenges_index,
-                            &[answers[i].clone()],
-                            &merkle_proof[i],
-                        )
-                        .map_err(|_| ProofError::InvalidProof)?;
-                    stir_challenges_answers.clone_from(answers);
-                }
-            }
-
-            if round_params.pow_bits > 0. {
-                verifier_state.challenge_pow::<PS>(round_params.pow_bits)?;
-            }
-
-            let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
-            let combination_randomness = combination_randomness_gen
-                .powers()
-                .take(stir_challenges_indexes.len() + round_params.ood_samples)
-                .collect();
-
-            // We read:
-            // - The sumcheck polynomials produced by the prover,
-            // - The folding randomness used in each corresponding round
-            let (sumcheck_rounds, new_folding_randomness) = read_sumcheck_rounds::<_, _, PS>(
-                verifier_state,
-                verifier.params.folding_factor.at_round(r + 1),
-                round_params.folding_pow_bits,
-                false,
-            )?;
-
-            rounds.push(ParsedRound {
-                folding_randomness: folding_randomness.clone(),
-                ood_points,
-                ood_answers,
-                stir_challenges_indexes,
-                stir_challenges_points,
-                stir_challenges_answers: stir_challenges_answers.clone(),
-                combination_randomness,
-                sumcheck_rounds,
-                domain_gen_inv,
-            });
-
-            folding_randomness = new_folding_randomness;
-
-            prev_root = new_root;
-            domain_gen = domain_gen * domain_gen;
-            exp_domain_gen =
-                domain_gen.exp_u64(1 << verifier.params.folding_factor.at_round(r + 1));
-            domain_gen_inv = domain_gen_inv * domain_gen_inv;
-            domain_size /= 2;
-        }
+        let rounds: Vec<_> = (0..verifier.params.n_rounds())
+            .map(|r| round_state.build_parsed_round(verifier, verifier_state, whir_proof, r))
+            .collect::<ProofResult<_>>()?;
 
         let mut final_coefficients = vec![F::ZERO; 1 << verifier.params.final_sumcheck_rounds];
         verifier_state.fill_next_scalars(&mut final_coefficients)?;
@@ -249,7 +150,7 @@ where
             .folding_factor
             .at_round(verifier.params.n_rounds());
         let final_randomness_indexes = get_challenge_stir_queries(
-            domain_size,
+            round_state.domain_size,
             fold_last,
             verifier.params.final_queries,
             verifier_state,
@@ -258,7 +159,7 @@ where
 
         let dimensions = vec![Dimensions {
             width: 1 << fold_last,
-            height: domain_size >> fold_last,
+            height: round_state.domain_size >> fold_last,
         }];
 
         // Final Merkle verification
@@ -267,9 +168,13 @@ where
                 &whir_proof.commitment_merkle_paths;
 
             for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
-                final_randomness_points.push(exp_domain_gen.exp_u64(stir_challenges_index as u64));
+                final_randomness_points.push(
+                    round_state
+                        .exp_domain_gen
+                        .exp_u64(stir_challenges_index as u64),
+                );
                 mmcs.verify_batch(
-                    &prev_root,
+                    &round_state.prev_root,
                     &dimensions,
                     stir_challenges_index,
                     &[commitment_randomness_answers[i].clone()],
@@ -289,7 +194,7 @@ where
             for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
                 extension_mmcs
                     .verify_batch(
-                        &prev_root,
+                        &round_state.prev_root,
                         &dimensions,
                         stir_challenges_index,
                         &[final_randomness_answers[i].clone()],
@@ -319,8 +224,8 @@ where
             initial_combination_randomness,
             initial_sumcheck_rounds: sumcheck_rounds,
             rounds,
-            final_domain_gen_inv: domain_gen_inv,
-            final_folding_randomness: folding_randomness,
+            final_domain_gen_inv: round_state.domain_gen_inv,
+            final_folding_randomness: round_state.folding_randomness,
             final_randomness_indexes,
             final_randomness_points,
             final_randomness_answers,
