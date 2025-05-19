@@ -33,12 +33,15 @@ pub type Proof<const DIGEST_ELEMS: usize> = Vec<Vec<[u8; DIGEST_ELEMS]>>;
 pub type Leafs<F> = Vec<Vec<F>>;
 
 #[derive(Debug)]
-pub struct Prover<EF, F, H, C, PowStrategy>(pub WhirConfig<EF, F, H, C, PowStrategy>)
+pub struct Prover<'a, EF, F, H, C, PowStrategy>(
+    /// Reference to the protocol configuration shared across prover components.
+    pub &'a WhirConfig<EF, F, H, C, PowStrategy>,
+)
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField;
 
-impl<EF, F, H, C, PS> Deref for Prover<EF, F, H, C, PS>
+impl<EF, F, H, C, PS> Deref for Prover<'_, EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -46,11 +49,11 @@ where
     type Target = WhirConfig<EF, F, H, C, PS>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0
     }
 }
 
-impl<EF, F, H, C, PS> Prover<EF, F, H, C, PS>
+impl<EF, F, H, C, PS> Prover<'_, EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
