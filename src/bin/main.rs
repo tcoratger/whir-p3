@@ -137,7 +137,7 @@ fn main() {
     let whir_prover_time = Instant::now();
 
     // Commit to the polynomial and produce a witness
-    let committer = CommitmentWriter::new(params.clone());
+    let committer = CommitmentWriter::new(&params);
 
     let dft_committer = Radix2DitParallel::<F>::default();
 

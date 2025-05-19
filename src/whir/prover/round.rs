@@ -279,7 +279,7 @@ mod tests {
         let mut prover_state = domsep.to_prover_state();
 
         // Create a committer using the protocol configuration (Merkle parameters, hashers, etc.).
-        let committer = CommitmentWriter::new(params.clone());
+        let committer = CommitmentWriter::new(&params);
 
         // Perform DFT-based commitment to the polynomial, producing a witness
         // which includes the Merkle tree and polynomial values.

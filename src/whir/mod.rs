@@ -114,7 +114,7 @@ pub fn make_whir_things(
     let mut prover_state = domainsep.to_prover_state();
 
     // Commit to the polynomial and produce a witness
-    let committer = CommitmentWriter::new(params.clone());
+    let committer = CommitmentWriter::new(&params);
 
     let dft_committer = RecursiveDft::<F>::default();
 

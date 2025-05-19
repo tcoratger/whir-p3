@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
@@ -20,17 +22,21 @@ use crate::{
 ///
 /// It provides a commitment that can be used for proof generation and verification.
 #[derive(Debug)]
-pub struct CommitmentWriter<EF, F, H, C, PowStrategy>(WhirConfig<EF, F, H, C, PowStrategy>)
+pub struct CommitmentWriter<'a, EF, F, H, C, PowStrategy>(
+    /// Reference to the WHIR protocol configuration.
+    &'a WhirConfig<EF, F, H, C, PowStrategy>,
+)
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField;
 
-impl<EF, F, H, C, PS> CommitmentWriter<EF, F, H, C, PS>
+impl<'a, EF, F, H, C, PS> CommitmentWriter<'a, EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
 {
-    pub const fn new(params: WhirConfig<EF, F, H, C, PS>) -> Self {
+    /// Create a new writer that borrows the WHIR protocol configuration.
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {
         Self(params)
     }
 
@@ -56,7 +62,7 @@ where
         D: TwoAdicSubgroupDft<F>,
     {
         // Retrieve the base domain, ensuring it is set.
-        let base_domain = self.0.starting_domain.base_domain.unwrap();
+        let base_domain = self.starting_domain.base_domain.unwrap();
 
         // Compute expansion factor based on the domain size and polynomial length.
         let expansion = base_domain.size() / polynomial.num_coeffs();
@@ -66,14 +72,14 @@ where
         coeffs.resize(coeffs.len() * expansion, F::ZERO);
 
         // Perform DFT on the padded coefficient matrix
-        let width = 1 << self.0.folding_factor.at_round(0);
+        let width = 1 << self.folding_factor.at_round(0);
         let folded_matrix = dft
             .dft_batch(RowMajorMatrix::new(coeffs, width))
             .to_row_major_matrix();
 
         // Commit to the Merkle tree
         let merkle_tree =
-            MerkleTreeMmcs::new(self.0.merkle_hash.clone(), self.0.merkle_compress.clone());
+            MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
         let (root, prover_data) = merkle_tree.commit_matrix(folded_matrix);
 
         // Observe Merkle root in challenger
@@ -82,8 +88,8 @@ where
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) = sample_ood_points(
             prover_state,
-            self.0.committment_ood_samples,
-            self.0.mv_parameters.num_variables,
+            self.committment_ood_samples,
+            self.mv_parameters.num_variables,
             |point| polynomial.evaluate_at_extension(point),
         )?;
 
@@ -94,6 +100,18 @@ where
             ood_points,
             ood_answers,
         })
+    }
+}
+
+impl<'a, EF, F, H, C, PowStrategy> Deref for CommitmentWriter<'a, EF, F, H, C, PowStrategy>
+where
+    F: Field + TwoAdicField + PrimeField64,
+    EF: ExtensionField<F> + TwoAdicField,
+{
+    type Target = WhirConfig<EF, F, H, C, PowStrategy>;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
     }
 }
 
@@ -166,7 +184,7 @@ mod tests {
         let mut prover_state = domainsep.to_prover_state();
 
         // Run the Commitment Phase
-        let committer = CommitmentWriter::new(params.clone());
+        let committer = CommitmentWriter::new(&params);
         let dft_committer = Radix2DitParallel::<F>::default();
         let witness = committer
             .commit(&dft_committer, &mut prover_state, polynomial.clone())
@@ -245,7 +263,7 @@ mod tests {
         let mut prover_state = domainsep.to_prover_state();
 
         let dft_committer = Radix2DitParallel::<F>::default();
-        let committer = CommitmentWriter::new(params);
+        let committer = CommitmentWriter::new(&params);
         let _ = committer
             .commit(&dft_committer, &mut prover_state, polynomial)
             .unwrap();
@@ -294,7 +312,7 @@ mod tests {
         let mut prover_state = domainsep.to_prover_state();
 
         let dft_committer = Radix2DitParallel::<F>::default();
-        let committer = CommitmentWriter::new(params);
+        let committer = CommitmentWriter::new(&params);
         let witness = committer
             .commit(&dft_committer, &mut prover_state, polynomial)
             .unwrap();
