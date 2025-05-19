@@ -3,6 +3,7 @@ use p3_matrix::{Matrix, dense::RowMajorMatrixViewMut, util::reverse_matrix_index
 use p3_util::log2_strict_usize;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use tracing::instrument;
 
 use crate::whir::utils::workload_size;
 
@@ -13,6 +14,9 @@ use crate::whir::utils::workload_size;
 ///   [1 1]
 ///
 /// Assumes the number of rows is a power of two.
+#[instrument(skip_all, level = "info", fields(
+    log_num_rows = log2_strict_usize(mat.height()),
+))]
 pub fn wavelet_transform<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>) {
     let height = mat.height();
     let log_height = log2_strict_usize(height);
@@ -142,6 +146,9 @@ fn par_wavelet_kernel<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>, block_si
 ///
 /// # Panics
 /// Panics in debug mode if the matrix height is not a power of two.
+#[instrument(skip_all, level = "debug", fields(
+    log_num_rows = log2_strict_usize(mat.height()),
+))]
 pub fn inverse_wavelet_transform<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>) {
     let height = mat.height();
     debug_assert!(height.is_power_of_two());

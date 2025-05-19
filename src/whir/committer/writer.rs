@@ -7,6 +7,7 @@ use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use super::Witness;
 use crate::{
@@ -49,6 +50,7 @@ where
     /// - Constructs a Merkle tree from the evaluations.
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
+    #[instrument(skip_all)]
     pub fn commit<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,

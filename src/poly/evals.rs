@@ -4,6 +4,7 @@ use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrix;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use tracing::instrument;
 
 use super::{
     coeffs::CoefficientList, lagrange_iterator::LagrangePolynomialIterator,
@@ -48,6 +49,7 @@ where
     /// `EvaluationsList<EF>` with fewer variables.
     ///
     /// Works generically on both base and extension field representations.
+    #[instrument(skip_all)]
     pub(crate) fn fold(&self, folding_randomness: &MultilinearPoint<EF>) -> EvaluationsList<EF> {
         match self {
             Self::Base(cl) => cl.fold(folding_randomness),
@@ -112,6 +114,7 @@ where
     /// ```
     ///
     /// where `eq(x, p)` is the Lagrange basis polynomial.
+    #[instrument(skip_all, level = "info")]
     #[must_use]
     pub fn evaluate(&self, point: &MultilinearPoint<F>) -> F {
         if let Some(binary_index) = point.to_hypercube() {
@@ -193,6 +196,7 @@ where
     ///
     /// # Panics
     /// - If the evaluation list is not sized `2^n` for some `n`.
+    #[instrument(skip_all)]
     #[must_use]
     pub fn fold<EF>(&self, folding_randomness: &MultilinearPoint<EF>) -> EvaluationsList<EF>
     where

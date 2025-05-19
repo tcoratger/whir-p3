@@ -4,6 +4,7 @@ use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use tracing::{debug_span, info_span, instrument};
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
@@ -84,6 +85,7 @@ where
     /// - Initializes internal sumcheck state with weights and expected sum.
     ///
     /// The base field evaluations are stored without transformation.
+    #[instrument(skip_all)]
     pub fn from_base_evals(
         evals: EvaluationsList<F>,
         statement: &Statement<EF>,
@@ -165,6 +167,9 @@ where
     /// \end{equation}
     ///
     /// where `w_{z_i}(X)` represents the constraint encoding at point `z_i`.
+    #[instrument(skip_all, fields(
+        num_points = points.len(),
+    ))]
     pub fn add_new_equality(
         &mut self,
         points: &[MultilinearPoint<EF>],
@@ -209,6 +214,7 @@ where
     /// where `sum` is the accumulated constraint sum.
     ///
     /// Returns a `SumcheckPolynomial` with evaluations at `X = 0, 1, 2`.
+    #[instrument(skip_all, level = "debug")]
     pub fn compute_sumcheck_polynomial(&self) -> SumcheckPolynomial<EF> {
         assert!(self.num_variables() >= 1);
 
@@ -317,6 +323,7 @@ where
     /// # Panics
     /// - If `folding_factor > num_variables()`
     /// - If univariate skip is attempted with evaluations in the extension field.
+    #[instrument(skip_all)]
     pub fn compute_sumcheck_polynomials<S, DFT>(
         &mut self,
         prover_state: &mut ProverState<EF, F>,
@@ -391,7 +398,8 @@ where
 
             // Optional PoW grinding.
             if pow_bits > 0. {
-                prover_state.challenge_pow::<S>(pow_bits)?;
+                debug_span!("pow", bits = pow_bits)
+                    .in_scope(|| prover_state.challenge_pow::<S>(pow_bits))?;
             }
 
             // Fold the polynomial and weight evaluations over the new challenge.
@@ -426,6 +434,7 @@ where
     /// # Effects
     /// - Shrinks `p(X)` and `w(X)` by half.
     /// - Updates `sum` using `sumcheck_poly`.
+    #[instrument(skip_all)]
     pub fn compress(
         &mut self,
         combination_randomness: EF, // Scale the initial point

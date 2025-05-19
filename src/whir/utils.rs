@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
+use tracing::instrument;
 
 use crate::{
     fiat_shamir::{UnitToBytes, errors::ProofResult, prover::ProverState},
@@ -55,6 +56,7 @@ where
 /// A utility function to sample Out-of-Domain (OOD) points and evaluate them.
 ///
 /// This should be used on the prover side.
+#[instrument(skip_all)]
 pub fn sample_ood_points<F, EF, E>(
     prover_state: &mut ProverState<EF, F>,
     num_samples: usize,

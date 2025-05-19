@@ -3,6 +3,7 @@ use std::{fmt::Debug, iter, ops::Deref};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use super::{
     committer::reader::ParsedCommitment,
@@ -124,6 +125,7 @@ where
         value
     }
 
+    #[instrument(skip_all)]
     #[allow(clippy::too_many_lines)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,

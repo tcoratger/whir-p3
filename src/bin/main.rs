@@ -1,11 +1,11 @@
-use std::time::Instant;
-
 use clap::Parser;
 use p3_blake3::Blake3;
 use p3_dft::Radix2DitParallel;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
+use tracing_forest::{ForestLayer, util::LevelFilter};
+use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
@@ -46,9 +46,6 @@ struct Args {
     #[arg(short = 'r', long, default_value = "1")]
     rate: usize,
 
-    #[arg(long = "reps", default_value = "1000")]
-    verifier_repetitions: usize,
-
     #[arg(short = 'k', long = "fold", default_value = "4")]
     folding_factor: usize,
 
@@ -57,6 +54,15 @@ struct Args {
 }
 
 fn main() {
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+
+    Registry::default()
+        .with(env_filter)
+        .with(ForestLayer::default())
+        .init();
+
     let mut args = Args::parse();
 
     if args.pow_bits.is_none() {
@@ -68,7 +74,6 @@ fn main() {
     let pow_bits = args.pow_bits.unwrap();
     let num_variables = args.num_variables;
     let starting_rate = args.rate;
-    let reps = args.verifier_repetitions;
     let folding_factor = FoldingFactor::Constant(args.folding_factor);
     let soundness_type = args.soundness_type;
     let num_evaluations = args.num_evaluations;
@@ -134,8 +139,6 @@ fn main() {
     // Initialize the Merlin transcript from the IOPattern
     let mut prover_state = domainsep.to_prover_state();
 
-    let whir_prover_time = Instant::now();
-
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
 
@@ -155,13 +158,6 @@ fn main() {
         .prove(&dft_prover, &mut prover_state, statement.clone(), witness)
         .unwrap();
 
-    println!("Prover time: {:.1?}", whir_prover_time.elapsed());
-
-    let serialized_proof = bincode::serde::encode_to_vec(&proof, bincode::config::standard())
-        .expect("Failed to serialize proof");
-    let proof_length = serialized_proof.len() + prover_state.narg_string().len();
-    println!("Proof size: {:.1} KiB", proof_length as f64 / 1024.0);
-
     // Extract verifier-side version of the statement (only public data)
     let statement_verifier = StatementVerifier::from_statement(&statement);
 
@@ -171,29 +167,27 @@ fn main() {
     // Create a verifier with matching parameters
     let verifier = Verifier::new(&params);
 
-    let whir_verifier_time = Instant::now();
-    for _ in 0..reps {
-        // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-        let mut verifier_state = domainsep.to_verifier_state(prover_state.narg_string());
+    // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
+    let mut verifier_state = domainsep.to_verifier_state(prover_state.narg_string());
 
-        // Parse the commitment
-        let parsed_commitment = commitment_reader
-            .parse_commitment::<32>(&mut verifier_state)
-            .unwrap();
+    // Parse the commitment
+    let parsed_commitment = commitment_reader
+        .parse_commitment::<32>(&mut verifier_state)
+        .unwrap();
 
-        assert!(
-            verifier
-                .verify(
-                    &mut verifier_state,
-                    &parsed_commitment,
-                    &statement_verifier,
-                    &proof
-                )
-                .is_ok()
-        );
-    }
-    println!(
-        "Verifier time: {:.1?}",
-        whir_verifier_time.elapsed() / reps as u32
+    assert!(
+        verifier
+            .verify(
+                &mut verifier_state,
+                &parsed_commitment,
+                &statement_verifier,
+                &proof
+            )
+            .is_ok()
     );
+
+    let serialized_proof = bincode::serde::encode_to_vec(&proof, bincode::config::standard())
+        .expect("Failed to serialize proof");
+    let proof_length = serialized_proof.len() + prover_state.narg_string().len();
+    println!("Proof size: {:.1} KiB", proof_length as f64 / 1024.0);
 }

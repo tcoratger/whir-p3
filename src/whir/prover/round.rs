@@ -1,5 +1,6 @@
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use tracing::instrument;
 
 use super::{Leafs, Proof, Prover};
 use crate::{
@@ -102,6 +103,7 @@ where
     ///
     /// This function should be called once at the beginning of the proof, before entering the
     /// main WHIR folding loop.
+    #[instrument(skip_all)]
     pub(crate) fn initialize_first_round_state<H, C, PS, D>(
         prover: &Prover<'_, EF, F, H, C, PS>,
         prover_state: &mut ProverState<EF, F>,

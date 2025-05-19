@@ -1,6 +1,7 @@
 use p3_field::{ExtensionField, Field};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use tracing::instrument;
 
 use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -117,6 +118,7 @@ impl<F: Field> Weights<F> {
     ///
     /// **Precondition:**
     /// `accumulator.num_variables()` must match `self.num_variables()`.
+    #[instrument(skip_all)]
     pub fn accumulate(&self, accumulator: &mut EvaluationsList<F>, factor: F) {
         assert_eq!(accumulator.num_variables(), self.num_variables());
         match self {
@@ -229,6 +231,7 @@ impl<F: Field> Statement<F> {
     /// **Returns:**
     /// - `EvaluationsList<F>`: The combined polynomial `W(X)`.
     /// - `F`: The combined sum `S`.
+    #[instrument(skip_all)]
     pub fn combine(&self, challenge: F) -> (EvaluationsList<F>, F) {
         let evaluations_vec = vec![F::ZERO; 1 << self.num_variables];
         let mut combined_evals = EvaluationsList::new(evaluations_vec);
