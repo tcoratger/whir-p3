@@ -52,20 +52,6 @@ pub(crate) fn eval_eq<F: Field>(eval: &[F], out: &mut [F], scalar: F) {
     }
 }
 
-/// Generates a sequence of powers of `base`, starting from `1`.
-///
-/// This function returns a vector containing the sequence:
-/// `[1, base, base^2, base^3, ..., base^(len-1)]`
-pub fn expand_randomness<F: Field>(base: F, len: usize) -> Vec<F> {
-    let mut res = Vec::with_capacity(len);
-    let mut acc = F::ONE;
-    for _ in 0..len {
-        res.push(acc);
-        acc *= base;
-    }
-    res
-}
-
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
@@ -87,78 +73,5 @@ mod tests {
         let expected_output = vec![F::ZERO, F::ZERO, F::from_u64(2), F::ZERO];
 
         assert_eq!(output, expected_output);
-    }
-
-    #[test]
-    fn test_expand_randomness_basic() {
-        // Test with base = 2 and length = 5
-        let base = F::from_u64(2);
-        let len = 5;
-
-        let expected = vec![
-            F::ONE,
-            F::from_u64(2),
-            F::from_u64(4),
-            F::from_u64(8),
-            F::from_u64(16),
-        ];
-
-        assert_eq!(expand_randomness(base, len), expected);
-    }
-
-    #[test]
-    fn test_expand_randomness_zero_length() {
-        // If len = 0, should return an empty vector
-        let base = F::from_u64(3);
-        assert!(expand_randomness(base, 0).is_empty());
-    }
-
-    #[test]
-    fn test_expand_randomness_one_length() {
-        // If len = 1, should return [1]
-        let base = F::from_u64(5);
-        assert_eq!(expand_randomness(base, 1), vec![F::ONE]);
-    }
-
-    #[test]
-    fn test_expand_randomness_large_base() {
-        // Test with a large base value
-        let base = F::from_u64(10);
-        let len = 4;
-
-        let expected = vec![F::ONE, F::from_u64(10), F::from_u64(100), F::from_u64(1000)];
-
-        assert_eq!(expand_randomness(base, len), expected);
-    }
-
-    #[test]
-    fn test_expand_randomness_identity_case() {
-        // If base = 1, all values should be 1
-        let base = F::ONE;
-        let len = 6;
-
-        let expected = vec![F::ONE; len];
-        assert_eq!(expand_randomness(base, len), expected);
-    }
-
-    #[test]
-    fn test_expand_randomness_zero_base() {
-        // If base = 0, all values after the first should be 0
-        let base = F::ZERO;
-        let len = 5;
-
-        let expected = vec![F::ONE, F::ZERO, F::ZERO, F::ZERO, F::ZERO];
-        assert_eq!(expand_randomness(base, len), expected);
-    }
-
-    #[test]
-    fn test_expand_randomness_negative_base() {
-        // Test with base = -1, which should alternate between 1 and -1
-        let base = -F::ONE;
-        let len = 6;
-
-        let expected = vec![F::ONE, -F::ONE, F::ONE, -F::ONE, F::ONE, -F::ONE];
-
-        assert_eq!(expand_randomness(base, len), expected);
     }
 }

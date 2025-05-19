@@ -18,7 +18,6 @@ use crate::{
         multilinear::MultilinearPoint,
     },
     sumcheck::sumcheck_single::SumcheckSingle,
-    utils::expand_randomness,
     whir::{
         parameters::RoundConfig,
         prover::proof::WhirProof,
@@ -346,8 +345,10 @@ where
 
         // Randomness for combination
         let [combination_randomness_gen] = prover_state.challenge_scalars()?;
-        let combination_randomness =
-            expand_randomness(combination_randomness_gen, stir_challenges.len());
+        let combination_randomness: Vec<_> = combination_randomness_gen
+            .powers()
+            .take(stir_challenges.len())
+            .collect();
 
         let mut sumcheck_prover =
             if let Some(mut sumcheck_prover) = round_state.sumcheck_prover.take() {

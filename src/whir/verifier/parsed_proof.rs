@@ -16,7 +16,6 @@ use crate::{
     },
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
-    utils::expand_randomness,
     whir::{
         committer::reader::ParsedCommitment, prover::proof::WhirProof,
         utils::get_challenge_stir_queries,
@@ -88,10 +87,10 @@ where
         let mut folding_randomness = if verifier.params.initial_statement {
             // Derive combination randomness and first sumcheck polynomial
             let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
-            initial_combination_randomness = expand_randomness(
-                combination_randomness_gen,
-                parsed_commitment.ood_points.len() + statement_points_len,
-            );
+            initial_combination_randomness = combination_randomness_gen
+                .powers()
+                .take(parsed_commitment.ood_points.len() + statement_points_len)
+                .collect();
 
             // Initial sumcheck, we read:
             // - The sumcheck polynomials produced by the prover,
@@ -204,10 +203,10 @@ where
             }
 
             let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
-            let combination_randomness = expand_randomness(
-                combination_randomness_gen,
-                stir_challenges_indexes.len() + round_params.ood_samples,
-            );
+            let combination_randomness = combination_randomness_gen
+                .powers()
+                .take(stir_challenges_indexes.len() + round_params.ood_samples)
+                .collect();
 
             // We read:
             // - The sumcheck polynomials produced by the prover,
