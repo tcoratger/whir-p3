@@ -1,4 +1,4 @@
-use std::{fmt::Debug, iter};
+use std::{fmt::Debug, iter, ops::Deref};
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
@@ -22,14 +22,18 @@ pub mod parsed_proof;
 pub mod parsed_round;
 pub mod utils;
 
+/// Wrapper around the WHIR verifier configuration.
+///
+/// This type provides a lightweight, ergonomic interface to verification methods
+/// by wrapping a reference to the `WhirConfig`.
 #[derive(Debug)]
-pub struct Verifier<'a, EF, F, H, C, PowStrategy>
+pub struct Verifier<'a, EF, F, H, C, PowStrategy>(
+    /// Reference to the verifier’s configuration containing all round parameters.
+    pub(crate) &'a WhirConfig<EF, F, H, C, PowStrategy>,
+)
 where
     F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-{
-    params: &'a WhirConfig<EF, F, H, C, PowStrategy>,
-}
+    EF: ExtensionField<F> + TwoAdicField;
 
 impl<'a, EF, F, H, C, PS> Verifier<'a, EF, F, H, C, PS>
 where
@@ -38,7 +42,7 @@ where
     PS: PowStrategy,
 {
     pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {
-        Self { params }
+        Self(params)
     }
 
     fn compute_w_poly<const DIGEST_ELEMS: usize>(
@@ -47,7 +51,7 @@ where
         statement: &StatementVerifier<EF>,
         proof: &ParsedProof<EF>,
     ) -> EF {
-        let mut num_variables = self.params.mv_parameters.num_variables;
+        let mut num_variables = self.mv_parameters.num_variables;
 
         let mut folding_randomness = MultilinearPoint(
             iter::once(&proof.final_sumcheck_randomness.0)
@@ -96,7 +100,7 @@ where
             .sum();
 
         for (round, round_proof) in proof.rounds.iter().enumerate() {
-            num_variables -= self.params.folding_factor.at_round(round);
+            num_variables -= self.folding_factor.at_round(round);
             folding_randomness = MultilinearPoint(folding_randomness.0[..num_variables].to_vec());
 
             let stir_challenges = round_proof
@@ -236,7 +240,7 @@ where
         }
 
         // Check the final sumchecks
-        if self.params.final_sumcheck_rounds > 0 {
+        if self.final_sumcheck_rounds > 0 {
             let claimed_sum = prev_sumcheck
                 .as_ref()
                 .map_or(EF::ZERO, |(p, r)| p.evaluate_at_point(&(*r).into()));
@@ -277,5 +281,17 @@ where
         }
 
         Ok(())
+    }
+}
+
+impl<EF, F, H, C, PS> Deref for Verifier<'_, EF, F, H, C, PS>
+where
+    F: Field + TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+{
+    type Target = WhirConfig<EF, F, H, C, PS>;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
     }
 }

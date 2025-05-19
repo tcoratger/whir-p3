@@ -75,8 +75,8 @@ where
         PS: PowStrategy,
     {
         let mmcs = MerkleTreeMmcs::new(
-            verifier.params.merkle_hash.clone(),
-            verifier.params.merkle_compress.clone(),
+            verifier.merkle_hash.clone(),
+            verifier.merkle_compress.clone(),
         );
 
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
@@ -84,7 +84,7 @@ where
         let mut sumcheck_rounds = Vec::new();
         let initial_combination_randomness;
 
-        let folding_randomness = if verifier.params.initial_statement {
+        let folding_randomness = if verifier.initial_statement {
             // Derive combination randomness and first sumcheck polynomial
             let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
             initial_combination_randomness = combination_randomness_gen
@@ -98,8 +98,8 @@ where
             let (initial_sumcheck_rounds, initial_sumcheck_randomness) =
                 read_sumcheck_rounds::<_, _, PS>(
                     verifier_state,
-                    verifier.params.folding_factor.at_round(0),
-                    verifier.params.starting_folding_pow_bits,
+                    verifier.folding_factor.at_round(0),
+                    verifier.starting_folding_pow_bits,
                     false,
                 )?;
             sumcheck_rounds.extend(initial_sumcheck_rounds);
@@ -111,19 +111,18 @@ where
 
             initial_combination_randomness = vec![F::ONE];
 
-            let mut folding_randomness_vec =
-                vec![F::ZERO; verifier.params.folding_factor.at_round(0)];
+            let mut folding_randomness_vec = vec![F::ZERO; verifier.folding_factor.at_round(0)];
             verifier_state.fill_challenge_scalars(&mut folding_randomness_vec)?;
 
             // PoW
-            if verifier.params.starting_folding_pow_bits > 0. {
-                verifier_state.challenge_pow::<PS>(verifier.params.starting_folding_pow_bits)?;
+            if verifier.starting_folding_pow_bits > 0. {
+                verifier_state.challenge_pow::<PS>(verifier.starting_folding_pow_bits)?;
             }
 
             MultilinearPoint(folding_randomness_vec)
         };
 
-        let domain = &verifier.params.starting_domain.backing_domain;
+        let domain = &verifier.starting_domain.backing_domain;
         let mut round_state = VerifierRoundState {
             prev_root: parsed_commitment.root,
             folding_randomness,
@@ -131,28 +130,25 @@ where
             domain_gen_inv: domain.group_gen_inv(),
             exp_domain_gen: domain
                 .group_gen()
-                .exp_u64(1 << verifier.params.folding_factor.at_round(0)),
-            domain_size: verifier.params.starting_domain.size(),
+                .exp_u64(1 << verifier.folding_factor.at_round(0)),
+            domain_size: verifier.starting_domain.size(),
             mmcs: mmcs.clone(),
             extension_mmcs: extension_mmcs.clone(),
         };
 
-        let rounds: Vec<_> = (0..verifier.params.n_rounds())
+        let rounds: Vec<_> = (0..verifier.n_rounds())
             .map(|r| round_state.build_parsed_round(verifier, verifier_state, whir_proof, r))
             .collect::<ProofResult<_>>()?;
 
-        let mut final_coefficients = vec![F::ZERO; 1 << verifier.params.final_sumcheck_rounds];
+        let mut final_coefficients = vec![F::ZERO; 1 << verifier.final_sumcheck_rounds];
         verifier_state.fill_next_scalars(&mut final_coefficients)?;
         let final_coefficients = CoefficientList::new(final_coefficients);
 
-        let fold_last = verifier
-            .params
-            .folding_factor
-            .at_round(verifier.params.n_rounds());
+        let fold_last = verifier.folding_factor.at_round(verifier.n_rounds());
         let final_randomness_indexes = get_challenge_stir_queries(
             round_state.domain_size,
             fold_last,
-            verifier.params.final_queries,
+            verifier.final_queries,
             verifier_state,
         )?;
         let mut final_randomness_points = Vec::with_capacity(final_randomness_indexes.len());
@@ -206,8 +202,8 @@ where
             final_randomness_answers.clone()
         };
 
-        if verifier.params.final_pow_bits > 0. {
-            verifier_state.challenge_pow::<PS>(verifier.params.final_pow_bits)?;
+        if verifier.final_pow_bits > 0. {
+            verifier_state.challenge_pow::<PS>(verifier.final_pow_bits)?;
         }
 
         // Read the final sumcheck rounds:
@@ -215,8 +211,8 @@ where
         // - The folding randomness used in each corresponding round
         let (final_sumcheck_rounds, final_sumcheck_randomness) = read_sumcheck_rounds::<_, _, PS>(
             verifier_state,
-            verifier.params.final_sumcheck_rounds,
-            verifier.params.final_folding_pow_bits,
+            verifier.final_sumcheck_rounds,
+            verifier.final_folding_pow_bits,
             false,
         )?;
 

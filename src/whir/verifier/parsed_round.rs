@@ -98,8 +98,8 @@ where
         whir_proof: &WhirProof<SF, F, DIGEST_ELEMS>,
         r: usize,
     ) -> ProofResult<ParsedRound<F>> {
-        let round_params = &verifier.params.round_parameters[r];
-        let fold_r = verifier.params.folding_factor.at_round(r);
+        let round_params = &verifier.round_parameters[r];
+        let fold_r = verifier.folding_factor.at_round(r);
 
         let new_root = verifier_state.read_digest()?;
 
@@ -176,7 +176,7 @@ where
         // - The folding randomness used in each corresponding round
         let (sumcheck_rounds, new_folding_randomness) = read_sumcheck_rounds::<_, _, PS>(
             verifier_state,
-            verifier.params.folding_factor.at_round(r + 1),
+            verifier.folding_factor.at_round(r + 1),
             round_params.folding_pow_bits,
             false,
         )?;
@@ -198,7 +198,7 @@ where
         self.domain_gen = self.domain_gen.square();
         self.exp_domain_gen = self
             .domain_gen
-            .exp_u64(1 << verifier.params.folding_factor.at_round(r + 1));
+            .exp_u64(1 << verifier.folding_factor.at_round(r + 1));
         self.domain_gen_inv = self.domain_gen_inv.square();
         self.domain_size /= 2;
 
