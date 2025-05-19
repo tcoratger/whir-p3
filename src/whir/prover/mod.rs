@@ -260,10 +260,13 @@ where
 
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
-        let expansion = new_domain.size() / folded_evaluations.num_evals();
         let folded_matrix = info_span!("fold matrix").in_scope(|| {
-            let mut coeffs = folded_coefficients.coeffs().to_vec();
-            coeffs.resize(coeffs.len() * expansion, EF::ZERO);
+            let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
+                let mut coeffs = EF::zero_vec(new_domain.size());
+                coeffs[..folded_evaluations.num_evals()]
+                    .copy_from_slice(folded_coefficients.coeffs());
+                coeffs
+            });
             // Do DFT on only interleaved polys to be folded.
             dft.dft_algebra_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor_next))
         });
