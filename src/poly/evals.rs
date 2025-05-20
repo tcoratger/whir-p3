@@ -1,16 +1,14 @@
 use std::ops::Deref;
 
 use p3_field::{ExtensionField, Field};
-use p3_matrix::dense::RowMajorMatrix;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use tracing::instrument;
 
 use super::{
     coeffs::CoefficientList, lagrange_iterator::LagrangePolynomialIterator,
-    multilinear::MultilinearPoint,
+    multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel,
 };
-use crate::poly::wavelet::inverse_wavelet_transform;
 
 /// A wrapper enum that holds evaluation data for a multilinear polynomial,
 /// either over the base field `F` or an extension field `EF`.
@@ -221,6 +219,18 @@ where
             num_variables: self.num_variables() - folding_factor,
         }
     }
+
+    /// Convert from a list of evaluations to a list of
+    /// multilinear coefficients.
+    #[must_use]
+    pub fn to_coefficients<B: Field>(self) -> CoefficientList<F>
+    where
+        F: ExtensionField<B>,
+    {
+        let kernel = Radix2WaveletKernel::<B>::default();
+        let evals = kernel.inverse_wavelet_transform_algebra(self.evals);
+        CoefficientList::new(evals)
+    }
 }
 
 impl<F> Deref for EvaluationsList<F> {
@@ -292,17 +302,6 @@ where
             };
             f0 + (f1 - f0) * *x
         }
-    }
-}
-
-impl<F> From<EvaluationsList<F>> for CoefficientList<F>
-where
-    F: Field,
-{
-    fn from(value: EvaluationsList<F>) -> Self {
-        let mut evals = RowMajorMatrix::new_col(value.evals);
-        inverse_wavelet_transform(&mut evals.as_view_mut());
-        Self::new(evals.values)
     }
 }
 
@@ -687,7 +686,7 @@ mod tests {
         let coeffs = CoefficientList::new(vec![c0, c1, c2, c3]);
 
         // Convert coefficients to evaluations via the wavelet transform
-        let evals = EvaluationsList::from(coeffs);
+        let evals = coeffs.to_evaluations();
 
         // Choose evaluation point:
         //
@@ -739,7 +738,7 @@ mod tests {
         let c7 = F::from_u64(8);
 
         let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
-        let evals = EvaluationsList::from(coeffs);
+        let evals = coeffs.to_evaluations();
 
         // Pick point: (x₀,x₁,x₂) = (2, 3, 4)
         let x0 = F::from_u64(2);
@@ -799,7 +798,7 @@ mod tests {
         let c7 = F::from_u64(8);
 
         let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
-        let evals = EvaluationsList::from(coeffs);
+        let evals = coeffs.to_evaluations();
 
         // Choose evaluation point: (x₀, x₁, x₂) = (2, 3, 4)
         //
@@ -852,7 +851,7 @@ mod tests {
         let coeffs_list = CoefficientList::new(coeffs);
 
         // Convert to EvaluationsList using a wavelet transform
-        let evals_list: EvaluationsList<F> = coeffs_list.clone().into();
+        let evals_list: EvaluationsList<F> = coeffs_list.clone().to_evaluations();
 
         // Define a fixed evaluation point in F^n: [0, 35, 70, ..., 35*(n-1)]
         let randomness: Vec<_> = (0..num_variables)
@@ -914,7 +913,7 @@ mod tests {
         let poly = CoefficientList::new(coeffs);
 
         // Convert coefficients into an EvaluationsList (for testing the fold on evals)
-        let evals_list: EvaluationsList<F> = poly.clone().into();
+        let evals_list: EvaluationsList<F> = poly.clone().to_evaluations();
 
         // We fold over the last variable (X₁) by setting X₁ = 5 in EF4
         let r1 = EF4::from_u64(5);

@@ -234,7 +234,7 @@ where
         //
         // TODO: This is a bit wasteful since we already have the same information
         // in the evaluation domain. For now, we keep it for the DFT but it is to be removed.
-        let folded_coefficients = folded_evaluations.clone().into();
+        let folded_coefficients = folded_evaluations.clone().to_coefficients::<F>();
 
         let num_variables =
             self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);

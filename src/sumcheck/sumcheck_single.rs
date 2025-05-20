@@ -70,7 +70,7 @@ where
     ) -> Self {
         let (weights, sum) = statement.combine(combination_randomness);
         Self {
-            evaluation_of_p: EvaluationStorage::Base(coeffs.into()),
+            evaluation_of_p: EvaluationStorage::Base(coeffs.to_evaluations()),
             weights,
             sum,
             phantom: std::marker::PhantomData,
@@ -115,7 +115,7 @@ where
     ) -> Self {
         let (weights, sum) = statement.combine(combination_randomness);
         Self {
-            evaluation_of_p: EvaluationStorage::Extension(coeffs.into()),
+            evaluation_of_p: EvaluationStorage::Extension(coeffs.to_evaluations::<F>()),
             weights,
             sum,
             phantom: std::marker::PhantomData,
