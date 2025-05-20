@@ -1,13 +1,12 @@
 use p3_field::{ExtensionField, Field};
-use p3_matrix::dense::RowMajorMatrix;
 #[cfg(feature = "parallel")]
 use {
     rayon::{join, prelude::*},
     std::mem::size_of,
 };
 
-use super::{dense::WhirDensePolynomial, evals::EvaluationsList};
-use crate::poly::{multilinear::MultilinearPoint, wavelet::wavelet_transform};
+use super::{dense::WhirDensePolynomial, evals::EvaluationsList, wavelet::Radix2WaveletKernel};
+use crate::poly::multilinear::MultilinearPoint;
 
 /// A wrapper enum that holds coefficient data for a multilinear polynomial,
 /// either over the base field `F` or an extension field `EF`.
@@ -275,16 +274,17 @@ impl<F> CoefficientList<F> {
     pub fn num_coeffs(&self) -> usize {
         self.coeffs.len()
     }
-}
 
-impl<F> From<CoefficientList<F>> for EvaluationsList<F>
-where
-    F: Field,
-{
-    fn from(value: CoefficientList<F>) -> Self {
-        let mut evals = RowMajorMatrix::new_col(value.coeffs);
-        wavelet_transform(&mut evals.as_view_mut());
-        Self::new(evals.values)
+    /// Convert from a list of multilinear coefficients to a list of
+    /// evaluations over the hypercube.
+    #[must_use]
+    pub fn to_evaluations<B: Field>(self) -> EvaluationsList<F>
+    where
+        F: ExtensionField<B>,
+    {
+        let kernel = Radix2WaveletKernel::<B>::default();
+        let evals = kernel.wavelet_transform_algebra(self.coeffs);
+        EvaluationsList::new(evals)
     }
 }
 
@@ -433,7 +433,7 @@ mod tests {
         let coeffs = vec![coeff0, coeff1, coeff2, coeff3];
         let coeff_list = CoefficientList::new(coeffs);
 
-        let evaluations = EvaluationsList::from(coeff_list);
+        let evaluations = coeff_list.to_evaluations();
 
         // Expected results after wavelet transform (manually derived)
         assert_eq!(evaluations[0], coeff0);
@@ -936,7 +936,7 @@ mod tests {
         let coeff_list = CoefficientList::new(coeffs);
 
         // Convert to evaluations list via wavelet transform
-        let eval_list = EvaluationsList::from(coeff_list);
+        let eval_list = coeff_list.to_evaluations();
 
         // Manually compute expected evaluations.
         //
@@ -1016,11 +1016,9 @@ mod tests {
             // Wrap input as an EvaluationsList
             let evals = EvaluationsList::new(input);
 
-            // Apply inverse wavelet transform to get coefficients
-            let coeffs = CoefficientList::from(evals.clone());
-
-            // Apply forward wavelet transform to get evaluations back
-            let roundtrip = EvaluationsList::from(coeffs);
+            // Apply inverse wavelet transform to get coefficients followed
+            // by forward wavelet transform to get evaluations back.
+            let roundtrip = evals.clone().to_coefficients().to_evaluations();
 
             // Final assertion: roundtrip must be exact
             prop_assert_eq!(roundtrip.evals(), evals.evals());
@@ -1043,13 +1041,11 @@ mod tests {
         ];
         let original = EvaluationsList::new(evals);
 
-        // Convert evaluations → coefficients via wavelet inverse
-        let coeffs = CoefficientList::from(original.clone());
-
-        // Convert back: coefficients → evaluations via wavelet
-        let recovered = EvaluationsList::from(coeffs);
+        // Apply inverse wavelet transform to get coefficients followed
+        // by forward wavelet transform to get evaluations back.
+        let roundtrip = original.clone().to_coefficients().to_evaluations();
 
         // The recovered evaluations must exactly match the original
-        assert_eq!(recovered.evals(), original.evals());
+        assert_eq!(roundtrip.evals(), original.evals());
     }
 }

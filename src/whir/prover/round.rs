@@ -129,7 +129,7 @@ where
 
         statement.add_constraints_in_front(new_constraints);
 
-        let evals_p: EvaluationsList<F> = witness.polynomial.clone().into();
+        let evals_p: EvaluationsList<F> = witness.polynomial.clone().to_evaluations();
 
         let mut sumcheck_prover = None;
         let folding_randomness = if prover.initial_statement {
@@ -538,7 +538,10 @@ mod tests {
         );
 
         // Coefficients should match the original zero polynomial
-        assert_eq!(state.evaluations, EvaluationStorage::Base(poly.into()));
+        assert_eq!(
+            state.evaluations,
+            EvaluationStorage::Base(poly.to_evaluations())
+        );
 
         // Domain must match the WHIR config's expected size
         assert_eq!(
@@ -645,7 +648,10 @@ mod tests {
         }
 
         // Evaluation storage must match original polynomial
-        assert_eq!(state.evaluations, EvaluationStorage::Base(poly.into()));
+        assert_eq!(
+            state.evaluations,
+            EvaluationStorage::Base(poly.to_evaluations())
+        );
 
         // Domain should match expected size and rate
         assert_eq!(
