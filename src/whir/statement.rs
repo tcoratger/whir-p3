@@ -146,6 +146,53 @@ impl<F: Field> Weights<F> {
             }
         }
     }
+
+    /// Evaluates the weight function at a given folding point.
+    ///
+    /// - In evaluation mode, computes the equality polynomial at the provided point:
+    ///
+    /// \begin{equation}
+    /// w(X) = eq_{\text{point}}(X)
+    /// \end{equation}
+    ///
+    /// This enforces that the polynomial is evaluated exactly at a specific input.
+    ///
+    /// - In linear mode, interprets the stored weight function as a multilinear polynomial
+    ///   and evaluates it at the provided point using multilinear extension.
+    ///
+    /// **Precondition:**
+    /// The input point must have the same number of variables as the weight function.
+    ///
+    /// **Returns:**
+    /// A field element representing the weight function applied to the given point.
+    #[must_use]
+    pub fn compute(&self, folding_randomness: &MultilinearPoint<F>) -> F {
+        match self {
+            Self::Evaluation { point } => point.eq_poly_outside(folding_randomness),
+            Self::Linear { weight } => weight.eval_extension(folding_randomness),
+        }
+    }
+}
+
+/// Represents a single constraint in a polynomial statement.
+#[derive(Clone, Debug)]
+pub struct Constraint<F> {
+    /// The weight function applied to the polynomial.
+    ///
+    /// This defines how the polynomial is combined or evaluated.
+    /// It can represent either a point evaluation or a full set of weights.
+    pub weights: Weights<F>,
+
+    /// The expected result of applying the weight to the polynomial.
+    ///
+    /// This is the scalar value that the weighted sum must match.
+    pub sum: F,
+
+    /// If true, the verifier will not evaluate the weight directly.
+    ///
+    /// Instead, the prover must supply the result as a hint.
+    /// This is used for deferred or externally computed evaluations.
+    pub defer_evaluation: bool,
 }
 
 /// Represents a system of weighted polynomial constraints.
@@ -172,7 +219,7 @@ pub struct Statement<F> {
     /// Constraints represented as pairs `(w(X), s)`, where
     /// - `w(X)` is a weighted polynomial function
     /// - `s` is the expected sum.
-    pub constraints: Vec<(Weights<F>, F)>,
+    pub constraints: Vec<Constraint<F>>,
 }
 
 impl<F: Field> Statement<F> {
@@ -197,13 +244,24 @@ impl<F: Field> Statement<F> {
     /// The number of variables in `w(X)` must match `self.num_variables`.
     pub fn add_constraint(&mut self, weights: Weights<F>, sum: F) {
         assert_eq!(weights.num_variables(), self.num_variables());
-        self.constraints.push((weights, sum));
+        self.constraints.push(Constraint {
+            weights,
+            sum,
+            defer_evaluation: false,
+        });
     }
 
     /// Inserts a constraint `(w(X), s)` at the front of the system.
     pub fn add_constraint_in_front(&mut self, weights: Weights<F>, sum: F) {
         assert_eq!(weights.num_variables(), self.num_variables());
-        self.constraints.insert(0, (weights, sum));
+        self.constraints.insert(
+            0,
+            Constraint {
+                weights,
+                sum,
+                defer_evaluation: false,
+            },
+        );
     }
 
     /// Inserts multiple constraints at the front of the system.
@@ -211,7 +269,14 @@ impl<F: Field> Statement<F> {
         for (weights, _) in &constraints {
             assert_eq!(weights.num_variables(), self.num_variables());
         }
-        self.constraints.splice(0..0, constraints);
+        self.constraints.splice(
+            0..0,
+            constraints.into_iter().map(|(weights, sum)| Constraint {
+                weights,
+                sum,
+                defer_evaluation: false,
+            }),
+        );
     }
 
     /// Combines all constraints into a single aggregated polynomial using a challenge.
@@ -235,15 +300,16 @@ impl<F: Field> Statement<F> {
     pub fn combine(&self, challenge: F) -> (EvaluationsList<F>, F) {
         let evaluations_vec = vec![F::ZERO; 1 << self.num_variables];
         let mut combined_evals = EvaluationsList::new(evaluations_vec);
-        let mut combined_sum = F::ZERO;
-
-        let mut challenge_power = F::ONE;
-
-        for (weights, sum) in &self.constraints {
-            weights.accumulate(&mut combined_evals, challenge_power);
-            combined_sum += *sum * challenge_power;
-            challenge_power *= challenge;
-        }
+        let (combined_sum, _) = self.constraints.iter().fold(
+            (F::ZERO, F::ONE),
+            |(mut acc_sum, gamma_pow), constraint| {
+                constraint
+                    .weights
+                    .accumulate(&mut combined_evals, gamma_pow);
+                acc_sum += constraint.sum * gamma_pow;
+                (acc_sum, gamma_pow * challenge)
+            },
+        );
 
         (combined_evals, combined_sum)
     }
@@ -395,15 +461,15 @@ impl<F: Field> StatementVerifier<F> {
     /// This is used during the verification phase to simplify constraint handling.
     pub fn from_statement(statement: &Statement<F>) -> Self {
         let mut verifier = Self::new(statement.num_variables());
-        for (weights, sum) in &statement.constraints {
-            match weights {
+        for constraint in &statement.constraints {
+            match &constraint.weights {
                 Weights::Linear { weight, .. } => {
                     let weights = VerifierWeights::linear(weight.num_variables(), None);
-                    verifier.add_constraint(weights, *sum);
+                    verifier.add_constraint(weights, constraint.sum);
                 }
                 Weights::Evaluation { point } => {
                     let weights = VerifierWeights::evaluation(point.clone());
-                    verifier.add_constraint(weights, *sum);
+                    verifier.add_constraint(weights, constraint.sum);
                 }
             }
         }
@@ -418,6 +484,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+    use crate::poly::coeffs::CoefficientList;
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
@@ -658,7 +725,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_evaluation_weight() {
+    fn test_compute_evaluation_weight_verifier() {
         // Define an evaluation weight at a specific point
         let point = MultilinearPoint(vec![F::from_u64(3)]);
         let weight = VerifierWeights::evaluation(point.clone());
@@ -673,7 +740,22 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_linear_weight_with_term() {
+    fn test_compute_evaluation_weight() {
+        // Define an evaluation weight at a specific point
+        let point = MultilinearPoint(vec![F::from_u64(3)]);
+        let weight = Weights::evaluation(point.clone());
+
+        // Define a randomness point for folding
+        let folding_randomness = MultilinearPoint(vec![F::from_u64(2)]);
+
+        // Expected result is the evaluation of eq_poly_outside at the given randomness
+        let expected = point.eq_poly_outside(&folding_randomness);
+
+        assert_eq!(weight.compute(&folding_randomness), expected);
+    }
+
+    #[test]
+    fn test_compute_linear_weight_with_term_verifier() {
         // Define a linear weight with a precomputed term
         let term = F::from_u64(7);
         let weight = VerifierWeights::linear(2, Some(term));
@@ -683,6 +765,50 @@ mod tests {
 
         // Expected result is the stored term
         assert_eq!(weight.compute(&folding_randomness), term);
+    }
+
+    #[test]
+    fn test_compute_linear_weight_with_term() {
+        // Define a multilinear polynomial in 3 variables:
+        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
+        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
+        let c1 = F::from_u64(1);
+        let c2 = F::from_u64(2);
+        let c3 = F::from_u64(3);
+        let c4 = F::from_u64(4);
+        let c5 = F::from_u64(5);
+        let c6 = F::from_u64(6);
+        let c7 = F::from_u64(7);
+        let c8 = F::from_u64(8);
+
+        // Convert the polynomial into coefficient form
+        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+
+        let f = |x0: F, x1: F, x2: F| {
+            c1 + c2 * x2
+                + c3 * x1
+                + c4 * x1 * x2
+                + c5 * x0
+                + c6 * x0 * x2
+                + c7 * x0 * x1
+                + c8 * x0 * x1 * x2
+        };
+
+        // List of evaluations
+        let evaluations = coeffs.to_evaluations();
+
+        // Define a linear weight with a precomputed term
+        let weight = Weights::linear(evaluations);
+
+        // Folding randomness should have no effect in linear mode
+        let folding_randomness =
+            MultilinearPoint(vec![F::from_u64(3), F::from_u64(46), F::from_u64(56)]);
+
+        // Expected result is the proper evaluation of the polynomial
+        assert_eq!(
+            weight.compute(&folding_randomness),
+            f(F::from_u64(3), F::from_u64(46), F::from_u64(56))
+        );
     }
 
     #[test]
