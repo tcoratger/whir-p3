@@ -172,40 +172,23 @@ where
         // consecutive calls are merged into one
         match stack.pop_front() {
             None => Ok(stack),
-            Some(x) => Self::simplify_stack(VecDeque::from([x]), stack),
+            Some(x) => Ok(Self::simplify_stack(VecDeque::from([x]), stack)),
         }
     }
 
-    fn simplify_stack(
-        mut dst: VecDeque<Op>,
-        mut stack: VecDeque<Op>,
-    ) -> Result<VecDeque<Op>, DomainSeparatorMismatch> {
-        if stack.is_empty() {
-            Ok(dst)
-        } else {
-            // guaranteed never to fail, since:
-            assert!(!dst.is_empty() && !stack.is_empty());
-            let previous = dst.pop_back().unwrap();
-            let next = stack.pop_front().unwrap();
-
-            match (previous, next) {
-                (Op::Squeeze(a), Op::Squeeze(b)) => {
-                    dst.push_back(Op::Squeeze(a + b));
-                    Self::simplify_stack(dst, stack)
+    fn simplify_stack(mut dst: VecDeque<Op>, mut stack: VecDeque<Op>) -> VecDeque<Op> {
+        while let Some(next) = stack.pop_front() {
+            match (dst.pop_back(), next) {
+                (Some(Op::Squeeze(a)), Op::Squeeze(b)) => dst.push_back(Op::Squeeze(a + b)),
+                (Some(Op::Absorb(a)), Op::Absorb(b)) => dst.push_back(Op::Absorb(a + b)),
+                (Some(prev), next) => {
+                    dst.push_back(prev);
+                    dst.push_back(next);
                 }
-                (Op::Absorb(a), Op::Absorb(b)) => {
-                    dst.push_back(Op::Absorb(a + b));
-                    Self::simplify_stack(dst, stack)
-                }
-                // (Op::Divide, Op::Divide)
-                // is useless but unharmful
-                (a, b) => {
-                    dst.push_back(a);
-                    dst.push_back(b);
-                    Self::simplify_stack(dst, stack)
-                }
+                (None, next) => dst.push_back(next),
             }
         }
+        dst
     }
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
@@ -364,6 +347,11 @@ pub(crate) enum Op {
     ///
     /// In a tag, absorb is indicated with 'A'.
     Absorb(usize),
+    /// Indicates processing of out-of-band message
+    /// from prover to verifier.
+    ///
+    /// This is useful for e.g. adding merkle proofs to the proof.
+    Hint,
     /// Indicates squeezing of `usize` lanes.
     ///
     /// In a tag, squeeze is indicated with 'S'.
@@ -375,6 +363,7 @@ impl Op {
     fn new(id: char, count: Option<usize>) -> Result<Self, DomainSeparatorMismatch> {
         match (id, count) {
             ('A', Some(c)) if c > 0 => Ok(Self::Absorb(c)),
+            ('H', None | Some(0)) => Ok(Self::Hint),
             ('S', Some(c)) if c > 0 => Ok(Self::Squeeze(c)),
             _ => Err("Invalid tag".into()),
         }
@@ -395,6 +384,7 @@ mod tests {
     #[test]
     fn test_op_new_invalid_cases() {
         assert!(Op::new('A', Some(0)).is_err()); // absorb with zero
+        assert!(Op::new('H', Some(1)).is_err()); // hint with size
         assert!(Op::new('S', Some(0)).is_err()); // squeeze with zero
         assert!(Op::new('X', Some(1)).is_err()); // invalid op char
     }
@@ -603,7 +593,7 @@ mod tests {
 
     #[test]
     fn test_finalize_complex_merge_boundaries() {
-        let tag = "demo\0A1a\0A1b\0S2c\0S2d\0A3e\0S1f";
+        let tag = "demo\0A1a\0A1b\0S2c\0S2d\0A3e\0S1f\0Hd";
         let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(
@@ -613,6 +603,7 @@ mod tests {
                 Op::Squeeze(4), // S2c + S2d
                 Op::Absorb(3),  // A3e
                 Op::Squeeze(1), // S1f
+                Op::Hint,       // Hd
             ]
         );
     }
