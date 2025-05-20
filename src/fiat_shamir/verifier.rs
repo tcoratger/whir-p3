@@ -82,7 +82,7 @@ where
         }
     }
 
-    /// Read `input.len()` elements from the NARG string.
+    /// Read `input.len()` bytes from the NARG transcript and absorb them.
     #[inline]
     pub fn fill_next_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
         u8::read(&mut self.narg_string, input)?;
@@ -90,18 +90,20 @@ where
         Ok(())
     }
 
+    /// Read a fixed-size byte array from the transcript.
     pub fn next_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
         let mut input = [0u8; N];
         self.fill_next_bytes(&mut input)?;
         Ok(input)
     }
 
-    /// Add native elements to the sponge without writing them to the NARG string.
+    /// Absorb raw public data (not read from the transcript) into the sponge.
     #[inline]
     pub fn public_units(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.absorb(input)
     }
 
+    /// Deserialize a list of extension scalars from the transcript and absorb them.
     pub fn fill_next_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // Size of one base field element in bytes
         let base_bytes = bytes_modp(F::bits() as u32);
@@ -129,12 +131,14 @@ where
         Ok(())
     }
 
+    /// Read `N` extension scalars from the transcript.
     pub fn next_scalars<const N: usize>(&mut self) -> ProofResult<[EF; N]> {
         let mut output = [EF::default(); N];
         self.fill_next_scalars(&mut output)?;
         Ok(output)
     }
 
+    /// Perform a PoW challenge check using a derived challenge and 64-bit nonce.
     pub fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
         let challenge = self.challenge_bytes()?;
         let nonce = u64::from_be_bytes(self.next_bytes()?);
@@ -145,6 +149,7 @@ where
         }
     }
 
+    /// Read a digest from the transcript as raw bytes.
     pub fn read_digest<const DIGEST_ELEMS: usize>(
         &mut self,
     ) -> ProofResult<Hash<F, u8, DIGEST_ELEMS>> {
@@ -153,17 +158,20 @@ where
         Ok(digest.into())
     }
 
+    /// Derive a fixed-size byte array from the sponge as a Fiat-Shamir challenge.
     pub fn challenge_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
         let mut output = [0u8; N];
         self.fill_challenge_bytes(&mut output)?;
         Ok(output)
     }
 
+    /// Absorb external public bytes into the sponge.
     #[inline]
     pub fn public_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
         self.public_units(input)
     }
 
+    /// Sample extension scalars uniformly at random using Fiat-Shamir challenge output.
     pub fn fill_challenge_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // How many bytes are needed to sample a single base field element
         let base_field_size = bytes_uniform_modp(F::bits() as u32);
@@ -189,12 +197,14 @@ where
         Ok(())
     }
 
+    /// Sample `N` extension scalars using Fiat-Shamir challenge randomness.
     pub fn challenge_scalars<const N: usize>(&mut self) -> ProofResult<[EF; N]> {
         let mut output = [EF::default(); N];
         self.fill_challenge_scalars(&mut output)?;
         Ok(output)
     }
 
+    /// Serialize and absorb public scalar values into the sponge, returning their byte encoding.
     pub fn public_scalars(&mut self, input: &[EF]) -> ProofResult<Vec<u8>> {
         // Initialize a buffer to store the final serialized byte output
         let mut buf = Vec::new();
