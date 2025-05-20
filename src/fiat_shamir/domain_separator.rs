@@ -368,13 +368,6 @@ pub(crate) enum Op {
     ///
     /// In a tag, squeeze is indicated with 'S'.
     Squeeze(usize),
-    /// Indicates a ratchet operation.
-    ///
-    /// For sponge functions, we squeeze sizeof(capacity) lanes
-    /// and initialize a new state filling the capacity.
-    /// This allows for a more efficient preprocessing, and for removal of
-    /// private information stored in the rate.
-    Ratchet,
 }
 
 impl Op {
@@ -382,7 +375,6 @@ impl Op {
     fn new(id: char, count: Option<usize>) -> Result<Self, DomainSeparatorMismatch> {
         match (id, count) {
             ('A', Some(c)) if c > 0 => Ok(Self::Absorb(c)),
-            ('R', None | Some(0)) => Ok(Self::Ratchet),
             ('S', Some(c)) if c > 0 => Ok(Self::Squeeze(c)),
             _ => Err("Invalid tag".into()),
         }
@@ -405,9 +397,6 @@ mod tests {
         assert!(Op::new('A', Some(0)).is_err()); // absorb with zero
         assert!(Op::new('S', Some(0)).is_err()); // squeeze with zero
         assert!(Op::new('X', Some(1)).is_err()); // invalid op char
-        assert!(Op::new('R', Some(5)).is_err()); // R doesn't support > 0
-        assert!(Op::new('R', Some(0)).is_ok()); // ratchet with 0
-        assert!(Op::new('R', None).is_ok()); // ratchet with None
     }
 
     #[test]
@@ -471,13 +460,10 @@ mod tests {
 
     #[test]
     fn test_parse_domsep_multiple_ops() {
-        let tag = "main\0A1x\0A2y\0S3z\0R\0S2w";
+        let tag = "main\0A1x\0A2y\0S3z\0S2w";
         let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops = ds.finalize();
-        assert_eq!(
-            ops,
-            vec![Op::Absorb(3), Op::Squeeze(3), Op::Ratchet, Op::Squeeze(2)]
-        );
+        assert_eq!(ops, vec![Op::Absorb(3), Op::Squeeze(5)]);
     }
 
     #[test]
@@ -583,7 +569,7 @@ mod tests {
 
     #[test]
     fn test_finalize_mixed_ops_order_preserved() {
-        let tag = "zkp\0A1a\0S1b\0A2c\0S3d\0R\0A4e\0S1f";
+        let tag = "zkp\0A1a\0S1b\0A2c\0S3d\0A4e\0S1f";
         let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(
@@ -593,7 +579,6 @@ mod tests {
                 Op::Squeeze(1),
                 Op::Absorb(2),
                 Op::Squeeze(3),
-                Op::Ratchet,
                 Op::Absorb(4),
                 Op::Squeeze(1),
             ]
@@ -610,21 +595,10 @@ mod tests {
 
     #[test]
     fn test_finalize_merge_and_breaks() {
-        let tag = "example\0A2x\0A1y\0R\0A3z\0S4u\0S1v";
+        let tag = "example\0A2x\0A1y\0A3z\0S4u\0S1v";
         let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
         let ops = ds.finalize();
-        assert_eq!(
-            ops,
-            vec![Op::Absorb(3), Op::Ratchet, Op::Absorb(3), Op::Squeeze(5),]
-        );
-    }
-
-    #[test]
-    fn test_finalize_only_ratchets() {
-        let tag = "onlyratchets\0R\0R\0R";
-        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Ratchet, Op::Ratchet, Op::Ratchet]);
+        assert_eq!(ops, vec![Op::Absorb(6), Op::Squeeze(5),]);
     }
 
     #[test]
