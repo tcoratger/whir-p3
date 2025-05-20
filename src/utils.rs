@@ -11,8 +11,6 @@ use p3_field::Field;
 ///
 /// where `z_i` are the constraint points.
 pub(crate) fn eval_eq<F: Field>(eval: &[F], out: &mut [F], scalar: F) {
-    const PARALLEL_THRESHOLD: usize = 10;
-
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
     debug_assert_eq!(out.len(), 1 << eval.len());
