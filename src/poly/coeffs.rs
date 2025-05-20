@@ -1,4 +1,5 @@
 use p3_field::{ExtensionField, Field};
+use tracing::instrument;
 #[cfg(feature = "parallel")]
 use {
     rayon::{join, prelude::*},
@@ -160,6 +161,7 @@ where
     /// which the polynomial `self` is defined.
     ///
     /// Note that we only support the case where F is a prime field.
+    #[instrument(skip_all)]
     pub fn evaluate_at_extension<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables, point.num_variables());
         eval_extension(&self.coeffs, &point.0, EF::ONE)

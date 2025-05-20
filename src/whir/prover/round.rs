@@ -1,5 +1,6 @@
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use tracing::{info_span, instrument};
 
 use super::{Leafs, Proof, Prover};
 use crate::{
@@ -102,6 +103,7 @@ where
     ///
     /// This function should be called once at the beginning of the proof, before entering the
     /// main WHIR folding loop.
+    #[instrument(skip_all)]
     pub(crate) fn initialize_first_round_state<H, C, PS, D>(
         prover: &Prover<'_, EF, F, H, C, PS>,
         prover_state: &mut ProverState<EF, F>,
@@ -167,9 +169,12 @@ where
             }
             MultilinearPoint(folding_randomness)
         };
-        let mut randomness_vec = Vec::with_capacity(prover.mv_parameters.num_variables);
-        randomness_vec.extend(folding_randomness.0.iter().rev().copied());
-        randomness_vec.resize(prover.mv_parameters.num_variables, EF::ZERO);
+        let randomness_vec = info_span!("copy_across_random_vec").in_scope(|| {
+            let mut randomness_vec = Vec::with_capacity(prover.mv_parameters.num_variables);
+            randomness_vec.extend(folding_randomness.0.iter().rev().copied());
+            randomness_vec.resize(prover.mv_parameters.num_variables, EF::ZERO);
+            randomness_vec
+        });
 
         Ok(Self {
             domain: prover.starting_domain.clone(),

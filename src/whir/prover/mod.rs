@@ -8,6 +8,7 @@ use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use round::RoundState;
 use serde::{Deserialize, Serialize};
+use tracing::{info_span, instrument};
 
 use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
@@ -136,6 +137,7 @@ where
     ///
     /// # Errors
     /// Returns an error if the witness or statement are invalid, or if a round fails.
+    #[instrument(skip_all)]
     pub fn prove<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
@@ -198,6 +200,7 @@ where
         })
     }
 
+    #[instrument(skip_all, fields(round_number = round_index, log_size = round_state.evaluations.num_variables()))]
     #[allow(clippy::too_many_lines)]
     fn round<D, const DIGEST_ELEMS: usize>(
         &self,
@@ -257,17 +260,21 @@ where
 
         // Compute polynomial evaluations and build Merkle tree
         let new_domain = round_state.domain.scale(2);
-        let expansion = new_domain.size() / folded_evaluations.num_evals();
-        let folded_matrix = {
-            let mut coeffs = folded_coefficients.coeffs().to_vec();
-            coeffs.resize(coeffs.len() * expansion, EF::ZERO);
+        let folded_matrix = info_span!("fold matrix").in_scope(|| {
+            let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
+                let mut coeffs = EF::zero_vec(new_domain.size());
+                coeffs[..folded_evaluations.num_evals()]
+                    .copy_from_slice(folded_coefficients.coeffs());
+                coeffs
+            });
             // Do DFT on only interleaved polys to be folded.
             dft.dft_algebra_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor_next))
-        };
+        });
 
         let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
-        let (root, prover_data) = extension_mmcs.commit_matrix(folded_matrix);
+        let (root, prover_data) =
+            info_span!("commit matrix").in_scope(|| extension_mmcs.commit_matrix(folded_matrix));
 
         // Observe Merkle root in challenger
         prover_state.add_digest(root)?;
@@ -343,7 +350,8 @@ where
 
         // PoW
         if round_params.pow_bits > 0. {
-            prover_state.challenge_pow::<PS>(round_params.pow_bits)?;
+            info_span!("pow", bits = round_params.pow_bits)
+                .in_scope(|| prover_state.challenge_pow::<PS>(round_params.pow_bits))?;
         }
 
         // Randomness for combination
@@ -405,6 +413,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     fn final_round<D, const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
@@ -503,6 +512,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all, level = "debug")]
     fn compute_stir_queries<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,

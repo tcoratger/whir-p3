@@ -7,6 +7,7 @@ use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
+use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
@@ -49,6 +50,7 @@ where
     /// - Constructs a Merkle tree from the evaluations.
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
+    #[instrument(skip_all)]
     pub fn commit<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
@@ -65,22 +67,29 @@ where
         let base_domain = self.starting_domain.base_domain.unwrap();
 
         // Compute expansion factor based on the domain size and polynomial length.
-        let expansion = base_domain.size() / polynomial.num_coeffs();
+        let initial_size = polynomial.num_coeffs();
+        let expanded_size = base_domain.size();
 
         // Pad coefficients with zeros to match the domain size
-        let mut coeffs = polynomial.coeffs().to_vec();
-        coeffs.resize(coeffs.len() * expansion, F::ZERO);
+        let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
+            let mut coeffs = F::zero_vec(expanded_size);
+            coeffs[..initial_size].copy_from_slice(polynomial.coeffs());
+            coeffs
+        });
 
         // Perform DFT on the padded coefficient matrix
         let width = 1 << self.folding_factor.at_round(0);
-        let folded_matrix = dft
-            .dft_batch(RowMajorMatrix::new(coeffs, width))
-            .to_row_major_matrix();
+        let folded_matrix =
+            info_span!("dft", height = coeffs.len() / width, width).in_scope(|| {
+                dft.dft_batch(RowMajorMatrix::new(coeffs, width))
+                    .to_row_major_matrix()
+            });
 
         // Commit to the Merkle tree
         let merkle_tree =
             MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
-        let (root, prover_data) = merkle_tree.commit_matrix(folded_matrix);
+        let (root, prover_data) =
+            info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
 
         // Observe Merkle root in challenger
         prover_state.add_digest(root)?;
