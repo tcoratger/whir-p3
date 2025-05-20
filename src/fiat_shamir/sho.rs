@@ -120,6 +120,15 @@ impl<H: DuplexSpongeInterface<u8>> HashStateWithInstructions<H> {
             _unit: PhantomData,
         }
     }
+
+    /// Send or receive a hint from the proof stream.
+    pub fn hint(&mut self) -> Result<(), DomainSeparatorMismatch> {
+        match self.stack.pop_front() {
+            Some(Op::Hint) => Ok(()),
+            Some(op) => Err(format!("Invalid tag. Got Op::Hint, expected {op:?}",).into()),
+            None => Err(format!("Invalid tag. Stack empty, got {:?}", Op::Hint).into()),
+        }
+    }
 }
 
 impl<H: DuplexSpongeInterface<u8>> Drop for HashStateWithInstructions<H> {
@@ -323,5 +332,37 @@ mod tests {
         let tag2 = HashStateWithInstructions::<DummySponge>::new(&ds2);
 
         assert_eq!(&*tag1.ds.absorbed.borrow(), &*tag2.ds.absorbed.borrow());
+    }
+
+    #[test]
+    fn test_hint_works_and_removes_stack_entry() {
+        let mut domsep = DomainSeparator::<F, F, DummySponge>::new("test");
+        domsep.hint("hint");
+        let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
+
+        assert_eq!(state.stack.len(), 1);
+        let result = state.hint();
+        assert!(result.is_ok());
+        assert!(state.stack.is_empty());
+    }
+
+    #[test]
+    fn test_hint_wrong_op_errors_and_clears_stack() {
+        let mut domsep = DomainSeparator::<F, F, DummySponge>::new("test");
+        domsep.absorb(1, "x");
+        let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
+
+        let result = state.hint(); // Should expect Op::Hint, but see Op::Absorb
+        assert!(result.is_err());
+        assert!(state.stack.is_empty());
+    }
+
+    #[test]
+    fn test_hint_on_empty_stack_errors() {
+        let domsep = DomainSeparator::<F, F, DummySponge>::new("test");
+        let mut state = HashStateWithInstructions::<DummySponge>::new(&domsep);
+
+        let result = state.hint(); // Stack is empty
+        assert!(result.is_err());
     }
 }

@@ -137,6 +137,17 @@ where
         write!(self.io, "S{count}{label}").expect("writing to String cannot fail");
     }
 
+    /// Hint `count` native elements.
+    pub fn hint(&mut self, label: &str) {
+        assert!(
+            !label.contains(SEP_BYTE),
+            "Label cannot contain the separator BYTE."
+        );
+
+        self.io += SEP_BYTE;
+        write!(self.io, "H{label}").expect("writing to String cannot fail");
+    }
+
     /// Return the IO Pattern as bytes.
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
@@ -701,5 +712,38 @@ mod tests {
         unchanged_iop.pow(0.0);
         let unchanged_str = String::from_utf8(unchanged_iop.as_bytes().to_vec()).unwrap();
         assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
+    }
+
+    #[test]
+    fn test_hint_is_parsed_correctly() {
+        let mut ds = DomainSeparator::<EF4, F, H>::new("hint_test");
+        ds.hint("my_hint");
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Hint]);
+    }
+
+    #[test]
+    fn test_hint_format_is_correct_in_bytes() {
+        let mut ds = DomainSeparator::<EF4, F, H>::new("proto");
+        ds.hint("my_hint");
+        let expected = b"proto\0Hmy_hint";
+        assert_eq!(ds.as_bytes(), expected);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_hint_label_with_null_byte_panics() {
+        let mut ds = DomainSeparator::<EF4, F, H>::new("x");
+        ds.hint("bad\0hint");
+    }
+
+    #[test]
+    fn test_hint_combined_with_absorb_and_squeeze() {
+        let mut ds = DomainSeparator::<EF4, F, H>::new("combo");
+        ds.absorb(1, "x");
+        ds.hint("meta");
+        ds.squeeze(2, "y");
+        let ops = ds.finalize();
+        assert_eq!(ops, vec![Op::Absorb(1), Op::Hint, Op::Squeeze(2)]);
     }
 }
