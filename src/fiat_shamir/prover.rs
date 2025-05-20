@@ -53,15 +53,18 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
+    /// Initialize a new `ProverState` from the given domain separator.
+    ///
+    /// Seeds the internal sponge with the domain separator.
     #[must_use]
     pub fn new(domain_separator: &DomainSeparator<EF, F, H>) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator);
 
-        let mut duplex_sponge = Keccak::default();
-        duplex_sponge.absorb_unchecked(domain_separator.as_bytes());
+        let mut ds = Keccak::default();
+        ds.absorb_unchecked(domain_separator.as_bytes());
 
         Self {
-            ds: duplex_sponge,
+            ds,
             hash_state,
             narg_string: Vec::new(),
             _field: PhantomData,
@@ -92,6 +95,9 @@ where
         self.narg_string.as_slice()
     }
 
+    /// Absorb a sequence of extension field scalars into the prover transcript.
+    ///
+    /// Serializes the scalars to bytes and appends them to the internal buffer.
     pub fn add_scalars(&mut self, input: &[EF]) -> ProofResult<()> {
         // Serialize the input scalars to bytes
         let serialized = self.public_scalars(input)?;
@@ -103,6 +109,9 @@ where
         Ok(())
     }
 
+    /// Serialize public extension field scalars to bytes and absorb into sponge.
+    ///
+    /// Returns the serialized byte representation.
     pub fn public_scalars(&mut self, input: &[EF]) -> ProofResult<Vec<u8>> {
         // Initialize a buffer to store the final serialized byte output
         let mut buf = Vec::new();
@@ -142,6 +151,9 @@ where
         Ok(())
     }
 
+    /// Perform a Fiat-Shamir proof-of-work challenge and append nonce to the transcript.
+    ///
+    /// Requires specifying number of PoW bits and a strategy for solving it.
     pub fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
         let challenge = self.challenge_bytes()?;
         let nonce = S::new(challenge, bits)
@@ -151,12 +163,16 @@ where
         Ok(())
     }
 
+    /// Sample N fresh challenge bytes from the Fiat-Shamir sponge.
+    ///
+    /// Used for sampling scalar field elements or general randomness.
     pub fn challenge_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
         let mut output = [0u8; N];
         self.fill_challenge_bytes(&mut output)?;
         Ok(output)
     }
 
+    /// Absorb a digest object (e.g. Merkle root) into the transcript.
     pub fn add_digest<const DIGEST_ELEMS: usize>(
         &mut self,
         digest: Hash<F, u8, DIGEST_ELEMS>,
@@ -165,6 +181,9 @@ where
             .map_err(ProofError::InvalidDomainSeparator)
     }
 
+    /// Fill a mutable slice with uniformly sampled extension field elements.
+    ///
+    /// Each element is sampled using Fiat-Shamir from the internal sponge.
     pub fn fill_challenge_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // How many bytes are needed to sample a single base field element
         let base_field_size = bytes_uniform_modp(F::bits() as u32);
@@ -190,10 +209,22 @@ where
         Ok(())
     }
 
+    /// Sample N extension field elements as Fiat-Shamir challenges.
     pub fn challenge_scalars<const N: usize>(&mut self) -> ProofResult<[EF; N]> {
         let mut output = [EF::default(); N];
         self.fill_challenge_scalars(&mut output)?;
         Ok(output)
+    }
+
+    /// Absorb a hint message into the prover transcript.
+    ///
+    /// Encodes the hint as a 4-byte little-endian length prefix followed by raw bytes.
+    pub fn hint_bytes(&mut self, hint: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+        self.hash_state.hint()?;
+        let len = u32::try_from(hint.len()).expect("Hint size out of bounds");
+        self.narg_string.extend_from_slice(&len.to_le_bytes());
+        self.narg_string.extend_from_slice(hint);
+        Ok(())
     }
 }
 
@@ -777,6 +808,69 @@ mod tests {
             actual,
             prover2.public_scalars(&values).unwrap(),
             "Serialization must be deterministic"
+        );
+    }
+
+    #[test]
+    fn test_hint_bytes_appends_hint_length_and_data() {
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("hint_test");
+        domsep.hint("proof_hint");
+        let mut prover = domsep.to_prover_state();
+
+        let hint = b"abc123";
+        prover.hint_bytes(hint).unwrap();
+
+        // Explanation:
+        // - `hint` is "abc123", which has 6 bytes.
+        // - The protocol encodes this as a 4-byte *little-endian* length prefix: 6 = 0x00000006 → [6, 0, 0, 0]
+        // - Then it appends the hint bytes: b"abc123"
+        // - So the full expected value is:
+        let expected = [6, 0, 0, 0, b'a', b'b', b'c', b'1', b'2', b'3'];
+
+        assert_eq!(prover.narg_string(), &expected);
+    }
+
+    #[test]
+    fn test_hint_bytes_empty_hint_is_encoded_correctly() {
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("empty_hint");
+        domsep.hint("empty");
+        let mut prover = domsep.to_prover_state();
+
+        prover.hint_bytes(b"").unwrap();
+
+        // Length = 0 encoded as 4 zero bytes
+        assert_eq!(prover.narg_string(), &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_hint_bytes_fails_if_hint_op_missing() {
+        let domsep: DomainSeparator<F, F, H> = DomainSeparator::new("no_hint");
+        let mut prover = domsep.to_prover_state();
+
+        // DomainSeparator contains no hint operation
+        let result = prover.hint_bytes(b"some_hint");
+        assert!(
+            result.is_err(),
+            "Should error if no hint op in domain separator"
+        );
+    }
+
+    #[test]
+    fn test_hint_bytes_is_deterministic() {
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("det_hint");
+        domsep.hint("same");
+
+        let hint = b"zkproof_hint";
+        let mut prover1 = domsep.to_prover_state();
+        let mut prover2 = domsep.to_prover_state();
+
+        prover1.hint_bytes(hint).unwrap();
+        prover2.hint_bytes(hint).unwrap();
+
+        assert_eq!(
+            prover1.narg_string(),
+            prover2.narg_string(),
+            "Encoding should be deterministic"
         );
     }
 }
