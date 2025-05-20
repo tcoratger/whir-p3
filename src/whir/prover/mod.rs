@@ -182,7 +182,7 @@ where
             .statement
             .constraints
             .iter()
-            .filter_map(|(weights, _)| match weights {
+            .filter_map(|constraint| match &constraint.weights {
                 Weights::Linear { weight } => Some(weight.eval_extension(&eval_point)),
                 Weights::Evaluation { .. } => None,
             })
