@@ -26,7 +26,6 @@ use crate::{
     },
 };
 
-pub mod proof;
 pub mod round;
 
 pub type Proof<const DIGEST_ELEMS: usize> = Vec<Vec<[u8; DIGEST_ELEMS]>>;
@@ -132,7 +131,8 @@ where
     /// - `witness`: The private witness satisfying the constraints, including committed values
     ///
     /// # Returns
-    /// A `WhirProof` object containing Merkle paths and final evaluations, suitable for verification.
+    /// - The final random evaluation point used to evaluate deferred constraints
+    /// - The list of evaluations of all deferred constraints at that point
     ///
     /// # Errors
     /// Returns an error if the witness or statement are invalid, or if a round fails.
