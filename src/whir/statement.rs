@@ -99,7 +99,7 @@ impl<F: Field> Weights<F> {
                         .sum()
                 }
             }
-            Self::Evaluation { point } => poly.eval_extension(point),
+            Self::Evaluation { point } => poly.evaluate_at_extension(point),
         }
     }
 
@@ -169,7 +169,7 @@ impl<F: Field> Weights<F> {
     pub fn compute(&self, folding_randomness: &MultilinearPoint<F>) -> F {
         match self {
             Self::Evaluation { point } => point.eq_poly_outside(folding_randomness),
-            Self::Linear { weight } => weight.eval_extension(folding_randomness),
+            Self::Linear { weight } => weight.evaluate_at_extension(folding_randomness),
         }
     }
 }

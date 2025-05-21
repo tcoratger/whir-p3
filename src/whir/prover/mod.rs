@@ -183,7 +183,7 @@ where
             .constraints
             .iter()
             .filter_map(|constraint| match &constraint.weights {
-                Weights::Linear { weight } => Some(weight.eval_extension(&eval_point)),
+                Weights::Linear { weight } => Some(weight.evaluate_at_extension(&eval_point)),
                 Weights::Evaluation { .. } => None,
             })
             .collect();
