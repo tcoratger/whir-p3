@@ -18,7 +18,7 @@ use crate::{
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     whir::{
         committer::reader::ParsedCommitment,
-        prover::{Leafs, Proof, proof::WhirProof},
+        prover::{Leafs, Proof},
         utils::get_challenge_stir_queries,
         verifier::parsed_round::VerifierRoundState,
     },
@@ -52,8 +52,9 @@ pub(crate) struct ParsedProof<F> {
     pub(crate) final_sumcheck_randomness: MultilinearPoint<F>,
     /// Coefficients of the final small polynomial.
     pub(crate) final_coefficients: CoefficientList<F>,
-    /// Evaluation values of the statement being proven at a random point.
-    pub(crate) statement_values_at_random_point: Vec<F>,
+    /// Constraints flagged as 'deferred' have their weight
+    /// evaluations provided as a hint int the proof.
+    pub(crate) deferred_weight_evaluations: Vec<F>,
 }
 
 impl<F> ParsedProof<F>
@@ -66,7 +67,6 @@ where
         verifier_state: &mut VerifierState<'_, F, SF>,
         parsed_commitment: &ParsedCommitment<F, Hash<SF, u8, DIGEST_ELEMS>>,
         statement_points_len: usize,
-        whir_proof: &WhirProof<SF, F, DIGEST_ELEMS>,
     ) -> ProofResult<Self>
     where
         H: CryptographicHasher<SF, [u8; DIGEST_ELEMS]> + Sync,
@@ -139,7 +139,7 @@ where
         };
 
         let rounds: Vec<_> = (0..verifier.n_rounds())
-            .map(|r| round_state.build_parsed_round(verifier, verifier_state, whir_proof, r))
+            .map(|r| round_state.build_parsed_round(verifier, verifier_state, r))
             .collect::<ProofResult<_>>()?;
 
         let mut final_coefficients = vec![F::ZERO; 1 << verifier.final_sumcheck_rounds];
@@ -160,13 +160,12 @@ where
             height: round_state.domain_size >> fold_last,
         }];
 
-        // Final Merkle verification
-        let final_randomness_answers = if whir_proof.merkle_paths.is_empty() {
-            let _final_randomness_answers = verifier_state.hint::<Leafs<SF>>()?;
-            let _final_merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
+        let is_first_round = verifier.n_rounds() == 0;
 
-            let (commitment_randomness_answers, commitment_merkle_proof) =
-                &whir_proof.commitment_merkle_paths;
+        // Final Merkle verification
+        let final_randomness_answers = if is_first_round {
+            let commitment_randomness_answers = verifier_state.hint::<Leafs<SF>>()?;
+            let commitment_merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
 
             for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
                 final_randomness_points.push(
@@ -189,11 +188,8 @@ where
                 .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
                 .collect()
         } else {
-            let _final_randomness_answers = verifier_state.hint::<Leafs<F>>()?;
-            let _final_merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
-
-            let (final_randomness_answers, final_merkle_proof) =
-                &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
+            let final_randomness_answers = verifier_state.hint::<Leafs<F>>()?;
+            let final_merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
 
             for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
                 extension_mmcs
@@ -207,7 +203,7 @@ where
                     .map_err(|_| ProofError::InvalidProof)?;
             }
 
-            final_randomness_answers.clone()
+            final_randomness_answers
         };
 
         if verifier.final_pow_bits > 0. {
@@ -224,7 +220,7 @@ where
             false,
         )?;
 
-        let _deferred_weight_evaluations = verifier_state.hint::<Vec<F>>()?;
+        let deferred_weight_evaluations = verifier_state.hint::<Vec<F>>()?;
 
         Ok(Self {
             initial_combination_randomness,
@@ -238,7 +234,7 @@ where
             final_sumcheck_rounds,
             final_sumcheck_randomness,
             final_coefficients,
-            statement_values_at_random_point: whir_proof.statement_values_at_random_point.clone(),
+            deferred_weight_evaluations,
         })
     }
 

@@ -21,7 +21,6 @@ use crate::{
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         parameters::RoundConfig,
-        prover::proof::WhirProof,
         statement::Weights,
         utils::{get_challenge_stir_queries, sample_ood_points},
     },
@@ -144,7 +143,7 @@ where
         prover_state: &mut ProverState<EF, F>,
         statement: Statement<EF>,
         witness: Witness<EF, F, DIGEST_ELEMS>,
-    ) -> ProofResult<WhirProof<F, EF, DIGEST_ELEMS>>
+    ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
@@ -173,20 +172,20 @@ where
         // These challenges were pushed in round order; we reverse them to use as a single
         // evaluation point for final statement consistency checks.
         round_state.randomness_vec.reverse();
-        let eval_point = MultilinearPoint(round_state.randomness_vec);
+        let constraint_eval = MultilinearPoint(round_state.randomness_vec);
 
-        // Evaluate the public linear statement constraints at the random point
-        //
-        // Only linear constraints are checked here, by evaluating their linear combination weights.
-        let statement_values_at_random_point = round_state
-            .statement
-            .constraints
-            .iter()
-            .filter_map(|constraint| match &constraint.weights {
-                Weights::Linear { weight } => Some(weight.evaluate_at_extension(&eval_point)),
-                Weights::Evaluation { .. } => None,
-            })
-            .collect();
+        // // Evaluate the public linear statement constraints at the random point
+        // //
+        // // Only linear constraints are checked here, by evaluating their linear combination weights.
+        // let statement_values_at_random_point = round_state
+        //     .statement
+        //     .constraints
+        //     .iter()
+        //     .filter_map(|constraint| match &constraint.weights {
+        //         Weights::Linear { weight } => Some(weight.evaluate_at_extension(&eval_point)),
+        //         Weights::Evaluation { .. } => None,
+        //     })
+        //     .collect();
 
         // Hints for deferred constraints
         let deferred = round_state
@@ -194,20 +193,22 @@ where
             .constraints
             .iter()
             .filter(|constraint| constraint.defer_evaluation)
-            .map(|constraint| constraint.weights.compute(&eval_point))
+            .map(|constraint| constraint.weights.compute(&constraint_eval))
             .collect();
         prover_state.hint::<Vec<EF>>(&deferred)?;
 
-        // Construct the final WHIR proof with all necessary Merkle proofs and evaluations
-        //
-        // The proof consists of:
-        //   - Merkle paths for polynomial commitments from all rounds
-        //   - Final evaluations of the public statement at the challenge point
-        Ok(WhirProof {
-            commitment_merkle_paths: round_state.commitment_merkle_proof.unwrap(),
-            merkle_paths: round_state.merkle_proofs,
-            statement_values_at_random_point,
-        })
+        // // Construct the final WHIR proof with all necessary Merkle proofs and evaluations
+        // //
+        // // The proof consists of:
+        // //   - Merkle paths for polynomial commitments from all rounds
+        // //   - Final evaluations of the public statement at the challenge point
+        // Ok(WhirProof {
+        //     commitment_merkle_paths: round_state.commitment_merkle_proof.unwrap(),
+        //     merkle_paths: round_state.merkle_proofs,
+        //     statement_values_at_random_point,
+        // })
+
+        Ok((constraint_eval, deferred))
     }
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = round_state.evaluations.num_variables()))]

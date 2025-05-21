@@ -7,7 +7,7 @@ use tracing::instrument;
 
 use super::{
     committer::reader::ParsedCommitment,
-    statement::{StatementVerifier, VerifierWeights},
+    statement::{Constraint, Weights},
 };
 use crate::{
     fiat_shamir::{
@@ -16,7 +16,7 @@ use crate::{
         verifier::VerifierState,
     },
     poly::multilinear::MultilinearPoint,
-    whir::{parameters::WhirConfig, prover::proof::WhirProof, verifier::parsed_proof::ParsedProof},
+    whir::{Statement, parameters::WhirConfig, verifier::parsed_proof::ParsedProof},
 };
 
 pub mod parsed_proof;
@@ -49,8 +49,9 @@ where
     fn compute_w_poly<const DIGEST_ELEMS: usize>(
         &self,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
-        statement: &StatementVerifier<EF>,
+        statement: &Statement<EF>,
         proof: &ParsedProof<EF>,
+        deferred: &[EF],
     ) -> EF {
         let mut num_variables = self.mv_parameters.num_variables;
 
@@ -63,41 +64,35 @@ where
                 .collect(),
         );
 
-        let mut new_constraints: Vec<_> = parsed_commitment
+        let constraints: Vec<_> = parsed_commitment
             .ood_points
             .iter()
             .zip(&parsed_commitment.ood_answers)
             .map(|(&point, &eval)| {
-                let weights = VerifierWeights::evaluation(
-                    MultilinearPoint::expand_from_univariate(point, num_variables),
-                );
-                (weights, eval)
+                let weights = Weights::evaluation(MultilinearPoint::expand_from_univariate(
+                    point,
+                    num_variables,
+                ));
+                Constraint {
+                    weights,
+                    sum: eval,
+                    defer_evaluation: false,
+                }
             })
+            .chain(statement.constraints.iter().cloned())
             .collect();
 
-        let mut proof_values_iter = proof.statement_values_at_random_point.iter();
-        for (weights, expected_result) in &statement.constraints {
-            match weights {
-                VerifierWeights::Evaluation { point } => {
-                    new_constraints
-                        .push((VerifierWeights::evaluation(point.clone()), *expected_result));
-                }
-                VerifierWeights::Linear { .. } => {
-                    let term = proof_values_iter
-                        .next()
-                        .expect("Not enough proof statement values for linear constraints");
-                    new_constraints.push((
-                        VerifierWeights::linear(num_variables, Some(*term)),
-                        *expected_result,
-                    ));
-                }
-            }
-        }
-
-        let mut value = new_constraints
+        let mut deferred = deferred.iter().copied();
+        let mut value: EF = constraints
             .iter()
             .zip(&proof.initial_combination_randomness)
-            .map(|((weight, _), randomness)| *randomness * weight.compute(&folding_randomness))
+            .map(|(constraint, randomness)| {
+                if constraint.defer_evaluation {
+                    deferred.next().unwrap()
+                } else {
+                    *randomness * constraint.weights.compute(&folding_randomness)
+                }
+            })
             .sum();
 
         for (round, round_proof) in proof.rounds.iter().enumerate() {
@@ -131,8 +126,7 @@ where
         &self,
         verifier_state: &mut VerifierState<'_, EF, F>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
-        statement: &StatementVerifier<EF>,
-        whir_proof: &WhirProof<F, EF, DIGEST_ELEMS>,
+        statement: &Statement<EF>,
     ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
@@ -140,18 +134,13 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // First, derive all Fiat-Shamir challenges
-        let evaluations: Vec<_> = statement
-            .constraints
-            .iter()
-            .map(|(_, eval)| *eval)
-            .collect();
+        let evaluations: Vec<_> = statement.constraints.iter().map(|c| c.sum).collect();
 
         let parsed = ParsedProof::from_prover_output(
             self,
             verifier_state,
             parsed_commitment,
             statement.constraints.len(),
-            whir_proof,
         )?;
 
         let computed_folds = parsed.compute_folds_helped();
@@ -273,7 +262,12 @@ where
         });
 
         // Check the final sumcheck evaluation
-        let evaluation_of_v_poly = self.compute_w_poly(parsed_commitment, statement, &parsed);
+        let evaluation_of_v_poly = self.compute_w_poly(
+            parsed_commitment,
+            statement,
+            &parsed,
+            &parsed.deferred_weight_evaluations,
+        );
         let final_value = parsed
             .final_coefficients
             .evaluate(&parsed.final_sumcheck_randomness);

@@ -17,7 +17,7 @@ use whir_p3::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         parameters::WhirConfig,
         prover::Prover,
-        statement::{Statement, StatementVerifier, Weights},
+        statement::{Statement, Weights},
         verifier::Verifier,
     },
 };
@@ -154,12 +154,9 @@ fn main() {
     let dft_prover = Radix2DitParallel::<F>::default();
 
     // Generate a STARK proof for the given statement and witness
-    let proof = prover
+    prover
         .prove(&dft_prover, &mut prover_state, statement.clone(), witness)
         .unwrap();
-
-    // Extract verifier-side version of the statement (only public data)
-    let statement_verifier = StatementVerifier::from_statement(&statement);
 
     // Create a commitment reader
     let commitment_reader = CommitmentReader::new(&params);
@@ -167,27 +164,20 @@ fn main() {
     // Create a verifier with matching parameters
     let verifier = Verifier::new(&params);
 
+    let narg_string = prover_state.narg_string().to_vec();
+    let proof_size = narg_string.len();
+
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    let mut verifier_state = domainsep.to_verifier_state(prover_state.narg_string());
+    let mut verifier_state = domainsep.to_verifier_state(&narg_string);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
         .parse_commitment::<32>(&mut verifier_state)
         .unwrap();
 
-    assert!(
-        verifier
-            .verify(
-                &mut verifier_state,
-                &parsed_commitment,
-                &statement_verifier,
-                &proof
-            )
-            .is_ok()
-    );
+    verifier
+        .verify(&mut verifier_state, &parsed_commitment, &statement)
+        .unwrap();
 
-    let serialized_proof = bincode::serde::encode_to_vec(&proof, bincode::config::standard())
-        .expect("Failed to serialize proof");
-    let proof_length = serialized_proof.len() + prover_state.narg_string().len();
-    println!("Proof size: {:.1} KiB", proof_length as f64 / 1024.0);
+    println!("Proof size: {:.1} KiB", proof_size as f64 / 1024.0);
 }
