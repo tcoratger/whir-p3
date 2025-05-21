@@ -1,7 +1,8 @@
-use std::marker::PhantomData;
+use std::{fmt::Debug, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::Hash;
+use serde::Serialize;
 
 use super::{
     DefaultHash, UnitToBytes,
@@ -224,6 +225,38 @@ where
         let len = u32::try_from(hint.len()).expect("Hint size out of bounds");
         self.narg_string.extend_from_slice(&len.to_le_bytes());
         self.narg_string.extend_from_slice(hint);
+        Ok(())
+    }
+
+    /// Serialize and absorb a structured hint into the prover transcript.
+    ///
+    /// This is used to insert auxiliary (non-binding) data into the proof transcript,
+    /// such as evaluations or precomputed commitments. These hints are not derived from
+    /// public input but are necessary for verification.
+    ///
+    /// The hint is encoded as:
+    /// - A 4-byte little-endian length prefix (indicating the byte length of the payload),
+    /// - Followed by the bincode-encoded value.
+    ///
+    /// # Type Parameters
+    /// - `T`: Any type that implements `serde::Serialize` and `Debug`.
+    ///
+    /// # Errors
+    /// - Returns `ProofError::SerializationError` if encoding fails.
+    /// - Returns `DomainSeparatorMismatch` if no `.hint("label")` instruction was registered.
+    pub fn hint<T: Serialize + Debug>(&mut self, hint: &T) -> ProofResult<()> {
+        // Serialize the input object to a byte vector using bincode.
+        // This encodes the object in a compact, deterministic binary format.
+        let bytes = bincode::serde::encode_to_vec(hint, bincode::config::standard())
+            .map_err(|_| ProofError::SerializationError)?;
+
+        // Register the hint with the internal domain separator and append it
+        // to the `narg_string`. This checks that:
+        // - the domain separator allows a hint here,
+        // - writes `[len, ...bytes]` into the transcript.
+        self.hint_bytes(&bytes)?;
+
+        // Successfully written.
         Ok(())
     }
 }

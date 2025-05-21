@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::Hash;
+use serde::Deserialize;
 
 use super::{
     DefaultHash, UnitToBytes,
@@ -260,6 +261,39 @@ where
         self.narg_string = remaining;
 
         Ok(hint)
+    }
+
+    /// Deserialize and return a structured hint from the transcript.
+    ///
+    /// This function reads the next hint from the prover-supplied NARG string,
+    /// which was previously serialized using `bincode` and written via `ProverState::hint`.
+    ///
+    /// The expected format is:
+    /// - 4-byte little-endian length prefix
+    /// - Followed by that many bytes of bincode-encoded data
+    ///
+    /// It verifies that the current domain separator instruction expects a hint,
+    /// then attempts to decode the object.
+    ///
+    /// # Type Parameters
+    /// - `T`: A type implementing `serde::Deserialize`, such as field elements,
+    ///   extension fields, or vectors of such types.
+    ///
+    /// # Errors
+    /// - Returns `ProofError::SerializationError` if decoding fails
+    /// - Returns `DomainSeparatorMismatch` if the domain separator doesn't expect a hint
+    pub fn hint<T: for<'de> Deserialize<'de>>(&mut self) -> ProofResult<T> {
+        // Read the raw bytes for the next hint. This enforces that a `.hint()` op was expected,
+        // and parses a 4-byte little-endian length prefix followed by the encoded payload.
+        let bytes = self.hint_bytes()?;
+
+        // Decode the bincode-encoded value into a strongly typed structure of type `T`.
+        // We discard the second return value (number of bytes read), because it's known.
+        let (value, _) = bincode::serde::decode_from_slice(bytes, bincode::config::standard())
+            .map_err(|_| ProofError::SerializationError)?;
+
+        // Return the successfully decoded value.
+        Ok(value)
     }
 }
 
@@ -868,5 +902,178 @@ mod tests {
             format!("{err}").contains("Insufficient transcript remaining"),
             "Expected error for hint length > actual NARG bytes, got: {err}"
         );
+    }
+
+    #[test]
+    fn test_hint_single_field_and_extension_round_trip() {
+        // Create a domain separator tagged with "hint-single"
+        // This will record all instructions for the Fiat-Shamir transcript
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("hint-single");
+
+        // Register two hints in the domain separator: one for the base field, one for the extension field
+        domsep.hint("base-field-hint");
+        domsep.hint("extension-field-hint");
+
+        // Construct the prover state from the domain separator
+        let mut prover = domsep.to_prover_state();
+
+        // Define a single base field element to be used as a hint
+        let elem = F::from_u64(42);
+
+        // Define a corresponding extension field element (EF4)
+        let elem_extension = EF4::from_u64(420);
+
+        // Serialize and insert the base field hint into the prover transcript
+        prover.hint(&elem).unwrap();
+
+        // Serialize and insert the extension field hint into the prover transcript
+        prover.hint(&elem_extension).unwrap();
+
+        // Finalize the prover and extract the serialized transcript (narg string)
+        let narg = prover.narg_string();
+
+        // Create a verifier state using the same domain separator and prover-generated NARG string
+        let mut verifier = domsep.to_verifier_state(narg);
+
+        // Read and deserialize the base field hint on the verifier side
+        let hint = verifier.hint::<F>().unwrap();
+
+        // Ensure the deserialized base field element matches the original
+        assert_eq!(hint, elem);
+
+        // Read and deserialize the extension field hint on the verifier side
+        let hint_extension = verifier.hint::<EF4>().unwrap();
+
+        // Ensure the deserialized extension field element matches the original
+        assert_eq!(hint_extension, elem_extension);
+    }
+
+    #[test]
+    fn test_hint_vec_field_and_extension_round_trip() {
+        // Create domain separator labeled "hint-vec"
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("hint-vec");
+
+        // Register two hints: one for Vec<F> and one for Vec<EF4>
+        domsep.hint("vec-base");
+        domsep.hint("vec-extension");
+
+        // Create prover from the domain separator
+        let mut prover = domsep.to_prover_state();
+
+        // Base field vector to hint
+        let elems = vec![
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(42),
+        ];
+
+        // Extension field vector to hint
+        let elems_extension = vec![
+            EF4::from_u64(5),
+            EF4::from_u64(6),
+            EF4::from_u64(7),
+            EF4::from_u64(88),
+        ];
+
+        // Write base field vector to prover hint
+        prover.hint(&elems).unwrap();
+
+        // Write extension field vector to prover hint
+        prover.hint(&elems_extension).unwrap();
+
+        // Finalize prover
+        let narg = prover.narg_string();
+
+        // Create verifier using the same domain separator
+        let mut verifier = domsep.to_verifier_state(narg);
+
+        // Read and check base field vector hint
+        let hint = verifier.hint::<Vec<F>>().unwrap();
+        assert_eq!(hint, elems);
+
+        // Read and check extension field vector hint
+        let hint_extension = verifier.hint::<Vec<EF4>>().unwrap();
+        assert_eq!(hint_extension, elems_extension);
+    }
+
+    #[test]
+    fn test_hint_vec_vec_field_and_extension_round_trip() {
+        // Domain separator for nested vectors
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("hint-vec-vec");
+
+        // Register hints for nested base and extension field vectors
+        domsep.hint("nested-base");
+        domsep.hint("nested-extension");
+
+        // Build prover state
+        let mut prover = domsep.to_prover_state();
+
+        // Nested base field vector
+        let elems = vec![
+            vec![F::from_u64(1), F::from_u64(2)],
+            vec![F::from_u64(3)],
+            vec![],
+            vec![F::from_u64(42)],
+        ];
+
+        // Nested extension field vector
+        let elems_extension = vec![
+            vec![EF4::from_u64(10), EF4::from_u64(20)],
+            vec![],
+            vec![EF4::from_u64(30)],
+        ];
+
+        // Serialize both into prover
+        prover.hint(&elems).unwrap();
+        prover.hint(&elems_extension).unwrap();
+
+        // Finalize and extract NARG string
+        let narg = prover.narg_string();
+
+        // Build verifier
+        let mut verifier = domsep.to_verifier_state(narg);
+
+        // Check nested base field round-trip
+        let hint = verifier.hint::<Vec<Vec<F>>>().unwrap();
+        assert_eq!(hint, elems);
+
+        // Check nested extension field round-trip
+        let hint_extension = verifier.hint::<Vec<Vec<EF4>>>().unwrap();
+        assert_eq!(hint_extension, elems_extension);
+    }
+
+    #[test]
+    fn test_hint_vec_vec_digest_round_trip() {
+        const DIGEST_ELEMS: usize = 4;
+
+        // Domain separator for digest hint
+        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("hint-digest");
+
+        // Register hint labeled "digest"
+        domsep.hint("digest");
+
+        // Build prover
+        let mut prover = domsep.to_prover_state();
+
+        // Nested digest array hint
+        let elems: Vec<Vec<[u8; DIGEST_ELEMS]>> = vec![
+            vec![[1, 2, 3, 4], [5, 6, 7, 8]],
+            vec![[9, 10, 11, 12]],
+            vec![],
+        ];
+
+        // Write to prover
+        prover.hint(&elems).unwrap();
+
+        // Finalize and serialize
+        let narg = prover.narg_string();
+
+        // Build verifier
+        let mut verifier = domsep.to_verifier_state(narg);
+
+        // Deserialize and verify match
+        let hint = verifier.hint::<Vec<Vec<[u8; DIGEST_ELEMS]>>>().unwrap();
+        assert_eq!(hint, elems);
     }
 }
