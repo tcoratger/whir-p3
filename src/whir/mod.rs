@@ -7,7 +7,7 @@ use p3_monty_31::dft::RecursiveDft;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use parameters::WhirConfig;
 use prover::{Leafs, Prover};
-use statement::{Statement, StatementVerifier, Weights};
+use statement::{Statement, Weights};
 use verifier::Verifier;
 
 use crate::{
@@ -122,14 +122,11 @@ pub fn make_whir_things(
     // Generate a proof using the prover
     let prover = Prover(&params);
 
-    // Extract verifier-side version of the statement (only public data)
-    let statement_verifier = StatementVerifier::from_statement(&statement);
-
     let dft_prover = Radix2DitParallel::<F>::default();
 
     // Generate a STARK proof for the given statement and witness
-    let proof = prover
-        .prove(&dft_prover, &mut prover_state, statement, witness)
+    prover
+        .prove(&dft_prover, &mut prover_state, statement.clone(), witness)
         .unwrap();
 
     // Create a commitment reader
@@ -147,16 +144,9 @@ pub fn make_whir_things(
         .unwrap();
 
     // Verify that the generated proof satisfies the statement
-    assert!(
-        verifier
-            .verify(
-                &mut verifier_state,
-                &parsed_commitment,
-                &statement_verifier,
-                &proof,
-            )
-            .is_ok()
-    );
+    verifier
+        .verify(&mut verifier_state, &parsed_commitment, &statement)
+        .unwrap();
 }
 
 #[cfg(test)]
