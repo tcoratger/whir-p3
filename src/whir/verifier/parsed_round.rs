@@ -14,7 +14,7 @@ use crate::{
     },
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
-    whir::{prover::proof::WhirProof, utils::get_challenge_stir_queries},
+    whir::{Leafs, Proof, prover::proof::WhirProof, utils::get_challenge_stir_queries},
 };
 
 /// Tracks the verifier's internal state across folding rounds in the WHIR protocol.
@@ -117,7 +117,10 @@ where
             verifier_state,
         )?;
 
-        let mut stir_challenges_points = Vec::with_capacity(stir_challenges_indexes.len());
+        let stir_challenges_points: Vec<_> = stir_challenges_indexes
+            .iter()
+            .map(|&i| self.exp_domain_gen.exp_u64(i as u64))
+            .collect();
 
         // Verify Merkle openings using `verify_batch`
         let dimensions = vec![Dimensions {
@@ -125,13 +128,18 @@ where
             width: 1 << fold_r,
         }];
 
-        let mut stir_challenges_answers = Vec::new();
+        let stir_challenges_answers: Vec<Vec<F>> = if r == 0 {
+            // Case: r == 0, use base field
 
-        for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
-            stir_challenges_points.push(self.exp_domain_gen.exp_u64(stir_challenges_index as u64));
-            if r == 0 {
-                let (answers, merkle_proof) = &whir_proof.commitment_merkle_paths;
+            // Deserialize base field answers and Merkle proofs from verifier transcript
+            let _answers = verifier_state.hint::<Leafs<SF>>()?;
+            let _merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
 
+            // Get reference to prover-committed data (must match deserialized hints)
+            let (answers, merkle_proof) = &whir_proof.commitment_merkle_paths;
+
+            // Verify each queried leaf
+            for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
                 self.mmcs
                     .verify_batch(
                         &self.prev_root,
@@ -141,13 +149,25 @@ where
                         &merkle_proof[i],
                     )
                     .map_err(|_| ProofError::InvalidProof)?;
+            }
 
-                stir_challenges_answers = answers
-                    .iter()
-                    .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
-                    .collect();
-            } else {
-                let (answers, merkle_proof) = &whir_proof.merkle_paths[r - 1];
+            // Convert answers from SF to F for downstream usage
+            answers
+                .iter()
+                .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
+                .collect()
+        } else {
+            // Case: r > 0, use extension field
+
+            // Deserialize extension field answers and Merkle proofs from verifier transcript
+            let _answers = verifier_state.hint::<Leafs<F>>()?;
+            let _merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
+
+            // Get reference to prover-committed data
+            let (answers, merkle_proof) = &whir_proof.merkle_paths[r - 1];
+
+            // Verify each queried leaf
+            for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
                 self.extension_mmcs
                     .verify_batch(
                         &self.prev_root,
@@ -157,9 +177,11 @@ where
                         &merkle_proof[i],
                     )
                     .map_err(|_| ProofError::InvalidProof)?;
-                stir_challenges_answers.clone_from(answers);
             }
-        }
+
+            // Simply return the deserialized extension field leaf vectors
+            answers.clone()
+        };
 
         if round_params.pow_bits > 0. {
             verifier_state.challenge_pow::<PS>(round_params.pow_bits)?;

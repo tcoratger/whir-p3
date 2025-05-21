@@ -17,8 +17,10 @@ use crate::{
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     whir::{
-        committer::reader::ParsedCommitment, prover::proof::WhirProof,
-        utils::get_challenge_stir_queries, verifier::parsed_round::VerifierRoundState,
+        committer::reader::ParsedCommitment,
+        prover::{Leafs, Proof, proof::WhirProof},
+        utils::get_challenge_stir_queries,
+        verifier::parsed_round::VerifierRoundState,
     },
 };
 
@@ -160,6 +162,9 @@ where
 
         // Final Merkle verification
         let final_randomness_answers = if whir_proof.merkle_paths.is_empty() {
+            let _final_randomness_answers = verifier_state.hint::<Leafs<SF>>()?;
+            let _final_merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
+
             let (commitment_randomness_answers, commitment_merkle_proof) =
                 &whir_proof.commitment_merkle_paths;
 
@@ -184,6 +189,9 @@ where
                 .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
                 .collect()
         } else {
+            let _final_randomness_answers = verifier_state.hint::<Leafs<F>>()?;
+            let _final_merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
+
             let (final_randomness_answers, final_merkle_proof) =
                 &whir_proof.merkle_paths[whir_proof.merkle_paths.len() - 1];
 
@@ -215,6 +223,8 @@ where
             verifier.final_folding_pow_bits,
             false,
         )?;
+
+        let _deferred_weight_evaluations = verifier_state.hint::<Vec<F>>()?;
 
         Ok(Self {
             initial_combination_randomness,

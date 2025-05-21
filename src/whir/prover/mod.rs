@@ -188,6 +188,16 @@ where
             })
             .collect();
 
+        // Hints for deferred constraints
+        let deferred = round_state
+            .statement
+            .constraints
+            .iter()
+            .filter(|constraint| constraint.defer_evaluation)
+            .map(|constraint| constraint.weights.compute(&eval_point))
+            .collect();
+        prover_state.hint::<Vec<EF>>(&deferred)?;
+
         // Construct the final WHIR proof with all necessary Merkle proofs and evaluations
         //
         // The proof consists of:
@@ -308,6 +318,10 @@ where
                     answers.push(commitment_leaf[0].clone());
                     merkle_proof.push(commitment_root);
                 }
+
+                prover_state.hint(&answers)?;
+                prover_state.hint(&merkle_proof)?;
+
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
                 // Exactly one growth
@@ -331,6 +345,10 @@ where
                     answers.push(leaf[0].clone());
                     merkle_proof.push(proof);
                 }
+
+                prover_state.hint(&answers)?;
+                prover_state.hint(&merkle_proof)?;
+
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
                 // Exactly one growth
@@ -457,6 +475,9 @@ where
                     merkle_proof.push(commitment_root);
                 }
 
+                prover_state.hint(&answers)?;
+                prover_state.hint(&merkle_proof)?;
+
                 round_state.commitment_merkle_proof = Some((answers, merkle_proof));
             }
 
@@ -468,6 +489,10 @@ where
                     answers.push(leaf[0].clone());
                     merkle_proof.push(proof);
                 }
+
+                prover_state.hint(&answers)?;
+                prover_state.hint(&merkle_proof)?;
+
                 round_state.merkle_proofs.push((answers, merkle_proof));
             }
         }
