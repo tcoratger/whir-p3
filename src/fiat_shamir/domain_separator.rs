@@ -257,6 +257,8 @@ where
             self.add_digest("merkle_digest");
             self.add_ood(r.ood_samples);
             self.squeeze(r.num_queries * domain_size_bytes, "stir_queries");
+            self.hint("stir_queries");
+            self.hint("merkle_proof");
             self.pow(r.pow_bits);
             self.challenge_scalars(1, "combination_randomness");
 
@@ -276,8 +278,11 @@ where
         self.add_scalars(1 << params.final_sumcheck_rounds, "final_coeffs");
 
         self.squeeze(domain_size_bytes * params.final_queries, "final_queries");
+        self.hint("stir_answers");
+        self.hint("merkle_proof");
         self.pow(params.final_pow_bits);
         self.add_sumcheck(params.final_sumcheck_rounds, params.final_folding_pow_bits);
+        self.hint("deferred_weight_evaluations");
     }
 
     pub fn add_digest(&mut self, label: &str) {
