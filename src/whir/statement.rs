@@ -315,168 +315,6 @@ impl<F: Field> Statement<F> {
     }
 }
 
-/// Represents a verifier's interpretation of weighted polynomial constraints.
-///
-/// Used in the verification phase to process and evaluate constraints in a simplified form.
-/// Can either:
-/// - Directly evaluate at a given `point`
-/// - Represent a linear weight with an optional precomputed term.
-///
-/// **Mathematical definition:**
-/// - If `w(X)` is evaluated at a fixed point $p$, we store only $p$.
-/// - If `w(X)` is a linear combination, we track the number of variables and an optional
-///   precomputed term.
-#[derive(Clone, Debug)]
-pub enum VerifierWeights<F> {
-    /// Direct evaluation at a specific point $p$.
-    Evaluation { point: MultilinearPoint<F> },
-    /// Linear weight representation over `num_variables` variables.
-    /// May store a precomputed term for efficiency.
-    Linear {
-        num_variables: usize,
-        term: Option<F>,
-    },
-}
-
-impl<F: Field> VerifierWeights<F> {
-    /// Constructs an evaluation weight at a fixed point.
-    #[must_use]
-    pub const fn evaluation(point: MultilinearPoint<F>) -> Self {
-        Self::Evaluation { point }
-    }
-
-    /// Constructs a linear weight representation.
-    ///
-    /// - `num_variables`: The number of variables in the polynomial space.
-    /// - `term`: An optional precomputed term for efficiency.
-    pub const fn linear(num_variables: usize, term: Option<F>) -> Self {
-        Self::Linear {
-            num_variables,
-            term,
-        }
-    }
-
-    /// Returns the number of variables in the weight.
-    ///
-    /// - For an evaluation weight, this is the number of variables in `point`.
-    /// - For a linear weight, this is explicitly stored.
-    pub fn num_variables(&self) -> usize {
-        match self {
-            Self::Evaluation { point } => point.num_variables(),
-            Self::Linear { num_variables, .. } => *num_variables,
-        }
-    }
-
-    /// Computes the weight function evaluation under a given randomness.
-    ///
-    /// - In evaluation mode, it computes the equality polynomial `eq_poly_outside` at the provided
-    ///   `folding_randomness`, enforcing the constraint at a specific point.
-    /// - In linear mode, it returns the precomputed term if available.
-    ///
-    /// **Mathematical Definition:**
-    /// - If `w(X)` is an evaluation weight at `p`, then:
-    ///
-    /// \begin{equation}
-    /// w(X) = eq_p(X)
-    /// \end{equation}
-    ///
-    /// where `eq_p(X)` is the Lagrange interpolation polynomial enforcing `X = p`.
-    ///
-    /// - If `w(X)` is a linear weight, it simply returns the stored `term`.
-    ///
-    /// **Precondition:**
-    /// - If `self` is in linear mode, `term` must be `Some(F)`, otherwise the behavior is
-    ///   undefined.
-    pub fn compute(&self, folding_randomness: &MultilinearPoint<F>) -> F {
-        match self {
-            Self::Evaluation { point } => point.eq_poly_outside(folding_randomness),
-            Self::Linear { term, .. } => term.unwrap(),
-        }
-    }
-}
-
-/// Represents a verifier's constraint system in a statement.
-///
-/// This structure is used to verify a given statement by storing and processing
-/// a list of constraints. Each constraint consists of:
-/// - `VerifierWeights<F>`: A weight applied to a polynomial.
-/// - `F`: The expected sum (result of applying the constraint).
-///
-/// **Mathematical Formulation:**
-/// Given a set of constraints:
-///
-/// \begin{equation}
-/// \sum_{i} w_i(X) \cdot p_i(X) = s_i
-/// \end{equation}
-///
-/// This struct stores and organizes these constraints for efficient verification.
-#[derive(Clone, Debug, Default)]
-pub struct StatementVerifier<F> {
-    /// The number of variables in the statement.
-    num_variables: usize,
-    /// The list of constraints in the form `(weights, sum)`.
-    pub constraints: Vec<(VerifierWeights<F>, F)>,
-}
-
-impl<F: Field> StatementVerifier<F> {
-    /// Creates a new statement verifier for a given number of variables.
-    const fn new(num_variables: usize) -> Self {
-        Self {
-            num_variables,
-            constraints: Vec::new(),
-        }
-    }
-
-    /// Returns the number of variables in the statement.
-    #[must_use]
-    pub const fn num_variables(&self) -> usize {
-        self.num_variables
-    }
-
-    /// Adds a new constraint `(weights, sum)` to the verifier.
-    ///
-    /// Ensures that the constraint has the correct number of variables.
-    pub fn add_constraint(&mut self, weights: VerifierWeights<F>, sum: F) {
-        assert_eq!(weights.num_variables(), self.num_variables());
-        self.constraints.push((weights, sum));
-    }
-
-    /// Inserts a constraint `(weights, sum)` at the front of the constraint list.
-    pub fn add_constraint_in_front(&mut self, weights: VerifierWeights<F>, sum: F) {
-        assert_eq!(weights.num_variables(), self.num_variables());
-        self.constraints.insert(0, (weights, sum));
-    }
-
-    /// Inserts multiple constraints at the front of the constraint list.
-    pub fn add_constraints_in_front(&mut self, constraints: Vec<(VerifierWeights<F>, F)>) {
-        for (weights, _) in &constraints {
-            assert_eq!(weights.num_variables(), self.num_variables());
-        }
-        self.constraints.splice(0..0, constraints);
-    }
-
-    /// Converts a `Statement<F>` into a `StatementVerifier<F>`, mapping `Weights<F>` into
-    /// `VerifierWeights<F>`.
-    ///
-    /// This is used during the verification phase to simplify constraint handling.
-    pub fn from_statement(statement: &Statement<F>) -> Self {
-        let mut verifier = Self::new(statement.num_variables());
-        for constraint in &statement.constraints {
-            match &constraint.weights {
-                Weights::Linear { weight, .. } => {
-                    let weights = VerifierWeights::linear(weight.num_variables(), None);
-                    verifier.add_constraint(weights, constraint.sum);
-                }
-                Weights::Evaluation { point } => {
-                    let weights = VerifierWeights::evaluation(point.clone());
-                    verifier.add_constraint(weights, constraint.sum);
-                }
-            }
-        }
-        verifier
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
@@ -636,33 +474,6 @@ mod tests {
     }
 
     #[test]
-    fn test_statement_verifier_from_statement() {
-        // Create a new statement with 2 variables
-        let mut statement = Statement::new(2);
-
-        // Define weights
-        let w0 = F::from_u64(3);
-        let w1 = F::from_u64(4);
-        let w2 = F::from_u64(5);
-        let w3 = F::from_u64(6);
-        let weight_list = EvaluationsList::new(vec![w0, w1, w2, w3]);
-        let weight = Weights::linear(weight_list);
-
-        // Define sum constraint
-        let sum = F::from_u64(10);
-        statement.add_constraint(weight, sum);
-
-        // Convert statement to verifier format
-        let verifier = StatementVerifier::from_statement(&statement);
-
-        // Ensure verifier retains the same number of variables
-        assert_eq!(verifier.num_variables(), statement.num_variables());
-
-        // Ensure the constraint count matches
-        assert_eq!(verifier.constraints.len(), 1);
-    }
-
-    #[test]
     fn test_statement_with_multiple_constraints() {
         // Create a new statement with 2 variables
         let mut statement = Statement::new(2);
@@ -725,21 +536,6 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_evaluation_weight_verifier() {
-        // Define an evaluation weight at a specific point
-        let point = MultilinearPoint(vec![F::from_u64(3)]);
-        let weight = VerifierWeights::evaluation(point.clone());
-
-        // Define a randomness point for folding
-        let folding_randomness = MultilinearPoint(vec![F::from_u64(2)]);
-
-        // Expected result is the evaluation of eq_poly_outside at the given randomness
-        let expected = point.eq_poly_outside(&folding_randomness);
-
-        assert_eq!(weight.compute(&folding_randomness), expected);
-    }
-
-    #[test]
     fn test_compute_evaluation_weight() {
         // Define an evaluation weight at a specific point
         let point = MultilinearPoint(vec![F::from_u64(3)]);
@@ -752,19 +548,6 @@ mod tests {
         let expected = point.eq_poly_outside(&folding_randomness);
 
         assert_eq!(weight.compute(&folding_randomness), expected);
-    }
-
-    #[test]
-    fn test_compute_linear_weight_with_term_verifier() {
-        // Define a linear weight with a precomputed term
-        let term = F::from_u64(7);
-        let weight = VerifierWeights::linear(2, Some(term));
-
-        // Folding randomness should have no effect in linear mode
-        let folding_randomness = MultilinearPoint(vec![F::from_u64(3), F::from_u64(4)]);
-
-        // Expected result is the stored term
-        assert_eq!(weight.compute(&folding_randomness), term);
     }
 
     #[test]
@@ -809,34 +592,6 @@ mod tests {
             weight.compute(&folding_randomness),
             f(F::from_u64(3), F::from_u64(46), F::from_u64(56))
         );
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_compute_linear_weight_without_term() {
-        // Define a linear weight without a precomputed term
-        let weight = VerifierWeights::linear(2, None);
-
-        // Folding randomness is irrelevant in this case
-        let folding_randomness = MultilinearPoint(vec![F::from_u64(3), F::from_u64(4)]);
-
-        // This should panic due to an attempt to unwrap a None value
-        weight.compute(&folding_randomness);
-    }
-
-    #[test]
-    #[allow(clippy::redundant_clone)]
-    fn test_compute_evaluation_weight_identity() {
-        // Define an evaluation weight at a specific point
-        let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
-
-        // Folding randomness is the same as the point itself
-        let folding_randomness = point.clone();
-        let weight = VerifierWeights::evaluation(point.clone());
-
-        // Expected result should be identity for equality polynomial
-        let expected = point.eq_poly_outside(&folding_randomness);
-        assert_eq!(weight.compute(&folding_randomness), expected);
     }
 
     proptest! {
