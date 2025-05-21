@@ -77,7 +77,7 @@ pub fn make_whir_things(
     let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
     // Define a polynomial with all coefficients set to 1
-    let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]);
+    let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]).to_evaluations();
 
     // Sample `num_points` random multilinear points in the Boolean hypercube
     let points: Vec<_> = (0..num_points)
@@ -89,7 +89,7 @@ pub fn make_whir_things(
 
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
-        let eval = polynomial.evaluate_at_extension(point);
+        let eval = polynomial.eval_extension(point);
         let weights = Weights::evaluation(point.clone());
         statement.add_constraint(weights, eval);
     }
@@ -98,11 +98,8 @@ pub fn make_whir_things(
     let input = CoefficientList::new((0..1 << num_variables).map(EF::from_u64).collect());
     let linear_claim_weight = Weights::linear(input.to_evaluations::<F>());
 
-    // Convert the polynomial to extension form for weighted evaluation
-    let poly = polynomial.clone().to_evaluations::<F>();
-
     // Evaluate the weighted sum and add it as a linear constraint
-    let sum = linear_claim_weight.weighted_sum(&poly);
+    let sum = linear_claim_weight.weighted_sum(&polynomial);
     statement.add_constraint(linear_claim_weight, sum);
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving

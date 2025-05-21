@@ -12,7 +12,7 @@ use tracing::{info_span, instrument};
 use super::Witness;
 use crate::{
     fiat_shamir::{errors::ProofResult, prover::ProverState},
-    poly::coeffs::CoefficientList,
+    poly::{coeffs::CoefficientList, evals::EvaluationsList},
     whir::{parameters::WhirConfig, utils::sample_ood_points},
 };
 
@@ -55,7 +55,7 @@ where
         &self,
         dft: &D,
         prover_state: &mut ProverState<EF, F>,
-        polynomial: CoefficientList<F>,
+        polynomial: EvaluationsList<F>,
     ) -> ProofResult<Witness<EF, F, DIGEST_ELEMS>>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
@@ -63,17 +63,20 @@ where
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
     {
+        // convert evaluations -> coefficients form
+        let pol_coeffs: CoefficientList<F> = polynomial.clone().to_coefficients();
+
         // Retrieve the base domain, ensuring it is set.
         let base_domain = self.starting_domain.base_domain.unwrap();
 
         // Compute expansion factor based on the domain size and polynomial length.
-        let initial_size = polynomial.num_coeffs();
+        let initial_size = polynomial.num_evals();
         let expanded_size = base_domain.size();
 
         // Pad coefficients with zeros to match the domain size
         let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
             let mut coeffs = F::zero_vec(expanded_size);
-            coeffs[..initial_size].copy_from_slice(polynomial.coeffs());
+            coeffs[..initial_size].copy_from_slice(pol_coeffs.coeffs());
             coeffs
         });
 
@@ -99,12 +102,13 @@ where
             prover_state,
             self.committment_ood_samples,
             self.mv_parameters.num_variables,
-            |point| polynomial.evaluate_at_extension(point),
+            |point| pol_coeffs.evaluate_at_extension(point),
         )?;
 
         // Return the witness containing the polynomial, Merkle tree, and OOD results.
         Ok(Witness {
-            polynomial,
+            pol_coeffs,
+            pol_evals: polynomial,
             prover_data,
             ood_points,
             ood_answers,
@@ -184,7 +188,7 @@ mod tests {
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = rand::rng();
-        let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 32]);
+        let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
         let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new("🌪️");
@@ -214,16 +218,17 @@ mod tests {
 
         // Ensure polynomial data is correctly stored
         assert_eq!(
-            witness.polynomial.coeffs().len(),
-            polynomial.coeffs().len(),
+            witness.pol_coeffs.coeffs().len(),
+            polynomial.num_evals(),
             "Stored polynomial should have the correct number of coefficients"
         );
 
         // Check that OOD answers match expected evaluations
         for (i, ood_point) in witness.ood_points.iter().enumerate() {
-            let expected_eval = polynomial.evaluate_at_extension(
-                &MultilinearPoint::expand_from_univariate(*ood_point, num_variables),
-            );
+            let expected_eval = polynomial.evaluate(&MultilinearPoint::expand_from_univariate(
+                *ood_point,
+                num_variables,
+            ));
             assert_eq!(
                 witness.ood_answers[i], expected_eval,
                 "OOD answer at index {i} should match expected evaluation"
@@ -264,7 +269,7 @@ mod tests {
             WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
         let mut rng = rand::rng();
-        let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 1024]);
+        let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
 
         let mut domainsep = DomainSeparator::new("🌪️");
         domainsep.commit_statement(&params);
@@ -314,7 +319,7 @@ mod tests {
         params.committment_ood_samples = 0;
 
         let mut rng = rand::rng();
-        let polynomial = CoefficientList::<BabyBear>::new(vec![rng.random(); 32]);
+        let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         let mut domainsep = DomainSeparator::new("🌪️");
         domainsep.commit_statement(&params);

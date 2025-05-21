@@ -6,10 +6,7 @@ use super::{Leafs, Proof, Prover};
 use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
-    poly::{
-        evals::{EvaluationStorage, EvaluationsList},
-        multilinear::MultilinearPoint,
-    },
+    poly::{evals::EvaluationStorage, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{CommitmentMerkleTree, RoundMerkleTree, Witness},
@@ -131,8 +128,6 @@ where
 
         statement.add_constraints_in_front(new_constraints);
 
-        let evals_p: EvaluationsList<F> = witness.polynomial.clone().to_evaluations();
-
         let mut sumcheck_prover = None;
         let folding_randomness = if prover.initial_statement {
             // If there is initial statement, then we run the sum-check for
@@ -141,7 +136,7 @@ where
 
             // Create the sumcheck prover
             let mut sumcheck = SumcheckSingle::from_base_evals(
-                evals_p.clone(),
+                witness.pol_evals.clone(),
                 &statement,
                 combination_randomness_gen,
             );
@@ -180,7 +175,7 @@ where
             domain: prover.starting_domain.clone(),
             sumcheck_prover,
             folding_randomness,
-            evaluations: EvaluationStorage::Base(evals_p),
+            evaluations: EvaluationStorage::Base(witness.pol_evals),
             merkle_prover_data: None,
             commitment_merkle_prover_data: witness.prover_data,
             commitment_merkle_proof: None,
@@ -205,7 +200,10 @@ mod tests {
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
-        poly::{coeffs::CoefficientList, evals::EvaluationStorage},
+        poly::{
+            coeffs::CoefficientList,
+            evals::{EvaluationStorage, EvaluationsList},
+        },
         whir::{WhirConfig, committer::writer::CommitmentWriter},
     };
 
@@ -265,7 +263,7 @@ mod tests {
     /// This is used as a boilerplate step before running the first WHIR round.
     fn setup_domain_and_commitment(
         params: &WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW>,
-        poly: CoefficientList<F>,
+        poly: EvaluationsList<F>,
     ) -> (
         DomainSeparator<EF4, F>,
         ProverState<EF4, F>,
@@ -308,7 +306,7 @@ mod tests {
         let config = make_test_config(num_variables, false, 2, 0);
 
         // Define a polynomial
-        let poly = CoefficientList::new(vec![F::from_u64(3); 1 << num_variables]);
+        let poly = EvaluationsList::new(vec![F::from_u64(3); 1 << num_variables]);
 
         // Initialize:
         // - domain separator for Fiat-Shamir transcript,
@@ -375,7 +373,7 @@ mod tests {
         let c7 = F::from_u64(7);
         let c8 = F::from_u64(8);
 
-        let poly = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+        let poly = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]).to_evaluations();
 
         // Manual redefinition of the same polynomial as a function for evaluation
         let f = |x0: EF4, x1: EF4, x2: EF4| {
@@ -482,7 +480,7 @@ mod tests {
         let config = make_test_config(num_variables, true, 1, 0);
 
         // Define a zero polynomial: f(X) = 0 for all X
-        let poly = CoefficientList::new(vec![F::ZERO; 1 << num_variables]);
+        let poly = EvaluationsList::new(vec![F::ZERO; 1 << num_variables]);
 
         // Generate domain separator, prover state, and Merkle commitment witness for the poly
         let (_, mut prover_state, witness) = setup_domain_and_commitment(&config, poly.clone());
@@ -543,10 +541,7 @@ mod tests {
         );
 
         // Coefficients should match the original zero polynomial
-        assert_eq!(
-            state.evaluations,
-            EvaluationStorage::Base(poly.to_evaluations())
-        );
+        assert_eq!(state.evaluations, EvaluationStorage::Base(poly));
 
         // Domain must match the WHIR config's expected size
         assert_eq!(
@@ -586,7 +581,7 @@ mod tests {
         let c6 = F::from_u64(6);
         let c7 = F::from_u64(7);
         let c8 = F::from_u64(8);
-        let poly = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+        let poly = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]).to_evaluations();
 
         // Equivalent function for evaluating the polynomial manually
         let f = |x0: EF4, x1: EF4, x2: EF4| {
@@ -653,10 +648,7 @@ mod tests {
         }
 
         // Evaluation storage must match original polynomial
-        assert_eq!(
-            state.evaluations,
-            EvaluationStorage::Base(poly.to_evaluations())
-        );
+        assert_eq!(state.evaluations, EvaluationStorage::Base(poly));
 
         // Domain should match expected size and rate
         assert_eq!(

@@ -115,7 +115,7 @@ mod tests {
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
-        poly::coeffs::CoefficientList,
+        poly::evals::EvaluationsList,
         whir::{DomainSeparator, committer::writer::CommitmentWriter},
     };
 
@@ -175,7 +175,7 @@ mod tests {
         let (params, mut rng) = make_test_params(5, 3);
 
         // Create a random degree-5 multilinear polynomial (32 coefficients).
-        let polynomial = CoefficientList::new((0..32).map(|_| rng.random()).collect());
+        let polynomial = EvaluationsList::new((0..32).map(|_| rng.random()).collect());
 
         // Instantiate the committer using the test config.
         let committer = CommitmentWriter::new(&params);
@@ -216,7 +216,7 @@ mod tests {
         let (params, mut rng) = make_test_params(4, 0);
 
         // Generate a polynomial with 16 random coefficients.
-        let polynomial = CoefficientList::new((0..16).map(|_| rng.random()).collect());
+        let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
 
         // Set up the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);
@@ -258,7 +258,7 @@ mod tests {
         let (params, mut rng) = make_test_params(10, 5);
 
         // Generate a large polynomial with 1024 random coefficients.
-        let polynomial = CoefficientList::new((0..1024).map(|_| rng.random()).collect());
+        let polynomial = EvaluationsList::new((0..1024).map(|_| rng.random()).collect());
 
         // Initialize the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);

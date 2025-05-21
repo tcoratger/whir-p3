@@ -12,7 +12,7 @@ use whir_p3::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, default_max_pow,
         errors::SecurityAssumption,
     },
-    poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         parameters::WhirConfig,
@@ -108,7 +108,7 @@ fn main() {
     dbg!(&params);
 
     // Define a polynomial with all coefficients set to 1 (i.e., constant 1 polynomial)
-    let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]);
+    let polynomial = EvaluationsList::new((0..num_coeffs).map(F::from_u64).collect());
 
     // Sample `num_points` random multilinear points in the Boolean hypercube
     let points: Vec<_> = (0..num_evaluations)
@@ -120,7 +120,7 @@ fn main() {
 
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
-        let eval = polynomial.evaluate_at_extension(point);
+        let eval = polynomial.eval_extension(point);
         let weights = Weights::evaluation(point.clone());
         statement.add_constraint(weights, eval);
     }
