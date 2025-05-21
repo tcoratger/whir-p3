@@ -565,7 +565,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::{DefaultHash, domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+        fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
         whir::statement::Weights,
     };
@@ -1489,7 +1489,7 @@ mod tests {
 
         // Domain separator setup
         // Step 1: Initialize domain separator with a context label
-        let mut domsep: DomainSeparator<F, F, DefaultHash> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("test");
 
         // Step 2: Register the fact that we’re about to absorb 3 field elements
         domsep.add_scalars(3, "test");
@@ -1573,7 +1573,7 @@ mod tests {
         let pow_bits = 1.; // Minimal grinding
 
         // Setup the domain separator
-        let mut domsep: DomainSeparator<F, F, DefaultHash> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("test");
 
         // For each folding round, we must absorb values, sample challenge, and apply PoW
         for _ in 0..folding_factor {
@@ -1713,7 +1713,7 @@ mod tests {
         let pow_bits = 2.;
 
         // Setup the domain separator
-        let mut domsep: DomainSeparator<F, F, DefaultHash> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("test");
 
         // Register interactions with the transcript for each round
         for _ in 0..folding_factor {
@@ -1812,7 +1812,7 @@ mod tests {
         let pow_bits = 1.;
 
         // No domain separator logic needed since we don't fold
-        let domsep: DomainSeparator<F, F, DefaultHash> = DomainSeparator::new("test");
+        let domsep: DomainSeparator<F, F> = DomainSeparator::new("test");
         let mut prover_state = domsep.to_prover_state();
 
         let result = prover
@@ -2045,7 +2045,7 @@ mod tests {
         let pow_bits = 2.;
 
         // Create domain separator for Fiat-Shamir transcript simulation
-        let mut domsep: DomainSeparator<EF4, F, DefaultHash> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("test");
 
         // Register expected Fiat-Shamir interactions for each round
         for _ in 0..folding_factor {
@@ -2259,8 +2259,8 @@ mod tests {
             let mut prover_ext = SumcheckSingle::<F, EF4>::from_extension_coeffs(ext_cl, &statement, combination_randomness);
 
             // Use a single shared DomainSeparator and clone it (identical transcript!)
-            let mut domsep_base: DomainSeparator<EF4, F, DefaultHash> = DomainSeparator::new("tag");
-            let mut domsep_ext:DomainSeparator<EF4, F, DefaultHash> = DomainSeparator::new("tag");
+            let mut domsep_base: DomainSeparator<EF4, F> = DomainSeparator::new("tag");
+            let mut domsep_ext:DomainSeparator<EF4, F> = DomainSeparator::new("tag");
 
             // Register the same interactions for each folding round
             for _ in 0..folding_rounds {
@@ -2443,7 +2443,7 @@ mod tests {
         let pow_bits = 0.;
 
         // Create domain separator for Fiat-Shamir transcript simulation
-        let mut domsep: DomainSeparator<EF4, F, DefaultHash> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("test");
 
         // Step 1: absorb 3 evaluations of the sumcheck polynomial h(X)
         domsep.add_scalars(8, "tag");

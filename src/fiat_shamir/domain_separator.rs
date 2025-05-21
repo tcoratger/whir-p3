@@ -393,7 +393,6 @@ mod tests {
 
     use super::*;
 
-    type H = DefaultHash;
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
 
@@ -407,7 +406,7 @@ mod tests {
 
     #[test]
     fn test_domain_separator_new_and_bytes() {
-        let ds = DomainSeparator::<EF4, F, H>::new("session");
+        let ds = DomainSeparator::<EF4, F>::new("session");
         assert_eq!(ds.as_bytes(), b"session");
     }
 
@@ -415,12 +414,12 @@ mod tests {
     #[should_panic]
     fn test_new_with_separator_byte_panics() {
         // This should panic because "\0" is forbidden in the session identifier.
-        let _ = DomainSeparator::<EF4, F, H>::new("invalid\0session");
+        let _ = DomainSeparator::<EF4, F>::new("invalid\0session");
     }
 
     #[test]
     fn test_domain_separator_absorb_and_squeeze() {
-        let mut ds = DomainSeparator::<EF4, F, H>::new("proto");
+        let mut ds = DomainSeparator::<EF4, F>::new("proto");
         ds.absorb(2, "input");
         ds.squeeze(1, "challenge");
         let ops = ds.finalize();
@@ -429,7 +428,7 @@ mod tests {
 
     #[test]
     fn test_absorb_return_value_format() {
-        let mut ds = DomainSeparator::<EF4, F, H>::new("proto");
+        let mut ds = DomainSeparator::<EF4, F>::new("proto");
         ds.absorb(3, "input");
         let expected_str = "proto\0A3input"; // initial + SEP + absorb op + label
         assert_eq!(ds.as_bytes(), expected_str.as_bytes());
@@ -438,24 +437,24 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_absorb_zero_panics() {
-        DomainSeparator::<EF4, F, H>::new("x").absorb(0, "label");
+        DomainSeparator::<EF4, F>::new("x").absorb(0, "label");
     }
 
     #[test]
     #[should_panic]
     fn test_label_with_separator_byte_panics() {
-        DomainSeparator::<EF4, F, H>::new("x").absorb(1, "bad\0label");
+        DomainSeparator::<EF4, F>::new("x").absorb(1, "bad\0label");
     }
 
     #[test]
     #[should_panic]
     fn test_label_starts_with_digit_panics() {
-        DomainSeparator::<EF4, F, H>::new("x").absorb(1, "1label");
+        DomainSeparator::<EF4, F>::new("x").absorb(1, "1label");
     }
 
     #[test]
     fn test_merge_consecutive_absorbs_and_squeezes() {
-        let mut ds = DomainSeparator::<EF4, F, H>::new("merge");
+        let mut ds = DomainSeparator::<EF4, F>::new("merge");
         ds.absorb(1, "a");
         ds.absorb(2, "b");
         ds.squeeze(3, "c");
@@ -467,14 +466,14 @@ mod tests {
     #[test]
     fn test_parse_domsep_multiple_ops() {
         let tag = "main\0A1x\0A2y\0S3z\0S2w";
-        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(3), Op::Squeeze(5)]);
     }
 
     #[test]
     fn test_byte_domain_separator_trait_impl() {
-        let mut ds = DomainSeparator::<EF4, F, H>::new("x");
+        let mut ds = DomainSeparator::<EF4, F>::new("x");
         ds.absorb(1, "a");
         ds.squeeze(2, "b");
         let ops = ds.finalize();
@@ -483,14 +482,14 @@ mod tests {
 
     #[test]
     fn test_empty_operations() {
-        let ds = DomainSeparator::<EF4, F, H>::new("tag");
+        let ds = DomainSeparator::<EF4, F>::new("tag");
         let ops = ds.finalize();
         assert!(ops.is_empty());
     }
 
     #[test]
     fn test_unicode_labels() {
-        let mut ds = DomainSeparator::<EF4, F, H>::new("emoji");
+        let mut ds = DomainSeparator::<EF4, F>::new("emoji");
         ds.absorb(1, "🦀");
         ds.squeeze(1, "🎯");
         let ops = ds.finalize();
@@ -500,7 +499,7 @@ mod tests {
     #[test]
     fn test_large_counts_and_labels() {
         let label = "x".repeat(100);
-        let mut ds = DomainSeparator::<EF4, F, H>::new("big");
+        let mut ds = DomainSeparator::<EF4, F>::new("big");
         ds.absorb(12345, &label);
         ds.squeeze(54321, &label);
         let ops = ds.finalize();
@@ -511,28 +510,28 @@ mod tests {
     fn test_malformed_tag_parsing_fails() {
         // Missing count
         let broken = "proto\0Ax";
-        let ds = DomainSeparator::<EF4, F, H>::from_string(broken.to_string());
-        let res = DomainSeparator::<EF4, F, H>::parse_domsep(ds.as_bytes());
+        let ds = DomainSeparator::<EF4, F>::from_string(broken.to_string());
+        let res = DomainSeparator::<EF4, F>::parse_domsep(ds.as_bytes());
         assert!(res.is_err());
     }
 
     #[test]
     fn test_simplify_stack_keeps_unlike_ops() {
         let tag = "test\0A2x\0S3y\0A1z";
-        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(2), Op::Squeeze(3), Op::Absorb(1)]);
     }
 
     #[test]
     fn test_round_trip_operations() {
-        let mut ds1 = DomainSeparator::<EF4, F, H>::new("foo");
+        let mut ds1 = DomainSeparator::<EF4, F>::new("foo");
         ds1.absorb(2, "a");
         ds1.squeeze(3, "b");
         let ops1 = ds1.finalize();
 
         let tag = std::str::from_utf8(ds1.as_bytes()).unwrap();
-        let ds2 = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
+        let ds2 = DomainSeparator::<EF4, F>::from_string(tag.to_string());
         let ops2 = ds2.finalize();
 
         assert_eq!(ops1, ops2);
@@ -540,7 +539,7 @@ mod tests {
 
     #[test]
     fn test_squeeze_returns_correct_string() {
-        let mut ds = DomainSeparator::<EF4, F, H>::new("proto");
+        let mut ds = DomainSeparator::<EF4, F>::new("proto");
         ds.squeeze(4, "challenge");
         let expected_str = "proto\0S4challenge";
         assert_eq!(ds.as_bytes(), expected_str.as_bytes());
@@ -549,24 +548,24 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_squeeze_zero_count_panics() {
-        DomainSeparator::<EF4, F, H>::new("proto").squeeze(0, "label");
+        DomainSeparator::<EF4, F>::new("proto").squeeze(0, "label");
     }
 
     #[test]
     #[should_panic]
     fn test_squeeze_label_with_null_byte_panics() {
-        DomainSeparator::<EF4, F, H>::new("proto").squeeze(2, "bad\0label");
+        DomainSeparator::<EF4, F>::new("proto").squeeze(2, "bad\0label");
     }
 
     #[test]
     #[should_panic]
     fn test_squeeze_label_starts_with_digit_panics() {
-        DomainSeparator::<EF4, F, H>::new("proto").squeeze(2, "1invalid");
+        DomainSeparator::<EF4, F>::new("proto").squeeze(2, "1invalid");
     }
 
     #[test]
     fn test_multiple_squeeze_chaining() {
-        let mut ds = DomainSeparator::<EF4, F, H>::new("proto");
+        let mut ds = DomainSeparator::<EF4, F>::new("proto");
         ds.squeeze(1, "first");
         ds.squeeze(2, "second");
         let expected_str = "proto\0S1first\0S2second";
@@ -576,7 +575,7 @@ mod tests {
     #[test]
     fn test_finalize_mixed_ops_order_preserved() {
         let tag = "zkp\0A1a\0S1b\0A2c\0S3d\0A4e\0S1f";
-        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(
             ops,
@@ -594,7 +593,7 @@ mod tests {
     #[test]
     fn test_finalize_large_values_and_merge() {
         let tag = "main\0A5a\0A10b\0S8c\0S2d";
-        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(15), Op::Squeeze(10)]);
     }
@@ -602,7 +601,7 @@ mod tests {
     #[test]
     fn test_finalize_merge_and_breaks() {
         let tag = "example\0A2x\0A1y\0A3z\0S4u\0S1v";
-        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(6), Op::Squeeze(5),]);
     }
@@ -610,7 +609,7 @@ mod tests {
     #[test]
     fn test_finalize_complex_merge_boundaries() {
         let tag = "demo\0A1a\0A1b\0S2c\0S2d\0A3e\0S1f\0Hd";
-        let ds = DomainSeparator::<EF4, F, H>::from_string(tag.to_string());
+        let ds = DomainSeparator::<EF4, F>::from_string(tag.to_string());
         let ops = ds.finalize();
         assert_eq!(
             ops,
@@ -631,7 +630,7 @@ mod tests {
         // - bits = 31 → bytes_modp(31) = 4
         // - 2 scalars * 1 * 4 = 8 bytes absorbed
         // - "A" indicates absorption in the domain separator
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("babybear");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("babybear");
         domsep.add_scalars(2, "foo");
         let expected = b"babybear\0A8foo";
         assert_eq!(domsep.as_bytes(), expected);
@@ -644,7 +643,7 @@ mod tests {
         // - bits = 31 → bytes_uniform_modp(31) = 5
         // - 3 scalars * 1 * 5 = 15 bytes squeezed
         // - "S" indicates squeezing in the domain separator
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("bb");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("bb");
         domsep.challenge_scalars(3, "bar");
         let expected = b"bb\0S57bar";
         assert_eq!(domsep.as_bytes(), expected);
@@ -656,7 +655,7 @@ mod tests {
         // - EF4 has extension degree = 4
         // - Base field bits = 31 → bytes_modp(31) = 4
         // - 2 scalars * 4 * 4 = 32 bytes absorbed
-        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("ext");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("ext");
         domsep.add_scalars(2, "a");
         let expected = b"ext\0A32a";
         assert_eq!(domsep.as_bytes(), expected);
@@ -669,7 +668,7 @@ mod tests {
         // - Base field bits = 31 → bytes_uniform_modp(31) = 19
         // - 1 scalar * 4 * 19 = 76 bytes squeezed
         // - "S" indicates squeezing in the domain separator
-        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("ext2");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("ext2");
         domsep.challenge_scalars(1, "b");
 
         let expected = b"ext2\0S76b";
@@ -678,7 +677,7 @@ mod tests {
 
     #[test]
     fn test_add_ood() {
-        let iop: DomainSeparator<F, F, H> = DomainSeparator::new("test_protocol");
+        let iop: DomainSeparator<F, F> = DomainSeparator::new("test_protocol");
         let mut updated_iop = iop.clone();
         let mut unchanged_iop = iop;
 
@@ -700,7 +699,7 @@ mod tests {
 
     #[test]
     fn test_pow() {
-        let iop: DomainSeparator<F, F, H> = DomainSeparator::new("test_protocol");
+        let iop: DomainSeparator<F, F> = DomainSeparator::new("test_protocol");
         let mut updated_iop = iop.clone();
         let mut unchanged_iop = iop;
 
@@ -721,7 +720,7 @@ mod tests {
 
     #[test]
     fn test_hint_is_parsed_correctly() {
-        let mut ds = DomainSeparator::<EF4, F, H>::new("hint_test");
+        let mut ds = DomainSeparator::<EF4, F>::new("hint_test");
         ds.hint("my_hint");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Hint]);
@@ -729,7 +728,7 @@ mod tests {
 
     #[test]
     fn test_hint_format_is_correct_in_bytes() {
-        let mut ds = DomainSeparator::<EF4, F, H>::new("proto");
+        let mut ds = DomainSeparator::<EF4, F>::new("proto");
         ds.hint("my_hint");
         let expected = b"proto\0Hmy_hint";
         assert_eq!(ds.as_bytes(), expected);
@@ -738,13 +737,13 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_hint_label_with_null_byte_panics() {
-        let mut ds = DomainSeparator::<EF4, F, H>::new("x");
+        let mut ds = DomainSeparator::<EF4, F>::new("x");
         ds.hint("bad\0hint");
     }
 
     #[test]
     fn test_hint_combined_with_absorb_and_squeeze() {
-        let mut ds = DomainSeparator::<EF4, F, H>::new("combo");
+        let mut ds = DomainSeparator::<EF4, F>::new("combo");
         ds.absorb(1, "x");
         ds.hint("meta");
         ds.squeeze(2, "y");
