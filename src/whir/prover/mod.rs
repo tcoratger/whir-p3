@@ -174,19 +174,6 @@ where
         round_state.randomness_vec.reverse();
         let constraint_eval = MultilinearPoint(round_state.randomness_vec);
 
-        // // Evaluate the public linear statement constraints at the random point
-        // //
-        // // Only linear constraints are checked here, by evaluating their linear combination weights.
-        // let statement_values_at_random_point = round_state
-        //     .statement
-        //     .constraints
-        //     .iter()
-        //     .filter_map(|constraint| match &constraint.weights {
-        //         Weights::Linear { weight } => Some(weight.evaluate_at_extension(&eval_point)),
-        //         Weights::Evaluation { .. } => None,
-        //     })
-        //     .collect();
-
         // Hints for deferred constraints
         let deferred = round_state
             .statement
@@ -196,17 +183,6 @@ where
             .map(|constraint| constraint.weights.compute(&constraint_eval))
             .collect();
         prover_state.hint::<Vec<EF>>(&deferred)?;
-
-        // // Construct the final WHIR proof with all necessary Merkle proofs and evaluations
-        // //
-        // // The proof consists of:
-        // //   - Merkle paths for polynomial commitments from all rounds
-        // //   - Final evaluations of the public statement at the challenge point
-        // Ok(WhirProof {
-        //     commitment_merkle_paths: round_state.commitment_merkle_proof.unwrap(),
-        //     merkle_paths: round_state.merkle_proofs,
-        //     statement_values_at_random_point,
-        // })
 
         Ok((constraint_eval, deferred))
     }
