@@ -120,7 +120,7 @@ fn main() {
 
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
-        let eval = polynomial.eval_extension(point);
+        let eval = polynomial.evaluate_at_extension(point);
         let weights = Weights::evaluation(point.clone());
         statement.add_constraint(weights, eval);
     }

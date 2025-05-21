@@ -161,7 +161,7 @@ where
     ///   = ∏_{i=1}^{n} (1 - p_i + 2 p_i x_i)`.
     /// - Uses fast multilinear interpolation for efficiency.
     #[must_use]
-    pub fn eval_extension<EF>(&self, point: &MultilinearPoint<EF>) -> EF
+    pub fn evaluate_at_extension<EF>(&self, point: &MultilinearPoint<EF>) -> EF
     where
         EF: ExtensionField<F>,
     {
@@ -447,7 +447,9 @@ mod tests {
 
         for i in BinaryHypercube::new(2) {
             assert_eq!(
-                eval_list.eval_extension(&MultilinearPoint::<F>::from_binary_hypercube_point(i, 2)),
+                eval_list.evaluate_at_extension(
+                    &MultilinearPoint::<F>::from_binary_hypercube_point(i, 2)
+                ),
                 evals[i.0]
             );
         }
@@ -464,7 +466,7 @@ mod tests {
 
         let point = MultilinearPoint(vec![F::from_u64(2), F::from_u64(3)]);
 
-        let result = evals.eval_extension(&point);
+        let result = evals.evaluate_at_extension(&point);
 
         // Expected result using `eval_multilinear`
         let expected = eval_multilinear(evals.evals(), &point.0);
@@ -651,8 +653,8 @@ mod tests {
             ]);
 
             // Evaluate using both base and extension representations
-            let eval_f = poly_f.eval_extension(&point_ef);
-            let eval_ef = poly_ef.eval_extension(&point_ef);
+            let eval_f = poly_f.evaluate_at_extension(&point_ef);
+            let eval_ef = poly_ef.evaluate_at_extension(&point_ef);
 
             prop_assert_eq!(eval_f, eval_ef);
         }
@@ -832,8 +834,8 @@ mod tests {
             + EF4::from(c6) * x0 * x1
             + EF4::from(c7) * x0 * x1 * x2;
 
-        // Evaluate via `eval_extension` method
-        let result = evals.eval_extension(&point);
+        // Evaluate via `evaluate_at_extension` method
+        let result = evals.evaluate_at_extension(&point);
 
         // Verify that result matches manual computation
         assert_eq!(result, expected);
