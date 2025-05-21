@@ -128,7 +128,7 @@ where
             width: 1 << fold_r,
         }];
 
-        let stir_challenges_answers: Vec<Vec<F>> = if r == 0 {
+        let stir_challenges_answers = if r == 0 {
             // Case: r == 0, use base field
 
             // Deserialize base field answers and Merkle proofs from verifier transcript
