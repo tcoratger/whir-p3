@@ -320,8 +320,6 @@ mod tests {
 
     use super::*;
 
-    type H = DefaultHash;
-
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
 
@@ -450,7 +448,7 @@ mod tests {
 
         // Step 3: Create a domain separator that commits to absorbing 2 scalars
         // The label "scalars" is just metadata to distinguish this absorb phase
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("test");
         domsep.add_scalars(values.len(), "scalars");
 
         // Step 4: Create a verifier from the domain separator, loaded with the raw bytes
@@ -508,7 +506,7 @@ mod tests {
         ];
 
         // Step 4: Create a domain separator for absorbing 2 EF4 values
-        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("ext");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("ext");
         domsep.add_scalars(values.len(), "ext-scalars");
 
         // Step 5: Construct a verifier state from the domain separator and raw byte input
@@ -525,7 +523,7 @@ mod tests {
     #[test]
     fn scalar_challenge_single_basefield_case_1() {
         // Generate a domain separator with known tag and one challenge scalar
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("chal");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("chal");
         domsep.challenge_scalars(1, "tag");
         let mut prover = domsep.to_verifier_state(&[]);
 
@@ -539,7 +537,7 @@ mod tests {
 
     #[test]
     fn scalar_challenge_single_basefield_case_2() {
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("chal2");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("chal2");
         domsep.challenge_scalars(1, "tag");
         let mut prover = domsep.to_verifier_state(&[]);
 
@@ -551,7 +549,7 @@ mod tests {
 
     #[test]
     fn scalar_challenge_multiple_basefield_scalars() {
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("chal");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("chal");
         domsep.challenge_scalars(10, "tag");
         let mut prover = domsep.to_verifier_state(&[]);
 
@@ -577,7 +575,7 @@ mod tests {
 
     #[test]
     fn scalar_challenge_single_extension_scalar() {
-        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("chal");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("chal");
         domsep.challenge_scalars(1, "tag");
         let mut prover = domsep.to_verifier_state(&[]);
 
@@ -600,7 +598,7 @@ mod tests {
 
     #[test]
     fn scalar_challenge_multiple_extension_scalars() {
-        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("chal");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("chal");
         domsep.challenge_scalars(5, "tag");
         let mut prover = domsep.to_verifier_state(&[]);
 
@@ -672,7 +670,7 @@ mod tests {
         let values = [F::from_u64(111), F::from_u64(222)];
 
         // Create a domain separator indicating we will absorb 2 public scalars
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("field");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("field");
         domsep.add_scalars(2, "test");
 
         // Create prover and serialize expected values manually
@@ -702,7 +700,7 @@ mod tests {
         let values = [G::from_u64(111), G::from_u64(222)];
 
         // Create a domain separator indicating we will absorb 2 public scalars
-        let mut domsep: DomainSeparator<G, G, H> = DomainSeparator::new("field");
+        let mut domsep: DomainSeparator<G, G> = DomainSeparator::new("field");
         domsep.add_scalars(2, "test");
 
         // Create prover and serialize expected values manually
@@ -732,7 +730,7 @@ mod tests {
         let values = [EF4::from_u64(111), EF4::from_u64(222)];
 
         // Create a domain separator committing to 2 public scalars
-        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("field");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("field");
         domsep.add_scalars(2, "test");
 
         // Compute expected bytes manually: serialize each coefficient of EF4
@@ -767,7 +765,7 @@ mod tests {
         let values = [EG2::from_u64(111), EG2::from_u64(222)];
 
         // Create a domain separator committing to 2 public scalars
-        let mut domsep: DomainSeparator<EG2, G, H> = DomainSeparator::new("field");
+        let mut domsep: DomainSeparator<EG2, G> = DomainSeparator::new("field");
         domsep.add_scalars(2, "test");
 
         // Compute expected bytes manually: serialize each coefficient of EF4
@@ -800,7 +798,7 @@ mod tests {
     fn test_common_field_to_unit_mixed_values() {
         let values = [F::ZERO, F::ONE, F::from_u64(123456), F::from_u64(7891011)];
 
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("mixed");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("mixed");
         domsep.add_scalars(values.len(), "mix");
 
         let mut prover = domsep.to_verifier_state(&[]);
@@ -821,7 +819,7 @@ mod tests {
     #[test]
     fn test_hint_bytes_verifier_valid_hint() {
         // Domain separator commits to a hint
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("valid");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("valid");
         domsep.hint("hint");
 
         let mut prover = domsep.to_prover_state();
@@ -839,7 +837,7 @@ mod tests {
     #[test]
     fn test_hint_bytes_verifier_empty_hint() {
         // Commit to a hint instruction
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("empty");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("empty");
         domsep.hint("hint");
 
         let mut prover = domsep.to_prover_state();
@@ -857,7 +855,7 @@ mod tests {
     #[test]
     fn test_hint_bytes_verifier_no_hint_op() {
         // No hint instruction in domain separator
-        let domsep: DomainSeparator<F, F, H> = DomainSeparator::new("nohint");
+        let domsep: DomainSeparator<F, F> = DomainSeparator::new("nohint");
 
         // Manually construct a hint buffer (length = 6, followed by bytes)
         let mut narg = vec![6, 0, 0, 0]; // length prefix for 6
@@ -871,7 +869,7 @@ mod tests {
     #[test]
     fn test_hint_bytes_verifier_length_prefix_too_short() {
         // Valid hint domain separator
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("short");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("short");
         domsep.hint("hint");
 
         // Provide only 3 bytes, which is not enough for a u32 length
@@ -889,7 +887,7 @@ mod tests {
     #[test]
     fn test_hint_bytes_verifier_declared_hint_too_long() {
         // Valid hint domain separator
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("overflow");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("overflow");
         domsep.hint("hint");
 
         // Prefix says "5 bytes", but we only supply 2
@@ -908,7 +906,7 @@ mod tests {
     fn test_hint_single_field_and_extension_round_trip() {
         // Create a domain separator tagged with "hint-single"
         // This will record all instructions for the Fiat-Shamir transcript
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("hint-single");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("hint-single");
 
         // Register two hints in the domain separator: one for the base field, one for the extension field
         domsep.hint("base-field-hint");
@@ -951,7 +949,7 @@ mod tests {
     #[test]
     fn test_hint_vec_field_and_extension_round_trip() {
         // Create domain separator labeled "hint-vec"
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("hint-vec");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("hint-vec");
 
         // Register two hints: one for Vec<F> and one for Vec<EF4>
         domsep.hint("vec-base");
@@ -1000,7 +998,7 @@ mod tests {
     #[test]
     fn test_hint_vec_vec_field_and_extension_round_trip() {
         // Domain separator for nested vectors
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("hint-vec-vec");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("hint-vec-vec");
 
         // Register hints for nested base and extension field vectors
         domsep.hint("nested-base");
@@ -1048,7 +1046,7 @@ mod tests {
         const DIGEST_ELEMS: usize = 4;
 
         // Domain separator for digest hint
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("hint-digest");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("hint-digest");
 
         // Register hint labeled "digest"
         domsep.hint("digest");

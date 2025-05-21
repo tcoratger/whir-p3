@@ -281,8 +281,6 @@ mod tests {
 
     use super::*;
 
-    type H = DefaultHash;
-
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
 
@@ -291,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_prover_state_public_units_does_not_affect_narg() {
-        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("test");
+        let mut domsep = DomainSeparator::<F, F>::new("test");
         domsep.absorb(4, "data");
         let mut pstate = domsep.to_prover_state();
 
@@ -301,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_add_units_appends_to_narg_string() {
-        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("test");
+        let mut domsep = DomainSeparator::<F, F>::new("test");
         domsep.absorb(3, "msg");
         let mut pstate = domsep.to_prover_state();
         let input = [42, 43, 44];
@@ -312,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_add_units_too_many_elements_should_error() {
-        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("test");
+        let mut domsep = DomainSeparator::<F, F>::new("test");
         domsep.absorb(2, "short");
         let mut pstate = domsep.to_prover_state();
 
@@ -322,7 +320,7 @@ mod tests {
 
     #[test]
     fn test_public_units_does_not_update_transcript() {
-        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("test");
+        let mut domsep = DomainSeparator::<F, F>::new("test");
         domsep.absorb(2, "p");
         let mut pstate = domsep.to_prover_state();
         let _ = pstate.public_bytes(&[0xaa, 0xbb]);
@@ -332,7 +330,7 @@ mod tests {
 
     #[test]
     fn test_fill_challenge_units() {
-        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("test");
+        let mut domsep = DomainSeparator::<F, F>::new("test");
         domsep.squeeze(8, "ch");
         let mut pstate = domsep.to_prover_state();
 
@@ -343,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_add_units_multiple_accumulates() {
-        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("t");
+        let mut domsep = DomainSeparator::<F, F>::new("t");
         domsep.absorb(2, "a");
         domsep.absorb(3, "b");
         let mut p = domsep.to_prover_state();
@@ -356,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_narg_string_round_trip_check() {
-        let mut domsep = DomainSeparator::<F, F, DefaultHash>::new("t");
+        let mut domsep = DomainSeparator::<F, F>::new("t");
         domsep.absorb(5, "data");
         let mut p = domsep.to_prover_state();
 
@@ -370,7 +368,7 @@ mod tests {
     #[test]
     fn test_add_scalars_babybear() {
         // Step 1: Create a domain separator with the label "test"
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("test");
 
         // Step 2: Add an "absorb scalars" tag for 3 scalars, with label "com"
         // This ensures deterministic transcript layout
@@ -413,7 +411,7 @@ mod tests {
     #[test]
     fn test_add_scalars_goldilocks() {
         // Step 1: Create a domain separator with the label "test"
-        let mut domsep: DomainSeparator<G, G, H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<G, G> = DomainSeparator::new("test");
 
         // Step 2: Add an "absorb scalars" tag for 3 scalars, with label "com"
         // This ensures deterministic transcript layout
@@ -456,7 +454,7 @@ mod tests {
     #[test]
     fn test_add_scalars_extension_babybear() {
         // Step 1: Create a domain separator with the label "test"
-        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("test");
 
         // Step 2: Add absorb-scalar tag for EF4 type and 3 values
         domsep.add_scalars(3, "com");
@@ -504,7 +502,7 @@ mod tests {
     #[test]
     fn test_add_scalars_extension_goldilocks() {
         // Step 1: Create a domain separator with the label "test"
-        let mut domsep: DomainSeparator<EG2, G, H> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<EG2, G> = DomainSeparator::new("test");
 
         // Step 2: Add absorb-scalar tag for EG2 type and 3 values
         domsep.add_scalars(3, "com");
@@ -551,7 +549,7 @@ mod tests {
     #[test]
     fn scalar_challenge_single_basefield_case_1() {
         // Generate a domain separator with known tag and one challenge scalar
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("chal");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("chal");
         domsep.challenge_scalars(1, "tag");
         let mut prover = domsep.to_prover_state();
 
@@ -565,7 +563,7 @@ mod tests {
 
     #[test]
     fn scalar_challenge_single_basefield_case_2() {
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("chal2");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("chal2");
         domsep.challenge_scalars(1, "tag");
         let mut prover = domsep.to_prover_state();
 
@@ -577,7 +575,7 @@ mod tests {
 
     #[test]
     fn scalar_challenge_multiple_basefield_scalars() {
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("chal");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("chal");
         domsep.challenge_scalars(10, "tag");
         let mut prover = domsep.to_prover_state();
 
@@ -603,7 +601,7 @@ mod tests {
 
     #[test]
     fn scalar_challenge_single_extension_scalar() {
-        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("chal");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("chal");
         domsep.challenge_scalars(1, "tag");
         let mut prover = domsep.to_prover_state();
 
@@ -626,7 +624,7 @@ mod tests {
 
     #[test]
     fn scalar_challenge_multiple_extension_scalars() {
-        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("chal");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("chal");
         domsep.challenge_scalars(5, "tag");
         let mut prover = domsep.to_prover_state();
 
@@ -698,7 +696,7 @@ mod tests {
         let values = [F::from_u64(111), F::from_u64(222)];
 
         // Create a domain separator indicating we will absorb 2 public scalars
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("field");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("field");
         domsep.add_scalars(2, "test");
 
         // Create prover and serialize expected values manually
@@ -728,7 +726,7 @@ mod tests {
         let values = [G::from_u64(111), G::from_u64(222)];
 
         // Create a domain separator indicating we will absorb 2 public scalars
-        let mut domsep: DomainSeparator<G, G, H> = DomainSeparator::new("field");
+        let mut domsep: DomainSeparator<G, G> = DomainSeparator::new("field");
         domsep.add_scalars(2, "test");
 
         // Create prover and serialize expected values manually
@@ -758,7 +756,7 @@ mod tests {
         let values = [EF4::from_u64(111), EF4::from_u64(222)];
 
         // Create a domain separator committing to 2 public scalars
-        let mut domsep: DomainSeparator<EF4, F, H> = DomainSeparator::new("field");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("field");
         domsep.add_scalars(2, "test");
 
         // Compute expected bytes manually: serialize each coefficient of EF4
@@ -793,7 +791,7 @@ mod tests {
         let values = [EG2::from_u64(111), EG2::from_u64(222)];
 
         // Create a domain separator committing to 2 public scalars
-        let mut domsep: DomainSeparator<EG2, G, H> = DomainSeparator::new("field");
+        let mut domsep: DomainSeparator<EG2, G> = DomainSeparator::new("field");
         domsep.add_scalars(2, "test");
 
         // Compute expected bytes manually: serialize each coefficient of EF4
@@ -826,7 +824,7 @@ mod tests {
     fn test_common_field_to_unit_mixed_values() {
         let values = [F::ZERO, F::ONE, F::from_u64(123456), F::from_u64(7891011)];
 
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("mixed");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("mixed");
         domsep.add_scalars(values.len(), "mix");
 
         let mut prover = domsep.to_prover_state();
@@ -846,7 +844,7 @@ mod tests {
 
     #[test]
     fn test_hint_bytes_appends_hint_length_and_data() {
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("hint_test");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("hint_test");
         domsep.hint("proof_hint");
         let mut prover = domsep.to_prover_state();
 
@@ -865,7 +863,7 @@ mod tests {
 
     #[test]
     fn test_hint_bytes_empty_hint_is_encoded_correctly() {
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("empty_hint");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("empty_hint");
         domsep.hint("empty");
         let mut prover = domsep.to_prover_state();
 
@@ -877,7 +875,7 @@ mod tests {
 
     #[test]
     fn test_hint_bytes_fails_if_hint_op_missing() {
-        let domsep: DomainSeparator<F, F, H> = DomainSeparator::new("no_hint");
+        let domsep: DomainSeparator<F, F> = DomainSeparator::new("no_hint");
         let mut prover = domsep.to_prover_state();
 
         // DomainSeparator contains no hint operation
@@ -890,7 +888,7 @@ mod tests {
 
     #[test]
     fn test_hint_bytes_is_deterministic() {
-        let mut domsep: DomainSeparator<F, F, H> = DomainSeparator::new("det_hint");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("det_hint");
         domsep.hint("same");
 
         let hint = b"zkproof_hint";
