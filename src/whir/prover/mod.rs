@@ -113,7 +113,7 @@ where
         if !self.initial_statement {
             assert!(witness.ood_points.is_empty());
         }
-        witness.polynomial.num_variables() == self.mv_parameters.num_variables
+        witness.pol_coeffs.num_variables() == self.mv_parameters.num_variables
     }
 
     /// Executes the full WHIR prover protocol to produce the proof.
