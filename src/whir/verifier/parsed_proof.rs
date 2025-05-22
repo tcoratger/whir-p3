@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use p3_commit::{ExtensionMmcs, Mmcs};
+use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -173,12 +173,17 @@ where
                         .exp_domain_gen
                         .exp_u64(stir_challenges_index as u64),
                 );
+
+                let batch_opening = BatchOpeningRef {
+                    opened_values: &[commitment_randomness_answers[i].clone()],
+                    opening_proof: &commitment_merkle_proof[i],
+                };
+
                 mmcs.verify_batch(
                     &round_state.prev_root,
                     &dimensions,
                     stir_challenges_index,
-                    &[commitment_randomness_answers[i].clone()],
-                    &commitment_merkle_proof[i],
+                    batch_opening,
                 )
                 .map_err(|_| ProofError::InvalidProof)?;
             }
@@ -192,13 +197,17 @@ where
             let final_merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
 
             for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
+                let batch_opening = BatchOpeningRef {
+                    opened_values: &[final_randomness_answers[i].clone()],
+                    opening_proof: &final_merkle_proof[i],
+                };
+
                 extension_mmcs
                     .verify_batch(
                         &round_state.prev_root,
                         &dimensions,
                         stir_challenges_index,
-                        &[final_randomness_answers[i].clone()],
-                        &final_merkle_proof[i],
+                        batch_opening,
                     )
                     .map_err(|_| ProofError::InvalidProof)?;
             }
