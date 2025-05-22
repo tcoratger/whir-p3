@@ -276,18 +276,30 @@ impl<F: Field> Statement<F> {
     }
 
     /// Inserts multiple constraints at the front of the system.
+    ///
+    /// Panics if any constraint's number of variables does not match the system.
     pub fn add_constraints_in_front(&mut self, constraints: Vec<(Weights<F>, F)>) {
-        for (weights, _) in &constraints {
-            assert_eq!(weights.num_variables(), self.num_variables());
-        }
-        self.constraints.splice(
-            0..0,
-            constraints.into_iter().map(|(weights, sum)| Constraint {
+        // Store the number of variables expected by this statement.
+        let n = self.num_variables();
+
+        // Preallocate a vector for the converted constraints to avoid reallocations.
+        let mut new_constraints = Vec::with_capacity(constraints.len());
+
+        // Iterate through each (weights, sum) pair in the input.
+        for (weights, sum) in constraints {
+            // Ensure the number of variables in the weight matches the statement.
+            assert_eq!(weights.num_variables(), n);
+
+            // Convert the pair into a full `Constraint` with `defer_evaluation = false`.
+            new_constraints.push(Constraint {
                 weights,
                 sum,
                 defer_evaluation: false,
-            }),
-        );
+            });
+        }
+
+        // Insert all new constraints at the beginning of the existing list.
+        self.constraints.splice(0..0, new_constraints);
     }
 
     /// Combines all constraints into a single aggregated polynomial using a challenge.
