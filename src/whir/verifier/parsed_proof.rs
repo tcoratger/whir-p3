@@ -113,7 +113,8 @@ where
 
             initial_combination_randomness = vec![F::ONE];
 
-            let mut folding_randomness_vec = vec![F::ZERO; verifier.folding_factor.at_round(0)];
+            let mut folding_randomness_vec = F::zero_vec(verifier.folding_factor.at_round(0));
+
             verifier_state.fill_challenge_scalars(&mut folding_randomness_vec)?;
 
             // PoW
@@ -174,16 +175,14 @@ where
                         .exp_u64(stir_challenges_index as u64),
                 );
 
-                let batch_opening = BatchOpeningRef {
-                    opened_values: &[commitment_randomness_answers[i].clone()],
-                    opening_proof: &commitment_merkle_proof[i],
-                };
-
                 mmcs.verify_batch(
                     &round_state.prev_root,
                     &dimensions,
                     stir_challenges_index,
-                    batch_opening,
+                    BatchOpeningRef {
+                        opened_values: &[commitment_randomness_answers[i].clone()],
+                        opening_proof: &commitment_merkle_proof[i],
+                    },
                 )
                 .map_err(|_| ProofError::InvalidProof)?;
             }
@@ -197,17 +196,15 @@ where
             let final_merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
 
             for (i, &stir_challenges_index) in final_randomness_indexes.iter().enumerate() {
-                let batch_opening = BatchOpeningRef {
-                    opened_values: &[final_randomness_answers[i].clone()],
-                    opening_proof: &final_merkle_proof[i],
-                };
-
                 extension_mmcs
                     .verify_batch(
                         &round_state.prev_root,
                         &dimensions,
                         stir_challenges_index,
-                        batch_opening,
+                        BatchOpeningRef {
+                            opened_values: &[final_randomness_answers[i].clone()],
+                            opening_proof: &final_merkle_proof[i],
+                        },
                     )
                     .map_err(|_| ProofError::InvalidProof)?;
             }
