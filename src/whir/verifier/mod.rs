@@ -108,6 +108,61 @@ where
         Ok(())
     }
 
+    /// Evaluate a batch of constraint polynomials at a given multilinear point.
+    ///
+    /// This function computes the combined weighted value of constraints across all rounds.
+    /// Each constraint is either directly evaluated at the input point (`MultilinearPoint`)
+    /// or substituted with a deferred evaluation result, depending on the constraint type.
+    ///
+    /// The final result is the sum of each constraint's value, scaled by its corresponding
+    /// challenge randomness (used in the linear combination step of the sumcheck protocol).
+    ///
+    /// # Arguments
+    /// - `constraints`: A list of tuples, where each tuple corresponds to a round and contains:
+    ///     - A vector of challenge randomness values (used to weight each constraint),
+    ///     - A vector of `Constraint<EF>` objects for that round.
+    /// - `deferred`: Precomputed evaluations used for deferred constraints.
+    /// - `point`: The multilinear point at which to evaluate the constraint polynomials.
+    ///
+    /// # Returns
+    /// The combined evaluation result of all weighted constraints across rounds at the given point.
+    ///
+    /// # Panics
+    /// Panics if:
+    /// - Any round's `randomness.len()` does not match `constraints.len()`,
+    /// - A deferred constraint is encountered but `deferred` has been exhausted.
+    fn eval_constraints_poly(
+        &self,
+        constraints: &[(Vec<EF>, Vec<Constraint<EF>>)],
+        deferred: &[EF],
+        mut point: MultilinearPoint<EF>,
+    ) -> EF {
+        let mut num_variables = self.mv_parameters.num_variables;
+        let mut deferred = deferred.iter().copied();
+        let mut value = EF::ZERO;
+
+        for (round, (randomness, constraints)) in constraints.iter().enumerate() {
+            assert_eq!(randomness.len(), constraints.len());
+            if round > 0 {
+                num_variables -= self.folding_factor.at_round(round - 1);
+                point = MultilinearPoint(point.0[..num_variables].to_vec());
+            }
+            value += constraints
+                .iter()
+                .zip(randomness)
+                .map(|(constraint, &randomness)| {
+                    let value = if constraint.defer_evaluation {
+                        deferred.next().unwrap()
+                    } else {
+                        constraint.weights.compute(&point)
+                    };
+                    value * randomness
+                })
+                .sum::<EF>();
+        }
+        value
+    }
+
     fn compute_w_poly<const DIGEST_ELEMS: usize>(
         &self,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
