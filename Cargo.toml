@@ -69,6 +69,7 @@ blake3 = "1.5.4"
 num-bigint = "0.4"
 clap = { version = "4.4.17", features = ["derive"] }
 bincode = { version = "2.0", features = ["serde"] }
+bytemuck = { version = "1.18", features = ["extern_crate_alloc"] }
 
 [dev-dependencies]
 criterion = "0.6"
