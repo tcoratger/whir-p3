@@ -4,9 +4,12 @@ use rayon::prelude::*;
 use tracing::instrument;
 
 use crate::{
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::eval_eq,
+    whir::statement::constraint::Constraint,
 };
+
+pub mod constraint;
 
 /// Represents a weight function used in polynomial evaluations.
 ///
@@ -74,7 +77,7 @@ impl<F: Field> Weights<F> {
     /// **Precondition:**
     /// If `self` is in linear mode, `poly.num_variables()` must match `weight.num_variables()`.
     #[must_use]
-    pub fn weighted_sum<BF>(&self, poly: &EvaluationsList<BF>) -> F
+    pub fn evaluate_evals<BF>(&self, poly: &EvaluationsList<BF>) -> F
     where
         BF: Field,
         F: ExtensionField<BF>,
@@ -172,27 +175,36 @@ impl<F: Field> Weights<F> {
             Self::Linear { weight } => weight.evaluate_at_extension(folding_randomness),
         }
     }
-}
 
-/// Represents a single constraint in a polynomial statement.
-#[derive(Clone, Debug)]
-pub struct Constraint<F> {
-    /// The weight function applied to the polynomial.
-    ///
-    /// This defines how the polynomial is combined or evaluated.
-    /// It can represent either a point evaluation or a full set of weights.
-    pub weights: Weights<F>,
+    /// Evaluate the weighted sum with a polynomial in coefficient form.
+    #[must_use]
+    pub fn evaluate_coeffs(&self, poly: &CoefficientList<F>) -> F {
+        assert_eq!(self.num_variables(), poly.num_variables());
+        match self {
+            Self::Evaluation { point } => poly.evaluate(point),
+            Self::Linear { weight } => {
+                #[cfg(not(feature = "parallel"))]
+                {
+                    weight
+                        .evals()
+                        .iter()
+                        .zip(poly.clone().to_evaluations().evals())
+                        .map(|(&w, &p)| w * p)
+                        .sum()
+                }
 
-    /// The expected result of applying the weight to the polynomial.
-    ///
-    /// This is the scalar value that the weighted sum must match.
-    pub sum: F,
-
-    /// If true, the verifier will not evaluate the weight directly.
-    ///
-    /// Instead, the prover must supply the result as a hint.
-    /// This is used for deferred or externally computed evaluations.
-    pub defer_evaluation: bool,
+                #[cfg(feature = "parallel")]
+                {
+                    weight
+                        .evals()
+                        .par_iter()
+                        .zip(poly.clone().to_evaluations().evals())
+                        .map(|(&w, &p)| w * p)
+                        .sum()
+                }
+            }
+        }
+    }
 }
 
 /// Represents a system of weighted polynomial constraints over a Boolean hypercube.
@@ -384,7 +396,7 @@ mod tests {
         // Expected result: polynomial evaluation at the given point
         let expected = e1;
 
-        assert_eq!(weight.weighted_sum(&evals), expected);
+        assert_eq!(weight.evaluate_evals(&evals), expected);
     }
 
     #[test]
@@ -407,7 +419,7 @@ mod tests {
         // \end{equation}
         let expected = e0 * w0 + e1 * w1;
 
-        assert_eq!(weight.weighted_sum(&evals), expected);
+        assert_eq!(weight.evaluate_evals(&evals), expected);
     }
 
     #[test]
@@ -643,10 +655,80 @@ mod tests {
             let weight_ef = Weights::<EF4>::evaluation(point_ef4);
 
             // Comparison between F-based and EF4-based weights
-            let result_f = weight_ef.weighted_sum(&poly);
-            let result_ef = weight_ef.weighted_sum(&poly_ef);
+            let result_f = weight_ef.evaluate_evals(&poly);
+            let result_ef = weight_ef.evaluate_evals(&poly_ef);
 
             prop_assert_eq!(result_f, result_ef);
         }
+    }
+
+    #[test]
+    fn test_evaluate_in_evaluation_mode() {
+        // Define a multilinear polynomial:
+        // f(X0, X1) = 3 + 4*X1 + 5*X0 + 6*X0*X1
+        let c0 = F::from_u64(3);
+        let c1 = F::from_u64(4);
+        let c2 = F::from_u64(5);
+        let c3 = F::from_u64(6);
+
+        let f = |x0: F, x1: F| c0 + c1 * x1 + c2 * x0 + c3 * x0 * x1;
+
+        // Coefficient order: [1, X1, X0, X0*X1]
+        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3]);
+
+        // Create the weight in Evaluation mode at point (1, 0)
+        let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
+        let weight = Weights::evaluation(point);
+
+        // Manually compute expected f(1, 0):
+        let expected = f(F::ONE, F::ZERO);
+
+        // Check that Weights::evaluate returns the correct result
+        assert_eq!(weight.evaluate_coeffs(&coeffs), expected);
+    }
+
+    #[test]
+    fn test_evaluate_in_linear_mode() {
+        // Define a multilinear polynomial f(X0, X1) = 3 + 4*X1 + 5*X0 + 6*X0*X1
+        let c0 = F::from_u64(3);
+        let c1 = F::from_u64(4);
+        let c2 = F::from_u64(5);
+        let c3 = F::from_u64(6);
+
+        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3]);
+
+        // Evaluate f at every Boolean input in {0,1}²
+        // Corner ordering: (0,0), (0,1), (1,0), (1,1)
+        let evals = coeffs.clone().to_evaluations();
+
+        // Define linear weights w_i for each corner:
+        let w0 = F::from_u64(10);
+        let w1 = F::from_u64(11);
+        let w2 = F::from_u64(12);
+        let w3 = F::from_u64(13);
+        let weights = Weights::linear(EvaluationsList::new(vec![w0, w1, w2, w3]));
+
+        // Expected weighted sum:
+        // sum_i w_i * f_i
+        let expected = w0 * evals[0] + w1 * evals[1] + w2 * evals[2] + w3 * evals[3];
+
+        // Call the evaluate method
+        let result = weights.evaluate_coeffs(&coeffs);
+
+        // Check that the evaluation matches the expected sum
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_evaluate_panics_on_mismatched_vars() {
+        // Define a polynomial with 1 variable
+        let coeffs = CoefficientList::new(vec![F::ONE, F::TWO]);
+
+        // Define a weight expecting 2 variables (linear mode)
+        let weights = Weights::linear(EvaluationsList::new(vec![F::ONE; 4]));
+
+        // This should panic because num_variables mismatch
+        let _ = weights.evaluate_coeffs(&coeffs);
     }
 }
