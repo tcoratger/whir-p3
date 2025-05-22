@@ -15,7 +15,7 @@ use crate::{
 ///
 /// - Evaluation mode: Represents an equality constraint at a specific `MultilinearPoint<F>`.
 /// - Linear mode: Represents a set of per-corner weights stored as `EvaluationsList<F>`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Weights<F> {
     /// Represents a weight function that enforces equality constraints at a specific point.
     Evaluation { point: MultilinearPoint<F> },
@@ -58,6 +58,13 @@ impl<F: Field> Weights<F> {
         match self {
             Self::Evaluation { point } => point.num_variables(),
             Self::Linear { weight } => weight.num_variables(),
+        }
+    }
+
+    /// Construct weights for a univariate evaluation
+    pub fn univariate(point: F, size: usize) -> Self {
+        Self::Evaluation {
+            point: MultilinearPoint::expand_from_univariate(point, size),
         }
     }
 
@@ -324,5 +331,47 @@ mod tests {
         eval_eq(&point.0, &mut expected, factor);
 
         assert_eq!(accumulator.evals(), &expected);
+    }
+
+    #[test]
+    fn test_univariate_weights_one_variable() {
+        // y = 3, n = 1 → [3]
+        let y = F::from_u64(3);
+        let weight = Weights::univariate(y, 1);
+
+        // Expect point to be [3]
+        let expected = MultilinearPoint(vec![y]);
+        assert_eq!(weight, Weights::evaluation(expected));
+    }
+
+    #[test]
+    fn test_univariate_weights_two_variables() {
+        // y = 4, n = 2 → [y^2, y] = [16, 4]
+        let y = F::from_u64(4);
+        let weight = Weights::univariate(y, 2);
+
+        let expected = MultilinearPoint(vec![y.square(), y]);
+        assert_eq!(weight, Weights::evaluation(expected));
+    }
+
+    #[test]
+    fn test_univariate_weights_four_variables() {
+        // y = 3, n = 4 → [3^8, 3^4, 3^2, 3]
+        let y = F::from_u64(3);
+        let weight = Weights::univariate(y, 4);
+
+        let expected = MultilinearPoint(vec![y.exp_u64(8), y.exp_u64(4), y.square(), y]);
+
+        assert_eq!(weight, Weights::evaluation(expected));
+    }
+
+    #[test]
+    fn test_univariate_weights_zero_variables() {
+        let y = F::from_u64(10);
+        let weight = Weights::univariate(y, 0);
+
+        // Expect empty point
+        let expected = MultilinearPoint(vec![]);
+        assert_eq!(weight, Weights::evaluation(expected));
     }
 }
