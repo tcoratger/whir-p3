@@ -165,7 +165,7 @@ where
     #[instrument(skip_all, fields(size = point.num_variables()))]
     pub fn evaluate_at_extension<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables, point.num_variables());
-        eval_extension_para(&self.coeffs, &point.0)
+        eval_extension_par(&self.coeffs, &point.0)
     }
 }
 
@@ -310,7 +310,7 @@ impl<F> CoefficientList<F> {
 /// ```
 /// where the product is now only over the first `L` variables.
 #[inline]
-fn eval_extension_para<F, E>(coeff: &[F], eval: &[E]) -> E
+fn eval_extension_par<F, E>(coeff: &[F], eval: &[E]) -> E
 where
     F: Field,
     E: ExtensionField<F>,
@@ -328,7 +328,7 @@ where
         // While we could run the following code for any size > LOG_NUM_THREADS, there isn't
         // much point. In particular, we would lose some of the benefits of packing tricks in
         // eval_extension_packed. Instead we set a (slightly arbitrary) threshold of 15.
-        if size > 15 {
+        if size > (1 << 15) {
             let chunk_size = size / NUM_THREADS;
             let (head_eval, tail_eval) = eval.split_at(LOG_NUM_THREADS);
             let partial_sum = coeff
@@ -351,7 +351,7 @@ where
 /// where `S(i)` is the set of variables active in term `i` (based on its binary representation).
 ///
 /// - Small cases are passed to `eval_extension_unpacked`.
-/// - For larger cases, we pack extension field elements into PackedFieldExtension elements and
+/// - For larger cases, we pack extension field elements into `PackedFieldExtension` elements and
 ///   do as many rounds as possible in the packed case which is reasonably faster.
 ///   Eventually we unpack and pass to `eval_extension_unpacked`
 #[inline]
