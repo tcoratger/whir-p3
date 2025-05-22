@@ -255,7 +255,14 @@ where
                 coeffs
             });
             // Do DFT on only interleaved polys to be folded.
-            dft.dft_algebra_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor_next))
+            info_span!(
+                "dft",
+                height = coeffs.len() >> folding_factor_next,
+                width = 1 << folding_factor_next
+            )
+            .in_scope(|| {
+                dft.dft_algebra_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor_next))
+            })
         });
 
         let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());

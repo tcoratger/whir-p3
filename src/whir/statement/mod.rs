@@ -1,4 +1,4 @@
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 use tracing::instrument;
 use weights::Weights;
 
@@ -132,7 +132,11 @@ impl<F: Field> Statement<F> {
     /// - `EvaluationsList<F>`: The combined polynomial `W(X)`.
     /// - `F`: The combined sum `S`.
     #[instrument(skip_all)]
-    pub fn combine(&self, challenge: F) -> (EvaluationsList<F>, F) {
+    pub fn combine<Base>(&self, challenge: F) -> (EvaluationsList<F>, F)
+    where
+        Base: Field,
+        F: ExtensionField<Base>,
+    {
         let evaluations_vec = vec![F::ZERO; 1 << self.num_variables];
         let mut combined_evals = EvaluationsList::new(evaluations_vec);
         let (combined_sum, _) = self.constraints.iter().fold(
@@ -140,7 +144,7 @@ impl<F: Field> Statement<F> {
             |(mut acc_sum, gamma_pow), constraint| {
                 constraint
                     .weights
-                    .accumulate(&mut combined_evals, gamma_pow);
+                    .accumulate::<Base>(&mut combined_evals, gamma_pow);
                 acc_sum += constraint.sum * gamma_pow;
                 (acc_sum, gamma_pow * challenge)
             },
