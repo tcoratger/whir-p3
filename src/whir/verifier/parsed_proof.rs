@@ -138,11 +138,11 @@ where
             extension_mmcs: extension_mmcs.clone(),
         };
 
-        let rounds: Vec<_> = (0..verifier.n_rounds())
+        let rounds = (0..verifier.n_rounds())
             .map(|r| round_state.build_parsed_round(verifier, verifier_state, r))
             .collect::<ProofResult<_>>()?;
 
-        let mut final_coefficients = vec![F::ZERO; 1 << verifier.final_sumcheck_rounds];
+        let mut final_coefficients = F::zero_vec(1 << verifier.final_sumcheck_rounds);
         verifier_state.fill_next_scalars(&mut final_coefficients)?;
         let final_coefficients = CoefficientList::new(final_coefficients);
 
