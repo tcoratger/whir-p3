@@ -7,7 +7,7 @@ use tracing::instrument;
 
 use super::{
     committer::reader::ParsedCommitment,
-    statement::{Weights, constraint::Constraint},
+    statement::{constraint::Constraint, weights::Weights},
 };
 use crate::{
     fiat_shamir::{

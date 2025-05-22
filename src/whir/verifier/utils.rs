@@ -132,7 +132,7 @@ mod tests {
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
             Blake3PoW,
-            statement::{Statement, Weights},
+            statement::{Statement, weights::Weights},
         },
     };
 
