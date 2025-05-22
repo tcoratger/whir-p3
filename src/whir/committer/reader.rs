@@ -14,6 +14,9 @@ use crate::{
 /// query points and their corresponding answers, which are required for verifier checks.
 #[derive(Debug, Clone)]
 pub struct ParsedCommitment<F, D> {
+    /// Number of variables in the committed polynomial.
+    pub num_variables: usize,
+
     /// Merkle root of the committed evaluation table.
     ///
     /// This hash is used by the verifier to check Merkle proofs of queried evaluations.
@@ -26,6 +29,62 @@ pub struct ParsedCommitment<F, D> {
 
     /// Answers (evaluations) of the committed polynomial at the corresponding `ood_points`.
     pub ood_answers: Vec<F>,
+}
+
+impl<F, D> ParsedCommitment<F, D> {
+    /// Parse a commitment from the verifier's transcript state.
+    ///
+    /// This function extracts a `ParsedCommitment` by reading the Merkle root,
+    /// out-of-domain (OOD) challenge points, and corresponding claimed evaluations
+    /// from the verifier's Fiat-Shamir transcript.
+    ///
+    /// # Arguments
+    ///
+    /// - `verifier_state`: The verifier's Fiat-Shamir state from which data is read.
+    /// - `num_variables`: Number of variables in the committed multilinear polynomial.
+    /// - `ood_samples`: Number of out-of-domain points the verifier expects to query.
+    ///
+    /// # Returns
+    ///
+    /// A [`ParsedCommitment`] containing:
+    /// - The Merkle root of the committed table,
+    /// - The OOD challenge points,
+    /// - The prover's claimed answers at those points.
+    ///
+    /// This is used to verify consistency of polynomial commitments in WHIR.
+    pub fn parse<EF, const DIGEST_ELEMS: usize>(
+        verifier_state: &mut VerifierState<'_, EF, F>,
+        num_variables: usize,
+        ood_samples: usize,
+    ) -> ProofResult<ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>>
+    where
+        F: Field + TwoAdicField + PrimeField64,
+        EF: ExtensionField<F> + TwoAdicField,
+    {
+        // Read the Merkle root hash committed by the prover.
+        let root = verifier_state.read_digest()?;
+
+        // Allocate space for the OOD challenge points and answers.
+        let mut ood_points = EF::zero_vec(ood_samples);
+        let mut ood_answers = EF::zero_vec(ood_samples);
+
+        // If there are any OOD samples expected, read them from the transcript.
+        if ood_samples > 0 {
+            // Read challenge points chosen by Fiat-Shamir.
+            verifier_state.fill_challenge_scalars(&mut ood_points)?;
+
+            // Read the prover's claimed evaluations at those points.
+            verifier_state.fill_next_scalars(&mut ood_answers)?;
+        }
+
+        // Return a structured representation of the commitment.
+        Ok(ParsedCommitment {
+            num_variables,
+            root,
+            ood_points,
+            ood_answers,
+        })
+    }
 }
 
 /// Helper for parsing commitment data during verification.
@@ -64,28 +123,11 @@ where
         &self,
         verifier_state: &mut VerifierState<'_, EF, F>,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>> {
-        // Read the Merkle root hash committed by the prover.
-        let root = verifier_state.read_digest()?;
-
-        // Allocate space for the OOD challenge points and answers.
-        let mut ood_points = vec![EF::ZERO; self.committment_ood_samples];
-        let mut ood_answers = vec![EF::ZERO; self.committment_ood_samples];
-
-        // If there are any OOD samples expected, read them from the transcript.
-        if self.committment_ood_samples > 0 {
-            // Read challenge points chosen by Fiat-Shamir.
-            verifier_state.fill_challenge_scalars(&mut ood_points)?;
-
-            // Read the prover's claimed evaluations at those points.
-            verifier_state.fill_next_scalars(&mut ood_answers)?;
-        }
-
-        // Return a structured representation of the commitment.
-        Ok(ParsedCommitment {
-            root,
-            ood_points,
-            ood_answers,
-        })
+        ParsedCommitment::<_, Hash<F, u8, DIGEST_ELEMS>>::parse(
+            verifier_state,
+            self.mv_parameters.num_variables,
+            self.committment_ood_samples,
+        )
     }
 }
 
