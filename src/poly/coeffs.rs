@@ -1,4 +1,5 @@
-use p3_field::{ExtensionField, Field};
+use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue};
+use p3_util::log2_strict_usize;
 use tracing::instrument;
 #[cfg(feature = "parallel")]
 use {
@@ -164,7 +165,7 @@ where
     #[instrument(skip_all)]
     pub fn evaluate_at_extension<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables, point.num_variables());
-        eval_extension(&self.coeffs, &point.0, EF::ONE)
+        eval_extension_para(&self.coeffs, &point.0)
     }
 }
 
@@ -290,6 +291,60 @@ impl<F> CoefficientList<F> {
     }
 }
 
+/// Evaluates a multilinear polynomial at an extension field point making use of parallelism.
+///
+/// Given `coeffs` in lexicographic order, this computes:
+/// ```ignore
+/// eval_poly(X_0, ..., X_n) = sum(coeffs[i] * product(X_j for j in S(i)))
+/// ```
+/// where `S(i)` is the set of variables active in term `i` (based on its binary representation).
+///
+/// - Splits into `NUM_THREADS` many subtasks with the `j`'th subtask computing:
+/// ```ignore
+/// eval_poly_{L, j}(X_L, ..., X_n) = sum(coeffs[shift * j + i] * product(X_j for j in S(i)))
+/// ```
+/// where `shift = 2^n / NUM_THREADS` and `L = LOG_NUM_THREADS`.
+/// - Then the results are combined using:
+/// ```ignore
+/// eval_poly = sum(eval_poly_{L, j} * product(X_j for j in S(i)))
+/// ```
+/// where the product is now only over the first `L` variables.
+#[inline]
+fn eval_extension_para<F, E>(coeff: &[F], eval: &[E]) -> E
+where
+    F: Field,
+    E: ExtensionField<F>,
+{
+    debug_assert_eq!(coeff.len(), 1 << eval.len());
+
+    match eval.len() {
+        0 => coeff[0].into(),
+        1 => eval[0] * coeff[1] + coeff[0],
+        2 => eval[0] * (eval[1] * coeff[3] + coeff[2]) + eval[1] * coeff[1] + coeff[0],
+        _ => {
+            #[cfg(feature = "parallel")]
+            {
+                // Ideally this should be the minimum number to achieve full cpu utilization.
+                // Currently a constant but long term this should likely be passed in as a
+                // parameter or set somewhere.
+                const LOG_NUM_THREADS: usize = 5;
+                const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
+                let size = coeff.len();
+                if size > NUM_THREADS {
+                    let chunk_size = size / NUM_THREADS;
+                    let (head_eval, tail_eval) = eval.split_at(LOG_NUM_THREADS);
+                    let partial_sum = coeff
+                        .par_chunks_exact(chunk_size)
+                        .map(|chunk| eval_extension_packed(chunk, tail_eval))
+                        .collect::<Vec<_>>();
+                    return eval_extension_packed(&partial_sum, head_eval);
+                }
+            }
+            eval_extension_packed(coeff, eval)
+        }
+    }
+}
+
 /// Recursively evaluates a multilinear polynomial at an extension field point.
 ///
 /// Given `coeffs` in lexicographic order, this computes:
@@ -298,35 +353,102 @@ impl<F> CoefficientList<F> {
 /// ```
 /// where `S(i)` is the set of variables active in term `i` (based on its binary representation).
 ///
-/// - Uses divide-and-conquer recursion:
+/// - Small cases are passed to `eval_extension_unpacked`.
+/// - For larger cases, we pack extension field elements into PackedFieldExtension elements and
+///   do as many rounds as possible in the packed case which is reasonably faster.
+///   Eventually we unpack and pass to `eval_extension_unpacked`
+#[inline]
+fn eval_extension_packed<F, E>(coeff: &[F], eval: &[E]) -> E
+where
+    F: Field,
+    E: ExtensionField<F>,
+{
+    debug_assert_eq!(coeff.len(), 1 << eval.len());
+    let log_packing_width = log2_strict_usize(F::Packing::WIDTH);
+
+    // There is some overhead when packing extension field elements so we only want to do it
+    // when we have a large number of coefficients. I chose 2 here basically arbitrarily, it might
+    // be worth benchmarking this.
+    if eval.len() <= (log_packing_width + 2) {
+        eval_extension_unpacked(coeff, eval)
+    } else {
+        // If the size of eval is > log_packing_width + 2, it makes sense to start using packings.
+        // As coeffs lie in F, we do the first round manually as it's a little cheaper.
+        let packed_coeff = F::Packing::pack_slice(coeff);
+        let packed_eval: E::ExtensionPacking = eval[0].into();
+        let (lo, hi) = packed_coeff.split_at(packed_coeff.len() / 2);
+        let mut buffer = lo
+            .iter()
+            .zip(hi.iter())
+            .map(|(l, h)| packed_eval * *h + *l)
+            .collect::<Vec<_>>();
+
+        for &ef_eval in &eval[1..(eval.len() - log_packing_width)] {
+            let half_buffer_len = buffer.len() / 2;
+            let (lo, hi) = buffer.split_at_mut(half_buffer_len);
+            lo.iter_mut().zip(hi.iter()).for_each(|(l, &h)| {
+                *l += h * ef_eval;
+            });
+            buffer.truncate(half_buffer_len);
+        }
+
+        // After this, buffer should have been reduced to a single element.
+        // Further reductions will need to be done in the non-packed extension field.
+        let base_elems = E::ExtensionPacking::to_ext_iter(buffer).collect::<Vec<_>>();
+        eval_extension_unpacked(&base_elems, &eval[eval.len() - log_packing_width..])
+    }
+}
+
+/// Recursively evaluates a multilinear polynomial at an extension field point.
+///
+/// Given `coeffs` in lexicographic order, this computes:
+/// ```ignore
+/// eval_poly(X_0, ..., X_n) = sum(coeffs[i] * product(X_j for j in S(i)))
+/// ```
+/// where `S(i)` is the set of variables active in term `i` (based on its binary representation).
+///
+/// - The cases `n = 0, ..., 4` are hard coded.
+/// - Uses divide-and-conquer recursion for larger cases: (Note this is slow and should usually be avoided for large n)
 ///   - Splits `coeffs` into two halves for `X_0 = 0` and `X_0 = 1`.
 ///   - Recursively evaluates each half.
-fn eval_extension<F, E>(coeff: &[F], eval: &[E], scalar: E) -> E
+#[inline]
+fn eval_extension_unpacked<F, E>(coeff: &[F], eval: &[E]) -> E
 where
     F: Field,
     E: ExtensionField<F>,
 {
     debug_assert_eq!(coeff.len(), 1 << eval.len());
 
-    if let Some((&x, tail)) = eval.split_first() {
-        let (low, high) = coeff.split_at(coeff.len() / 2);
-
-        #[cfg(feature = "parallel")]
-        {
-            const PARALLEL_THRESHOLD: usize = 10;
-            if tail.len() > PARALLEL_THRESHOLD {
-                let (a, b) = rayon::join(
-                    || eval_extension(low, tail, scalar),
-                    || eval_extension(high, tail, scalar * x),
-                );
-                return a + b;
-            }
+    match eval.len() {
+        0 => coeff[0].into(),
+        1 => eval[0] * coeff[1] + coeff[0],
+        2 => eval[0] * (eval[1] * coeff[3] + coeff[2]) + eval[1] * coeff[1] + coeff[0],
+        3 => {
+            eval[0] * (eval[1] * (eval[2] * coeff[7] + coeff[6]) + eval[2] * coeff[5] + coeff[4])
+                + eval[1] * (eval[2] * coeff[3] + coeff[2])
+                + eval[2] * coeff[1]
+                + coeff[0]
         }
-
-        // Default non-parallel execution
-        eval_extension(low, tail, scalar) + eval_extension(high, tail, scalar * x)
-    } else {
-        scalar * E::from(coeff[0])
+        4 => {
+            eval[0]
+                * (eval[1]
+                    * (eval[2] * (eval[3] * coeff[15] + coeff[14])
+                        + eval[3] * coeff[13]
+                        + coeff[12])
+                    + eval[2] * (eval[3] * coeff[11] + coeff[10])
+                    + eval[3] * coeff[9]
+                    + coeff[8])
+                + eval[1]
+                    * (eval[2] * (eval[3] * coeff[7] + coeff[6]) + eval[3] * coeff[5] + coeff[4])
+                + eval[2] * (eval[3] * coeff[3] + coeff[2])
+                + eval[3] * coeff[1]
+                + coeff[0]
+        }
+        _ => {
+            let (lo, hi) = coeff.split_at(coeff.len() / 2);
+            eval_extension_unpacked(lo, &eval[1..])
+                + eval[0] * eval_extension_unpacked(hi, &eval[1..])
+        }
     }
 }
 
