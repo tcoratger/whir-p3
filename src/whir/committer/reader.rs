@@ -5,7 +5,10 @@ use p3_symmetric::Hash;
 
 use crate::{
     fiat_shamir::{errors::ProofResult, verifier::VerifierState},
-    whir::parameters::WhirConfig,
+    whir::{
+        parameters::WhirConfig,
+        statement::{constraint::Constraint, weights::Weights},
+    },
 };
 
 /// Represents a parsed commitment from the prover in the WHIR protocol.
@@ -31,7 +34,10 @@ pub struct ParsedCommitment<F, D> {
     pub ood_answers: Vec<F>,
 }
 
-impl<F, D> ParsedCommitment<F, D> {
+impl<F, D> ParsedCommitment<F, D>
+where
+    F: Field,
+{
     /// Parse a commitment from the verifier's transcript state.
     ///
     /// This function extracts a `ParsedCommitment` by reading the Merkle root,
@@ -58,7 +64,7 @@ impl<F, D> ParsedCommitment<F, D> {
         ood_samples: usize,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>>
     where
-        F: Field + TwoAdicField + PrimeField64,
+        F: TwoAdicField + PrimeField64,
         EF: ExtensionField<F> + TwoAdicField,
     {
         // Read the Merkle root hash committed by the prover.
@@ -84,6 +90,23 @@ impl<F, D> ParsedCommitment<F, D> {
             ood_points,
             ood_answers,
         })
+    }
+
+    /// Construct equality constraints for all out-of-domain (OOD) samples.
+    ///
+    /// Each constraint enforces that the committed polynomial evaluates to the
+    /// claimed `ood_answer` at the corresponding `ood_point`, using a univariate
+    /// equality weight over `num_variables` inputs.
+    pub fn oods_constraints(&self) -> Vec<Constraint<F>> {
+        self.ood_points
+            .iter()
+            .zip(&self.ood_answers)
+            .map(|(&point, &eval)| Constraint {
+                weights: Weights::univariate(point, self.num_variables),
+                sum: eval,
+                defer_evaluation: false,
+            })
+            .collect()
     }
 }
 
@@ -147,6 +170,7 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_dft::Radix2DitParallel;
+    use p3_field::PrimeCharacteristicRing;
     use p3_keccak::Keccak256Hash;
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
     use rand::Rng;
@@ -157,7 +181,7 @@ mod tests {
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
-        poly::evals::EvaluationsList,
+        poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
         whir::{DomainSeparator, committer::writer::CommitmentWriter},
     };
 
@@ -329,5 +353,68 @@ mod tests {
         assert_eq!(parsed.root, witness.prover_data.root());
         assert_eq!(parsed.ood_points, witness.ood_points);
         assert_eq!(parsed.ood_answers, witness.ood_answers);
+    }
+
+    #[test]
+    fn test_oods_constraints_correctness() {
+        // Create WHIR config with 4 variables and 2 OOD samples.
+        let (params, mut rng) = make_test_params(4, 2);
+
+        // Generate a multilinear polynomial with 16 coefficients.
+        let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
+
+        // Instantiate a committer and DFT backend.
+        let committer = CommitmentWriter::new(&params);
+        let dft = Radix2DitParallel::default();
+
+        // Set up Fiat-Shamir transcript and commit to the public parameters.
+        let mut ds = DomainSeparator::new("oods_constraints_test");
+        ds.commit_statement(&params);
+
+        // Generate prover and verifier transcript states.
+        let mut prover_state = ds.to_prover_state();
+        let _ = committer
+            .commit(&dft, &mut prover_state, polynomial)
+            .unwrap();
+        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string());
+
+        // Parse the commitment from the verifier’s state.
+        let reader = CommitmentReader::new(&params);
+        let parsed = reader.parse_commitment::<32>(&mut verifier_state).unwrap();
+
+        // Extract constraints from parsed commitment.
+        let constraints = parsed.oods_constraints();
+
+        // Ensure we got one constraint per OOD point.
+        assert_eq!(constraints.len(), parsed.ood_points.len());
+
+        // Each constraint should have correct univariate weight, sum, and flag.
+        for (i, constraint) in constraints.iter().enumerate() {
+            let point = parsed.ood_points[i];
+            let expected_eval = parsed.ood_answers[i];
+
+            // Manually compute the expanded univariate point
+            let expanded = MultilinearPoint(vec![
+                point.exp_u64(8),
+                point.exp_u64(4),
+                point.exp_u64(2),
+                point,
+            ]);
+
+            let expected_weight = Weights::evaluation(expanded);
+
+            assert_eq!(
+                constraint.weights, expected_weight,
+                "Constraint {i} has incorrect weight"
+            );
+            assert_eq!(
+                constraint.sum, expected_eval,
+                "Constraint {i} has incorrect sum"
+            );
+            assert!(
+                !constraint.defer_evaluation,
+                "Constraint {i} should not defer evaluation"
+            );
+        }
     }
 }
