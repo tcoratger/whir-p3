@@ -18,8 +18,6 @@ fn transmute_state(st: &mut AlignedKeccakF1600) -> &mut [u64; 25] {
 const KECCAK_WIDTH_BYTES: usize = 200;
 /// Rate of the sponge (bytes): 136
 const KECCAK_RATE_BYTES: usize = 136;
-/// Capacity of the sponge: 64
-const KECCAK_CAPACITY_BYTES: usize = KECCAK_WIDTH_BYTES - KECCAK_RATE_BYTES;
 
 /// This is a wrapper around 200-byte buffer that's always 8-byte aligned
 /// to make pointers to it safely convertible to pointers to [u64; 25]
