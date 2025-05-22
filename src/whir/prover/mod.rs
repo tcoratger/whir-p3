@@ -21,7 +21,7 @@ use crate::{
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         parameters::RoundConfig,
-        statement::Weights,
+        statement::weights::Weights,
         utils::{get_challenge_stir_queries, sample_ood_points},
     },
 };

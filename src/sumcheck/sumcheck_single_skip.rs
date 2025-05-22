@@ -126,7 +126,7 @@ mod tests {
     use super::*;
     use crate::{
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
-        whir::statement::{Statement, Weights},
+        whir::statement::{Statement, weights::Weights},
     };
 
     type F = BabyBear;

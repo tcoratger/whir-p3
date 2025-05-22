@@ -567,7 +567,7 @@ mod tests {
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
-        whir::statement::Weights,
+        whir::statement::weights::Weights,
     };
 
     type F = BabyBear;

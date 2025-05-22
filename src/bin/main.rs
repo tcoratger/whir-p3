@@ -17,7 +17,7 @@ use whir_p3::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         parameters::WhirConfig,
         prover::Prover,
-        statement::{Statement, Weights},
+        statement::{Statement, weights::Weights},
         verifier::Verifier,
     },
 };

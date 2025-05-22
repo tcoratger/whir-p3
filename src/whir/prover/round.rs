@@ -10,7 +10,7 @@ use crate::{
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{CommitmentMerkleTree, RoundMerkleTree, Witness},
-        statement::{Statement, Weights},
+        statement::{Statement, weights::Weights},
     },
 };
 
