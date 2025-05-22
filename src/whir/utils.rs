@@ -1,3 +1,4 @@
+use bytemuck::zeroed_vec;
 use itertools::Itertools;
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
 use tracing::instrument;
@@ -39,7 +40,7 @@ where
     let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
     // Allocate space for query bytes
-    let mut queries = vec![0u8; num_queries * domain_size_bytes];
+    let mut queries = zeroed_vec(num_queries * domain_size_bytes);
     narg_string.fill_challenge_bytes(&mut queries)?;
 
     // Convert bytes into indices in **one efficient pass**
@@ -68,7 +69,7 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     E: Fn(&MultilinearPoint<EF>) -> EF,
 {
-    let mut ood_points = vec![EF::ZERO; num_samples];
+    let mut ood_points = EF::zero_vec(num_samples);
     let mut ood_answers = Vec::with_capacity(num_samples);
 
     if num_samples > 0 {
