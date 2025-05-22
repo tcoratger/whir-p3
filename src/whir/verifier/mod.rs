@@ -46,6 +46,42 @@ where
         Self(params)
     }
 
+    /// Combine multiple constraints into a single claim using random linear combination.
+    ///
+    /// This method draws a challenge scalar from the Fiat-Shamir transcript and uses it
+    /// to generate a sequence of powers, one for each constraint. These powers serve as
+    /// coefficients in a random linear combination of the constraint sums.
+    ///
+    /// The resulting linear combination is added to `claimed_sum`, which becomes the new
+    /// target value to verify in the sumcheck protocol.
+    ///
+    /// # Arguments
+    /// - `verifier_state`: Fiat-Shamir transcript reader.
+    /// - `claimed_sum`: Mutable reference to the running sum of combined constraints.
+    /// - `constraints`: List of constraints to combine.
+    ///
+    /// # Returns
+    /// A vector of randomness values used to weight each constraint.
+    pub fn combine_constraints(
+        &self,
+        verifier_state: &mut VerifierState<'_, EF, F>,
+        claimed_sum: &mut EF,
+        constraints: &[Constraint<EF>],
+    ) -> ProofResult<Vec<EF>> {
+        let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
+        let combination_randomness: Vec<_> = combination_randomness_gen
+            .powers()
+            .take(constraints.len())
+            .collect();
+        *claimed_sum += constraints
+            .iter()
+            .zip(&combination_randomness)
+            .map(|(c, &rand)| rand * c.sum)
+            .sum::<EF>();
+
+        Ok(combination_randomness)
+    }
+
     fn compute_w_poly<const DIGEST_ELEMS: usize>(
         &self,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
