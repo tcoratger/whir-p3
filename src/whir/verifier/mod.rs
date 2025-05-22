@@ -82,6 +82,32 @@ where
         Ok(combination_randomness)
     }
 
+    /// Verify the prover's proof of work (PoW) challenge response.
+    ///
+    /// If the configured `bits` value is greater than zero, this function checks that
+    /// the prover has provided a valid PoW nonce satisfying the difficulty constraint.
+    /// This prevents spam and ensures the prover has committed nontrivial effort
+    /// before submitting a proof.
+    ///
+    /// If `bits == 0.`, no proof of work is required and the function returns immediately.
+    ///
+    /// # Arguments
+    /// - `verifier_state`: The verifier’s Fiat-Shamir state.
+    /// - `bits`: The number of difficulty bits required for the proof of work.
+    ///
+    /// # Errors
+    /// Returns `ProofError::InvalidProof` if the PoW response is invalid.
+    pub fn verify_proof_of_work(
+        &self,
+        verifier_state: &mut VerifierState<'_, EF, F>,
+        bits: f64,
+    ) -> ProofResult<()> {
+        if bits > 0. {
+            verifier_state.challenge_pow::<PS>(bits)?;
+        }
+        Ok(())
+    }
+
     fn compute_w_poly<const DIGEST_ELEMS: usize>(
         &self,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
