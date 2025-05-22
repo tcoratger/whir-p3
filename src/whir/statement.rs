@@ -195,30 +195,41 @@ pub struct Constraint<F> {
     pub defer_evaluation: bool,
 }
 
-/// Represents a system of weighted polynomial constraints.
+/// Represents a system of weighted polynomial constraints over a Boolean hypercube.
 ///
-/// Each constraint enforces a relationship between a `Weights<F>` function and a target sum.
-/// Constraints can be combined using a random challenge into a single aggregated polynomial.
-///
-/// **Mathematical Definition:**
-/// Given constraints:
+/// A `Statement<F>` consists of multiple constraints, each enforcing a relationship of the form:
 ///
 /// \begin{equation}
-/// w_1(X) = s_1, \quad w_2(X) = s_2, \quad \dots, \quad w_k(X) = s_k
+/// \sum_{x \in \{0,1\}^n} w_i(x) \cdot p(x) = s_i
 /// \end{equation}
 ///
-/// The combined polynomial under challenge $\gamma$ is:
+/// where:
+/// - `w_i(x)` is a weight function, either a point evaluation (equality constraint) or a full set of weights.
+/// - `p(x)` is a multilinear polynomial over $\{0,1\}^n$ in evaluation form.
+/// - `s_i` is the expected sum for the $i$-th constraint.
+///
+/// These constraints can be combined into a single constraint using a random challenge $\gamma$:
 ///
 /// \begin{equation}
-/// W(X) = w_1(X) + \gamma w_2(X) + \gamma^2 w_3(X) + \dots + \gamma^{k-1} w_k(X)
+/// W(x) = w_1(x) + \gamma w_2(x) + \gamma^2 w_3(x) + \dots + \gamma^{k-1} w_k(x)
 /// \end{equation}
+///
+/// with a combined expected sum:
+///
+/// \begin{equation}
+/// S = s_1 + \gamma s_2 + \gamma^2 s_3 + \dots + \gamma^{k-1} s_k
+/// \end{equation}
+///
+/// This combined form is used in protocols like sumcheck and zerocheck to reduce many constraints to one.
 #[derive(Clone, Debug)]
 pub struct Statement<F> {
-    /// Number of variables defining the polynomial space.
+    /// Number of variables in the multilinear polynomial space (log₂ of evaluation length).
     num_variables: usize,
-    /// Constraints represented as pairs `(w(X), s)`, where
-    /// - `w(X)` is a weighted polynomial function
-    /// - `s` is the expected sum.
+
+    /// List of constraints, each pairing a weight function with a target expected sum.
+    ///
+    /// The weight may be either a concrete evaluation point (enforcing `p(z) = s`)
+    /// or a full evaluation vector of weights `w(x)` (enforcing a weighted sum).
     pub constraints: Vec<Constraint<F>>,
 }
 
