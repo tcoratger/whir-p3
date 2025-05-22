@@ -99,7 +99,7 @@ pub fn make_whir_things(
     let linear_claim_weight = Weights::linear(input.to_evaluations::<F>());
 
     // Evaluate the weighted sum and add it as a linear constraint
-    let sum = linear_claim_weight.weighted_sum(&polynomial);
+    let sum = linear_claim_weight.evaluate_evals(&polynomial);
     statement.add_constraint(linear_claim_weight, sum);
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
