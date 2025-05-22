@@ -1,4 +1,4 @@
-use p3_commit::{ExtensionMmcs, Mmcs};
+use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -136,13 +136,17 @@ where
 
             // Verify each queried leaf
             for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
+                let batch_opening = BatchOpeningRef {
+                    opened_values: &[answers[i].iter().map(|v| v.as_base().unwrap()).collect()],
+                    opening_proof: &merkle_proof[i],
+                };
+
                 self.mmcs
                     .verify_batch(
                         &self.prev_root,
                         &dimensions,
                         stir_challenges_index,
-                        &[answers[i].iter().map(|v| v.as_base().unwrap()).collect()],
-                        &merkle_proof[i],
+                        batch_opening,
                     )
                     .map_err(|_| ProofError::InvalidProof)?;
             }
@@ -161,13 +165,17 @@ where
 
             // Verify each queried leaf
             for (i, &stir_challenges_index) in stir_challenges_indexes.iter().enumerate() {
+                let batch_opening = BatchOpeningRef {
+                    opened_values: &[answers[i].clone()],
+                    opening_proof: &merkle_proof[i],
+                };
+
                 self.extension_mmcs
                     .verify_batch(
                         &self.prev_root,
                         &dimensions,
                         stir_challenges_index,
-                        &[answers[i].clone()],
-                        &merkle_proof[i],
+                        batch_opening,
                     )
                     .map_err(|_| ProofError::InvalidProof)?;
             }

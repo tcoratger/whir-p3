@@ -290,10 +290,10 @@ where
                 let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
                 let mut merkle_proof = Vec::with_capacity(stir_challenges_indexes.len());
                 for challenge in &stir_challenges_indexes {
-                    let (commitment_leaf, commitment_root) =
+                    let commitment =
                         mmcs.open_batch(*challenge, &round_state.commitment_merkle_prover_data);
-                    answers.push(commitment_leaf[0].clone());
-                    merkle_proof.push(commitment_root);
+                    answers.push(commitment.opened_values[0].clone());
+                    merkle_proof.push(commitment.opening_proof);
                 }
 
                 prover_state.hint(&answers)?;
@@ -318,9 +318,9 @@ where
                 let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
                 let mut merkle_proof = Vec::with_capacity(stir_challenges_indexes.len());
                 for challenge in &stir_challenges_indexes {
-                    let (leaf, proof) = extension_mmcs.open_batch(*challenge, data);
-                    answers.push(leaf[0].clone());
-                    merkle_proof.push(proof);
+                    let commitment = extension_mmcs.open_batch(*challenge, data);
+                    answers.push(commitment.opened_values[0].clone());
+                    merkle_proof.push(commitment.opening_proof);
                 }
 
                 prover_state.hint(&answers)?;
@@ -446,10 +446,10 @@ where
                 let mut merkle_proof = Vec::with_capacity(final_challenge_indexes.len());
 
                 for challenge in final_challenge_indexes {
-                    let (commitment_leaf, commitment_root) =
+                    let commitment =
                         mmcs.open_batch(challenge, &round_state.commitment_merkle_prover_data);
-                    answers.push(commitment_leaf[0].clone());
-                    merkle_proof.push(commitment_root);
+                    answers.push(commitment.opened_values[0].clone());
+                    merkle_proof.push(commitment.opening_proof);
                 }
 
                 prover_state.hint(&answers)?;
@@ -462,9 +462,9 @@ where
                 let mut answers = Vec::with_capacity(final_challenge_indexes.len());
                 let mut merkle_proof = Vec::with_capacity(final_challenge_indexes.len());
                 for challenge in final_challenge_indexes {
-                    let (leaf, proof) = extension_mmcs.open_batch(challenge, data);
-                    answers.push(leaf[0].clone());
-                    merkle_proof.push(proof);
+                    let commitment = extension_mmcs.open_batch(challenge, data);
+                    answers.push(commitment.opened_values[0].clone());
+                    merkle_proof.push(commitment.opening_proof);
                 }
 
                 prover_state.hint(&answers)?;
