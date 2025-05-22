@@ -162,7 +162,7 @@ where
     /// which the polynomial `self` is defined.
     ///
     /// Note that we only support the case where F is a prime field.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, fields(size = point.num_variables()))]
     pub fn evaluate_at_extension<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables, point.num_variables());
         eval_extension_para(&self.coeffs, &point.0)
@@ -317,32 +317,29 @@ where
 {
     debug_assert_eq!(coeff.len(), 1 << eval.len());
 
-    match eval.len() {
-        0 => coeff[0].into(),
-        1 => eval[0] * coeff[1] + coeff[0],
-        2 => eval[0] * (eval[1] * coeff[3] + coeff[2]) + eval[1] * coeff[1] + coeff[0],
-        _ => {
-            #[cfg(feature = "parallel")]
-            {
-                // Ideally this should be the minimum number to achieve full cpu utilization.
-                // Currently a constant but long term this should likely be passed in as a
-                // parameter or set somewhere.
-                const LOG_NUM_THREADS: usize = 5;
-                const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
-                let size = coeff.len();
-                if size > NUM_THREADS {
-                    let chunk_size = size / NUM_THREADS;
-                    let (head_eval, tail_eval) = eval.split_at(LOG_NUM_THREADS);
-                    let partial_sum = coeff
-                        .par_chunks_exact(chunk_size)
-                        .map(|chunk| eval_extension_packed(chunk, tail_eval))
-                        .collect::<Vec<_>>();
-                    return eval_extension_packed(&partial_sum, head_eval);
-                }
-            }
-            eval_extension_packed(coeff, eval)
+    #[cfg(feature = "parallel")]
+    {
+        // Ideally this should be the minimum number to achieve full cpu utilization.
+        // Currently a constant but long term this should likely be passed in as a
+        // parameter or set somewhere.
+        const LOG_NUM_THREADS: usize = 5;
+        const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
+        let size = coeff.len();
+        // While we could run the following code for any size > LOG_NUM_THREADS, there isn't
+        // much point. In particular, we would lose some of the benefits of packing tricks in
+        // eval_extension_packed. Instead we set a (slightly arbitrary) threshold of 15.
+        if size > 15 {
+            let chunk_size = size / NUM_THREADS;
+            let (head_eval, tail_eval) = eval.split_at(LOG_NUM_THREADS);
+            let partial_sum = coeff
+                .par_chunks_exact(chunk_size)
+                .map(|chunk| eval_extension_packed(chunk, tail_eval))
+                .collect::<Vec<_>>();
+            return eval_extension_packed(&partial_sum, head_eval);
         }
     }
+
+    eval_extension_packed(coeff, eval)
 }
 
 /// Recursively evaluates a multilinear polynomial at an extension field point.
