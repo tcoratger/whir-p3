@@ -1,7 +1,9 @@
-use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing};
+use p3_field::{
+    Algebra, ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing,
+};
 use p3_util::log2_strict_usize;
 use rayon::prelude::*;
-use tracing::info_span;
+use tracing::instrument;
 
 /// Computes the equality polynomial evaluations efficiently.
 ///
@@ -13,181 +15,167 @@ use tracing::info_span;
 /// ```
 ///
 /// where `z_i` are the constraint points.
-#[allow(clippy::too_many_lines)]
+#[instrument(skip_all, fields(size = eval.len()))]
+#[inline]
 pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], scalar: EF) {
+    // Number of threads to spawn.
+    // Long term this should be a modifiable parameter.
+    // I've chosen 32 here as my machine has 20 logical cores. PLausibly we might want to hard code this
+    // to be a little larger than this.
+    #[cfg(feature = "parallel")]
+    const LOG_NUM_THREADS: usize = 5;
+    #[cfg(not(feature = "parallel"))]
+    const LOG_NUM_THREADS: usize = 0;
+
+    const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
+
+    // It's possible for this to be called with F = EF (Despite F actually being an extension field).
+    // This check ensures this is not the case.
+    let packing_width = F::Packing::WIDTH;
+    debug_assert!(packing_width > 1);
+
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
     debug_assert_eq!(out.len(), 1 << eval.len());
 
-    match eval.len() {
-        0 => {
-            out[0] += scalar;
-        }
-        1 => {
-            // Manually unroll for single variable case
-            let x = eval[0];
-            let s1 = scalar * x;
-            let s0 = scalar - s1;
+    // If the number of variables is small, there is no need to use
+    // parallelization or packings.
+    if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
+        // A basic recursive approach.
+        eval_eq_basic(eval, out, scalar);
+    } else {
+        let log_packing_width = log2_strict_usize(packing_width);
+        let eval_len_min_packing = eval.len() - log_packing_width;
 
-            out[0] += s0;
-            out[1] += s1;
-        }
-        2 => {
-            // Manually unroll for two variables case
-            let x0 = eval[0];
-            let x1 = eval[1];
+        // We split eval into three parts:
+        // - eval[..LOG_NUM_THREADS] (the first LOG_NUM_THREADS elements)
+        // - eval[LOG_NUM_THREADS..eval_len_min_packing] (the middle elements)
+        // - eval[eval_len_min_packing..] (the last log_packing_width elements)
 
-            let s1 = scalar * x0;
-            let s0 = scalar - s1;
+        // The middle elements are the ones which will be computed in parallel.
+        // The last log_packing_width elements are the ones which will be packed.
 
-            let s01 = s0 * x1;
-            let s00 = s0 - s01;
-            let s11 = s1 * x1;
-            let s10 = s1 - s11;
+        // We make a buffer of elements of size `NUM_THREADS`.
+        let mut parallel_buffer = EF::ExtensionPacking::zero_vec(NUM_THREADS);
+        let out_chunk_size = out.len() / NUM_THREADS;
 
-            out[0] += s00;
-            out[1] += s01;
-            out[2] += s10;
-            out[3] += s11;
-        }
-        3 => {
-            // Three variables case (manually unrolled)
-            let x0 = eval[0];
-            let x1 = eval[1];
-            let x2 = eval[2];
+        // Compute the equality polynomial corresponding to the last log_packing_width elements
+        // and pack these.
+        parallel_buffer[0] = packed_eq_poly(&eval[eval_len_min_packing..], scalar);
 
-            let s1 = scalar * x0;
-            let s0 = scalar - s1;
+        // Update the buffer so it contains the evaluations of the equality polynomial
+        // with respect to parts one and three.
+        for (ind, entry) in eval[..LOG_NUM_THREADS].iter().rev().enumerate() {
+            let stride = 1 << ind;
 
-            let s01 = s0 * x1;
-            let s00 = s0 - s01;
-            let s11 = s1 * x1;
-            let s10 = s1 - s11;
+            for index in 0..stride {
+                let val = parallel_buffer[index];
+                let scaled_val = val * *entry;
+                let new_val = val - scaled_val;
 
-            let s001 = s00 * x2;
-            let s000 = s00 - s001;
-            let s011 = s01 * x2;
-            let s010 = s01 - s011;
-            let s101 = s10 * x2;
-            let s100 = s10 - s101;
-            let s111 = s11 * x2;
-            let s110 = s11 - s111;
-
-            out[0] += s000;
-            out[1] += s001;
-            out[2] += s010;
-            out[3] += s011;
-            out[4] += s100;
-            out[5] += s101;
-            out[6] += s110;
-            out[7] += s111;
-        }
-        _ => {
-            const LOG_NUM_THREADS: usize = 5;
-            const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
-
-            if eval.len() < 10 + LOG_NUM_THREADS {
-                // If the number of variables is small, use a sequential approach
-                eval_eq_no_par(eval, out, scalar);
-                return;
+                parallel_buffer[index] = new_val;
+                parallel_buffer[index + stride] = scaled_val;
             }
-
-            // let mut parallel_buffer = [EF::ZERO; NUM_THREADS];
-            // parallel_buffer[0] = scalar;
-
-            // for (ind, entry) in eval[..LOG_NUM_THREADS].iter().rev().enumerate() {
-            //     let stride = 1 << ind;
-
-            //     for index in 0..stride {
-            //         let val = parallel_buffer[index];
-            //         let scaled_val = val * *entry;
-            //         let new_val = val - scaled_val;
-
-            //         parallel_buffer[index] = new_val;
-            //         parallel_buffer[index + stride] = scaled_val;
-            //     }
-            // }
-
-            // let chunk_size = out.len() / NUM_THREADS;
-
-            // out.par_chunks_exact_mut(chunk_size)
-            //     .zip(parallel_buffer.par_iter())
-            //     .for_each(|(out_chunk, buffer_val)| {
-            //         eval_eq_no_par(&eval[LOG_NUM_THREADS..], out_chunk, *buffer_val);
-            //     });
-
-            let packing_width = F::Packing::WIDTH;
-            assert!(packing_width > 1);
-            let log_packing_width = log2_strict_usize(packing_width);
-            let eval_len_min_packing = eval.len() - log_packing_width;
-            let mut parallel_buffer = EF::ExtensionPacking::zero_vec(NUM_THREADS);
-
-            let out_chunk_size = out.len() / NUM_THREADS;
-
-            parallel_buffer[0] = packed_eq_poly(&eval[eval_len_min_packing..], scalar);
-
-            for (ind, entry) in eval[..LOG_NUM_THREADS].iter().rev().enumerate() {
-                let stride = 1 << ind;
-
-                for index in 0..stride {
-                    let val = parallel_buffer[index];
-                    let scaled_val = val * *entry;
-                    let new_val = val - scaled_val;
-
-                    parallel_buffer[index] = new_val;
-                    parallel_buffer[index + stride] = scaled_val;
-                }
-            }
-
-            out.par_chunks_exact_mut(out_chunk_size)
-                .zip(parallel_buffer.par_iter())
-                .for_each(|(out_chunk, buffer_val)| {
-                    eval_eq_packed(
-                        &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
-                        out_chunk,
-                        *buffer_val,
-                    );
-                    // let mut chunk_buffer = EF::ExtensionPacking::zero_vec(
-                    //     1 << (eval.len() - LOG_NUM_THREADS - log_packing_width),
-                    // );
-                    // info_span!("eval_eq_packed", size = eval.len() - LOG_NUM_THREADS).in_scope(
-                    //     || {
-                    //         chunk_buffer[0] = *buffer_val;
-
-                    //         for (ind, entry) in eval
-                    //             [LOG_NUM_THREADS..(eval.len() - log_packing_width)]
-                    //             .iter()
-                    //             .rev()
-                    //             .enumerate()
-                    //         {
-                    //             let stride = 1 << ind;
-
-                    //             for index in 0..stride {
-                    //                 let val = chunk_buffer[index];
-                    //                 let scaled_val = val * *entry;
-                    //                 let new_val = val - scaled_val;
-
-                    //                 chunk_buffer[index] = new_val;
-                    //                 chunk_buffer[index + stride] = scaled_val;
-                    //             }
-                    //         }
-                    //     },
-                    // );
-
-                    // info_span!("update", size = eval.len() - LOG_NUM_THREADS).in_scope(|| {
-                    //     EF::ExtensionPacking::to_ext_iter(chunk_buffer)
-                    //         .zip(out_chunk.iter_mut())
-                    //         .for_each(|(packed_val, out_val)| {
-                    //             *out_val += packed_val;
-                    //         });
-                    // });
-                });
         }
+
+        // Finally do all computations involving the middle elements in parallel.
+        #[cfg(feature = "parallel")]
+        out.par_chunks_exact_mut(out_chunk_size)
+            .zip(parallel_buffer.par_iter())
+            .for_each(|(out_chunk, buffer_val)| {
+                eval_eq_packed(
+                    &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
+                    out_chunk,
+                    *buffer_val,
+                );
+            });
+
+        // Or not in parallel if the feature is unavailable.
+        #[cfg(not(feature = "parallel"))]
+        out.chunks_exact_mut(out_chunk_size)
+            .zip(parallel_buffer.iter())
+            .for_each(|(out_chunk, buffer_val)| {
+                eval_eq_packed(
+                    &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
+                    out_chunk,
+                    *buffer_val,
+                );
+            });
     }
 }
 
+/// Hard coded base case for the equality polynomial evaluation on 1 variable.
+#[allow(clippy::inline_always)] // Adding inline(always) seems to give a small performance boost.
+#[inline(always)]
+fn eval_eq_1<F: Field, FP: Algebra<F> + Copy>(eval: &[F], scalar: FP) -> [FP; 2] {
+    let x0 = eval[0];
+
+    let s1 = scalar * x0;
+    let s0 = scalar - s1;
+
+    [s0, s1]
+}
+
+/// Hard coded base case for the equality polynomial evaluation on 2 variables.
+#[allow(clippy::inline_always)] // Adding inline(always) seems to give a small performance boost.
+#[inline(always)]
+fn eval_eq_2<F: Field, FP: Algebra<F> + Copy>(eval: &[F], scalar: FP) -> [FP; 4] {
+    let x0 = eval[0];
+    let x1 = eval[1];
+
+    let s1 = scalar * x0;
+    let s0 = scalar - s1;
+
+    let s01 = s0 * x1;
+    let s00 = s0 - s01;
+    let s11 = s1 * x1;
+    let s10 = s1 - s11;
+
+    [s00, s01, s10, s11]
+}
+
+/// Hard coded base case for the equality polynomial evaluation on 3 variables.
+#[allow(clippy::inline_always)] // Adding inline(always) seems to give a small performance boost.
+#[inline(always)]
+fn eval_eq_3<F: Field, FP: Algebra<F> + Copy>(eval: &[F], scalar: FP) -> [FP; 8] {
+    let x0 = eval[0];
+    let x1 = eval[1];
+    let x2 = eval[2];
+
+    let s1 = scalar * x0;
+    let s0 = scalar - s1;
+
+    let s01 = s0 * x1;
+    let s00 = s0 - s01;
+    let s11 = s1 * x1;
+    let s10 = s1 - s11;
+
+    let s001 = s00 * x2;
+    let s000 = s00 - s001;
+    let s011 = s01 * x2;
+    let s010 = s01 - s011;
+    let s101 = s10 * x2;
+    let s100 = s10 - s101;
+    let s111 = s11 * x2;
+    let s110 = s11 - s111;
+
+    [s000, s001, s010, s011, s100, s101, s110, s111]
+}
+
+/// Computes the equality polynomial evaluations via a simple recursive algorithm.
+///
+/// Given an evaluation point vector `eval`, the function computes
+/// the equality polynomial recursively using the formula:
+///
+/// ```text
+/// eq(X) = scalar * ∏ (1 - X_i + 2X_i z_i)
+/// ```
+///
+/// where `z_i` are the constraint points. It then updates the output buffer `out`
+/// with the computed values by adding them in.
 #[allow(clippy::too_many_lines)]
-fn eval_eq_no_par<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], scalar: EF) {
+#[inline]
+fn eval_eq_basic<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], scalar: EF) {
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
     debug_assert_eq!(out.len(), 1 << eval.len());
@@ -198,73 +186,36 @@ fn eval_eq_no_par<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], 
         }
         1 => {
             // Manually unroll for single variable case
-            let x = eval[0];
-            let s1 = scalar * x;
-            let s0 = scalar - s1;
+            let eq_evaluations = eval_eq_1(eval, scalar);
 
-            out[0] += s0;
-            out[1] += s1;
+            out[0] += eq_evaluations[0];
+            out[1] += eq_evaluations[1];
         }
         2 => {
-            // Manually unroll for two variables case
-            let x0 = eval[0];
-            let x1 = eval[1];
+            // Manually unroll for two variable case
+            let eq_evaluations = eval_eq_2(eval, scalar);
 
-            let s1 = scalar * x0;
-            let s0 = scalar - s1;
-
-            let s01 = s0 * x1;
-            let s00 = s0 - s01;
-            let s11 = s1 * x1;
-            let s10 = s1 - s11;
-
-            out[0] += s00;
-            out[1] += s01;
-            out[2] += s10;
-            out[3] += s11;
+            out.iter_mut()
+                .zip(eq_evaluations.iter())
+                .for_each(|(out, eq_eval)| {
+                    *out += *eq_eval;
+                });
         }
         3 => {
-            // Three variables case (manually unrolled)
-            let x0 = eval[0];
-            let x1 = eval[1];
-            let x2 = eval[2];
+            // Manually unroll for three variable case
+            let eq_evaluations = eval_eq_3(eval, scalar);
 
-            let s1 = scalar * x0;
-            let s0 = scalar - s1;
-
-            let s01 = s0 * x1;
-            let s00 = s0 - s01;
-            let s11 = s1 * x1;
-            let s10 = s1 - s11;
-
-            let s001 = s00 * x2;
-            let s000 = s00 - s001;
-            let s011 = s01 * x2;
-            let s010 = s01 - s011;
-            let s101 = s10 * x2;
-            let s100 = s10 - s101;
-            let s111 = s11 * x2;
-            let s110 = s11 - s111;
-
-            out[0] += s000;
-            out[1] += s001;
-            out[2] += s010;
-            out[3] += s011;
-            out[4] += s100;
-            out[5] += s101;
-            out[6] += s110;
-            out[7] += s111;
+            out.iter_mut()
+                .zip(eq_evaluations.iter())
+                .for_each(|(out, eq_eval)| {
+                    *out += *eq_eval;
+                });
         }
         _ => {
-            let remaining_eval = eval;
-            let remaining_out = out;
-            let current_scalar = scalar;
-
-            // loop {
-            let (&x, tail) = remaining_eval.split_first().unwrap();
+            let (&x, tail) = eval.split_first().unwrap();
 
             // Divide the output buffer into two halves: one for `X_i = 0` and one for `X_i = 1`
-            let (low, high) = remaining_out.split_at_mut(remaining_out.len() / 2);
+            let (low, high) = out.split_at_mut(out.len() / 2);
 
             // Compute weight updates for the two branches:
             // - `s0` corresponds to the case when `X_i = 0`
@@ -274,55 +225,35 @@ fn eval_eq_no_par<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], 
             // ```text
             // eq_{X1, ..., Xn}(X) = (1 - X_1) * eq_{X2, ..., Xn}(X) + X_1 * eq_{X2, ..., Xn}(X)
             // ```
-            let s1 = current_scalar * x; // Contribution when `X_i = 1`
-            let s0 = current_scalar - s1; // Contribution when `X_i = 0`
+            let s1 = scalar * x; // Contribution when `X_i = 1`
+            let s0 = scalar - s1; // Contribution when `X_i = 0`
 
-            // if tail.len() <= 3 {
-            // Use existing optimized base cases
-            eval_eq_no_par(tail, low, s0);
-            eval_eq_no_par(tail, high, s1);
-            // break;
-            // }
-
-            // Recurse on one branch, continue loop with the other
-            // eval_eq_no_par(tail, high, s1);
-
-            // // Continue with low branch (tail call optimization)
-            // remaining_eval = tail;
-            // remaining_out = low;
-            // current_scalar = s0;
-
-            // // Default sequential execution
-            // eval_eq_no_par(tail, low, s0);
-            // eval_eq_no_par(tail, high, s1);
-            // }
-
-            // let mut buffer = EF::zero_vec(1 << eval.len());
-            // buffer[0] = scalar;
-
-            // for (ind, entry) in eval.iter().rev().enumerate() {
-            //     let stride = 1 << ind;
-
-            //     for index in 0..stride {
-            //         let val = buffer[index];
-            //         let scaled_val = val * *entry;
-            //         let new_val = val - scaled_val;
-
-            //         buffer[index] = new_val;
-            //         buffer[index + stride] = scaled_val;
-            //     }
-            // }
-
-            // out.iter_mut()
-            //     .zip(buffer.iter())
-            //     .for_each(|(out_val, buffer_val)| {
-            //         *out_val += *buffer_val;
-            //     });
+            // The recursive approach turns out to be faster than the iterative one here.
+            // Probably related to nice cache locality.
+            eval_eq_basic(tail, low, s0);
+            eval_eq_basic(tail, high, s1);
         }
     }
 }
 
+/// Computes the equality polynomial evaluations via a simple recursive algorithm.
+///
+/// Unlike [`eval_eq_basic`], this function makes heavy use of packed values to speed up computations.
+/// In particular `scalar` should be passed in as a packed value coming from [`packed_eq_poly`].
+///
+/// Essentially using packings this functions computes
+///
+/// ```text
+/// eq(X) = scalar[j] * ∏ (1 - X_i + 2X_i z_i)
+/// ```
+///
+/// for a collection of `i` at the same time. Here `scalar[j]` should be though of as evaluations of an equality
+/// polynomial over different variables so `eq(X)` ends up being the evaluation of the equality polynomial over
+/// the combined set of variables.
+///
+/// It then updates the output buffer `out` with the computed values by adding them in.
 #[allow(clippy::too_many_lines)]
+#[inline]
 fn eval_eq_packed<F: Field, EF: ExtensionField<F>>(
     eval: &[EF],
     out: &mut [EF],
@@ -335,6 +266,8 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>>(
 
     match eval.len() {
         0 => {
+            // TODO: Going to add something to Plonky3 to make this more efficient.
+            // Will let us add using the in-built packings.
             EF::ExtensionPacking::to_ext_iter([scalar])
                 .zip(out.iter_mut())
                 .for_each(|(scalar, out)| {
@@ -343,11 +276,11 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>>(
         }
         1 => {
             // Manually unroll for single variable case
-            let x = eval[0];
-            let s1 = scalar * x;
-            let s0 = scalar - s1;
+            let eq_evaluations = eval_eq_1(eval, scalar);
 
-            EF::ExtensionPacking::to_ext_iter([s0, s1])
+            // TODO: Going to add something to Plonky3 to make this more efficient.
+            // Will let us add using the in-built packings.
+            EF::ExtensionPacking::to_ext_iter(eq_evaluations)
                 .zip(out.iter_mut())
                 .for_each(|(scalar, out)| {
                     *out += scalar;
@@ -355,47 +288,23 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>>(
         }
         2 => {
             // Manually unroll for two variables case
-            let x0 = eval[0];
-            let x1 = eval[1];
+            let eq_evaluations = eval_eq_2(eval, scalar);
 
-            let s1 = scalar * x0;
-            let s0 = scalar - s1;
-
-            let s01 = s0 * x1;
-            let s00 = s0 - s01;
-            let s11 = s1 * x1;
-            let s10 = s1 - s11;
-
-            EF::ExtensionPacking::to_ext_iter([s00, s01, s10, s11])
+            // TODO: Going to add something to Plonky3 to make this more efficient.
+            // Will let us add using the in-built packings.
+            EF::ExtensionPacking::to_ext_iter(eq_evaluations)
                 .zip(out.iter_mut())
                 .for_each(|(scalar, out)| {
                     *out += scalar;
                 });
         }
         3 => {
-            // Three variables case (manually unrolled)
-            let x0 = eval[0];
-            let x1 = eval[1];
-            let x2 = eval[2];
+            // Manually unroll for single variable case
+            let eq_evaluations = eval_eq_3(eval, scalar);
 
-            let s1 = scalar * x0;
-            let s0 = scalar - s1;
-
-            let s01 = s0 * x1;
-            let s00 = s0 - s01;
-            let s11 = s1 * x1;
-            let s10 = s1 - s11;
-
-            let s001 = s00 * x2;
-            let s000 = s00 - s001;
-            let s011 = s01 * x2;
-            let s010 = s01 - s011;
-            let s101 = s10 * x2;
-            let s100 = s10 - s101;
-            let s111 = s11 * x2;
-            let s110 = s11 - s111;
-
-            EF::ExtensionPacking::to_ext_iter([s000, s001, s010, s011, s100, s101, s110, s111])
+            // TODO: Going to add something to Plonky3 to make this more efficient.
+            // Will let us add using the in-built packings.
+            EF::ExtensionPacking::to_ext_iter(eq_evaluations)
                 .zip(out.iter_mut())
                 .for_each(|(scalar, out)| {
                     *out += scalar;
@@ -418,22 +327,28 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>>(
             let s1 = scalar * x; // Contribution when `X_i = 1`
             let s0 = scalar - s1; // Contribution when `X_i = 0`
 
-            // if tail.len() <= 3 {
-            // Use existing optimized base cases
+            // The recursive approach turns out to be faster than the iterative one here.
+            // Probably related to nice cache locality.
             eval_eq_packed(tail, low, s0);
             eval_eq_packed(tail, high, s1);
         }
     }
 }
 
-/// Compute the inner most layers of the equality polynomial and pack the result
-/// into a `PackedFieldExtension`.
+/// Computes equality polynomial evaluations and packs them into a `PackedFieldExtension`.
+///
+/// The length of `eval` must be equal to the `log2` of `F::Packing::WIDTH`.
+#[allow(clippy::inline_always)] // Adding inline(always) seems to give a small performance boost.
+#[inline(always)]
 fn packed_eq_poly<F: Field, EF: ExtensionField<F>>(
     eval: &[EF],
     scalar: EF,
 ) -> EF::ExtensionPacking {
-    debug_assert_eq!(F::Packing::WIDTH, eval.len());
+    // As this function is only available in this file, debug_assert should be fine here.
+    // If this function becomes public, this should be changed to an assert.
+    debug_assert_eq!(F::Packing::WIDTH, 1 << eval.len());
 
+    // We build up the evaluations of the equality polynomial in buffer.
     let mut buffer = EF::zero_vec(1 << eval.len());
     buffer[0] = scalar;
 
@@ -454,6 +369,7 @@ fn packed_eq_poly<F: Field, EF: ExtensionField<F>>(
         }
     }
 
+    // Finally we need to do a "transpose" to get a `PackedFieldExtension` element.
     EF::ExtensionPacking::from_ext_slice(&buffer)
 }
 
