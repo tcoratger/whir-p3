@@ -197,8 +197,11 @@ where
         // We read:
         // - The sumcheck polynomials produced by the prover,
         // - The folding randomness used in each corresponding round
+        let mut tmp = F::ZERO;
+
         let (sumcheck_rounds, new_folding_randomness) = read_sumcheck_rounds::<_, _, PS>(
             verifier_state,
+            &mut tmp,
             verifier.folding_factor.at_round(r + 1),
             round_params.folding_pow_bits,
             false,

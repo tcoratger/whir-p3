@@ -1,7 +1,13 @@
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_interpolation::interpolate_subgroup;
+use p3_matrix::dense::RowMajorMatrix;
 
 use crate::{
-    fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, verifier::VerifierState},
+    fiat_shamir::{
+        errors::{ProofError, ProofResult},
+        pow::traits::PowStrategy,
+        verifier::VerifierState,
+    },
     poly::multilinear::MultilinearPoint,
     sumcheck::{K_SKIP_SUMCHECK, sumcheck_polynomial::SumcheckPolynomial},
 };
@@ -45,6 +51,7 @@ type SumcheckRandomness<F> = MultilinearPoint<F>;
 /// - A `MultilinearPoint` of folding randomness values in reverse order.
 pub(crate) fn read_sumcheck_rounds<EF, F, PS>(
     verifier_state: &mut VerifierState<'_, EF, F>,
+    claimed_sum: &mut EF,
     num_rounds: usize,
     pow_bits: f64,
     is_univariate_skip: bool,
@@ -77,6 +84,12 @@ where
         // Sample the challenge scalar r₀ ∈ 𝔽 for this round
         let [rand] = verifier_state.challenge_scalars()?;
 
+        // Update the claimed sum using the univariate polynomial and randomness.
+        //
+        // We interpolate the univariate polynomial at the randomness point.
+        *claimed_sum =
+            interpolate_subgroup(&RowMajorMatrix::new_col(poly.evaluations().to_vec()), rand)[0];
+
         // Record this round’s data
         result.push((poly, rand));
 
@@ -98,8 +111,16 @@ where
         let evals = verifier_state.next_scalars::<3>()?;
         let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
 
+        // Verify claimed sum is consistent with polynomial
+        if poly.sum_over_boolean_hypercube() != *claimed_sum {
+            return Err(ProofError::InvalidProof);
+        }
+
         // Sample the next verifier folding randomness rᵢ
         let [rand] = verifier_state.challenge_scalars()?;
+
+        // Update claimed sum using folding randomness
+        *claimed_sum = poly.evaluate_at_point(&rand.into());
 
         // Store this round’s polynomial and randomness
         result.push((poly, rand));
@@ -204,7 +225,7 @@ mod tests {
         let evals_w = prover.weights.evals();
 
         // Compute expected sum of evaluations via dot product
-        let expected_initial_sum = evals_w[0] * evals_f[0]
+        let mut expected_initial_sum = evals_w[0] * evals_f[0]
             + evals_w[1] * evals_f[1]
             + evals_w[2] * evals_f[2]
             + evals_w[3] * evals_f[3]
@@ -277,6 +298,7 @@ mod tests {
 
         let (sumcheck_rounds, randomness) = read_sumcheck_rounds::<EF4, F, Blake3PoW>(
             &mut verifier_state,
+            &mut expected_initial_sum,
             folding_factor,
             pow_bits,
             false,
@@ -367,7 +389,7 @@ mod tests {
         };
         let evals_w = prover.weights.evals();
 
-        let expected_sum = evals_f
+        let mut expected_sum = evals_f
             .iter()
             .zip(evals_w)
             .map(|(a, b)| *b * *a)
@@ -434,9 +456,14 @@ mod tests {
         // Use read_sumcheck_rounds with skip enabled
         // -------------------------------------------------------------
         let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
-        let (sumcheck_rounds, randomness) =
-            read_sumcheck_rounds::<EF4, F, Blake3PoW>(&mut verifier_state, NUM_VARS, 0.0, true)
-                .unwrap();
+        let (sumcheck_rounds, randomness) = read_sumcheck_rounds::<EF4, F, Blake3PoW>(
+            &mut verifier_state,
+            &mut expected_sum,
+            NUM_VARS,
+            0.0,
+            true,
+        )
+        .unwrap();
 
         // Check length:
         // - 1 randomness for the first K skipped rounds
