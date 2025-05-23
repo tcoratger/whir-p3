@@ -1,7 +1,7 @@
 use p3_field::{ExtensionField, Field};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use tracing::{info_span, instrument};
+use tracing::instrument;
 
 use crate::{
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
