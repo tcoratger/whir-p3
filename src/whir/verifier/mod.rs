@@ -46,6 +46,123 @@ where
         Self(params)
     }
 
+    /// Combine multiple constraints into a single claim using random linear combination.
+    ///
+    /// This method draws a challenge scalar from the Fiat-Shamir transcript and uses it
+    /// to generate a sequence of powers, one for each constraint. These powers serve as
+    /// coefficients in a random linear combination of the constraint sums.
+    ///
+    /// The resulting linear combination is added to `claimed_sum`, which becomes the new
+    /// target value to verify in the sumcheck protocol.
+    ///
+    /// # Arguments
+    /// - `verifier_state`: Fiat-Shamir transcript reader.
+    /// - `claimed_sum`: Mutable reference to the running sum of combined constraints.
+    /// - `constraints`: List of constraints to combine.
+    ///
+    /// # Returns
+    /// A vector of randomness values used to weight each constraint.
+    pub fn combine_constraints(
+        &self,
+        verifier_state: &mut VerifierState<'_, EF, F>,
+        claimed_sum: &mut EF,
+        constraints: &[Constraint<EF>],
+    ) -> ProofResult<Vec<EF>> {
+        let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
+        let combination_randomness: Vec<_> = combination_randomness_gen
+            .powers()
+            .take(constraints.len())
+            .collect();
+        *claimed_sum += constraints
+            .iter()
+            .zip(&combination_randomness)
+            .map(|(c, &rand)| rand * c.sum)
+            .sum::<EF>();
+
+        Ok(combination_randomness)
+    }
+
+    /// Verify the prover's proof of work (PoW) challenge response.
+    ///
+    /// If the configured `bits` value is greater than zero, this function checks that
+    /// the prover has provided a valid PoW nonce satisfying the difficulty constraint.
+    /// This prevents spam and ensures the prover has committed nontrivial effort
+    /// before submitting a proof.
+    ///
+    /// If `bits == 0.`, no proof of work is required and the function returns immediately.
+    ///
+    /// # Arguments
+    /// - `verifier_state`: The verifier’s Fiat-Shamir state.
+    /// - `bits`: The number of difficulty bits required for the proof of work.
+    ///
+    /// # Errors
+    /// Returns `ProofError::InvalidProof` if the PoW response is invalid.
+    pub fn verify_proof_of_work(
+        &self,
+        verifier_state: &mut VerifierState<'_, EF, F>,
+        bits: f64,
+    ) -> ProofResult<()> {
+        if bits > 0. {
+            verifier_state.challenge_pow::<PS>(bits)?;
+        }
+        Ok(())
+    }
+
+    /// Evaluate a batch of constraint polynomials at a given multilinear point.
+    ///
+    /// This function computes the combined weighted value of constraints across all rounds.
+    /// Each constraint is either directly evaluated at the input point (`MultilinearPoint`)
+    /// or substituted with a deferred evaluation result, depending on the constraint type.
+    ///
+    /// The final result is the sum of each constraint's value, scaled by its corresponding
+    /// challenge randomness (used in the linear combination step of the sumcheck protocol).
+    ///
+    /// # Arguments
+    /// - `constraints`: A list of tuples, where each tuple corresponds to a round and contains:
+    ///     - A vector of challenge randomness values (used to weight each constraint),
+    ///     - A vector of `Constraint<EF>` objects for that round.
+    /// - `deferred`: Precomputed evaluations used for deferred constraints.
+    /// - `point`: The multilinear point at which to evaluate the constraint polynomials.
+    ///
+    /// # Returns
+    /// The combined evaluation result of all weighted constraints across rounds at the given point.
+    ///
+    /// # Panics
+    /// Panics if:
+    /// - Any round's `randomness.len()` does not match `constraints.len()`,
+    /// - A deferred constraint is encountered but `deferred` has been exhausted.
+    fn eval_constraints_poly(
+        &self,
+        constraints: &[(Vec<EF>, Vec<Constraint<EF>>)],
+        deferred: &[EF],
+        mut point: MultilinearPoint<EF>,
+    ) -> EF {
+        let mut num_variables = self.mv_parameters.num_variables;
+        let mut deferred = deferred.iter().copied();
+        let mut value = EF::ZERO;
+
+        for (round, (randomness, constraints)) in constraints.iter().enumerate() {
+            assert_eq!(randomness.len(), constraints.len());
+            if round > 0 {
+                num_variables -= self.folding_factor.at_round(round - 1);
+                point = MultilinearPoint(point.0[..num_variables].to_vec());
+            }
+            value += constraints
+                .iter()
+                .zip(randomness)
+                .map(|(constraint, &randomness)| {
+                    let value = if constraint.defer_evaluation {
+                        deferred.next().unwrap()
+                    } else {
+                        constraint.weights.compute(&point)
+                    };
+                    value * randomness
+                })
+                .sum::<EF>();
+        }
+        value
+    }
+
     fn compute_w_poly<const DIGEST_ELEMS: usize>(
         &self,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
