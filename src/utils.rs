@@ -3,7 +3,6 @@ use p3_field::{
 };
 use p3_util::log2_strict_usize;
 use rayon::prelude::*;
-use tracing::instrument;
 
 /// Computes the equality polynomial evaluations efficiently.
 ///
@@ -29,7 +28,7 @@ pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [E
     const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
 
     // It's possible for this to be called with F = EF (Despite F actually being an extension field).
-    // This check ensures this is not the case.
+    // This check ensures this is not the case unless F is a prime field with non-trivial packing.
     let packing_width = F::Packing::WIDTH;
     debug_assert!(packing_width > 1);
 
