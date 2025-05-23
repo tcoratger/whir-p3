@@ -10,6 +10,7 @@ use crate::{
     },
     poly::multilinear::MultilinearPoint,
     sumcheck::{K_SKIP_SUMCHECK, sumcheck_polynomial::SumcheckPolynomial},
+    whir::Verifier,
 };
 
 /// A single sumcheck round:
@@ -20,122 +21,122 @@ type SumcheckRound<F> = (SumcheckPolynomial<F>, F);
 /// The full vector of folding randomness values, in reverse round order.
 type SumcheckRandomness<F> = MultilinearPoint<F>;
 
-/// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
-/// and computes the corresponding `MultilinearPoint` folding randomness in reverse order.
-///
-/// This function reads from the Fiat–Shamir transcript to simulate verifier interaction
-/// in the sumcheck protocol. For each round, it recovers:
-/// - One univariate polynomial (usually degree ≤ 2) sent by the prover.
-/// - One challenge scalar chosen by the verifier (folding randomness).
-///
-/// ## Modes
-///
-/// - **Standard mode** (`is_univariate_skip = false`):
-///   Each round represents a single variable being folded.
-///   The polynomial is evaluated at 3 points, typically `{0, 1, r}` for quadratic reduction.
-///
-/// - **Univariate skip mode** (`is_univariate_skip = true`):
-///   The first `K_SKIP_SUMCHECK` variables are folded simultaneously by evaluating a single univariate polynomial
-///   over a coset of size `2^{k+1}`. This yields a larger polynomial but avoids several later rounds.
-///
-/// # Arguments
-///
-/// - `verifier_state`: The verifier's Fiat–Shamir transcript state.
-/// - `num_rounds`: Total number of variables being folded.
-/// - `pow_bits`: Optional proof-of-work difficulty (0 disables PoW).
-/// - `is_univariate_skip`: If true, apply the univariate skip optimization on the first `K_SKIP_SUMCHECK` variables.
-///
-/// # Returns
-///
-/// - A vector of `(SumcheckPolynomial, folding_randomness)` tuples in forward round order.
-/// - A `MultilinearPoint` of folding randomness values in reverse order.
-pub(crate) fn read_sumcheck_rounds<EF, F, PS>(
-    verifier_state: &mut VerifierState<'_, EF, F>,
-    claimed_sum: &mut EF,
-    num_rounds: usize,
-    pow_bits: f64,
-    is_univariate_skip: bool,
-) -> ProofResult<(Vec<SumcheckRound<EF>>, SumcheckRandomness<EF>)>
+impl<'a, EF, F, H, C, PS> Verifier<'a, EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
 {
-    // Calculate how many `(poly, rand)` pairs to expect based on skip mode
-    //
-    // If skipping: we do 1 large round for the skip, and the remaining normally
-    let effective_rounds = if is_univariate_skip {
-        1 + (num_rounds - K_SKIP_SUMCHECK)
-    } else {
-        num_rounds
-    };
-
-    // Preallocate vector to hold all (poly, randomness) pairs
-    let mut result = Vec::with_capacity(effective_rounds);
-
-    // Handle the univariate skip case
-    if is_univariate_skip {
-        // Read `2^{k+1}` evaluations (size of coset domain) for the skipping polynomial
-        let evals = verifier_state.next_scalars::<{ 1 << (K_SKIP_SUMCHECK + 1) }>()?;
-
-        // Interpolate into a univariate polynomial (over the coset domain)
-        let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
-
-        // Sample the challenge scalar r₀ ∈ 𝔽 for this round
-        let [rand] = verifier_state.challenge_scalars()?;
-
-        // Update the claimed sum using the univariate polynomial and randomness.
+    /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
+    /// and computes the corresponding `MultilinearPoint` folding randomness in reverse order.
+    ///
+    /// This function reads from the Fiat–Shamir transcript to simulate verifier interaction
+    /// in the sumcheck protocol. For each round, it recovers:
+    /// - One univariate polynomial (usually degree ≤ 2) sent by the prover.
+    /// - One challenge scalar chosen by the verifier (folding randomness).
+    ///
+    /// ## Modes
+    ///
+    /// - **Standard mode** (`is_univariate_skip = false`):
+    ///   Each round represents a single variable being folded.
+    ///   The polynomial is evaluated at 3 points, typically `{0, 1, r}` for quadratic reduction.
+    ///
+    /// - **Univariate skip mode** (`is_univariate_skip = true`):
+    ///   The first `K_SKIP_SUMCHECK` variables are folded simultaneously by evaluating a single univariate polynomial
+    ///   over a coset of size `2^{k+1}`. This yields a larger polynomial but avoids several later rounds.
+    ///
+    /// # Arguments
+    ///
+    /// - `verifier_state`: The verifier's Fiat–Shamir transcript state.
+    /// - `rounds`: Total number of variables being folded.
+    /// - `pow_bits`: Optional proof-of-work difficulty (0 disables PoW).
+    /// - `is_univariate_skip`: If true, apply the univariate skip optimization on the first `K_SKIP_SUMCHECK` variables.
+    ///
+    /// # Returns
+    ///
+    /// - A vector of `(SumcheckPolynomial, folding_randomness)` tuples in forward round order.
+    /// - A `MultilinearPoint` of folding randomness values in reverse order.
+    pub(crate) fn verify_sumcheck_rounds(
+        &self,
+        verifier_state: &mut VerifierState<'_, EF, F>,
+        claimed_sum: &mut EF,
+        rounds: usize,
+        pow_bits: f64,
+        is_univariate_skip: bool,
+    ) -> ProofResult<(Vec<SumcheckRound<EF>>, SumcheckRandomness<EF>)> {
+        // Calculate how many `(poly, rand)` pairs to expect based on skip mode
         //
-        // We interpolate the univariate polynomial at the randomness point.
-        *claimed_sum =
-            interpolate_subgroup(&RowMajorMatrix::new_col(poly.evaluations().to_vec()), rand)[0];
+        // If skipping: we do 1 large round for the skip, and the remaining normally
+        let effective_rounds = if is_univariate_skip {
+            1 + (rounds - K_SKIP_SUMCHECK)
+        } else {
+            rounds
+        };
 
-        // Record this round’s data
-        result.push((poly, rand));
+        // Preallocate vector to hold all (poly, randomness) pairs
+        let mut result = Vec::with_capacity(effective_rounds);
 
-        // Optional: apply proof-of-work query
-        if pow_bits > 0.0 {
-            verifier_state.challenge_pow::<PS>(pow_bits)?;
+        // Handle the univariate skip case
+        if is_univariate_skip {
+            // Read `2^{k+1}` evaluations (size of coset domain) for the skipping polynomial
+            let evals = verifier_state.next_scalars::<{ 1 << (K_SKIP_SUMCHECK + 1) }>()?;
+
+            // Interpolate into a univariate polynomial (over the coset domain)
+            let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+
+            // Sample the challenge scalar r₀ ∈ 𝔽 for this round
+            let [rand] = verifier_state.challenge_scalars()?;
+
+            // Update the claimed sum using the univariate polynomial and randomness.
+            //
+            // We interpolate the univariate polynomial at the randomness point.
+            *claimed_sum =
+                interpolate_subgroup(&RowMajorMatrix::new_col(poly.evaluations().to_vec()), rand)
+                    [0];
+
+            // Record this round’s data
+            result.push((poly, rand));
+
+            // Optional: apply proof-of-work query
+            self.verify_proof_of_work(verifier_state, pow_bits)?;
         }
+
+        // Continue with the remaining sumcheck rounds (each using 3 evaluations)
+        let start_round = if is_univariate_skip {
+            K_SKIP_SUMCHECK // skip the first k rounds
+        } else {
+            0
+        };
+
+        for _ in start_round..rounds {
+            // Extract the 3 evaluations of the quadratic sumcheck polynomial h(X)
+            let evals = verifier_state.next_scalars::<3>()?;
+            let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+
+            // Verify claimed sum is consistent with polynomial
+            if poly.sum_over_boolean_hypercube() != *claimed_sum {
+                return Err(ProofError::InvalidProof);
+            }
+
+            // Sample the next verifier folding randomness rᵢ
+            let [rand] = verifier_state.challenge_scalars()?;
+
+            // Update claimed sum using folding randomness
+            *claimed_sum = poly.evaluate_at_point(&rand.into());
+
+            // Store this round’s polynomial and randomness
+            result.push((poly, rand));
+
+            // Optional PoW interaction (grinding resistance)
+            self.verify_proof_of_work(verifier_state, pow_bits)?;
+        }
+
+        // We should reverse the order of the randomness points:
+        // This is because the randomness points are originally reverted at the end of the sumcheck rounds.
+        let randomness = MultilinearPoint(result.iter().map(|&(_, r)| r).rev().collect());
+
+        Ok((result, randomness))
     }
-
-    // Continue with the remaining sumcheck rounds (each using 3 evaluations)
-    let start_round = if is_univariate_skip {
-        K_SKIP_SUMCHECK // skip the first k rounds
-    } else {
-        0
-    };
-
-    for _ in start_round..num_rounds {
-        // Extract the 3 evaluations of the quadratic sumcheck polynomial h(X)
-        let evals = verifier_state.next_scalars::<3>()?;
-        let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
-
-        // Verify claimed sum is consistent with polynomial
-        if poly.sum_over_boolean_hypercube() != *claimed_sum {
-            return Err(ProofError::InvalidProof);
-        }
-
-        // Sample the next verifier folding randomness rᵢ
-        let [rand] = verifier_state.challenge_scalars()?;
-
-        // Update claimed sum using folding randomness
-        *claimed_sum = poly.evaluate_at_point(&rand.into());
-
-        // Store this round’s polynomial and randomness
-        result.push((poly, rand));
-
-        // Optional PoW interaction (grinding resistance)
-        if pow_bits > 0.0 {
-            verifier_state.challenge_pow::<PS>(pow_bits)?;
-        }
-    }
-
-    // We should reverse the order of the randomness points:
-    // This is because the randomness points are originally reverted at the end of the sumcheck rounds.
-    let randomness = MultilinearPoint(result.iter().map(|&(_, r)| r).rev().collect());
-
-    Ok((result, randomness))
 }
 
 #[cfg(test)]
@@ -149,16 +150,48 @@ mod tests {
     use super::*;
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
+        parameters::{
+            FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
+        },
         poly::{coeffs::CoefficientList, evals::EvaluationStorage, multilinear::MultilinearPoint},
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
-            Blake3PoW,
+            Blake3PoW, ByteHash, FieldHash, MyCompress,
+            parameters::WhirConfig,
             statement::{Statement, weights::Weights},
         },
     };
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
+
+    /// Constructs a default WHIR configuration for testing
+    fn default_whir_config(
+        num_variables: usize,
+    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW> {
+        // Create hash and compression functions for the Merkle tree
+        let byte_hash = ByteHash {};
+        let merkle_hash = FieldHash::new(byte_hash);
+        let merkle_compress = MyCompress::new(byte_hash);
+
+        // Set the multivariate polynomial parameters
+        let mv_params = MultivariateParameters::<EF4>::new(num_variables);
+
+        // Construct WHIR protocol parameters
+        let whir_params = ProtocolParameters::<_, _> {
+            initial_statement: true,
+            security_level: 32,
+            pow_bits: 0,
+            folding_factor: FoldingFactor::Constant(2),
+            merkle_hash,
+            merkle_compress,
+            soundness_type: SecurityAssumption::UniqueDecoding,
+            starting_log_inv_rate: 1,
+        };
+
+        // Combine protocol and polynomial parameters into a single config
+        WhirConfig::<EF4, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params)
+    }
 
     #[test]
     #[allow(clippy::too_many_lines)]
@@ -296,14 +329,19 @@ mod tests {
         // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
         let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
 
-        let (sumcheck_rounds, randomness) = read_sumcheck_rounds::<EF4, F, Blake3PoW>(
-            &mut verifier_state,
-            &mut expected_initial_sum,
-            folding_factor,
-            pow_bits,
-            false,
-        )
-        .unwrap();
+        // Setup the WHIR verifier
+        let whir_config = default_whir_config(n_vars);
+        let verifier = Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW>::new(&whir_config);
+
+        let (sumcheck_rounds, randomness) = verifier
+            .verify_sumcheck_rounds(
+                &mut verifier_state,
+                &mut expected_initial_sum,
+                folding_factor,
+                pow_bits,
+                false,
+            )
+            .unwrap();
 
         // Check that number of parsed rounds is correct
         assert_eq!(sumcheck_rounds.len(), folding_factor);
@@ -452,18 +490,17 @@ mod tests {
             expected.push((poly, r));
         }
 
+        // Setup the WHIR verifier
+        let whir_config = default_whir_config(NUM_VARS);
+        let verifier = Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW>::new(&whir_config);
+
         // -------------------------------------------------------------
-        // Use read_sumcheck_rounds with skip enabled
+        // Use verify_sumcheck_rounds with skip enabled
         // -------------------------------------------------------------
         let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
-        let (sumcheck_rounds, randomness) = read_sumcheck_rounds::<EF4, F, Blake3PoW>(
-            &mut verifier_state,
-            &mut expected_sum,
-            NUM_VARS,
-            0.0,
-            true,
-        )
-        .unwrap();
+        let (sumcheck_rounds, randomness) = verifier
+            .verify_sumcheck_rounds(&mut verifier_state, &mut expected_sum, NUM_VARS, 0.0, true)
+            .unwrap();
 
         // Check length:
         // - 1 randomness for the first K skipped rounds

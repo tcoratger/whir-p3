@@ -7,7 +7,6 @@ use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
-use utils::read_sumcheck_rounds;
 
 use super::{
     committer::reader::ParsedCommitment,
@@ -25,7 +24,7 @@ use crate::{
     whir::{Statement, parameters::WhirConfig},
 };
 
-pub mod utils;
+pub mod sumcheck;
 
 // TODO: Merge these into RoundConfig
 #[derive(Debug)]
@@ -114,7 +113,7 @@ where
             round_constraints.push((combination_randomness, constraints));
 
             // Initial sumcheck
-            let (_, folding_randomness) = read_sumcheck_rounds::<_, _, PS>(
+            let (_, folding_randomness) = self.verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_sum,
                 self.folding_factor.at_round(0),
@@ -169,7 +168,7 @@ where
                 self.combine_constraints(verifier_state, &mut claimed_sum, &constraints)?;
             round_constraints.push((combination_randomness.clone(), constraints));
 
-            let (_, folding_randomness) = read_sumcheck_rounds::<_, _, PS>(
+            let (_, folding_randomness) = self.verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_sum,
                 self.folding_factor.at_round(round_index + 1),
@@ -217,7 +216,7 @@ where
             return Err(ProofError::InvalidProof);
         }
 
-        let (_, final_sumcheck_randomness) = read_sumcheck_rounds::<_, _, PS>(
+        let (_, final_sumcheck_randomness) = self.verify_sumcheck_rounds(
             verifier_state,
             &mut claimed_sum,
             self.final_sumcheck_rounds,
