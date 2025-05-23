@@ -246,7 +246,7 @@ fn eval_eq_basic<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], s
 /// eq(X) = scalar[j] * ∏ (1 - X_i + 2X_i z_i)
 /// ```
 ///
-/// for a collection of `i` at the same time. Here `scalar[j]` should be though of as evaluations of an equality
+/// for a collection of `i` at the same time. Here `scalar[j]` should be thought of as evaluations of an equality
 /// polynomial over different variables so `eq(X)` ends up being the evaluation of the equality polynomial over
 /// the combined set of variables.
 ///
