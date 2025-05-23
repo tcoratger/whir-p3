@@ -94,13 +94,15 @@ where
                 .take(parsed_commitment.ood_points.len() + statement_points_len)
                 .collect();
 
+            let mut tmp = F::ZERO;
+
             // Initial sumcheck, we read:
             // - The sumcheck polynomials produced by the prover,
             // - The folding randomness used in each corresponding round
             let (initial_sumcheck_rounds, initial_sumcheck_randomness) =
                 read_sumcheck_rounds::<_, _, PS>(
                     verifier_state,
-                    &mut F::ZERO,
+                    &mut tmp,
                     verifier.folding_factor.at_round(0),
                     verifier.starting_folding_pow_bits,
                     false,
@@ -220,9 +222,11 @@ where
         // Read the final sumcheck rounds:
         // - The sumcheck polynomials produced by the prover,
         // - The folding randomness used in each corresponding round
+        let mut tmp = F::ZERO;
+
         let (final_sumcheck_rounds, final_sumcheck_randomness) = read_sumcheck_rounds::<_, _, PS>(
             verifier_state,
-            &mut F::ZERO,
+            &mut tmp,
             verifier.final_sumcheck_rounds,
             verifier.final_folding_pow_bits,
             false,
