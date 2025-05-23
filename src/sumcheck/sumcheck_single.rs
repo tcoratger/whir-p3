@@ -68,7 +68,7 @@ where
         statement: &Statement<EF>,
         combination_randomness: EF,
     ) -> Self {
-        let (weights, sum) = statement.combine(combination_randomness);
+        let (weights, sum) = statement.combine::<F>(combination_randomness);
         Self {
             evaluation_of_p: EvaluationStorage::Base(coeffs.to_evaluations()),
             weights,
@@ -91,7 +91,7 @@ where
         statement: &Statement<EF>,
         combination_randomness: EF,
     ) -> Self {
-        let (weights, sum) = statement.combine(combination_randomness);
+        let (weights, sum) = statement.combine::<F>(combination_randomness);
         Self {
             evaluation_of_p: EvaluationStorage::Base(evals),
             weights,
@@ -113,7 +113,7 @@ where
         statement: &Statement<EF>,
         combination_randomness: EF,
     ) -> Self {
-        let (weights, sum) = statement.combine(combination_randomness);
+        let (weights, sum) = statement.combine::<F>(combination_randomness);
         Self {
             evaluation_of_p: EvaluationStorage::Extension(coeffs.to_evaluations::<F>()),
             weights,
@@ -136,7 +136,7 @@ where
         statement: &Statement<EF>,
         combination_randomness: EF,
     ) -> Self {
-        let (weights, sum) = statement.combine(combination_randomness);
+        let (weights, sum) = statement.combine::<F>(combination_randomness);
         Self {
             evaluation_of_p: EvaluationStorage::Extension(evals),
             weights,
@@ -184,7 +184,7 @@ where
             .iter()
             .zip(combination_randomness.iter().zip(evaluations.iter()))
             .for_each(|(point, (&rand, &eval))| {
-                eval_eq(&point.0, self.weights.evals_mut(), rand);
+                eval_eq::<F, EF>(&point.0, self.weights.evals_mut(), rand);
                 self.sum += rand * eval;
             });
     }
@@ -1901,7 +1901,7 @@ mod tests {
 
         // Expected weight table updated using eq(X) = weight × eq_at_point(point)
         let mut expected_weights = vec![EF4::ZERO; 2];
-        eval_eq(&point.0, &mut expected_weights, weight);
+        eval_eq::<F, EF4>(&point.0, &mut expected_weights, weight);
         assert_eq!(prover.weights.evals(), &expected_weights);
     }
 

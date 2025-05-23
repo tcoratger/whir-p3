@@ -117,20 +117,24 @@ impl<F: Field> Weights<F> {
     ///
     /// Given a weight function `w(X)` and a factor `λ`, this updates `accumulator` as:
     ///
-    /// \begin{equation}
-    /// a(X) \gets a(X) + \lambda \cdot w(X)
-    /// \end{equation}
+    /// ```math
+    /// a(X) <- a(X) + \lambda \cdot w(X)
+    /// ```
     ///
     /// where `a(X)` is the accumulator polynomial.
     ///
     /// **Precondition:**
     /// `accumulator.num_variables()` must match `self.num_variables()`.
     #[instrument(skip_all)]
-    pub fn accumulate(&self, accumulator: &mut EvaluationsList<F>, factor: F) {
+    pub fn accumulate<Base>(&self, accumulator: &mut EvaluationsList<F>, factor: F)
+    where
+        Base: Field,
+        F: ExtensionField<Base>,
+    {
         assert_eq!(accumulator.num_variables(), self.num_variables());
         match self {
             Self::Evaluation { point } => {
-                eval_eq(&point.0, accumulator.evals_mut(), factor);
+                eval_eq::<Base, F>(&point.0, accumulator.evals_mut(), factor);
             }
             Self::Linear { weight } => {
                 #[cfg(feature = "parallel")]
