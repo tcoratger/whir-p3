@@ -19,7 +19,7 @@ use rayon::prelude::*;
 pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], scalar: EF) {
     // Number of threads to spawn.
     // Long term this should be a modifiable parameter.
-    // I've chosen 32 here as my machine has 20 logical cores. PLausibly we might want to hard code this
+    // I've chosen 32 here as my machine has 20 logical cores. Plausibly we might want to hard code this
     // to be a little larger than this.
     #[cfg(feature = "parallel")]
     const LOG_NUM_THREADS: usize = 5;
