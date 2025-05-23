@@ -1901,7 +1901,7 @@ mod tests {
 
         // Expected weight table updated using eq(X) = weight × eq_at_point(point)
         let mut expected_weights = vec![EF4::ZERO; 2];
-        eval_eq(&point.0, &mut expected_weights, weight);
+        eval_eq::<F, EF4>(&point.0, &mut expected_weights, weight);
         assert_eq!(prover.weights.evals(), &expected_weights);
     }
 

@@ -15,7 +15,6 @@ use tracing::instrument;
 /// ```
 ///
 /// where `z_i` are the constraint points.
-#[instrument(skip_all, fields(size = eval.len()))]
 #[inline]
 pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], scalar: EF) {
     // Number of threads to spawn.
