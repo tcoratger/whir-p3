@@ -6,7 +6,7 @@ use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_monty_31::dft::RecursiveDft;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use parameters::WhirConfig;
-use prover::{Leafs, Prover};
+use prover::Prover;
 use statement::{Statement, weights::Weights};
 use verifier::Verifier;
 
@@ -16,7 +16,6 @@ use crate::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
-    whir::prover::Proof,
 };
 
 pub mod committer;
