@@ -21,7 +21,7 @@ type SumcheckRound<F> = (SumcheckPolynomial<F>, F);
 /// The full vector of folding randomness values, in reverse round order.
 type SumcheckRandomness<F> = MultilinearPoint<F>;
 
-impl<'a, EF, F, H, C, PS> Verifier<'a, EF, F, H, C, PS>
+impl<EF, F, H, C, PS> Verifier<'_, EF, F, H, C, PS>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
