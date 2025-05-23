@@ -100,6 +100,7 @@ where
             let (initial_sumcheck_rounds, initial_sumcheck_randomness) =
                 read_sumcheck_rounds::<_, _, PS>(
                     verifier_state,
+                    &mut F::ZERO,
                     verifier.folding_factor.at_round(0),
                     verifier.starting_folding_pow_bits,
                     false,
@@ -221,6 +222,7 @@ where
         // - The folding randomness used in each corresponding round
         let (final_sumcheck_rounds, final_sumcheck_randomness) = read_sumcheck_rounds::<_, _, PS>(
             verifier_state,
+            &mut F::ZERO,
             verifier.final_sumcheck_rounds,
             verifier.final_folding_pow_bits,
             false,

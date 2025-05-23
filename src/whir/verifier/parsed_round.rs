@@ -199,6 +199,7 @@ where
         // - The folding randomness used in each corresponding round
         let (sumcheck_rounds, new_folding_randomness) = read_sumcheck_rounds::<_, _, PS>(
             verifier_state,
+            &mut F::ZERO,
             verifier.folding_factor.at_round(r + 1),
             round_params.folding_pow_bits,
             false,
