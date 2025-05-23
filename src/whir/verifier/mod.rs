@@ -1,4 +1,4 @@
-use std::{fmt::Debug, iter, ops::Deref};
+use std::{fmt::Debug, ops::Deref};
 
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
@@ -22,7 +22,7 @@ use crate::{
         verifier::VerifierState,
     },
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
-    whir::{Statement, parameters::WhirConfig, verifier::parsed_proof::ParsedProof},
+    whir::{Statement, parameters::WhirConfig},
 };
 
 pub mod parsed_proof;
@@ -492,80 +492,6 @@ where
                 })
                 .sum::<EF>();
         }
-        value
-    }
-
-    fn compute_w_poly<const DIGEST_ELEMS: usize>(
-        &self,
-        parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
-        statement: &Statement<EF>,
-        proof: &ParsedProof<EF>,
-        deferred: &[EF],
-    ) -> EF {
-        let mut num_variables = self.mv_parameters.num_variables;
-
-        let mut folding_randomness = MultilinearPoint(
-            iter::once(&proof.final_sumcheck_randomness.0)
-                .chain(iter::once(&proof.final_folding_randomness.0))
-                .chain(proof.rounds.iter().rev().map(|r| &r.folding_randomness.0))
-                .flatten()
-                .copied()
-                .collect(),
-        );
-
-        let constraints: Vec<_> = parsed_commitment
-            .ood_points
-            .iter()
-            .zip(&parsed_commitment.ood_answers)
-            .map(|(&point, &eval)| {
-                let weights = Weights::evaluation(MultilinearPoint::expand_from_univariate(
-                    point,
-                    num_variables,
-                ));
-                Constraint {
-                    weights,
-                    sum: eval,
-                    defer_evaluation: false,
-                }
-            })
-            .chain(statement.constraints.iter().cloned())
-            .collect();
-
-        let mut deferred = deferred.iter().copied();
-        let mut value: EF = constraints
-            .iter()
-            .zip(&proof.initial_combination_randomness)
-            .map(|(constraint, randomness)| {
-                if constraint.defer_evaluation {
-                    deferred.next().unwrap()
-                } else {
-                    *randomness * constraint.weights.compute(&folding_randomness)
-                }
-            })
-            .sum();
-
-        for (round, round_proof) in proof.rounds.iter().enumerate() {
-            num_variables -= self.folding_factor.at_round(round);
-            folding_randomness = MultilinearPoint(folding_randomness.0[..num_variables].to_vec());
-
-            let stir_challenges = round_proof
-                .ood_points
-                .iter()
-                .chain(&round_proof.stir_challenges_points)
-                .map(|&univariate| {
-                    MultilinearPoint::expand_from_univariate(univariate, num_variables)
-                    // TODO:
-                    // Maybe refactor outside
-                });
-
-            let sum_of_claims: EF = stir_challenges
-                .zip(&round_proof.combination_randomness)
-                .map(|(pt, &rand)| pt.eq_poly_outside(&folding_randomness) * rand)
-                .sum();
-
-            value += sum_of_claims;
-        }
-
         value
     }
 }
