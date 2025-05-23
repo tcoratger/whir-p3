@@ -66,6 +66,7 @@ where
         Self(params)
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<'_, EF, F>,
@@ -343,7 +344,7 @@ where
             verifier_state,
             &commitment.root,
             &stir_challenges_indexes,
-            dimensions,
+            &dimensions,
             leafs_base_field,
         )?;
 
@@ -375,7 +376,7 @@ where
         verifier_state: &mut VerifierState<'_, EF, F>,
         root: &Hash<F, u8, DIGEST_ELEMS>,
         indices: &[usize],
-        dimensions: Vec<Dimensions>,
+        dimensions: &[Dimensions],
         leafs_base_field: bool,
     ) -> ProofResult<Vec<Vec<EF>>>
     where
@@ -396,8 +397,8 @@ where
 
             for (i, &index) in indices.iter().enumerate() {
                 mmcs.verify_batch(
-                    &root,
-                    &dimensions,
+                    root,
+                    dimensions,
                     index,
                     BatchOpeningRef {
                         opened_values: &[answers[i].clone()],
@@ -421,8 +422,8 @@ where
             for (i, &index) in indices.iter().enumerate() {
                 extension_mmcs
                     .verify_batch(
-                        &root,
-                        &dimensions,
+                        root,
+                        dimensions,
                         index,
                         BatchOpeningRef {
                             opened_values: &[answers[i].clone()],
