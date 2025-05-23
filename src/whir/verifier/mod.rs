@@ -25,7 +25,6 @@ use crate::{
     whir::{Statement, parameters::WhirConfig},
 };
 
-pub mod parsed_proof;
 pub mod parsed_round;
 pub mod utils;
 
