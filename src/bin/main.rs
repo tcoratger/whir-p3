@@ -23,10 +23,10 @@ use whir_p3::{
     },
 };
 
-type _F = Goldilocks;
-type _EF = BinomialExtensionField<_F, 2>;
-type F = BabyBear;
-type EF = BinomialExtensionField<F, 5>;
+type F = Goldilocks;
+type EF = BinomialExtensionField<F, 2>;
+type _F = BabyBear;
+type _EF = BinomialExtensionField<_F, 5>;
 type ByteHash = Blake3;
 type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
