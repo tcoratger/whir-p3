@@ -13,11 +13,6 @@ use crate::{
     whir::Verifier,
 };
 
-/// A single sumcheck round:
-/// - A univariate polynomial,
-/// - Its corresponding folding randomness.
-type SumcheckRound<F> = (SumcheckPolynomial<F>, F);
-
 /// The full vector of folding randomness values, in reverse round order.
 type SumcheckRandomness<F> = MultilinearPoint<F>;
 
@@ -54,7 +49,6 @@ where
     ///
     /// # Returns
     ///
-    /// - A vector of `(SumcheckPolynomial, folding_randomness)` tuples in forward round order.
     /// - A `MultilinearPoint` of folding randomness values in reverse order.
     pub(crate) fn verify_sumcheck_rounds(
         &self,
@@ -63,7 +57,7 @@ where
         rounds: usize,
         pow_bits: f64,
         is_univariate_skip: bool,
-    ) -> ProofResult<(Vec<SumcheckRound<EF>>, SumcheckRandomness<EF>)> {
+    ) -> ProofResult<SumcheckRandomness<EF>> {
         // Calculate how many `(poly, rand)` pairs to expect based on skip mode
         //
         // If skipping: we do 1 large round for the skip, and the remaining normally
@@ -73,8 +67,8 @@ where
             rounds
         };
 
-        // Preallocate vector to hold all (poly, randomness) pairs
-        let mut result = Vec::with_capacity(effective_rounds);
+        // Preallocate vector to hold the randomness values
+        let mut randomness = Vec::with_capacity(effective_rounds);
 
         // Handle the univariate skip case
         if is_univariate_skip {
@@ -94,8 +88,8 @@ where
                 interpolate_subgroup(&RowMajorMatrix::new_col(poly.evaluations().to_vec()), rand)
                     [0];
 
-            // Record this round’s data
-            result.push((poly, rand));
+            // Record this round’s randomness
+            randomness.push(rand);
 
             // Optional: apply proof-of-work query
             self.verify_proof_of_work(verifier_state, pow_bits)?;
@@ -124,8 +118,8 @@ where
             // Update claimed sum using folding randomness
             *claimed_sum = poly.evaluate_at_point(&rand.into());
 
-            // Store this round’s polynomial and randomness
-            result.push((poly, rand));
+            // Store this round’s randomness
+            randomness.push(rand);
 
             // Optional PoW interaction (grinding resistance)
             self.verify_proof_of_work(verifier_state, pow_bits)?;
@@ -133,9 +127,9 @@ where
 
         // We should reverse the order of the randomness points:
         // This is because the randomness points are originally reverted at the end of the sumcheck rounds.
-        let randomness = MultilinearPoint(result.iter().map(|&(_, r)| r).rev().collect());
+        randomness.reverse();
 
-        Ok((result, randomness))
+        Ok(MultilinearPoint(randomness))
     }
 }
 
@@ -285,7 +279,7 @@ mod tests {
         let mut prover_state = domsep.to_prover_state();
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
-        let result_sumcheck = prover
+        let _ = prover
             .compute_sumcheck_polynomials::<Blake3PoW, _>(
                 &mut prover_state,
                 folding_factor,
@@ -333,7 +327,7 @@ mod tests {
         let whir_config = default_whir_config(n_vars);
         let verifier = Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW>::new(&whir_config);
 
-        let (sumcheck_rounds, randomness) = verifier
+        let randomness = verifier
             .verify_sumcheck_rounds(
                 &mut verifier_state,
                 &mut expected_initial_sum,
@@ -344,30 +338,7 @@ mod tests {
             .unwrap();
 
         // Check that number of parsed rounds is correct
-        assert_eq!(sumcheck_rounds.len(), folding_factor);
-
-        // Verify that parsed (poly, randomness) tuples match those we simulated
-        for (i, ((expected_poly, expected_rand), (actual_poly, actual_rand))) in
-            expected.iter().zip(sumcheck_rounds.iter()).enumerate()
-        {
-            assert_eq!(
-                actual_poly, expected_poly,
-                "Mismatch in round {i}: polynomial"
-            );
-            assert_eq!(
-                actual_rand, expected_rand,
-                "Mismatch in round {i}: folding randomness"
-            );
-        }
-
-        // Check that sumcheck result's final points (reverse order) match the parsed randomness
-        assert_eq!(result_sumcheck.0.len(), sumcheck_rounds.len());
-        for (i, r) in sumcheck_rounds.iter().rev().enumerate() {
-            assert_eq!(
-                result_sumcheck.0[i], r.1,
-                "Mismatch in reverse order randomness at index {i}"
-            );
-        }
+        assert_eq!(randomness.0.len(), folding_factor);
 
         // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
         let expected_randomness =
@@ -455,7 +426,7 @@ mod tests {
         // -------------------------------------------------------------
         // Run prover-side folding
         // -------------------------------------------------------------
-        let result_sumcheck = prover
+        let _ = prover
             .compute_sumcheck_polynomials::<Blake3PoW, _>(
                 &mut prover_state,
                 NUM_VARS,
@@ -498,33 +469,14 @@ mod tests {
         // Use verify_sumcheck_rounds with skip enabled
         // -------------------------------------------------------------
         let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
-        let (sumcheck_rounds, randomness) = verifier
+        let randomness = verifier
             .verify_sumcheck_rounds(&mut verifier_state, &mut expected_sum, NUM_VARS, 0.0, true)
             .unwrap();
 
         // Check length:
         // - 1 randomness for the first K skipped rounds
         // - 1 randomness for each regular round
-        assert_eq!(sumcheck_rounds.len(), NUM_VARS - K_SKIP + 1);
-
-        // Check each extracted (poly, rand)
-        for (i, ((expected_poly, expected_rand), (actual_poly, actual_rand))) in
-            expected.iter().zip(&sumcheck_rounds).enumerate()
-        {
-            assert_eq!(
-                actual_poly, expected_poly,
-                "Mismatch in round {i} polynomial"
-            );
-            assert_eq!(
-                actual_rand, expected_rand,
-                "Mismatch in round {i} randomness"
-            );
-        }
-
-        // Check reverse-order folding randomness vs result_sumcheck.0
-        for (i, (_, actual_rand)) in sumcheck_rounds.iter().rev().enumerate() {
-            assert_eq!(result_sumcheck.0[i], *actual_rand);
-        }
+        assert_eq!(randomness.0.len(), NUM_VARS - K_SKIP + 1);
 
         // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
         let expected_randomness =

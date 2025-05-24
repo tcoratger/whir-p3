@@ -113,7 +113,7 @@ where
             round_constraints.push((combination_randomness, constraints));
 
             // Initial sumcheck
-            let (_, folding_randomness) = self.verify_sumcheck_rounds(
+            let folding_randomness = self.verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_sum,
                 self.folding_factor.at_round(0),
@@ -168,7 +168,7 @@ where
                 self.combine_constraints(verifier_state, &mut claimed_sum, &constraints)?;
             round_constraints.push((combination_randomness.clone(), constraints));
 
-            let (_, folding_randomness) = self.verify_sumcheck_rounds(
+            let folding_randomness = self.verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_sum,
                 self.folding_factor.at_round(round_index + 1),
@@ -216,7 +216,7 @@ where
             return Err(ProofError::InvalidProof);
         }
 
-        let (_, final_sumcheck_randomness) = self.verify_sumcheck_rounds(
+        let final_sumcheck_randomness = self.verify_sumcheck_rounds(
             verifier_state,
             &mut claimed_sum,
             self.final_sumcheck_rounds,
