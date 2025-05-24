@@ -312,7 +312,30 @@ where
         Ok(())
     }
 
-    /// Verify a STIR challenges against a commitment and return the constraints.
+    /// Verify STIR in-domain queries and produce associated constraints.
+    ///
+    /// This method runs the STIR query phase on a given commitment.
+    /// It selects random in-domain indices (STIR challenges)
+    /// and verifies Merkle proofs for the claimed values at these indices.
+    ///
+    /// After verification, it evaluates the folded polynomial at these queried points.
+    /// It then packages the results as a list of `Constraint` objects,
+    /// ready to be combined into the next round’s sumcheck.
+    ///
+    /// # Arguments
+    /// - `verifier_state`: The verifier’s Fiat-Shamir state.
+    /// - `params`: Parameters for the current STIR round (domain size, folding factor, etc.).
+    /// - `commitment`: The prover’s commitment to the folded polynomial.
+    /// - `folding_randomness`: Random point for folding the evaluations.
+    /// - `leafs_base_field`: Whether the leaf data is in the base field or extension field.
+    ///
+    /// # Returns
+    /// A vector of `Constraint` objects, each linking a queried domain point
+    /// to its evaluated, folded value under the prover’s commitment.
+    ///
+    /// # Errors
+    /// Returns `ProofError::InvalidProof` if Merkle proof verification fails
+    /// or the prover’s data does not match the commitment.
     pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<'_, EF, F>,
@@ -349,7 +372,7 @@ where
         self.verify_proof_of_work(verifier_state, params.pow_bits)?;
 
         // Compute STIR Constraints
-        let folds: Vec<EF> = answers
+        let folds: Vec<_> = answers
             .into_iter()
             .map(|answers| CoefficientList::new(answers).evaluate(folding_randomness))
             .collect();
@@ -368,7 +391,29 @@ where
         Ok(stir_constraints)
     }
 
-    /// Verify a merkle multi-opening proof for the provided indices.
+    /// Verify a Merkle multi-opening proof for the provided indices.
+    ///
+    /// This method checks that the prover’s claimed leaf values at multiple positions
+    /// match the committed Merkle root, using batch Merkle proofs.
+    /// It supports both base field and extension field leaf types.
+    ///
+    /// For each queried index:
+    /// - It reads the claimed leaf values and associated Merkle proof from the transcript.
+    /// - It verifies the Merkle opening against the provided root and dimensions.
+    /// - If verification passes, it collects and returns the decoded leaf values.
+    ///
+    /// # Arguments
+    /// - `verifier_state`: The verifier’s Fiat-Shamir transcript state.
+    /// - `root`: The Merkle root hash the prover’s claims are verified against.
+    /// - `indices`: The list of queried leaf indices.
+    /// - `dimensions`: The shape of the underlying matrix being committed (for MMCS verification).
+    /// - `leafs_base_field`: Indicates whether leafs are in the base field (`F`) or extension field (`EF`).
+    ///
+    /// # Returns
+    /// A vector of decoded leaf values, one `Vec<EF>` per queried index.
+    ///
+    /// # Errors
+    /// Returns `ProofError::InvalidProof` if any Merkle proof fails verification.
     pub fn verify_merkle_proof<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<'_, EF, F>,
@@ -382,18 +427,23 @@ where
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
+        // Create a Merkle MMCS instance
         let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
 
+        // Wrap the MMCS in an extension-aware wrapper for EF leaf support.
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
 
+        // Branch depending on whether the committed leafs are base field or extension field.
         let res = if leafs_base_field {
-            // Receive claimed leafs
+            // Read the claimed leaf values for each queried index from the Fiat-Shamir transcript.
             let answers = verifier_state.hint::<Leafs<F>>()?;
 
-            // Receive merkle proof for leaf indices
+            // Read the Merkle proofs for each queried index from the Fiat-Shamir transcript.
             let merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
 
+            // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
+                // Verify the Merkle opening for the claimed leaf against the Merkle root.
                 mmcs.verify_batch(
                     root,
                     dimensions,
@@ -406,18 +456,21 @@ where
                 .map_err(|_| ProofError::InvalidProof)?;
             }
 
+            // Convert the base field values to EF and collect them into a result vector.
             answers
                 .into_iter()
                 .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
                 .collect()
         } else {
-            // Receive claimed leafs
+            // Read the claimed extension field leaf values.
             let answers = verifier_state.hint::<Leafs<EF>>()?;
 
-            // Receive merkle proof for leaf indices
+            // Read the Merkle proofs.
             let merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
 
+            // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
+                // Verify the Merkle opening against the extension MMCS.
                 extension_mmcs
                     .verify_batch(
                         root,
@@ -431,9 +484,11 @@ where
                     .map_err(|_| ProofError::InvalidProof)?;
             }
 
+            // Return the extension field answers as-is.
             answers
         };
 
+        // Return the verified leaf values.
         Ok(res)
     }
 
