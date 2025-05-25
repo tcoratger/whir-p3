@@ -83,7 +83,7 @@ where
             StirChallengParams {
                 round_index: 0,
                 domain_size: self.starting_domain.size(),
-                num_variables: self.mv_parameters.num_variables - self.folding_factor.at_round(0),
+                num_variables: self.mv_parameters.num_variables,
                 num_queries: 0,
                 folding_factor: 0,
                 pow_bits: 0.,
@@ -139,6 +139,7 @@ where
             let round_params = &self.round_parameters[round_index];
             params.round_index = round_index;
             params.folding_factor = self.folding_factor.at_round(round_index);
+            params.num_variables -= params.folding_factor;
             params.num_queries = round_params.num_queries;
             params.pow_bits = round_params.pow_bits;
 
@@ -179,7 +180,6 @@ where
 
             // Update round parameters
             prev_commitment = new_commitment;
-            params.num_variables -= params.folding_factor;
             params.domain_gen = params.domain_gen.square();
             params.exp_domain_gen = params
                 .domain_gen
@@ -192,6 +192,7 @@ where
         params.round_index = self.n_rounds();
         params.num_queries = self.final_queries;
         params.folding_factor = self.folding_factor.at_round(self.n_rounds());
+        params.num_variables -= params.folding_factor;
         params.pow_bits = self.final_pow_bits;
 
         // In the final round we receive the full polynomial instead of a commitment.

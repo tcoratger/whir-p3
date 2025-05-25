@@ -157,7 +157,16 @@ mod tests {
 
     #[test]
     fn test_whir_end_to_end() {
-        let folding_factors = [1, 2, 3, 4];
+        let folding_factors = [
+            FoldingFactor::Constant(1),
+            FoldingFactor::Constant(2),
+            FoldingFactor::Constant(3),
+            FoldingFactor::Constant(4),
+            FoldingFactor::ConstantFromSecondRound(2, 1),
+            FoldingFactor::ConstantFromSecondRound(3, 1),
+            FoldingFactor::ConstantFromSecondRound(3, 2),
+            FoldingFactor::ConstantFromSecondRound(5, 2),
+        ];
         let soundness_type = [
             SecurityAssumption::JohnsonBound,
             SecurityAssumption::CapacityBound,
@@ -167,14 +176,14 @@ mod tests {
         let pow_bits = [0, 5, 10];
 
         for folding_factor in folding_factors {
-            let num_variables = folding_factor..=3 * folding_factor;
+            let num_variables = folding_factor.at_round(0)..=3 * folding_factor.at_round(0);
             for num_variable in num_variables {
                 for num_points in num_points {
                     for soundness_type in soundness_type {
                         for pow_bits in pow_bits {
                             make_whir_things(
                                 num_variable,
-                                FoldingFactor::Constant(folding_factor),
+                                folding_factor,
                                 num_points,
                                 soundness_type,
                                 pow_bits,
