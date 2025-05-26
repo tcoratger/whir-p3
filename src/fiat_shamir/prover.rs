@@ -134,7 +134,7 @@ where
         // - EF4 over BabyBear: 4 limbs → 16 bytes.
         let bytes: Vec<u8> = input
             .iter()
-            .flat_map(|s| s.as_basis_coefficients_slice())
+            .flat_map(p3_field::BasedVectorSpace::as_basis_coefficients_slice)
             .flat_map(|c| c.as_canonical_u64().to_le_bytes()[..num_bytes].to_vec())
             .collect();
 
