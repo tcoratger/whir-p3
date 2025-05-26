@@ -114,31 +114,35 @@ where
     ///
     /// Returns the serialized byte representation.
     pub fn public_scalars(&mut self, input: &[EF]) -> ProofResult<Vec<u8>> {
-        // Initialize a buffer to store the final serialized byte output
-        let mut buf = Vec::new();
-
-        // How many bytes are needed to sample a single base field element
+        // Determine how many bytes are needed to represent a single base field element.
+        //
+        // For example, BabyBear (32-bit) → 4 bytes; Goldilocks (64-bit) → 8 bytes.
         let num_bytes = F::bits().div_ceil(8);
 
-        // Loop over each scalar field element (could be base or extension field)
-        for scalar in input {
-            // Decompose the field element into its basis coefficients over the base field
-            //
-            // For base fields, this is just [scalar]; for extensions, it's length-D array
-            for coeff in scalar.as_basis_coefficients_slice() {
-                // Serialize each base field coefficient to 4 bytes (LE canonical form)
-                let bytes = coeff.as_canonical_u64().to_le_bytes();
-
-                // Append the serialized bytes to the output buffer
-                buf.extend_from_slice(&bytes[..num_bytes]);
-            }
-        }
+        // Build the byte vector by flattening all basis coefficients.
+        //
+        // For each extension field element:
+        // - Decompose it into its canonical basis over the base field (returns a slice of F coefficients).
+        //
+        // For each base field coefficient:
+        // - Convert it to a canonical little-endian u64 byte array (8 bytes).
+        // - Truncate the byte array to `num_bytes` (only keep the low significant part).
+        // - Collect all these truncated bytes into a flat vector.
+        //
+        // Example:
+        // - BabyBear: one limb → 4 bytes.
+        // - EF4 over BabyBear: 4 limbs → 16 bytes.
+        let bytes: Vec<u8> = input
+            .iter()
+            .flat_map(p3_field::BasedVectorSpace::as_basis_coefficients_slice)
+            .flat_map(|c| c.as_canonical_u64().to_le_bytes()[..num_bytes].to_vec())
+            .collect();
 
         // Absorb the serialized bytes into the Fiat-Shamir transcript
-        self.public_bytes(&buf)?;
+        self.public_bytes(&bytes)?;
 
         // Return the serialized byte representation
-        Ok(buf)
+        Ok(bytes)
     }
 
     /// Add public messages to the protocol transcript.
