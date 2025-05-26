@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{io::Read, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::Hash;
@@ -7,7 +7,7 @@ use serde::Deserialize;
 use super::{
     DefaultHash, UnitToBytes,
     domain_separator::DomainSeparator,
-    duplex_sponge::{Unit, interface::DuplexSpongeInterface},
+    duplex_sponge::interface::DuplexSpongeInterface,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
     sho::HashStateWithInstructions,
@@ -86,7 +86,7 @@ where
     /// Read `input.len()` bytes from the NARG transcript and absorb them.
     #[inline]
     pub fn fill_next_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
-        u8::read(&mut self.narg_string, input)?;
+        self.narg_string.read_exact(input)?;
         self.hash_state.absorb(input)?;
         Ok(())
     }
