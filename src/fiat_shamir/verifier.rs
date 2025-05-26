@@ -211,7 +211,7 @@ where
         let mut buf = Vec::new();
 
         // How many bytes are needed to sample a single base field element
-        let num_bytes = F::bits().div_ceil(8);
+        let num_bytes = F::NUM_BYTES;
 
         // Loop over each scalar field element (could be base or extension field)
         for scalar in input {
