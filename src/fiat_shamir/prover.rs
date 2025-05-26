@@ -114,11 +114,6 @@ where
     ///
     /// Returns the serialized byte representation.
     pub fn public_scalars(&mut self, input: &[EF]) -> ProofResult<Vec<u8>> {
-        // Determine how many bytes are needed to represent a single base field element.
-        //
-        // For example, BabyBear (32-bit) → 4 bytes; Goldilocks (64-bit) → 8 bytes.
-        let num_bytes = F::bits().div_ceil(8);
-
         // Build the byte vector by flattening all basis coefficients.
         //
         // For each extension field element:
@@ -135,7 +130,7 @@ where
         let bytes: Vec<u8> = input
             .iter()
             .flat_map(p3_field::BasedVectorSpace::as_basis_coefficients_slice)
-            .flat_map(|c| c.as_canonical_u64().to_le_bytes()[..num_bytes].to_vec())
+            .flat_map(|c| c.as_canonical_u64().to_le_bytes()[..F::NUM_BYTES].to_vec())
             .collect();
 
         // Absorb the serialized bytes into the Fiat-Shamir transcript
