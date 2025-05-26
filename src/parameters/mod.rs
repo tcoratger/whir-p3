@@ -181,6 +181,12 @@ pub struct ProtocolParameters<H, C> {
     pub initial_statement: bool,
     /// The logarithmic inverse rate for sampling.
     pub starting_log_inv_rate: usize,
+    /// The value v such that that the size of the Reed Solomon domain on which
+    /// our polynomial is evaluated gets divided by `2^v` at the first round.
+    /// RS domain size at commitment = 2^(num_variables + starting_log_inv_rate)
+    /// RS domain size after the first round = 2^(num_variables + starting_log_inv_rate - v)
+    /// The default value is 1 (halving the domain size, which is the behavior of the consecutive rounds).
+    pub rs_domain_initial_reduction_factor: usize,
     /// The folding factor strategy.
     pub folding_factor: FoldingFactor,
     /// The type of soundness guarantee.

@@ -246,7 +246,8 @@ where
         let folding_factor_next = self.folding_factor.at_round(round_index + 1);
 
         // Compute polynomial evaluations and build Merkle tree
-        let new_domain = round_state.domain.scale(2);
+        let domain_reduction = 1 << self.rs_reduction_factor(round_index);
+        let new_domain = round_state.domain.scale(domain_reduction);
         let folded_matrix = info_span!("fold matrix").in_scope(|| {
             let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
                 let mut coeffs = EF::zero_vec(new_domain.size());

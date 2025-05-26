@@ -169,6 +169,7 @@ mod tests {
             initial_statement: true,
             security_level,
             pow_bits,
+            rs_domain_initial_reduction_factor: 1,
             folding_factor: FoldingFactor::ConstantFromSecondRound(
                 first_round_folding_factor,
                 folding_factor,
@@ -254,6 +255,7 @@ mod tests {
             initial_statement: true,
             security_level,
             pow_bits,
+            rs_domain_initial_reduction_factor: 1,
             folding_factor: FoldingFactor::ConstantFromSecondRound(
                 first_round_folding_factor,
                 folding_factor,
@@ -301,6 +303,7 @@ mod tests {
             initial_statement: true,
             security_level,
             pow_bits,
+            rs_domain_initial_reduction_factor: 1,
             folding_factor: FoldingFactor::ConstantFromSecondRound(
                 first_round_folding_factor,
                 folding_factor,

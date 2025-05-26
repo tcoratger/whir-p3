@@ -10,6 +10,7 @@ fn benchmark_whir(c: &mut Criterion) {
     let num_points = 2;
     let soundness_type = SecurityAssumption::UniqueDecoding;
     let pow_bits = 10;
+    let rs_domain_initial_reduction_factor = 1;
 
     for num_variables in polynomial_sizes {
         c.bench_function(&format!("whir_end_to_end_size {num_variables}"), |b| {
@@ -20,6 +21,7 @@ fn benchmark_whir(c: &mut Criterion) {
                     num_points,
                     soundness_type,
                     pow_bits,
+                    rs_domain_initial_reduction_factor,
                 );
             });
         });
