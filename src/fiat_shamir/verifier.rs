@@ -11,7 +11,7 @@ use super::{
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
     sho::HashStateWithInstructions,
-    utils::{bytes_modp, bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
+    utils::{bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
 };
 
 /// [`VerifierState`] is the verifier state.
@@ -107,7 +107,7 @@ where
     /// Deserialize a list of extension scalars from the transcript and absorb them.
     pub fn fill_next_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // Size of one base field element in bytes
-        let base_bytes = bytes_modp(F::bits() as u32);
+        let base_bytes = F::NUM_BYTES;
 
         // Number of coefficients (1 for base field, >1 for extension field)
         let ext_degree = EF::DIMENSION;

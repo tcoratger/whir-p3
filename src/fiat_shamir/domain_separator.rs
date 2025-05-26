@@ -3,10 +3,8 @@ use std::{collections::VecDeque, fmt::Write, marker::PhantomData};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
 use super::{
-    DefaultHash,
-    duplex_sponge::interface::DuplexSpongeInterface,
-    errors::DomainSeparatorMismatch,
-    utils::{bytes_modp, bytes_uniform_modp},
+    DefaultHash, duplex_sponge::interface::DuplexSpongeInterface, errors::DomainSeparatorMismatch,
+    utils::bytes_uniform_modp,
 };
 use crate::{
     fiat_shamir::{prover::ProverState, verifier::VerifierState},
@@ -62,7 +60,7 @@ where
 
     /// Phantom marker for the base field type `F`.
     ///
-    /// Ensures that field operations (e.g., `bytes_modp`, `as_basis_coefficients_slice`) are
+    /// Ensures that field operations (e.g., `as_basis_coefficients_slice`) are
     /// computed correctly for the given field implementation.
     _field: PhantomData<F>,
 
@@ -331,13 +329,13 @@ where
         //
         // The total number of bytes to absorb is calculated as:
         //
-        //     count × extension_degree × bytes_modp(bits)
+        //     count × extension_degree × NUM_BYTES
         //
         // where:
         // - `count` is the number of scalar values
         // - `extension_degree` is the number of limbs (e.g., 4 for quartic extensions)
-        // - `bytes_modp(bits)` gives the compressed byte length for the prime subfield
-        self.absorb(count * EF::DIMENSION * bytes_modp(F::bits() as u32), label);
+        // - `NUM_BYTES` gives the byte size of one base field element
+        self.absorb(count * EF::DIMENSION * F::NUM_BYTES, label);
     }
 
     pub fn challenge_scalars(&mut self, count: usize, label: &str) {
@@ -627,7 +625,7 @@ mod tests {
     fn test_add_scalars_babybear() {
         // Test absorption of scalar field elements (BabyBear).
         // - BabyBear is a base field with extension degree = 1
-        // - bits = 31 → bytes_modp(31) = 4
+        // - bits = 31 → NUM_BYTES = 4
         // - 2 scalars * 1 * 4 = 8 bytes absorbed
         // - "A" indicates absorption in the domain separator
         let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("babybear");
@@ -653,7 +651,7 @@ mod tests {
     fn test_add_scalars_quartic_ext_field() {
         // Test absorption of scalars from a quartic extension field EF4.
         // - EF4 has extension degree = 4
-        // - Base field bits = 31 → bytes_modp(31) = 4
+        // - Base field bits = 31 → NUM_BYTES = 4
         // - 2 scalars * 4 * 4 = 32 bytes absorbed
         let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("ext");
         domsep.add_scalars(2, "a");
