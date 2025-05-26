@@ -54,6 +54,9 @@ struct Args {
 
     #[arg(long = "sec", default_value = "CapacityBound")]
     soundness_type: SecurityAssumption,
+
+    #[arg(long = "initial-rs-reduction", default_value = "1")]
+    rs_domain_initial_reduction_factor: usize,
 }
 
 fn main() {
@@ -89,6 +92,7 @@ fn main() {
     let byte_hash = ByteHash {};
     let merkle_hash = FieldHash::new(byte_hash);
     let merkle_compress = MyCompress::new(byte_hash);
+    let rs_domain_initial_reduction_factor = args.rs_domain_initial_reduction_factor;
 
     let num_coeffs = 1 << num_variables;
 
@@ -104,6 +108,7 @@ fn main() {
         merkle_compress,
         soundness_type,
         starting_log_inv_rate: starting_rate,
+        rs_domain_initial_reduction_factor,
     };
 
     let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);

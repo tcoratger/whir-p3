@@ -41,6 +41,7 @@ where
     pub starting_folding_pow_bits: f64,
 
     pub folding_factor: FoldingFactor,
+    pub rs_domain_initial_reduction_factor: usize,
     pub round_parameters: Vec<RoundConfig>,
 
     pub final_queries: usize,
@@ -71,6 +72,12 @@ where
             .folding_factor
             .check_validity(mv_parameters.num_variables)
             .unwrap();
+
+        assert!(
+            whir_parameters.rs_domain_initial_reduction_factor
+                <= whir_parameters.folding_factor.at_round(0),
+            "Increasing the code rate is not a good idea"
+        );
 
         let protocol_security_level = whir_parameters
             .security_level
@@ -122,7 +129,13 @@ where
         num_variables -= whir_parameters.folding_factor.at_round(0);
         for round in 0..num_rounds {
             // Queries are set w.r.t. to old rate, while the rest to the new rate
-            let next_rate = log_inv_rate + (whir_parameters.folding_factor.at_round(round) - 1);
+            let rs_reduction_factor = if round == 0 {
+                whir_parameters.rs_domain_initial_reduction_factor
+            } else {
+                1
+            };
+            let next_rate = log_inv_rate
+                + (whir_parameters.folding_factor.at_round(round) - rs_reduction_factor);
 
             let num_queries = whir_parameters
                 .soundness_type
@@ -195,6 +208,7 @@ where
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,
             starting_folding_pow_bits,
             folding_factor: whir_parameters.folding_factor,
+            rs_domain_initial_reduction_factor: whir_parameters.rs_domain_initial_reduction_factor,
             round_parameters,
             final_queries,
             final_pow_bits,
@@ -209,6 +223,14 @@ where
 
     pub fn n_rounds(&self) -> usize {
         self.round_parameters.len()
+    }
+
+    pub const fn rs_reduction_factor(&self, round: usize) -> usize {
+        if round == 0 {
+            self.rs_domain_initial_reduction_factor
+        } else {
+            1
+        }
     }
 
     pub fn check_pow_bits(&self) -> bool {
@@ -317,6 +339,7 @@ mod tests {
             initial_statement: true,
             security_level: 100,
             pow_bits: 20,
+            rs_domain_initial_reduction_factor: 1,
             folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
             merkle_hash: Poseidon2Sponge::new(44), // Just a placeholder
             merkle_compress: Poseidon2Compression::new(55), // Just a placeholder

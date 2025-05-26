@@ -48,6 +48,7 @@ pub fn make_whir_things(
     num_points: usize,
     soundness_type: SecurityAssumption,
     pow_bits: usize,
+    rs_domain_initial_reduction_factor: usize,
 ) {
     // Number of coefficients = 2^num_variables
     let num_coeffs = 1 << num_variables;
@@ -65,6 +66,7 @@ pub fn make_whir_things(
         initial_statement: true,
         security_level: 32,
         pow_bits,
+        rs_domain_initial_reduction_factor,
         folding_factor,
         merkle_hash,
         merkle_compress,
@@ -174,20 +176,27 @@ mod tests {
         ];
         let num_points = [0, 1, 2];
         let pow_bits = [0, 5, 10];
+        let rs_domain_initial_reduction_factors = 1..=3;
 
-        for folding_factor in folding_factors {
-            let num_variables = folding_factor.at_round(0)..=3 * folding_factor.at_round(0);
-            for num_variable in num_variables {
-                for num_points in num_points {
-                    for soundness_type in soundness_type {
-                        for pow_bits in pow_bits {
-                            make_whir_things(
-                                num_variable,
-                                folding_factor,
-                                num_points,
-                                soundness_type,
-                                pow_bits,
-                            );
+        for rs_domain_initial_reduction_factor in rs_domain_initial_reduction_factors {
+            for folding_factor in folding_factors {
+                if folding_factor.at_round(0) < rs_domain_initial_reduction_factor {
+                    continue;
+                }
+                let num_variables = folding_factor.at_round(0)..=3 * folding_factor.at_round(0);
+                for num_variable in num_variables {
+                    for num_points in num_points {
+                        for soundness_type in soundness_type {
+                            for pow_bits in pow_bits {
+                                make_whir_things(
+                                    num_variable,
+                                    folding_factor,
+                                    num_points,
+                                    soundness_type,
+                                    pow_bits,
+                                    rs_domain_initial_reduction_factor,
+                                );
+                            }
                         }
                     }
                 }

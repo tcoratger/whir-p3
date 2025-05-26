@@ -176,6 +176,7 @@ mod tests {
             initial_statement: true,
             security_level: 32,
             pow_bits: 0,
+            rs_domain_initial_reduction_factor: 1,
             folding_factor: FoldingFactor::Constant(2),
             merkle_hash,
             merkle_compress,

@@ -241,6 +241,7 @@ mod tests {
             initial_statement,
             security_level: 80,
             pow_bits,
+            rs_domain_initial_reduction_factor: 1,
             folding_factor: FoldingFactor::Constant(folding_factor),
             merkle_hash: FieldHash::new(ByteHash {}),
             merkle_compress: MyCompress::new(ByteHash {}),

@@ -36,7 +36,6 @@ pub struct StirChallengParams<F> {
     num_queries: usize,
     pow_bits: f64,
     domain_gen: F,
-    domain_gen_inv: F,
     exp_domain_gen: F,
 }
 
@@ -88,7 +87,6 @@ where
                 folding_factor: 0,
                 pow_bits: 0.,
                 domain_gen,
-                domain_gen_inv: self.starting_domain.backing_domain.group_gen_inv(),
                 exp_domain_gen: domain_gen.exp_u64(1 << self.folding_factor.at_round(0)),
             }
         };
@@ -179,13 +177,13 @@ where
             round_folding_randomness.push(folding_randomness);
 
             // Update round parameters
+            let rs_reduction_factor = self.rs_reduction_factor(round_index);
             prev_commitment = new_commitment;
-            params.domain_gen = params.domain_gen.square();
+            params.domain_gen = params.domain_gen.exp_power_of_2(rs_reduction_factor);
             params.exp_domain_gen = params
                 .domain_gen
-                .exp_u64(1 << self.folding_factor.at_round(round_index + 1));
-            params.domain_gen_inv = params.domain_gen_inv.square();
-            params.domain_size /= 2;
+                .exp_power_of_2(self.folding_factor.at_round(round_index + 1));
+            params.domain_size >>= rs_reduction_factor;
         }
 
         // Final round parameters.

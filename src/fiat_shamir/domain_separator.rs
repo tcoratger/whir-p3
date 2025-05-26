@@ -266,7 +266,7 @@ where
                 params.folding_factor.at_round(round + 1),
                 r.folding_pow_bits,
             );
-            domain_size >>= 1;
+            domain_size >>= params.rs_reduction_factor(round);
         }
 
         let folded_domain_size = domain_size
