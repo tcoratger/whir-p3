@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{fmt::Debug, io::Write, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::Hash;
@@ -7,7 +7,7 @@ use serde::Serialize;
 use super::{
     DefaultHash, UnitToBytes,
     domain_separator::DomainSeparator,
-    duplex_sponge::{Unit, interface::DuplexSpongeInterface},
+    duplex_sponge::interface::DuplexSpongeInterface,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     keccak::Keccak,
     pow::traits::PowStrategy,
@@ -80,7 +80,7 @@ where
         let old_len = self.narg_string.len();
         self.hash_state.absorb(input)?;
         // write never fails on Vec<u8>
-        u8::write(input, &mut self.narg_string).unwrap();
+        self.narg_string.write_all(input).unwrap();
         self.ds.absorb_unchecked(&self.narg_string[old_len..]);
 
         Ok(())
