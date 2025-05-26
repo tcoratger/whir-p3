@@ -55,7 +55,7 @@ struct Args {
     #[arg(long = "sec", default_value = "CapacityBound")]
     soundness_type: SecurityAssumption,
 
-    #[arg(long = "initial-rs-reduction", default_value = "1")]
+    #[arg(long = "initial-rs-reduction", default_value = "3")]
     rs_domain_initial_reduction_factor: usize,
 }
 
