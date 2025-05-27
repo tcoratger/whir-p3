@@ -383,11 +383,13 @@ fn packed_eq_poly<F: Field, EF: ExtensionField<F>>(
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_field::PrimeCharacteristicRing;
+    use p3_field::{PrimeCharacteristicRing, PrimeField64, extension::BinomialExtensionField};
+    use proptest::prelude::*;
 
     use super::*;
 
     type F = BabyBear;
+    type EF4 = BinomialExtensionField<F, 4>;
 
     #[test]
     fn test_eval_eq_functionality() {
@@ -401,5 +403,47 @@ mod tests {
         let expected_output = vec![F::ZERO, F::ZERO, F::from_u64(2), F::ZERO];
 
         assert_eq!(output, expected_output);
+    }
+
+    /// Helper to compute expected equality polynomial evaluations naively.
+    fn naive_eq(eval: &[EF4], scalar: EF4) -> Vec<EF4> {
+        let n = eval.len();
+        let mut result = vec![scalar; 1 << n];
+        for (i, out) in result.iter_mut().enumerate() {
+            let mut weight = scalar;
+            for (j, e) in eval.iter().enumerate().take(n) {
+                let bit = (i >> (n - 1 - j)) & 1;
+                if bit == 1 {
+                    weight *= *e;
+                } else {
+                    weight *= EF4::ONE - *e;
+                }
+            }
+            *out = weight;
+        }
+        result
+    }
+
+    proptest! {
+        #[test]
+        fn prop_eval_eq_matches_naive(
+            n in 1usize..6, // number of variables
+            evals in prop::collection::vec(0u64..F::ORDER_U64, 1..6),
+            scalar_val in 0u64..F::ORDER_U64,
+        ) {
+            // Take exactly n elements and map to EF4
+            let evals: Vec<EF4> = evals.into_iter().take(n).map(EF4::from_u64).collect();
+            let scalar = EF4::from_u64(scalar_val);
+
+            // Make sure output has correct size: 2^n
+            let out_len = 1 << evals.len();
+            let mut output = vec![EF4::ZERO; out_len];
+
+            eval_eq::<F, EF4>(&evals, &mut output, scalar);
+
+            let expected = naive_eq(&evals, scalar);
+
+            prop_assert_eq!(output, expected);
+        }
     }
 }
