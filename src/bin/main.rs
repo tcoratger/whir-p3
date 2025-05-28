@@ -6,6 +6,7 @@ use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
 use p3_koala_bear::KoalaBear;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing_forest::{ForestLayer, util::LevelFilter};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::{
@@ -118,8 +119,8 @@ fn main() {
 
     dbg!(&params);
 
-    // Define a polynomial with all coefficients set to 1 (i.e., constant 1 polynomial)
-    let polynomial = EvaluationsList::new((0..num_coeffs).map(F::from_u64).collect());
+    let mut rng = StdRng::seed_from_u64(0);
+    let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
 
     // Sample `num_points` random multilinear points in the Boolean hypercube
     let points: Vec<_> = (0..num_evaluations)

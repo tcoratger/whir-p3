@@ -51,6 +51,7 @@ where
     /// `CoefficientList<EF>` with fewer variables.
     ///
     /// Works generically on both base and extension field representations.
+    #[instrument(name = "fold coefficients", skip_all)]
     pub(crate) fn fold(&self, folding_randomness: &MultilinearPoint<EF>) -> CoefficientList<EF> {
         match self {
             Self::Base(cl) => cl.fold(folding_randomness),

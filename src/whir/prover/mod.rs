@@ -14,7 +14,7 @@ use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
     poly::{
-        coeffs::CoefficientList,
+        coeffs::{CoefficientList, CoefficientStorage},
         evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
@@ -217,11 +217,7 @@ where
                 .fold(&round_state.folding_randomness)
         };
 
-        // Convert the folded evaluations into coefficients
-        //
-        // TODO: This is a bit wasteful since we already have the same information
-        // in the evaluation domain. For now, we keep it for the DFT but it is to be removed.
-        let folded_coefficients = folded_evaluations.clone().to_coefficients::<F>();
+        let folded_coefficients = round_state.coeffs.fold(&round_state.folding_randomness);
 
         let num_variables =
             self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
@@ -409,6 +405,7 @@ where
         // Update round state
         round_state.domain = new_domain;
         round_state.sumcheck_prover = Some(sumcheck_prover);
+        round_state.coeffs = CoefficientStorage::Extension(folded_coefficients);
         round_state.folding_randomness = folding_randomness;
         round_state.evaluations = EvaluationStorage::Extension(folded_evaluations);
         round_state.merkle_prover_data = Some(prover_data);
