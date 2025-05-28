@@ -1,7 +1,5 @@
 use p3_symmetric::Permutation;
 
-use super::Unit;
-
 /// A [`DuplexInterface`] is an abstract interface for absorbing and squeezing data.
 /// The type parameter `U` represents basic unit that the sponge works with.
 ///
@@ -20,14 +18,4 @@ pub trait DuplexSpongeInterface<C: Permutation<[u8; 200]>>: Clone + zeroize::Zer
 
     /// Squeezes out new elements.
     fn squeeze_unchecked(&mut self, output: &mut [u8]) -> &mut Self;
-}
-
-impl Unit for u8 {
-    fn write(bunch: &[Self], w: &mut impl std::io::Write) -> Result<(), std::io::Error> {
-        w.write_all(bunch)
-    }
-
-    fn read(r: &mut impl std::io::Read, bunch: &mut [Self]) -> Result<(), std::io::Error> {
-        r.read_exact(bunch)
-    }
 }
