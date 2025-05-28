@@ -78,22 +78,22 @@ impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]> + Clone> DuplexSpongeInterface<C>
     }
 
     fn squeeze_unchecked(&mut self, output: &mut [u8]) -> &mut Self {
-        let mut remaining = output;
-
-        while !remaining.is_empty() {
-            if self.squeeze_pos == Self::R {
-                self.permutation.permute_mut(&mut self.state);
-                self.squeeze_pos = 0;
-                self.absorb_pos = 0;
-            }
-            let chunk_len = usize::min(remaining.len(), Self::R - self.squeeze_pos);
-            let (out_chunk, rest) = remaining.split_at_mut(chunk_len);
-
-            out_chunk.clone_from_slice(&self.state[self.squeeze_pos..self.squeeze_pos + chunk_len]);
-            self.squeeze_pos += chunk_len;
-            remaining = rest;
+        if output.is_empty() {
+            return self;
         }
-        self
+
+        if self.squeeze_pos == Self::R {
+            self.squeeze_pos = 0;
+            self.absorb_pos = 0;
+            self.permutation.permute_mut(&mut self.state);
+        }
+
+        assert!(self.squeeze_pos < Self::R);
+        let chunk_len = usize::min(output.len(), Self::R - self.squeeze_pos);
+        let (output, rest) = output.split_at_mut(chunk_len);
+        output.clone_from_slice(&self.state[self.squeeze_pos..self.squeeze_pos + chunk_len]);
+        self.squeeze_pos += chunk_len;
+        self.squeeze_unchecked(rest)
     }
 }
 
