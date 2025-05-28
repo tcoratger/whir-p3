@@ -190,27 +190,15 @@ impl<F: Field> Weights<F> {
         assert_eq!(self.num_variables(), poly.num_variables());
         match self {
             Self::Evaluation { point } => poly.evaluate(point),
-            Self::Linear { weight } => {
-                #[cfg(not(feature = "parallel"))]
-                {
-                    weight
-                        .evals()
-                        .iter()
-                        .zip(poly.clone().to_evaluations().evals())
-                        .map(|(&w, &p)| w * p)
-                        .sum()
-                }
 
-                #[cfg(feature = "parallel")]
-                {
-                    weight
-                        .evals()
-                        .par_iter()
-                        .zip(poly.clone().to_evaluations().evals())
-                        .map(|(&w, &p)| w * p)
-                        .sum()
-                }
-            }
+            // We intentionally avoid parallel iterators here because this function is only called by the verifier,
+            // which is assumed to run on a lightweight device.
+            Self::Linear { weight } => weight
+                .evals()
+                .iter()
+                .zip(poly.clone().to_evaluations().evals())
+                .map(|(&w, &p)| w * p)
+                .sum(),
         }
     }
 }
