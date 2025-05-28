@@ -526,7 +526,7 @@ where
         prover_state: &mut ProverState<EF, F>,
         round_state: &RoundState<EF, F, DIGEST_ELEMS>,
         num_variables: usize,
-        round_params: &RoundConfig,
+        round_params: &RoundConfig<EF>,
         ood_points: Vec<EF>,
     ) -> ProofResult<(Vec<MultilinearPoint<EF>>, Vec<usize>)> {
         let stir_challenges_indexes = get_challenge_stir_queries(

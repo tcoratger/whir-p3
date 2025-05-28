@@ -10,12 +10,17 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct RoundConfig {
+pub struct RoundConfig<F> {
     pub pow_bits: f64,
     pub folding_pow_bits: f64,
     pub num_queries: usize,
     pub ood_samples: usize,
     pub log_inv_rate: usize,
+    pub num_variables: usize,
+    pub folding_factor: usize,
+    pub domain_size: usize,
+    pub domain_gen: F,
+    pub exp_domain_gen: F,
 }
 
 #[derive(Debug, Clone)]
@@ -42,7 +47,7 @@ where
 
     pub folding_factor: FoldingFactor,
     pub rs_domain_initial_reduction_factor: usize,
-    pub round_parameters: Vec<RoundConfig>,
+    pub round_parameters: Vec<RoundConfig<EF>>,
 
     pub final_queries: usize,
     pub final_pow_bits: f64,
@@ -91,6 +96,11 @@ where
 
         let starting_domain = Domain::new(1 << mv_parameters.num_variables, log_inv_rate)
             .expect("Should have found an appropriate domain - check Field 2 adicity?");
+
+        let mut domain_size = starting_domain.size();
+        let mut domain_gen: EF = starting_domain.backing_domain.group_gen();
+        let mut exp_domain_gen =
+            domain_gen.exp_power_of_2(whir_parameters.folding_factor.at_round(0));
 
         if TypeId::of::<F>() != TypeId::of::<EF>() {
             // We could theoritically tolerate FFT twiddles in the extension field, but this would signifcantly reduce performance.
@@ -190,10 +200,19 @@ where
                 num_queries,
                 ood_samples,
                 log_inv_rate,
+                num_variables,
+                folding_factor: whir_parameters.folding_factor.at_round(round),
+                domain_size,
+                domain_gen,
+                exp_domain_gen,
             });
 
             num_variables -= whir_parameters.folding_factor.at_round(round + 1);
             log_inv_rate = next_rate;
+            domain_size >>= rs_reduction_factor;
+            domain_gen = domain_gen.exp_power_of_2(rs_reduction_factor);
+            exp_domain_gen =
+                domain_gen.exp_power_of_2(whir_parameters.folding_factor.at_round(round + 1));
         }
 
         let final_queries = whir_parameters
@@ -335,15 +354,68 @@ where
 
         field_size_bits as f64 - (log_combination + list_size + 1.)
     }
+
+    /// Compute the synthetic or derived `RoundConfig` for the final phase.
+    ///
+    /// - If no folding rounds were configured, constructs a fallback config
+    ///   based on the starting domain and folding factor.
+    /// - If rounds were configured, derives the final config by adapting
+    ///   the last round’s values for the final folding phase.
+    ///
+    /// This is used by the verifier when verifying the final polynomial,
+    /// ensuring consistent challenge selection and STIR constraint handling.
+    pub fn final_round_config(&self) -> RoundConfig<EF> {
+        if self.round_parameters.is_empty() {
+            // Fallback: no folding rounds, use initial domain setup
+            RoundConfig {
+                num_variables: self.mv_parameters.num_variables - self.folding_factor.at_round(0),
+                folding_factor: self.folding_factor.at_round(self.n_rounds()),
+                num_queries: self.final_queries,
+                pow_bits: self.final_pow_bits,
+                domain_size: self.starting_domain.size(),
+                domain_gen: self.starting_domain.backing_domain.group_gen(),
+                exp_domain_gen: self
+                    .starting_domain
+                    .backing_domain
+                    .group_gen()
+                    .exp_power_of_2(self.folding_factor.at_round(0)),
+                ood_samples: 0, // no OOD in synthetic final phase
+                folding_pow_bits: self.final_folding_pow_bits,
+                log_inv_rate: self.starting_log_inv_rate,
+            }
+        } else {
+            let rs_reduction_factor = self.rs_reduction_factor(self.n_rounds() - 1);
+
+            // Derive final round config from last round, adjusted for next fold
+            let last = self.round_parameters.last().unwrap();
+
+            let domain_gen = last.domain_gen.exp_power_of_2(rs_reduction_factor);
+            RoundConfig {
+                num_variables: last.num_variables - self.folding_factor.at_round(self.n_rounds()),
+                folding_factor: self.folding_factor.at_round(self.n_rounds()),
+                num_queries: self.final_queries,
+                pow_bits: self.final_pow_bits,
+                domain_size: last.domain_size >> rs_reduction_factor,
+                domain_gen,
+                exp_domain_gen: domain_gen
+                    .exp_power_of_2(self.folding_factor.at_round(self.n_rounds())),
+                ood_samples: last.ood_samples,
+                folding_pow_bits: self.final_folding_pow_bits,
+                log_inv_rate: last.log_inv_rate,
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_field::PrimeCharacteristicRing;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 
     use super::*;
 
+    type F = BabyBear;
     type Poseidon2Compression<Perm16> = TruncatedPermutation<Perm16, 2, 8, 16>;
     type Poseidon2Sponge<Perm24> = PaddingFreeSponge<Perm24, 24, 16, 8>;
 
@@ -367,14 +439,10 @@ mod tests {
     fn test_whir_config_creation() {
         let params = default_whir_params();
 
-        let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let config = WhirConfig::<
-            BabyBear,
-            BabyBear,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-        >::new(mv_params, params);
+        let mv_params = MultivariateParameters::<F>::new(10);
+        let config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
+            mv_params, params,
+        );
 
         assert_eq!(config.security_level, 100);
         assert_eq!(config.max_pow_bits, 20);
@@ -385,14 +453,10 @@ mod tests {
     #[test]
     fn test_n_rounds() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let config = WhirConfig::<
-            BabyBear,
-            BabyBear,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-        >::new(mv_params, params);
+        let mv_params = MultivariateParameters::<F>::new(10);
+        let config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
+            mv_params, params,
+        );
 
         assert_eq!(config.n_rounds(), config.round_parameters.len());
     }
@@ -402,7 +466,7 @@ mod tests {
         let field_size_bits = 64;
         let soundness = SecurityAssumption::CapacityBound;
 
-        let pow_bits = WhirConfig::<BabyBear, BabyBear, u8, u8, ()>::folding_pow_bits(
+        let pow_bits = WhirConfig::<F, F, u8, u8, ()>::folding_pow_bits(
             100, // Security level
             soundness,
             field_size_bits,
@@ -417,14 +481,10 @@ mod tests {
     #[test]
     fn test_check_pow_bits_within_limits() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<
-            BabyBear,
-            BabyBear,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-        >::new(mv_params, params);
+        let mv_params = MultivariateParameters::<F>::new(10);
+        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
+            mv_params, params,
+        );
 
         // Set all values within limits
         config.max_pow_bits = 20;
@@ -440,6 +500,11 @@ mod tests {
                 num_queries: 5,
                 ood_samples: 2,
                 log_inv_rate: 3,
+                num_variables: 10,
+                folding_factor: 2,
+                domain_size: 10,
+                domain_gen: F::from_u64(2),
+                exp_domain_gen: F::from_u64(2),
             },
             RoundConfig {
                 pow_bits: 18.0,
@@ -447,6 +512,11 @@ mod tests {
                 num_queries: 6,
                 ood_samples: 2,
                 log_inv_rate: 4,
+                num_variables: 10,
+                folding_factor: 2,
+                domain_size: 10,
+                domain_gen: F::from_u64(2),
+                exp_domain_gen: F::from_u64(2),
             },
         ];
 
@@ -459,14 +529,10 @@ mod tests {
     #[test]
     fn test_check_pow_bits_starting_folding_exceeds() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<
-            BabyBear,
-            BabyBear,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-        >::new(mv_params, params);
+        let mv_params = MultivariateParameters::<F>::new(10);
+        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
+            mv_params, params,
+        );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 21.0; // Exceeds max_pow_bits
@@ -482,14 +548,10 @@ mod tests {
     #[test]
     fn test_check_pow_bits_final_pow_exceeds() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<
-            BabyBear,
-            BabyBear,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-        >::new(mv_params, params);
+        let mv_params = MultivariateParameters::<F>::new(10);
+        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
+            mv_params, params,
+        );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15.0;
@@ -505,14 +567,10 @@ mod tests {
     #[test]
     fn test_check_pow_bits_round_pow_exceeds() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<
-            BabyBear,
-            BabyBear,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-        >::new(mv_params, params);
+        let mv_params = MultivariateParameters::<F>::new(10);
+        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
+            mv_params, params,
+        );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15.0;
@@ -526,6 +584,11 @@ mod tests {
             num_queries: 5,
             ood_samples: 2,
             log_inv_rate: 3,
+            num_variables: 10,
+            folding_factor: 2,
+            domain_size: 10,
+            domain_gen: F::from_u64(2),
+            exp_domain_gen: F::from_u64(2),
         }];
 
         assert!(
@@ -537,14 +600,10 @@ mod tests {
     #[test]
     fn test_check_pow_bits_round_folding_pow_exceeds() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<
-            BabyBear,
-            BabyBear,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-        >::new(mv_params, params);
+        let mv_params = MultivariateParameters::<F>::new(10);
+        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
+            mv_params, params,
+        );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15.0;
@@ -558,6 +617,11 @@ mod tests {
             num_queries: 5,
             ood_samples: 2,
             log_inv_rate: 3,
+            num_variables: 10,
+            folding_factor: 2,
+            domain_size: 10,
+            domain_gen: F::from_u64(2),
+            exp_domain_gen: F::from_u64(2),
         }];
 
         assert!(
@@ -569,14 +633,10 @@ mod tests {
     #[test]
     fn test_check_pow_bits_exactly_at_limit() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<
-            BabyBear,
-            BabyBear,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-        >::new(mv_params, params);
+        let mv_params = MultivariateParameters::<F>::new(10);
+        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
+            mv_params, params,
+        );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 20.0;
@@ -589,6 +649,11 @@ mod tests {
             num_queries: 5,
             ood_samples: 2,
             log_inv_rate: 3,
+            num_variables: 10,
+            folding_factor: 2,
+            domain_size: 10,
+            domain_gen: F::from_u64(2),
+            exp_domain_gen: F::from_u64(2),
         }];
 
         assert!(
@@ -600,14 +665,10 @@ mod tests {
     #[test]
     fn test_check_pow_bits_all_exceed() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<BabyBear>::new(10);
-        let mut config = WhirConfig::<
-            BabyBear,
-            BabyBear,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-        >::new(mv_params, params);
+        let mv_params = MultivariateParameters::<F>::new(10);
+        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
+            mv_params, params,
+        );
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 22.0;
@@ -620,6 +681,11 @@ mod tests {
             num_queries: 5,
             ood_samples: 2,
             log_inv_rate: 3,
+            num_variables: 10,
+            folding_factor: 2,
+            domain_size: 10,
+            domain_gen: F::from_u64(2),
+            exp_domain_gen: F::from_u64(2),
         }];
 
         assert!(
