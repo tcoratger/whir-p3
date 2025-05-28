@@ -118,7 +118,7 @@ where
             // Verify in-domain challenges on the previous commitment.
             let stir_constraints = self.verify_stir_challenges(
                 verifier_state,
-                &round_params,
+                round_params,
                 &prev_commitment,
                 round_folding_randomness.last().unwrap(),
                 round_index == 0,
