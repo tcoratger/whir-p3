@@ -66,12 +66,9 @@ where
         // convert evaluations -> coefficients form
         let pol_coeffs: CoefficientList<F> = polynomial.clone().to_coefficients();
 
-        // Retrieve the base domain, ensuring it is set.
-        let base_domain = self.starting_domain.base_domain.unwrap();
-
         // Compute expansion factor based on the domain size and polynomial length.
         let initial_size = polynomial.num_evals();
-        let expanded_size = base_domain.size();
+        let expanded_size = self.starting_domain.backing_domain.size();
 
         // Pad coefficients with zeros to match the domain size
         let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
