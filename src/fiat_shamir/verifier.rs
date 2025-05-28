@@ -1,6 +1,7 @@
 use std::{io::Read, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_keccak::KeccakF;
 use p3_symmetric::Hash;
 use serde::Deserialize;
 
@@ -23,7 +24,7 @@ use super::{
 #[derive(Debug)]
 pub struct VerifierState<'a, EF, F, H = DefaultHash>
 where
-    H: DuplexSpongeInterface<u8>,
+    H: DuplexSpongeInterface<KeccakF>,
 {
     /// Internal sponge transcript that tracks the domain separator state and absorbs values.
     ///
@@ -52,7 +53,7 @@ where
 
 impl<'a, EF, F, H> VerifierState<'a, EF, F, H>
 where
-    H: DuplexSpongeInterface<u8>,
+    H: DuplexSpongeInterface<KeccakF>,
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
@@ -299,7 +300,7 @@ where
 
 impl<EF, F, H> UnitToBytes for VerifierState<'_, EF, F, H>
 where
-    H: DuplexSpongeInterface<u8>,
+    H: DuplexSpongeInterface<KeccakF>,
     EF: ExtensionField<F>,
     F: Field,
 {
@@ -351,8 +352,8 @@ mod tests {
         }
     }
 
-    impl DuplexSpongeInterface<u8> for DummySponge {
-        fn new(_iv: [u8; 32]) -> Self {
+    impl DuplexSpongeInterface<KeccakF> for DummySponge {
+        fn new(_keccak: KeccakF, _iv: [u8; 32]) -> Self {
             Self::new_inner()
         }
 
