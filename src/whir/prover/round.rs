@@ -6,7 +6,7 @@ use super::{Leafs, Proof, Prover};
 use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
-    poly::{evals::EvaluationStorage, multilinear::MultilinearPoint},
+    poly::{coeffs::CoefficientStorage, evals::EvaluationStorage, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{CommitmentMerkleTree, RoundMerkleTree, Witness},
@@ -45,6 +45,10 @@ where
     /// The multilinear polynomial evaluations at the start of this round.
     /// These are updated by folding the previous round’s coefficients using `folding_randomness`.
     pub(crate) evaluations: EvaluationStorage<F, EF>,
+
+    /// The multilinear polynomial evaluations at the start of this round.
+    /// These are updated by folding the previous round’s coefficients using `folding_randomness`.
+    pub(crate) coeffs: CoefficientStorage<F, EF>,
 
     /// Merkle commitment prover data for the **base field** polynomial from the first round.
     /// This is used to open values at queried locations.
@@ -176,6 +180,7 @@ where
             sumcheck_prover,
             folding_randomness,
             evaluations: EvaluationStorage::Base(witness.pol_evals),
+            coeffs: CoefficientStorage::Base(witness.pol_coeffs),
             merkle_prover_data: None,
             commitment_merkle_prover_data: witness.prover_data,
             commitment_merkle_proof: None,
