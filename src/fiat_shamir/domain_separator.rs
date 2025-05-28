@@ -1,6 +1,7 @@
 use std::{collections::VecDeque, fmt::Write, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_keccak::KeccakF;
 
 use super::{
     DefaultHash, duplex_sponge::interface::DuplexSpongeInterface, errors::DomainSeparatorMismatch,
@@ -41,7 +42,7 @@ const SEP_BYTE: &str = "\0";
 #[derive(Clone, Debug)]
 pub struct DomainSeparator<EF, F, H = DefaultHash>
 where
-    H: DuplexSpongeInterface<u8>,
+    H: DuplexSpongeInterface<KeccakF>,
 {
     /// The internal IOPattern string representation.
     ///
@@ -73,7 +74,7 @@ where
 
 impl<EF, F, H> DomainSeparator<EF, F, H>
 where
-    H: DuplexSpongeInterface<u8>,
+    H: DuplexSpongeInterface<KeccakF>,
     EF: ExtensionField<F> + TwoAdicField,
     F: Field + TwoAdicField + PrimeField64,
 {

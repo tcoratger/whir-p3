@@ -1,6 +1,7 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_keccak::KeccakF;
 
 use super::{
     domain_separator::{DomainSeparator, Op},
@@ -13,7 +14,7 @@ use super::{
 #[derive(Clone, Debug)]
 pub struct HashStateWithInstructions<H>
 where
-    H: DuplexSpongeInterface<u8>,
+    H: DuplexSpongeInterface<KeccakF>,
 {
     /// The internal duplex sponge used for absorbing and squeezing data.
     pub(crate) ds: H,
@@ -23,7 +24,7 @@ where
     _unit: PhantomData<u8>,
 }
 
-impl<H: DuplexSpongeInterface<u8>> HashStateWithInstructions<H> {
+impl<H: DuplexSpongeInterface<KeccakF>> HashStateWithInstructions<H> {
     /// Initialise a stateful hash object,
     /// setting up the state of the sponge function and parsing the tag string.
     #[must_use]
@@ -106,7 +107,7 @@ impl<H: DuplexSpongeInterface<u8>> HashStateWithInstructions<H> {
     }
 
     fn generate_tag(iop_bytes: &[u8]) -> [u8; 32] {
-        let mut keccak = Keccak::default();
+        let mut keccak = Keccak::new(KeccakF, [0u8; 32]);
         keccak.absorb_unchecked(iop_bytes);
         let mut tag = [0u8; 32];
         keccak.squeeze_unchecked(&mut tag);
@@ -115,7 +116,7 @@ impl<H: DuplexSpongeInterface<u8>> HashStateWithInstructions<H> {
 
     fn unchecked_load_with_stack(tag: [u8; 32], stack: VecDeque<Op>) -> Self {
         Self {
-            ds: H::new(tag),
+            ds: H::new(KeccakF, tag),
             stack,
             _unit: PhantomData,
         }
@@ -131,7 +132,7 @@ impl<H: DuplexSpongeInterface<u8>> HashStateWithInstructions<H> {
     }
 }
 
-impl<H: DuplexSpongeInterface<u8>> Drop for HashStateWithInstructions<H> {
+impl<H: DuplexSpongeInterface<KeccakF>> Drop for HashStateWithInstructions<H> {
     /// Destroy the sponge state.
     fn drop(&mut self) {
         // it's a bit violent to panic here,
@@ -185,8 +186,8 @@ mod tests {
         }
     }
 
-    impl DuplexSpongeInterface<u8> for DummySponge {
-        fn new(_iv: [u8; 32]) -> Self {
+    impl DuplexSpongeInterface<KeccakF> for DummySponge {
+        fn new(_permutation: KeccakF, _iv: [u8; 32]) -> Self {
             Self::new_inner()
         }
 

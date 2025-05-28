@@ -1,6 +1,7 @@
 use std::{fmt::Debug, io::Write, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_keccak::KeccakF;
 use p3_symmetric::Hash;
 use serde::Serialize;
 
@@ -34,7 +35,7 @@ use super::{
 #[derive(Debug)]
 pub struct ProverState<EF, F, H = DefaultHash>
 where
-    H: DuplexSpongeInterface<u8>,
+    H: DuplexSpongeInterface<KeccakF>,
 {
     /// The duplex sponge that is used to generate the random coins.
     pub(crate) ds: Keccak,
@@ -50,7 +51,7 @@ where
 
 impl<EF, F, H> ProverState<EF, F, H>
 where
-    H: DuplexSpongeInterface<u8>,
+    H: DuplexSpongeInterface<KeccakF>,
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
@@ -61,7 +62,7 @@ where
     pub fn new(domain_separator: &DomainSeparator<EF, F, H>) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator);
 
-        let mut ds = Keccak::default();
+        let mut ds = Keccak::new(KeccakF, [0u8; 32]);
         ds.absorb_unchecked(domain_separator.as_bytes());
 
         Self {
@@ -262,7 +263,7 @@ where
 
 impl<EF, F, H> UnitToBytes for ProverState<EF, F, H>
 where
-    H: DuplexSpongeInterface<u8>,
+    H: DuplexSpongeInterface<KeccakF>,
     EF: ExtensionField<F>,
     F: Field,
 {

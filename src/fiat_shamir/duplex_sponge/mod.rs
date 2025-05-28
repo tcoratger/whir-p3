@@ -1,8 +1,14 @@
+use p3_symmetric::Permutation;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::fiat_shamir::duplex_sponge::interface::DuplexSpongeInterface;
 
 pub mod interface;
+
+/// Width of the Keccak-f1600 sponge (in bytes)
+const KECCAK_WIDTH_BYTES: usize = 200;
+/// Rate of the sponge (bytes): 136
+const KECCAK_RATE_BYTES: usize = 136;
 
 /// Basic units over which a sponge operates.
 ///
@@ -15,96 +21,77 @@ pub trait Unit: Clone + Sized {
     fn read(r: &mut impl std::io::Read, bunch: &mut [Self]) -> Result<(), std::io::Error>;
 }
 
-/// The basic state of a cryptographic sponge.
-///
-/// A cryptographic sponge operates over some domain [`Permutation::U`] units.
-/// It has a width [`Permutation::N`] and can process elements at rate [`Permutation::R`],
-/// using the permutation function [`Permutation::permute`].
-///
-/// For implementors:
-///
-/// - State is written in *the first* [`Permutation::R`] (rate) bytes of the state. The last
-///   [`Permutation::N`]-[`Permutation::R`] bytes are never touched directly except during
-///   initialization.
-/// - The duplex sponge is in *overwrite mode*. This mode is not known to affect the security levels
-///   and removes assumptions on [`Permutation::U`] as well as constraints in the final
-///   zero-knowledge proof implementing the hash function.
-/// - The [`std::default::Default`] implementation *MUST* initialize the state to zero.
-/// - The [`Permutation::new`] method should initialize the sponge writing the entropy provided in
-///   the `iv` in the last [`Permutation::N`]-[`Permutation::R`] elements of the state.
-pub trait Permutation: Zeroize + Default + Clone + AsRef<[Self::U]> + AsMut<[Self::U]> {
-    /// The basic unit over which the sponge operates.
-    type U: Unit;
-
-    /// The width of the sponge, equal to rate [`Permutation::R`] plus capacity.
-    /// Cannot be less than 1. Cannot be less than [`Permutation::R`].
-    const N: usize;
-
-    /// The rate of the sponge.
-    const R: usize;
-
-    /// Initialize the state of the sponge using 32 bytes of seed.
-    fn new(iv: [u8; 32]) -> Self;
-
-    /// Permute the state of the sponge.
-    fn permute(&mut self);
-}
-
 /// A cryptographic sponge.
-#[derive(Debug, Clone, Default, Zeroize, ZeroizeOnDrop)]
-pub struct DuplexSponge<C: Permutation> {
+#[derive(Debug, Clone)]
+pub struct DuplexSponge<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> {
     permutation: C,
+    state: [u8; KECCAK_WIDTH_BYTES],
     absorb_pos: usize,
     squeeze_pos: usize,
 }
 
-impl<U: Unit + Zeroize, C: Permutation<U = U>> DuplexSpongeInterface<U> for DuplexSponge<C> {
-    fn new(iv: [u8; 32]) -> Self {
-        assert!(C::N > C::R, "Capacity of the sponge should be > 0.");
+impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]> + Clone> DuplexSponge<C> {
+    pub const N: usize = KECCAK_WIDTH_BYTES;
+    pub const R: usize = KECCAK_RATE_BYTES;
+}
+
+impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]> + Clone> Zeroize for DuplexSponge<C> {
+    fn zeroize(&mut self) {
+        self.state.zeroize();
+    }
+}
+
+impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]> + Clone> ZeroizeOnDrop for DuplexSponge<C> {}
+
+impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]> + Clone> DuplexSpongeInterface<C>
+    for DuplexSponge<C>
+{
+    fn new(permutation: C, iv: [u8; 32]) -> Self {
+        let mut state = [0u8; KECCAK_WIDTH_BYTES];
+        state[Self::R..Self::R + 32].copy_from_slice(&iv);
+
         Self {
-            permutation: C::new(iv),
+            permutation,
+            state,
             absorb_pos: 0,
-            squeeze_pos: C::R,
+            squeeze_pos: Self::R,
         }
     }
 
-    fn absorb_unchecked(&mut self, mut input: &[U]) -> &mut Self {
+    fn absorb_unchecked(&mut self, mut input: &[u8]) -> &mut Self {
         while !input.is_empty() {
-            if self.absorb_pos == C::R {
-                self.permutation.permute();
+            if self.absorb_pos == Self::R {
+                self.permutation.permute_mut(&mut self.state);
                 self.absorb_pos = 0;
             } else {
-                assert!(self.absorb_pos < C::R);
-                let chunk_len = usize::min(input.len(), C::R - self.absorb_pos);
+                assert!(self.absorb_pos < Self::R);
+                let chunk_len = usize::min(input.len(), Self::R - self.absorb_pos);
                 let (chunk, rest) = input.split_at(chunk_len);
 
-                self.permutation.as_mut()[self.absorb_pos..self.absorb_pos + chunk_len]
-                    .clone_from_slice(chunk);
+                self.state[self.absorb_pos..self.absorb_pos + chunk_len].clone_from_slice(chunk);
                 self.absorb_pos += chunk_len;
                 input = rest;
             }
         }
-        self.squeeze_pos = C::R;
+        self.squeeze_pos = Self::R;
         self
     }
 
-    fn squeeze_unchecked(&mut self, output: &mut [U]) -> &mut Self {
+    fn squeeze_unchecked(&mut self, output: &mut [u8]) -> &mut Self {
         if output.is_empty() {
             return self;
         }
 
-        if self.squeeze_pos == C::R {
+        if self.squeeze_pos == Self::R {
             self.squeeze_pos = 0;
             self.absorb_pos = 0;
-            self.permutation.permute();
+            self.permutation.permute_mut(&mut self.state);
         }
 
-        assert!(self.squeeze_pos < C::R);
-        let chunk_len = usize::min(output.len(), C::R - self.squeeze_pos);
+        assert!(self.squeeze_pos < Self::R);
+        let chunk_len = usize::min(output.len(), Self::R - self.squeeze_pos);
         let (output, rest) = output.split_at_mut(chunk_len);
-        output.clone_from_slice(
-            &self.permutation.as_ref()[self.squeeze_pos..self.squeeze_pos + chunk_len],
-        );
+        output.clone_from_slice(&self.state[self.squeeze_pos..self.squeeze_pos + chunk_len]);
         self.squeeze_pos += chunk_len;
         self.squeeze_unchecked(rest)
     }
@@ -112,92 +99,21 @@ impl<U: Unit + Zeroize, C: Permutation<U = U>> DuplexSpongeInterface<U> for Dupl
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        cell::RefCell,
-        io::{Read, Write},
-    };
+    use super::*;
 
-    use zeroize::Zeroize;
-
-    use super::{DuplexSponge, Permutation, Unit};
-    use crate::fiat_shamir::duplex_sponge::interface::DuplexSpongeInterface;
-
-    // Dummy unit that wraps a single byte
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Zeroize)]
-    pub(super) struct DummyUnit(pub u8);
-
-    impl Unit for DummyUnit {
-        fn write(bunch: &[Self], w: &mut impl Write) -> Result<(), std::io::Error> {
-            w.write_all(&bunch.iter().map(|u| u.0).collect::<Vec<_>>())
-        }
-
-        fn read(r: &mut impl Read, bunch: &mut [Self]) -> Result<(), std::io::Error> {
-            // Read raw bytes, then convert to DummyUnit
-            let mut buf = vec![0u8; bunch.len()];
-            r.read_exact(&mut buf)?;
-            for (i, b) in buf.into_iter().enumerate() {
-                bunch[i] = Self(b);
-            }
-            Ok(())
-        }
-    }
-
-    // A dummy permutation that tracks how often it's permuted
+    // A dummy permutation
     #[derive(Clone, Debug)]
-    pub(super) struct DummyPermutation {
-        pub state: [DummyUnit; Self::N],
-        pub permuted: RefCell<usize>, // not part of cryptographic state
-    }
+    pub(super) struct DummyPermutation;
 
     impl Zeroize for DummyPermutation {
-        fn zeroize(&mut self) {
-            self.state.zeroize();
-        }
+        fn zeroize(&mut self) {}
     }
 
-    impl Default for DummyPermutation {
-        fn default() -> Self {
-            Self {
-                state: [DummyUnit(0); Self::N],
-                permuted: RefCell::new(0),
+    impl Permutation<[u8; KECCAK_WIDTH_BYTES]> for DummyPermutation {
+        fn permute_mut(&self, state: &mut [u8; KECCAK_WIDTH_BYTES]) {
+            for b in state.iter_mut() {
+                *b = b.wrapping_add(1);
             }
-        }
-    }
-
-    impl Permutation for DummyPermutation {
-        type U = DummyUnit;
-        const N: usize = 4;
-        const R: usize = 2;
-
-        fn new(iv: [u8; 32]) -> Self {
-            let mut state = [DummyUnit(0); Self::N];
-            for (i, byte) in iv.iter().take(Self::N - Self::R).enumerate() {
-                state[Self::R + i] = DummyUnit(*byte);
-            }
-            Self {
-                state,
-                permuted: RefCell::new(0),
-            }
-        }
-
-        fn permute(&mut self) {
-            // Increment every byte in the state and count permutations
-            *self.permuted.borrow_mut() += 1;
-            for i in 0..Self::N {
-                self.state[i].0 = self.state[i].0.wrapping_add(1);
-            }
-        }
-    }
-
-    impl AsRef<[DummyUnit]> for DummyPermutation {
-        fn as_ref(&self) -> &[DummyUnit] {
-            &self.state
-        }
-    }
-
-    impl AsMut<[DummyUnit]> for DummyPermutation {
-        fn as_mut(&mut self) -> &mut [DummyUnit] {
-            &mut self.state
         }
     }
 
@@ -207,76 +123,85 @@ mod tests {
     fn test_new_sponge_initializes_state() {
         // Use IV filled with 42 to check initialization
         let iv = [42u8; 32];
-        let sponge = Sponge::new(iv);
+        let sponge = Sponge::new(DummyPermutation, iv);
         assert_eq!(sponge.absorb_pos, 0);
-        assert_eq!(sponge.squeeze_pos, DummyPermutation::R);
+        assert_eq!(sponge.squeeze_pos, Sponge::R);
         // The last N - R elements should store the IV
-        for i in 0..(DummyPermutation::N - DummyPermutation::R) {
+        for i in 0..iv.len() {
             assert_eq!(
-                sponge.permutation.state[DummyPermutation::R + i],
-                DummyUnit(42)
+                sponge.state[Sponge::R + i],
+                42,
+                "Expected sponge.state[{}] to be 42",
+                Sponge::R + i
             );
         }
     }
 
     #[test]
     fn test_absorb_less_than_rate() {
-        let mut sponge = Sponge::new([0u8; 32]);
-        // Absorb just 1 element (less than R = 2)
-        sponge.absorb_unchecked(&[DummyUnit(5)]);
-        assert_eq!(sponge.permutation.state[0], DummyUnit(5));
+        let mut sponge = Sponge::new(DummyPermutation, [0u8; 32]);
+        // Absorb just 1 byte (less than R)
+        sponge.absorb_unchecked(&[5u8]);
+        assert_eq!(sponge.state[0], 5);
         // One position consumed
         assert_eq!(sponge.absorb_pos, 1);
         // Reset after absorb
-        assert_eq!(sponge.squeeze_pos, DummyPermutation::R);
+        assert_eq!(sponge.squeeze_pos, Sponge::R);
     }
 
     #[test]
     fn test_absorb_across_permutation_boundary() {
-        let mut sponge = Sponge::new([0u8; 32]);
+        let mut sponge = Sponge::new(DummyPermutation, [0u8; 32]);
 
-        // Permutation not called yet
-        assert_eq!(*sponge.permutation.permuted.borrow(), 0);
+        // Absorb enough to cross the rate boundary (R + 1 bytes), triggering one permutation
+        let big_input = vec![1u8; Sponge::R + 1];
+        sponge.absorb_unchecked(&big_input);
 
-        // Absorb 3 elements (more than R = 2), will trigger permutation
-        sponge.absorb_unchecked(&[DummyUnit(1), DummyUnit(2), DummyUnit(3)]);
-
-        // Permutation triggered once
-        assert_eq!(*sponge.permutation.permuted.borrow(), 1);
-        // Last item is in position 0
-        assert_eq!(sponge.permutation.state[0], DummyUnit(3));
-        // Position reset after permute
+        // Last absorbed byte should be at position 0 after permutation
+        assert_eq!(sponge.state[0], 1);
+        // One position consumed after reset
         assert_eq!(sponge.absorb_pos, 1);
     }
 
     #[test]
     fn test_squeeze_output_and_position() {
-        let mut sponge = Sponge::new([0u8; 32]);
+        let mut sponge = Sponge::new(DummyPermutation, [0u8; 32]);
         // Preload the state with known values
-        sponge.permutation.state[0] = DummyUnit(10);
-        sponge.permutation.state[1] = DummyUnit(20);
-        let mut out = [DummyUnit(0); 2];
+        sponge.state[0] = 10;
+        sponge.state[1] = 20;
+
+        let mut out = [0u8; 2];
         sponge.squeeze_unchecked(&mut out);
-        // Output is correct: incremented by 1 and wrapped around
-        assert_eq!(out, [DummyUnit(11), DummyUnit(21)]);
-        // Position advanced
-        assert_eq!(sponge.squeeze_pos, DummyPermutation::R);
+
+        // Output is the current state values (no permutation yet)
+        assert_eq!(out, [11, 21]);
+
+        // Position advanced by 2
+        assert_eq!(sponge.squeeze_pos, 2);
     }
 
     #[test]
     fn test_squeeze_triggers_permute_when_full() {
-        let mut sponge = Sponge::new([0u8; 32]);
-        // Force permute
-        sponge.squeeze_pos = DummyPermutation::R;
-        let mut out = [DummyUnit(0); 1];
-        // No permutation triggered yet
-        assert_eq!(*sponge.permutation.permuted.borrow(), 0);
-        // Squeeze position hardcoded to R
-        assert_eq!(sponge.squeeze_pos, 2);
+        let mut sponge = Sponge::new(DummyPermutation, [0u8; 32]);
+
+        // Force squeeze position to full → triggers permutation on next squeeze
+        sponge.squeeze_pos = Sponge::R;
+
+        // Snapshot state before permutation
+        let old_state = sponge.state;
+
+        let mut out = [0u8; 1];
         sponge.squeeze_unchecked(&mut out);
-        // Permutation triggered
-        assert_eq!(*sponge.permutation.permuted.borrow(), 1);
-        // Resumed from beginning
+
+        // Check that permutation ran: all bytes incremented by 1
+        for (before, after) in old_state.iter().zip(&sponge.state) {
+            assert_eq!(*after, before.wrapping_add(1));
+        }
+
+        // Squeeze pulled one byte from the refreshed state
+        assert_eq!(out[0], sponge.state[0]);
+
+        // Squeeze position advanced by 1
         assert_eq!(sponge.squeeze_pos, 1);
     }
 }
