@@ -1,7 +1,7 @@
 use clap::Parser;
 use p3_baby_bear::BabyBear;
 use p3_blake3::Blake3;
-use p3_dft::Radix2DitParallel;
+use p3_dft::Radix2DitSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
 use p3_koala_bear::KoalaBear;
@@ -154,7 +154,7 @@ fn main() {
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
 
-    let dft_committer = Radix2DitParallel::<F>::default();
+    let dft_committer = Radix2DitSmallBatch::<F>::default();
 
     let witness = committer
         .commit(&dft_committer, &mut prover_state, polynomial)
@@ -163,7 +163,7 @@ fn main() {
     // Generate a proof using the prover
     let prover = Prover(&params);
 
-    let dft_prover = Radix2DitParallel::<F>::default();
+    let dft_prover = Radix2DitSmallBatch::<F>::default();
 
     // Generate a STARK proof for the given statement and witness
     prover

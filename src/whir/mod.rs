@@ -1,7 +1,7 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_baby_bear::BabyBear;
 use p3_blake3::Blake3;
-use p3_dft::Radix2DitParallel;
+use p3_dft::Radix2DitSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_monty_31::dft::RecursiveDft;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
@@ -123,7 +123,7 @@ pub fn make_whir_things(
     // Generate a proof using the prover
     let prover = Prover(&params);
 
-    let dft_prover = Radix2DitParallel::<F>::default();
+    let dft_prover = Radix2DitSmallBatch::<F>::default();
 
     // Generate a STARK proof for the given statement and witness
     prover
@@ -176,7 +176,7 @@ mod tests {
         ];
         let num_points = [0, 1, 2];
         let pow_bits = [0, 5, 10];
-        let rs_domain_initial_reduction_factors = 1..=2;
+        let rs_domain_initial_reduction_factors = 1..=3;
 
         for rs_domain_initial_reduction_factor in rs_domain_initial_reduction_factors {
             for folding_factor in folding_factors {
