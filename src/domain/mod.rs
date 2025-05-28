@@ -101,10 +101,10 @@ impl<EF: TwoAdicField> Domain<EF> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p3_baby_bear::BabyBear;
-    use p3_field::Field;
-    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
+
+    use super::*;
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
