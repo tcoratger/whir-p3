@@ -9,7 +9,7 @@ use p3_symmetric::Permutation;
 ///
 /// **HAZARD**: Don't implement this trait unless you know what you are doing.
 /// Consider using the sponges already provided by this library.
-pub trait DuplexSpongeInterface<C: Permutation<[u8; 200]>>: Clone + zeroize::Zeroize {
+pub trait DuplexSpongeInterface<C: Permutation<[u8; 200]>>: zeroize::Zeroize {
     /// Initializes a new sponge, setting up the state.
     fn new(permutation: C, iv: [u8; 32]) -> Self;
 

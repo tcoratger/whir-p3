@@ -19,22 +19,20 @@ pub struct DuplexSponge<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> {
     squeeze_pos: usize,
 }
 
-impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]> + Clone> DuplexSponge<C> {
+impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> DuplexSponge<C> {
     pub const N: usize = KECCAK_WIDTH_BYTES;
     pub const R: usize = KECCAK_RATE_BYTES;
 }
 
-impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]> + Clone> Zeroize for DuplexSponge<C> {
+impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> Zeroize for DuplexSponge<C> {
     fn zeroize(&mut self) {
         self.state.zeroize();
     }
 }
 
-impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]> + Clone> ZeroizeOnDrop for DuplexSponge<C> {}
+impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> ZeroizeOnDrop for DuplexSponge<C> {}
 
-impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]> + Clone> DuplexSpongeInterface<C>
-    for DuplexSponge<C>
-{
+impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> DuplexSpongeInterface<C> for DuplexSponge<C> {
     fn new(permutation: C, iv: [u8; 32]) -> Self {
         let mut state = [0u8; KECCAK_WIDTH_BYTES];
         state[Self::R..Self::R + 32].copy_from_slice(&iv);
