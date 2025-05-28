@@ -1,4 +1,4 @@
-use std::{f64::consts::LOG2_10, marker::PhantomData};
+use std::{any::TypeId, f64::consts::LOG2_10, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
@@ -36,7 +36,7 @@ where
     // 2. The commitment is a valid folded polynomial, and an additional polynomial evaluation
     //    statement. In that case, the initial statement is set to true.
     pub initial_statement: bool,
-    pub starting_domain: Domain<EF, F>,
+    pub starting_domain: Domain<EF>,
     pub starting_log_inv_rate: usize,
     pub starting_folding_pow_bits: f64,
 
@@ -56,6 +56,9 @@ where
     // Merkle tree parameters
     pub merkle_hash: H,
     pub merkle_compress: C,
+
+    pub _base_field: PhantomData<F>,
+    pub _extension_field: PhantomData<EF>,
 }
 
 impl<EF, F, H, C, PowStrategy> WhirConfig<EF, F, H, C, PowStrategy>
@@ -88,6 +91,16 @@ where
 
         let starting_domain = Domain::new(1 << mv_parameters.num_variables, log_inv_rate)
             .expect("Should have found an appropriate domain - check Field 2 adicity?");
+
+        if TypeId::of::<F>() != TypeId::of::<EF>() {
+            // We could theoritically tolerate FFT twiddles in the extension field, but this would signifcantly reduce performance.
+            let first_fft_size = mv_parameters.num_variables + log_inv_rate
+                - whir_parameters.folding_factor.at_round(0);
+            assert!(
+                first_fft_size <= F::TWO_ADICITY,
+                "Increase the initial folding factor, otherwise the FFT twiddles will be in the extension field"
+            );
+        }
 
         let (num_rounds, final_sumcheck_rounds) = whir_parameters
             .folding_factor
@@ -218,6 +231,8 @@ where
             pow_strategy: PhantomData,
             merkle_hash: whir_parameters.merkle_hash,
             merkle_compress: whir_parameters.merkle_compress,
+            _base_field: PhantomData,
+            _extension_field: PhantomData,
         }
     }
 

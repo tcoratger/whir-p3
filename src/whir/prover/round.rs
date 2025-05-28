@@ -32,7 +32,7 @@ where
 {
     /// The domain used in this round, including the size and generator.
     /// This is typically a scaled version of the previous round’s domain.
-    pub(crate) domain: Domain<EF, F>,
+    pub(crate) domain: Domain<EF>,
 
     /// The sumcheck prover responsible for managing constraint accumulation and sumcheck rounds.
     /// Initialized in the first round (if applicable), and reused/updated in each subsequent round.
