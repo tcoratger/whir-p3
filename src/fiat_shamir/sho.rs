@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, marker::PhantomData};
+use std::collections::VecDeque;
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_keccak::KeccakF;
@@ -20,8 +20,6 @@ where
     pub(crate) ds: H,
     /// A stack of expected sponge operations.
     stack: VecDeque<Op>,
-    /// Marker to associate the unit type `U` without storing a value.
-    _unit: PhantomData<u8>,
 }
 
 impl<H: DuplexSpongeInterface<KeccakF>> HashStateWithInstructions<H> {
@@ -118,7 +116,6 @@ impl<H: DuplexSpongeInterface<KeccakF>> HashStateWithInstructions<H> {
         Self {
             ds: H::new(KeccakF, tag),
             stack,
-            _unit: PhantomData,
         }
     }
 
