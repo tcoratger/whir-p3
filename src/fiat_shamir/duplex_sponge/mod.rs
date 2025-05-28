@@ -48,7 +48,7 @@ impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]> + Clone> DuplexSpongeInterface<C>
 {
     fn new(permutation: C, iv: [u8; 32]) -> Self {
         let mut state = [0u8; KECCAK_WIDTH_BYTES];
-        state[Self::R..Self::R + iv.len()].copy_from_slice(&iv);
+        state[Self::R..Self::R + 32].copy_from_slice(&iv);
 
         Self {
             permutation,
