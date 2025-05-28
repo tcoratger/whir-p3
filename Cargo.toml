@@ -64,8 +64,7 @@ tracing-subscriber = { version = "0.3.17", default-features = false, features = 
     "env-filter",
 ] }
 rand = "0.9"
-zeroize = { version = "1.8", features = ["zeroize_derive"] }
-keccak = "0.1"
+zeroize = { version = "1.8" }
 blake3 = "1.5.4"
 num-bigint = "0.4"
 clap = { version = "4.4.17", features = ["derive"] }
