@@ -27,19 +27,6 @@ use crate::{
 
 pub mod sumcheck;
 
-// // TODO: Merge these into RoundConfig
-// #[derive(Debug)]
-// pub struct StirChallengParams<F> {
-//     round_index: usize,
-//     domain_size: usize,
-//     num_variables: usize,
-//     folding_factor: usize,
-//     num_queries: usize,
-//     pow_bits: f64,
-//     domain_gen: F,
-//     exp_domain_gen: F,
-// }
-
 /// Wrapper around the WHIR verifier configuration.
 ///
 /// This type provides a lightweight, ergonomic interface to verification methods
@@ -76,22 +63,6 @@ where
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
-        // // Proof agnostic round parameters
-        // // TODO: Move to RoundConfig
-        // let mut params = {
-        //     let domain_gen = self.starting_domain.backing_domain.group_gen();
-        //     StirChallengParams {
-        //         round_index: 0,
-        //         domain_size: self.starting_domain.size(),
-        //         num_variables: self.mv_parameters.num_variables,
-        //         num_queries: 0,
-        //         folding_factor: 0,
-        //         pow_bits: 0.,
-        //         domain_gen,
-        //         exp_domain_gen: domain_gen.exp_u64(1 << self.folding_factor.at_round(0)),
-        //     }
-        // };
-
         // During the rounds we collect constraints, combination randomness, folding randomness
         // and we update the claimed sum of constraint evaluation.
         let mut round_constraints = Vec::new();
@@ -136,11 +107,6 @@ where
         for round_index in 0..self.n_rounds() {
             // Fetch round parameters from config
             let round_params = &self.round_parameters[round_index];
-            // params.round_index = round_index;
-            // params.folding_factor = self.folding_factor.at_round(round_index);
-            // params.num_variables -= params.folding_factor;
-            // params.num_queries = round_params.num_queries;
-            // params.pow_bits = round_params.pow_bits;
 
             // Receive commitment to the folded polynomial (likely encoded at higher expansion)
             let new_commitment = ParsedCommitment::<_, Hash<F, u8, DIGEST_ELEMS>>::parse(
@@ -178,21 +144,8 @@ where
             round_folding_randomness.push(folding_randomness);
 
             // Update round parameters
-            // let rs_reduction_factor = self.rs_reduction_factor(round_index);
             prev_commitment = new_commitment;
-            // params.domain_gen = params.domain_gen.exp_power_of_2(rs_reduction_factor);
-            // params.exp_domain_gen = params
-            //     .domain_gen
-            //     .exp_power_of_2(self.folding_factor.at_round(round_index + 1));
-            // params.domain_size >>= rs_reduction_factor;
         }
-
-        // // Final round parameters.
-        // params.round_index = self.n_rounds();
-        // params.num_queries = self.final_queries;
-        // params.folding_factor = self.folding_factor.at_round(self.n_rounds());
-        // params.num_variables -= params.folding_factor;
-        // params.pow_bits = self.final_pow_bits;
 
         // In the final round we receive the full polynomial instead of a commitment.
         let mut final_coefficients = EF::zero_vec(1 << self.final_sumcheck_rounds);
