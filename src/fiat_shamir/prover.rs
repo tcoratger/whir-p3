@@ -183,9 +183,9 @@ where
     /// Absorb a digest object (e.g. Merkle root) into the transcript.
     pub fn add_digest<const DIGEST_ELEMS: usize>(
         &mut self,
-        digest: Hash<F, u8, DIGEST_ELEMS>,
+        digest: Hash<F, U, DIGEST_ELEMS>,
     ) -> ProofResult<()> {
-        self.add_units(&U::slice_from_u8_slice(digest.as_ref()))
+        self.add_units(digest.as_ref())
             .map_err(ProofError::InvalidDomainSeparator)
     }
 
