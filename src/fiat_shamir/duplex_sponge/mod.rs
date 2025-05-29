@@ -1,3 +1,4 @@
+use interface::Unit;
 use p3_symmetric::Permutation;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -12,30 +13,43 @@ const KECCAK_RATE_BYTES: usize = 136;
 
 /// A cryptographic sponge.
 #[derive(Debug, Clone)]
-pub struct DuplexSponge<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> {
+pub struct DuplexSponge<U: Unit, C: Permutation<[U; KECCAK_WIDTH_BYTES]>> {
     permutation: C,
-    state: [u8; KECCAK_WIDTH_BYTES],
+    state: [U; KECCAK_WIDTH_BYTES],
     absorb_pos: usize,
     squeeze_pos: usize,
 }
 
-impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> DuplexSponge<C> {
-    pub const N: usize = KECCAK_WIDTH_BYTES;
-    pub const R: usize = KECCAK_RATE_BYTES;
-}
-
-impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> Zeroize for DuplexSponge<C> {
+impl<U, C> Zeroize for DuplexSponge<U, C>
+where
+    U: Unit,
+    C: Permutation<[U; KECCAK_WIDTH_BYTES]>,
+{
     fn zeroize(&mut self) {
         self.state.zeroize();
     }
 }
 
-impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> ZeroizeOnDrop for DuplexSponge<C> {}
+impl<U, C> ZeroizeOnDrop for DuplexSponge<U, C>
+where
+    U: Unit,
+    C: Permutation<[U; KECCAK_WIDTH_BYTES]>,
+{
+}
 
-impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> DuplexSpongeInterface<C> for DuplexSponge<C> {
+impl<U, C> DuplexSpongeInterface<C, U> for DuplexSponge<U, C>
+where
+    U: Unit + Default + Copy,
+    C: Permutation<[U; KECCAK_WIDTH_BYTES]>,
+{
+    const N: usize = KECCAK_WIDTH_BYTES;
+    const R: usize = KECCAK_RATE_BYTES;
+
     fn new(permutation: C, iv: [u8; 32]) -> Self {
-        let mut state = [0u8; KECCAK_WIDTH_BYTES];
-        state[Self::R..Self::R + 32].copy_from_slice(&iv);
+        let mut state = [U::default(); KECCAK_WIDTH_BYTES];
+        for (i, &b) in iv.iter().enumerate() {
+            state[Self::R + i] = U::from_u8(b);
+        }
 
         Self {
             permutation,
@@ -45,7 +59,7 @@ impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> DuplexSpongeInterface<C> for Dupl
         }
     }
 
-    fn absorb_unchecked(&mut self, mut input: &[u8]) -> &mut Self {
+    fn absorb_unchecked(&mut self, mut input: &[U]) -> &mut Self {
         while !input.is_empty() {
             if self.absorb_pos == Self::R {
                 self.permutation.permute_mut(&mut self.state);
@@ -64,7 +78,7 @@ impl<C: Permutation<[u8; KECCAK_WIDTH_BYTES]>> DuplexSpongeInterface<C> for Dupl
         self
     }
 
-    fn squeeze_unchecked(&mut self, output: &mut [u8]) -> &mut Self {
+    fn squeeze_unchecked(&mut self, output: &mut [U]) -> &mut Self {
         if output.is_empty() {
             return self;
         }
@@ -104,7 +118,7 @@ mod tests {
         }
     }
 
-    type Sponge = DuplexSponge<DummyPermutation>;
+    type Sponge = DuplexSponge<u8, DummyPermutation>;
 
     #[test]
     fn test_new_sponge_initializes_state() {
