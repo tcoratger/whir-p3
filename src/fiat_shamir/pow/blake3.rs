@@ -233,7 +233,7 @@ mod tests {
         prover.challenge_pow::<Blake3PoW>(BITS).unwrap();
 
         let mut verifier = domain_separator.to_verifier_state(prover.narg_string());
-        let byte = verifier.next_bytes::<1>().unwrap();
+        let byte = verifier.next_units::<1>().unwrap();
         assert_eq!(&byte, b"\0");
         verifier.challenge_pow::<Blake3PoW>(BITS).unwrap();
     }

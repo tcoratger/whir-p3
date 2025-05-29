@@ -38,7 +38,7 @@ where
     /// The "NARG" string: raw serialized input provided by the prover.
     ///
     /// This byte slice contains encoded values (scalars, digests, etc.) that are deserialized
-    /// during verification. Each call to `next_bytes`, `fill_next_scalars`, etc., reads from this.
+    /// during verification. Each call to `next_units`, `fill_next_scalars`, etc., reads from this.
     pub(crate) narg_string: &'a [u8],
 
     /// Marker for the base field `F`.
@@ -72,7 +72,7 @@ where
     /// // A silly NARG string for the example.
     /// let narg_string = &[0x42];
     /// let mut verifier_state = domsep.to_verifier_state(narg_string);
-    /// assert_eq!(verifier_state.next_bytes().unwrap(), [0x42]);
+    /// assert_eq!(verifier_state.next_units().unwrap(), [0x42]);
     /// let challenge = verifier_state.challenge_bytes::<32>();
     /// assert!(challenge.is_ok());
     /// assert_ne!(challenge.unwrap(), [0; 32]);
@@ -101,7 +101,7 @@ where
     }
 
     /// Read a fixed-size byte array from the transcript.
-    pub fn next_bytes<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
+    pub fn next_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut input = [U::default(); N];
         self.fill_next_bytes(&mut input)?;
         Ok(input)
@@ -154,7 +154,7 @@ where
     /// Perform a PoW challenge check using a derived challenge and 64-bit nonce.
     pub fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
         let challenge = self.challenge_bytes()?;
-        let nonce = u64::from_be_bytes(U::array_to_u8_array(&self.next_bytes()?));
+        let nonce = u64::from_be_bytes(U::array_to_u8_array(&self.next_units()?));
         if S::new(U::array_to_u8_array(&challenge), bits).check(nonce) {
             Ok(())
         } else {
