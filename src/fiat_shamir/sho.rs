@@ -112,12 +112,6 @@ where
     }
 
     fn generate_tag(iop_bytes: &[u8], ds: &mut H) -> [u8; 32] {
-        // let mut keccak = Keccak::new(KeccakF, [0u8; 32]);
-        // keccak.absorb_unchecked(iop_bytes);
-        // let mut tag = [0u8; 32];
-        // keccak.squeeze_unchecked(&mut tag);
-        // tag
-
         ds.absorb_unchecked(iop_bytes);
         let mut tag = [0u8; 32];
         ds.squeeze_unchecked(&mut tag);
