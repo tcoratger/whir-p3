@@ -178,12 +178,6 @@ where
         Ok(output)
     }
 
-    /// Absorb external public bytes into the sponge.
-    #[inline]
-    pub fn public_bytes(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
-        self.public_units(input)
-    }
-
     /// Sample extension scalars uniformly at random using Fiat-Shamir challenge output.
     pub fn fill_challenge_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // How many bytes are needed to sample a single base field element
@@ -245,7 +239,7 @@ where
         }
 
         // Absorb the serialized bytes into the Fiat-Shamir transcript
-        self.public_bytes(&U::slice_from_u8_slice(&buf))?;
+        self.public_units(&U::slice_from_u8_slice(&buf))?;
 
         // Return the serialized byte representation
         Ok(buf)

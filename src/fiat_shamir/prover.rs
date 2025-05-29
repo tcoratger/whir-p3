@@ -142,7 +142,7 @@ where
             .collect();
 
         // Absorb the serialized bytes into the Fiat-Shamir transcript
-        self.public_bytes(&U::slice_from_u8_slice(&bytes))?;
+        self.public_units(&U::slice_from_u8_slice(&bytes))?;
 
         // Return the serialized byte representation
         Ok(bytes)
@@ -152,7 +152,7 @@ where
     /// Messages input to this function are not added to the protocol transcript.
     /// They are however absorbed into the verifier's sponge for Fiat-Shamir, and used to re-seed
     /// the prover state.
-    pub fn public_bytes(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn public_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
         let len = self.narg_string.len();
         self.add_units(input)?;
         self.narg_string.truncate(len);
@@ -308,7 +308,7 @@ mod tests {
         domsep.absorb(4, "data");
         let mut pstate = domsep.to_prover_state();
 
-        pstate.public_bytes(&[1, 2, 3, 4]).unwrap();
+        pstate.public_units(&[1, 2, 3, 4]).unwrap();
         assert_eq!(pstate.narg_string(), b"");
     }
 
@@ -338,7 +338,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.absorb(2, "p");
         let mut pstate = domsep.to_prover_state();
-        let _ = pstate.public_bytes(&[0xaa, 0xbb]);
+        let _ = pstate.public_units(&[0xaa, 0xbb]);
 
         assert_eq!(pstate.narg_string(), b"");
     }
