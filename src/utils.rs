@@ -15,6 +15,10 @@ use rayon::prelude::*;
 /// ```
 ///
 /// where `z_i` are the constraint points.
+///
+/// If INITIALIZED is:
+/// - false: the result is directly set to the `out` buffer
+/// - true: the result is added to the `out` buffer
 #[inline]
 pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
     eval: &[EF],
@@ -182,8 +186,11 @@ fn eval_eq_3<F: Field, FP: Algebra<F> + Copy>(eval: &[F], scalar: FP) -> [FP; 8]
 /// eq(X) = scalar * ∏ (1 - X_i + 2X_i z_i)
 /// ```
 ///
-/// where `z_i` are the constraint points. It then updates the output buffer `out`
-/// with the computed values by adding them in.
+/// where `z_i` are the constraint points.
+///
+/// If INITIALIZED is:
+/// - false: the result is directly set to the `out` buffer
+/// - true: the result is added to the `out` buffer
 #[allow(clippy::too_many_lines)]
 #[inline]
 fn eval_eq_basic<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
