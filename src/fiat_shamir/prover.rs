@@ -1,4 +1,4 @@
-use std::{fmt::Debug, io::Write, marker::PhantomData};
+use std::{fmt::Debug, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::{Hash, Permutation};
@@ -13,7 +13,7 @@ use super::{
     sho::HashStateWithInstructions,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order},
 };
-use crate::fiat_shamir::DefaultPerm;
+use crate::fiat_shamir::{DefaultPerm, duplex_sponge::interface::Unit};
 
 /// [`ProverState`] is the prover state of an interactive proof (IP) system.
 ///
@@ -32,27 +32,31 @@ use crate::fiat_shamir::DefaultPerm;
 /// the zero-knowledge property. [`ProverState`] does not implement [`Clone`] or [`Copy`] to prevent
 /// accidental leaks.
 #[derive(Debug)]
-pub struct ProverState<EF, F, Perm = DefaultPerm, H = DefaultHash>
+pub struct ProverState<EF, F, Perm = DefaultPerm, H = DefaultHash, U = u8>
 where
-    Perm: Permutation<[u8; 200]>,
-    H: DuplexSpongeInterface<Perm>,
+    U: Unit,
+    Perm: Permutation<[U; 200]>,
+    H: DuplexSpongeInterface<Perm, U>,
 {
     /// The duplex sponge that is used to generate the random coins.
     pub(crate) ds: H,
     /// The public coins for the protocol
-    pub(crate) hash_state: HashStateWithInstructions<H, Perm>,
+    pub(crate) hash_state: HashStateWithInstructions<H, Perm, U>,
     /// The encoded data.
     pub(crate) narg_string: Vec<u8>,
     /// Marker for the field.
     _field: PhantomData<F>,
     /// Marker for the extension field.
     _extension_field: PhantomData<EF>,
+    /// Marker for the unit type `U`.
+    _unit: PhantomData<U>,
 }
 
-impl<EF, F, Perm, H> ProverState<EF, F, Perm, H>
+impl<EF, F, Perm, H, U> ProverState<EF, F, Perm, H, U>
 where
-    Perm: Permutation<[u8; 200]>,
-    H: DuplexSpongeInterface<Perm>,
+    U: Unit + Default + Copy,
+    Perm: Permutation<[U; 200]>,
+    H: DuplexSpongeInterface<Perm, U>,
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
@@ -60,11 +64,11 @@ where
     ///
     /// Seeds the internal sponge with the domain separator.
     #[must_use]
-    pub fn new(domain_separator: &DomainSeparator<EF, F, Perm, H>, perm: Perm) -> Self {
+    pub fn new(domain_separator: &DomainSeparator<EF, F, Perm, H, U>, perm: Perm) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator, perm.clone());
 
         let mut ds = H::new(perm, [0u8; 32]);
-        ds.absorb_unchecked(domain_separator.as_bytes());
+        ds.absorb_unchecked(&domain_separator.as_units());
 
         Self {
             ds,
@@ -72,18 +76,20 @@ where
             narg_string: Vec::new(),
             _field: PhantomData,
             _extension_field: PhantomData,
+            _unit: PhantomData,
         }
     }
 
     /// Add a slice `[U]` to the protocol transcript.
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
-    pub fn add_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn add_bytes(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
         let old_len = self.narg_string.len();
         self.hash_state.absorb(input)?;
-        // write never fails on Vec<u8>
-        self.narg_string.write_all(input).unwrap();
-        self.ds.absorb_unchecked(&self.narg_string[old_len..]);
+        // write should never fail
+        U::write(input, &mut self.narg_string).unwrap();
+        self.ds
+            .absorb_unchecked(&U::slice_from_u8_slice(&self.narg_string[old_len..]));
 
         Ok(())
     }
@@ -136,7 +142,7 @@ where
             .collect();
 
         // Absorb the serialized bytes into the Fiat-Shamir transcript
-        self.public_bytes(&bytes)?;
+        self.public_bytes(&U::slice_from_u8_slice(&bytes))?;
 
         // Return the serialized byte representation
         Ok(bytes)
@@ -146,7 +152,7 @@ where
     /// Messages input to this function are not added to the protocol transcript.
     /// They are however absorbed into the verifier's sponge for Fiat-Shamir, and used to re-seed
     /// the prover state.
-    pub fn public_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn public_bytes(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
         let len = self.narg_string.len();
         self.add_bytes(input)?;
         self.narg_string.truncate(len);
@@ -158,18 +164,18 @@ where
     /// Requires specifying number of PoW bits and a strategy for solving it.
     pub fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
         let challenge = self.challenge_bytes()?;
-        let nonce = S::new(challenge, bits)
+        let nonce = S::new(U::array_to_u8_array(&challenge), bits)
             .solve()
             .ok_or(ProofError::InvalidProof)?;
-        self.add_bytes(&nonce.to_be_bytes())?;
+        self.add_bytes(&U::slice_from_u8_slice(&nonce.to_be_bytes()))?;
         Ok(())
     }
 
     /// Sample N fresh challenge bytes from the Fiat-Shamir sponge.
     ///
     /// Used for sampling scalar field elements or general randomness.
-    pub fn challenge_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
-        let mut output = [0u8; N];
+    pub fn challenge_bytes<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
+        let mut output = [U::default(); N];
         self.fill_challenge_bytes(&mut output)?;
         Ok(output)
     }
@@ -179,7 +185,7 @@ where
         &mut self,
         digest: Hash<F, u8, DIGEST_ELEMS>,
     ) -> ProofResult<()> {
-        self.add_bytes(digest.as_ref())
+        self.add_bytes(&U::slice_from_u8_slice(digest.as_ref()))
             .map_err(ProofError::InvalidDomainSeparator)
     }
 
@@ -191,18 +197,23 @@ where
         let base_field_size = bytes_uniform_modp(F::bits() as u32);
 
         // Total bytes needed for one EF element = extension degree × base field size
-        let field_byte_len = EF::DIMENSION * base_field_size;
+        let field_unit_len = EF::DIMENSION * base_field_size;
 
         // Temporary buffer to hold bytes for each field element
-        let mut buf = vec![0u8; field_byte_len];
+        let mut u_buf = vec![U::default(); field_unit_len];
 
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.fill_challenge_bytes(&mut buf)?;
+            self.fill_challenge_bytes(&mut u_buf)?;
+
+            // Reinterpret as bytes (safe because U must be 1-byte width)
+            let byte_buf = U::slice_to_u8_slice(&u_buf);
 
             // For each chunk, convert to base field element via modular reduction
-            let base_coeffs = buf.chunks(base_field_size).map(from_be_bytes_mod_order);
+            let base_coeffs = byte_buf
+                .chunks(base_field_size)
+                .map(from_be_bytes_mod_order);
 
             // Reconstruct the full field element using canonical basis
             *o = EF::from_basis_coefficients_iter(base_coeffs).unwrap();
@@ -262,14 +273,15 @@ where
     }
 }
 
-impl<EF, F, Perm, H> UnitToBytes for ProverState<EF, F, Perm, H>
+impl<EF, F, Perm, H, U> UnitToBytes<U> for ProverState<EF, F, Perm, H, U>
 where
-    Perm: Permutation<[u8; 200]>,
-    H: DuplexSpongeInterface<Perm>,
+    U: Unit + Default + Copy,
+    Perm: Permutation<[U; 200]>,
+    H: DuplexSpongeInterface<Perm, U>,
     EF: ExtensionField<F>,
     F: Field,
 {
-    fn fill_challenge_bytes(&mut self, output: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
+    fn fill_challenge_bytes(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.squeeze(output)
     }
 }

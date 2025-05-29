@@ -8,7 +8,9 @@ use super::{
     utils::bytes_uniform_modp,
 };
 use crate::{
-    fiat_shamir::{DefaultPerm, prover::ProverState, verifier::VerifierState},
+    fiat_shamir::{
+        DefaultPerm, duplex_sponge::interface::Unit, prover::ProverState, verifier::VerifierState,
+    },
     whir::parameters::WhirConfig,
 };
 
@@ -40,10 +42,11 @@ const SEP_BYTE: &str = "\0";
 /// lengths are coherent with the types described in the protocol. No information about the types
 /// themselves is stored in an IO Pattern. This means that [`ProverState`][`crate::ProverState`] or [`VerifierState`][`crate::VerifierState`] instances can generate successfully a protocol transcript respecting the length constraint but not the types. See [issue #6](https://github.com/arkworks-rs/spongefish/issues/6) for a discussion on the topic.
 #[derive(Clone, Debug)]
-pub struct DomainSeparator<EF, F, Perm = DefaultPerm, H = DefaultHash>
+pub struct DomainSeparator<EF, F, Perm = DefaultPerm, H = DefaultHash, U = u8>
 where
-    Perm: Permutation<[u8; 200]>,
-    H: DuplexSpongeInterface<Perm>,
+    U: Unit,
+    Perm: Permutation<[U; 200]>,
+    H: DuplexSpongeInterface<Perm, U>,
 {
     /// The internal IOPattern string representation.
     ///
@@ -74,12 +77,16 @@ where
     /// Provides type-level tracking of the extension degree and element structure used in
     /// challenge generation and scalar absorption.
     _extension_field: PhantomData<EF>,
+
+    /// Phantom marker for the unit type `U`.
+    _unit: PhantomData<U>,
 }
 
-impl<EF, F, Perm, H> DomainSeparator<EF, F, Perm, H>
+impl<EF, F, Perm, H, U> DomainSeparator<EF, F, Perm, H, U>
 where
-    H: DuplexSpongeInterface<Perm>,
-    Perm: Permutation<[u8; 200]>,
+    U: Unit + Default + Copy,
+    H: DuplexSpongeInterface<Perm, U>,
+    Perm: Permutation<[U; 200]>,
     EF: ExtensionField<F> + TwoAdicField,
     F: Field + TwoAdicField + PrimeField64,
 {
@@ -91,6 +98,7 @@ where
             _hash: PhantomData,
             _field: PhantomData,
             _extension_field: PhantomData,
+            _unit: PhantomData,
         }
     }
 
@@ -153,10 +161,10 @@ where
         write!(self.io, "H{label}").expect("writing to String cannot fail");
     }
 
-    /// Return the IO Pattern as bytes.
+    /// Return the IO Pattern as a Vec of Units.
     #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
-        self.io.as_bytes()
+    pub fn as_units(&self) -> Vec<U> {
+        U::slice_from_u8_slice(self.io.as_bytes())
     }
 
     /// Parse the givern IO Pattern into a sequence of [`Op`]'s.
@@ -209,14 +217,17 @@ where
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
     #[must_use]
-    pub fn to_prover_state(&self) -> ProverState<EF, F, Perm, H> {
+    pub fn to_prover_state(&self) -> ProverState<EF, F, Perm, H, U> {
         ProverState::new(self, self.perm.clone())
     }
 
     /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript
     /// (bytes).
     #[must_use]
-    pub fn to_verifier_state<'a>(&self, transcript: &'a [u8]) -> VerifierState<'a, EF, F, Perm, H> {
+    pub fn to_verifier_state<'a>(
+        &self,
+        transcript: &'a [u8],
+    ) -> VerifierState<'a, EF, F, Perm, H, U> {
         VerifierState::new(self, transcript, self.perm.clone())
     }
 
@@ -413,7 +424,7 @@ mod tests {
     #[test]
     fn test_domain_separator_new_and_bytes() {
         let ds = DomainSeparator::<EF4, F>::new("session", KeccakF);
-        assert_eq!(ds.as_bytes(), b"session");
+        assert_eq!(ds.as_units(), b"session");
     }
 
     #[test]
@@ -437,7 +448,7 @@ mod tests {
         let mut ds = DomainSeparator::<EF4, F>::new("proto", KeccakF);
         ds.absorb(3, "input");
         let expected_str = "proto\0A3input"; // initial + SEP + absorb op + label
-        assert_eq!(ds.as_bytes(), expected_str.as_bytes());
+        assert_eq!(ds.as_units(), expected_str.as_bytes());
     }
 
     #[test]
@@ -517,7 +528,7 @@ mod tests {
         // Missing count
         let broken = "proto\0Ax";
         let ds = DomainSeparator::<EF4, F>::from_string(broken.to_string(), KeccakF);
-        let res = DomainSeparator::<EF4, F>::parse_domsep(ds.as_bytes());
+        let res = DomainSeparator::<EF4, F>::parse_domsep(&ds.as_units());
         assert!(res.is_err());
     }
 
@@ -536,8 +547,8 @@ mod tests {
         ds1.squeeze(3, "b");
         let ops1 = ds1.finalize();
 
-        let tag = std::str::from_utf8(ds1.as_bytes()).unwrap();
-        let ds2 = DomainSeparator::<EF4, F>::from_string(tag.to_string(), KeccakF);
+        let tag = String::from_utf8(ds1.as_units()).unwrap();
+        let ds2 = DomainSeparator::<EF4, F>::from_string(tag, KeccakF);
         let ops2 = ds2.finalize();
 
         assert_eq!(ops1, ops2);
@@ -548,7 +559,7 @@ mod tests {
         let mut ds = DomainSeparator::<EF4, F>::new("proto", KeccakF);
         ds.squeeze(4, "challenge");
         let expected_str = "proto\0S4challenge";
-        assert_eq!(ds.as_bytes(), expected_str.as_bytes());
+        assert_eq!(ds.as_units(), expected_str.as_bytes());
     }
 
     #[test]
@@ -575,7 +586,7 @@ mod tests {
         ds.squeeze(1, "first");
         ds.squeeze(2, "second");
         let expected_str = "proto\0S1first\0S2second";
-        assert_eq!(ds.as_bytes(), expected_str.as_bytes());
+        assert_eq!(ds.as_units(), expected_str.as_bytes());
     }
 
     #[test]
@@ -639,7 +650,7 @@ mod tests {
         let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("babybear", KeccakF);
         domsep.add_scalars(2, "foo");
         let expected = b"babybear\0A8foo";
-        assert_eq!(domsep.as_bytes(), expected);
+        assert_eq!(domsep.as_units(), expected);
     }
 
     #[test]
@@ -652,7 +663,7 @@ mod tests {
         let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("bb", KeccakF);
         domsep.challenge_scalars(3, "bar");
         let expected = b"bb\0S57bar";
-        assert_eq!(domsep.as_bytes(), expected);
+        assert_eq!(domsep.as_units(), expected);
     }
 
     #[test]
@@ -664,7 +675,7 @@ mod tests {
         let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("ext", KeccakF);
         domsep.add_scalars(2, "a");
         let expected = b"ext\0A32a";
-        assert_eq!(domsep.as_bytes(), expected);
+        assert_eq!(domsep.as_units(), expected);
     }
 
     #[test]
@@ -678,7 +689,7 @@ mod tests {
         domsep.challenge_scalars(1, "b");
 
         let expected = b"ext2\0S76b";
-        assert_eq!(domsep.as_bytes(), expected);
+        assert_eq!(domsep.as_units(), expected);
     }
 
     #[test]
@@ -691,7 +702,7 @@ mod tests {
         updated_iop.add_ood(3);
 
         // Convert to a string for inspection
-        let pattern_str = String::from_utf8(updated_iop.as_bytes().to_vec()).unwrap();
+        let pattern_str = String::from_utf8(updated_iop.as_units()).unwrap();
 
         // Check if "ood_query" and "ood_ans" were correctly appended
         assert!(pattern_str.contains("ood_query"));
@@ -699,7 +710,7 @@ mod tests {
 
         // Test case where num_samples = 0 (should not modify anything)
         unchanged_iop.add_ood(0);
-        let unchanged_str = String::from_utf8(unchanged_iop.as_bytes().to_vec()).unwrap();
+        let unchanged_str = String::from_utf8(unchanged_iop.as_units()).unwrap();
         assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
     }
 
@@ -713,14 +724,14 @@ mod tests {
         updated_iop.pow(10.0);
 
         // Convert to a string for inspection
-        let pattern_str = String::from_utf8(updated_iop.as_bytes().to_vec()).unwrap();
+        let pattern_str = String::from_utf8(updated_iop.as_units()).unwrap();
 
         // Check if "pow_queries" was correctly added
         assert!(pattern_str.contains("pow_queries"));
 
         // Test case where bits = 0 (should not modify anything)
         unchanged_iop.pow(0.0);
-        let unchanged_str = String::from_utf8(unchanged_iop.as_bytes().to_vec()).unwrap();
+        let unchanged_str = String::from_utf8(unchanged_iop.as_units()).unwrap();
         assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
     }
 
@@ -737,7 +748,7 @@ mod tests {
         let mut ds = DomainSeparator::<EF4, F>::new("proto", KeccakF);
         ds.hint("my_hint");
         let expected = b"proto\0Hmy_hint";
-        assert_eq!(ds.as_bytes(), expected);
+        assert_eq!(ds.as_units(), expected);
     }
 
     #[test]

@@ -8,13 +8,15 @@ use super::{
     duplex_sponge::interface::DuplexSpongeInterface,
     errors::DomainSeparatorMismatch,
 };
+use crate::fiat_shamir::duplex_sponge::interface::Unit;
 
 /// A stateful hash object that interfaces with duplex interfaces.
 #[derive(Clone, Debug)]
-pub struct HashStateWithInstructions<H, Perm>
+pub struct HashStateWithInstructions<H, Perm, U>
 where
-    Perm: Permutation<[u8; 200]>,
-    H: DuplexSpongeInterface<Perm>,
+    U: Unit,
+    Perm: Permutation<[U; 200]>,
+    H: DuplexSpongeInterface<Perm, U>,
 {
     /// The internal duplex sponge used for absorbing and squeezing data.
     pub(crate) ds: H,
@@ -22,24 +24,27 @@ where
     stack: VecDeque<Op>,
     /// Marker for the permutation type.
     _perm: PhantomData<Perm>,
+    /// Marker for the unit type `U`.
+    _unit: PhantomData<U>,
 }
 
-impl<H, Perm> HashStateWithInstructions<H, Perm>
+impl<H, Perm, U> HashStateWithInstructions<H, Perm, U>
 where
-    Perm: Permutation<[u8; 200]>,
-    H: DuplexSpongeInterface<Perm>,
+    U: Unit + Default + Copy,
+    Perm: Permutation<[U; 200]>,
+    H: DuplexSpongeInterface<Perm, U>,
 {
     /// Initialise a stateful hash object,
     /// setting up the state of the sponge function and parsing the tag string.
     #[must_use]
-    pub fn new<EF, F>(domain_separator: &DomainSeparator<EF, F, Perm, H>, perm: Perm) -> Self
+    pub fn new<EF, F>(domain_separator: &DomainSeparator<EF, F, Perm, H, U>, perm: Perm) -> Self
     where
         EF: ExtensionField<F> + TwoAdicField,
         F: Field + TwoAdicField + PrimeField64,
     {
         let mut ds = H::new(perm.clone(), [0u8; 32]);
         let stack = domain_separator.finalize();
-        let tag = Self::generate_tag(domain_separator.as_bytes(), &mut ds);
+        let tag = Self::generate_tag(&domain_separator.as_units(), &mut ds);
         Self::unchecked_load_with_stack(tag, stack, perm)
     }
 
@@ -47,7 +52,7 @@ where
     ///
     /// Absorb calls can be batched together, or provided separately for streaming-friendly
     /// protocols.
-    pub fn absorb(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn absorb(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
         match self.stack.pop_front() {
             Some(Op::Absorb(length)) if length >= input.len() => {
                 if length > input.len() {
@@ -81,7 +86,7 @@ where
     /// For byte-oriented sponges, this operation is equivalent to the squeeze operation.
     /// However, for algebraic hashes, this operation is non-trivial.
     /// This function provides no guarantee of streaming-friendliness.
-    pub fn squeeze(&mut self, output: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn squeeze(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         match self.stack.pop_front() {
             Some(Op::Squeeze(length)) if output.len() <= length => {
                 self.ds.squeeze_unchecked(output);
@@ -111,18 +116,19 @@ where
         }
     }
 
-    fn generate_tag(iop_bytes: &[u8], ds: &mut H) -> [u8; 32] {
+    fn generate_tag(iop_bytes: &[U], ds: &mut H) -> [U; 32] {
         ds.absorb_unchecked(iop_bytes);
-        let mut tag = [0u8; 32];
+        let mut tag = [U::default(); 32];
         ds.squeeze_unchecked(&mut tag);
         tag
     }
 
-    fn unchecked_load_with_stack(tag: [u8; 32], stack: VecDeque<Op>, perm: Perm) -> Self {
+    fn unchecked_load_with_stack(tag: [U; 32], stack: VecDeque<Op>, perm: Perm) -> Self {
         Self {
-            ds: H::new(perm, tag),
+            ds: H::new(perm, U::array_to_u8_array(&tag)),
             stack,
             _perm: PhantomData,
+            _unit: PhantomData,
         }
     }
 
@@ -136,10 +142,11 @@ where
     }
 }
 
-impl<H, Perm> Drop for HashStateWithInstructions<H, Perm>
+impl<H, Perm, U> Drop for HashStateWithInstructions<H, Perm, U>
 where
-    Perm: Permutation<[u8; 200]>,
-    H: DuplexSpongeInterface<Perm>,
+    U: Unit,
+    Perm: Permutation<[U; 200]>,
+    H: DuplexSpongeInterface<Perm, U>,
 {
     /// Destroy the sponge state.
     fn drop(&mut self) {
