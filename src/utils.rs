@@ -15,8 +15,16 @@ use rayon::prelude::*;
 /// ```
 ///
 /// where `z_i` are the constraint points.
+///
+/// If INITIALIZED is:
+/// - false: the result is directly set to the `out` buffer
+/// - true: the result is added to the `out` buffer
 #[inline]
-pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], scalar: EF) {
+pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
+    eval: &[EF],
+    out: &mut [EF],
+    scalar: EF,
+) {
     // Number of threads to spawn.
     // Long term this should be a modifiable parameter.
     // I've chosen 32 here as my machine has 20 logical cores. Plausibly we might want to hard code this
@@ -49,7 +57,7 @@ pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [E
     // parallelization or packings.
     if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
         // A basic recursive approach.
-        eval_eq_basic(eval, out, scalar);
+        eval_eq_basic::<_, _, INITIALIZED>(eval, out, scalar);
     } else {
         let log_packing_width = log2_strict_usize(packing_width);
         let eval_len_min_packing = eval.len() - log_packing_width;
@@ -90,7 +98,7 @@ pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [E
         out.par_chunks_exact_mut(out_chunk_size)
             .zip(parallel_buffer.par_iter())
             .for_each(|(out_chunk, buffer_val)| {
-                eval_eq_packed(
+                eval_eq_packed::<_, _, INITIALIZED>(
                     &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
                     out_chunk,
                     *buffer_val,
@@ -102,7 +110,7 @@ pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [E
         out.chunks_exact_mut(out_chunk_size)
             .zip(parallel_buffer.iter())
             .for_each(|(out_chunk, buffer_val)| {
-                eval_eq_packed(
+                eval_eq_packed::<_, _, INITIALIZED>(
                     &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
                     out_chunk,
                     *buffer_val,
@@ -178,25 +186,41 @@ fn eval_eq_3<F: Field, FP: Algebra<F> + Copy>(eval: &[F], scalar: FP) -> [FP; 8]
 /// eq(X) = scalar * ∏ (1 - X_i + 2X_i z_i)
 /// ```
 ///
-/// where `z_i` are the constraint points. It then updates the output buffer `out`
-/// with the computed values by adding them in.
+/// where `z_i` are the constraint points.
+///
+/// If INITIALIZED is:
+/// - false: the result is directly set to the `out` buffer
+/// - true: the result is added to the `out` buffer
 #[allow(clippy::too_many_lines)]
 #[inline]
-fn eval_eq_basic<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], scalar: EF) {
+fn eval_eq_basic<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
+    eval: &[EF],
+    out: &mut [EF],
+    scalar: EF,
+) {
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
     debug_assert_eq!(out.len(), 1 << eval.len());
 
     match eval.len() {
         0 => {
-            out[0] += scalar;
+            if INITIALIZED {
+                out[0] += scalar;
+            } else {
+                out[0] = scalar;
+            }
         }
         1 => {
             // Manually unroll for single variable case
             let eq_evaluations = eval_eq_1(eval, scalar);
 
-            out[0] += eq_evaluations[0];
-            out[1] += eq_evaluations[1];
+            if INITIALIZED {
+                out[0] += eq_evaluations[0];
+                out[1] += eq_evaluations[1];
+            } else {
+                out[0] = eq_evaluations[0];
+                out[1] = eq_evaluations[1];
+            }
         }
         2 => {
             // Manually unroll for two variable case
@@ -205,7 +229,11 @@ fn eval_eq_basic<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], s
             out.iter_mut()
                 .zip(eq_evaluations.iter())
                 .for_each(|(out, eq_eval)| {
-                    *out += *eq_eval;
+                    if INITIALIZED {
+                        *out += *eq_eval;
+                    } else {
+                        *out = *eq_eval;
+                    }
                 });
         }
         3 => {
@@ -215,7 +243,11 @@ fn eval_eq_basic<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], s
             out.iter_mut()
                 .zip(eq_evaluations.iter())
                 .for_each(|(out, eq_eval)| {
-                    *out += *eq_eval;
+                    if INITIALIZED {
+                        *out += *eq_eval;
+                    } else {
+                        *out = *eq_eval;
+                    }
                 });
         }
         _ => {
@@ -237,8 +269,8 @@ fn eval_eq_basic<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], s
 
             // The recursive approach turns out to be faster than the iterative one here.
             // Probably related to nice cache locality.
-            eval_eq_basic(tail, low, s0);
-            eval_eq_basic(tail, high, s1);
+            eval_eq_basic::<_, _, INITIALIZED>(tail, low, s0);
+            eval_eq_basic::<_, _, INITIALIZED>(tail, high, s1);
         }
     }
 }
@@ -261,7 +293,7 @@ fn eval_eq_basic<F: Field, EF: ExtensionField<F>>(eval: &[EF], out: &mut [EF], s
 /// It then updates the output buffer `out` with the computed values by adding them in.
 #[allow(clippy::too_many_lines)]
 #[inline]
-fn eval_eq_packed<F: Field, EF: ExtensionField<F>>(
+fn eval_eq_packed<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
     eval: &[EF],
     out: &mut [EF],
     scalar: EF::ExtensionPacking,
@@ -278,7 +310,11 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>>(
             EF::ExtensionPacking::to_ext_iter([scalar])
                 .zip(out.iter_mut())
                 .for_each(|(scalar, out)| {
-                    *out += scalar;
+                    if INITIALIZED {
+                        *out += scalar;
+                    } else {
+                        *out = scalar;
+                    }
                 });
         }
         1 => {
@@ -290,7 +326,11 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>>(
             EF::ExtensionPacking::to_ext_iter(eq_evaluations)
                 .zip(out.iter_mut())
                 .for_each(|(scalar, out)| {
-                    *out += scalar;
+                    if INITIALIZED {
+                        *out += scalar;
+                    } else {
+                        *out = scalar;
+                    }
                 });
         }
         2 => {
@@ -302,7 +342,11 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>>(
             EF::ExtensionPacking::to_ext_iter(eq_evaluations)
                 .zip(out.iter_mut())
                 .for_each(|(scalar, out)| {
-                    *out += scalar;
+                    if INITIALIZED {
+                        *out += scalar;
+                    } else {
+                        *out = scalar;
+                    }
                 });
         }
         3 => {
@@ -314,7 +358,11 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>>(
             EF::ExtensionPacking::to_ext_iter(eq_evaluations)
                 .zip(out.iter_mut())
                 .for_each(|(scalar, out)| {
-                    *out += scalar;
+                    if INITIALIZED {
+                        *out += scalar;
+                    } else {
+                        *out = scalar;
+                    }
                 });
         }
         _ => {
@@ -336,8 +384,8 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>>(
 
             // The recursive approach turns out to be faster than the iterative one here.
             // Probably related to nice cache locality.
-            eval_eq_packed(tail, low, s0);
-            eval_eq_packed(tail, high, s1);
+            eval_eq_packed::<_, _, INITIALIZED>(tail, low, s0);
+            eval_eq_packed::<_, _, INITIALIZED>(tail, high, s1);
         }
     }
 }
@@ -397,7 +445,7 @@ mod tests {
         let eval = vec![F::from_u64(1), F::from_u64(0)]; // (X1, X2) = (1,0)
         let scalar = F::from_u64(2);
 
-        eval_eq(&eval, &mut output, scalar);
+        eval_eq::<_, _, true>(&eval, &mut output, scalar);
 
         // Expected results for (X1, X2) = (1,0)
         let expected_output = vec![F::ZERO, F::ZERO, F::from_u64(2), F::ZERO];
@@ -408,10 +456,10 @@ mod tests {
     /// Helper to compute expected equality polynomial evaluations naively.
     fn naive_eq(eval: &[EF4], scalar: EF4) -> Vec<EF4> {
         let n = eval.len();
-        let mut result = vec![scalar; 1 << n];
+        let mut result = vec![EF4::ZERO; 1 << n];
         for (i, out) in result.iter_mut().enumerate() {
             let mut weight = scalar;
-            for (j, e) in eval.iter().enumerate().take(n) {
+            for (j, e) in eval.iter().enumerate() {
                 let bit = (i >> (n - 1 - j)) & 1;
                 if bit == 1 {
                     weight *= *e;
@@ -439,7 +487,7 @@ mod tests {
             let out_len = 1 << evals.len();
             let mut output = vec![EF4::ZERO; out_len];
 
-            eval_eq::<F, EF4>(&evals, &mut output, scalar);
+            eval_eq::<F, EF4, true>(&evals, &mut output, scalar);
 
             let expected = naive_eq(&evals, scalar);
 

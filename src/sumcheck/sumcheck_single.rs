@@ -184,7 +184,7 @@ where
             .iter()
             .zip(combination_randomness.iter().zip(evaluations.iter()))
             .for_each(|(point, (&rand, &eval))| {
-                eval_eq::<F, EF>(&point.0, self.weights.evals_mut(), rand);
+                eval_eq::<F, EF, true>(&point.0, self.weights.evals_mut(), rand);
                 self.sum += rand * eval;
             });
     }
@@ -1125,7 +1125,7 @@ mod tests {
         // Compute the expected weight updates:
         // The equality function at point (X1, X2) = (1,0) updates the weights.
         let mut expected_weights = vec![F::ZERO; 4];
-        eval_eq(&point.0, &mut expected_weights, weight);
+        eval_eq::<_, _, true>(&point.0, &mut expected_weights, weight);
 
         assert_eq!(prover.weights.evals(), &expected_weights);
     }
@@ -1198,8 +1198,8 @@ mod tests {
 
         // Expected weight updates
         let mut expected_weights = vec![F::ZERO; 8];
-        eval_eq(&point1.0, &mut expected_weights, weight1);
-        eval_eq(&point2.0, &mut expected_weights, weight2);
+        eval_eq::<_, _, true>(&point1.0, &mut expected_weights, weight1);
+        eval_eq::<_, _, true>(&point2.0, &mut expected_weights, weight2);
 
         assert_eq!(prover.weights.evals(), &expected_weights);
     }
@@ -1902,7 +1902,7 @@ mod tests {
 
         // Expected weight table updated using eq(X) = weight × eq_at_point(point)
         let mut expected_weights = vec![EF4::ZERO; 2];
-        eval_eq::<F, EF4>(&point.0, &mut expected_weights, weight);
+        eval_eq::<F, EF4, true>(&point.0, &mut expected_weights, weight);
         assert_eq!(prover.weights.evals(), &expected_weights);
     }
 
