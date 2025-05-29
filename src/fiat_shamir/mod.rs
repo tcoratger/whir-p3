@@ -1,3 +1,4 @@
+use duplex_sponge::interface::Unit;
 use errors::DomainSeparatorMismatch;
 use p3_keccak::KeccakF;
 
@@ -26,7 +27,10 @@ pub type DefaultPerm = KeccakF;
 ///   `implementor.fill_challenge_bytes(&mut out[..1]); implementor.fill_challenge_bytes(&mut
 ///   out[1..]);` is expected to be equivalent to `implementor.fill_challenge_bytes(&mut out);`.
 /// - $\mathbb{F}_p$ implementations are expected to provide no such guarantee. In addition, we expect the implementation to return bytes that are uniformly distributed. In particular, note that the most significant bytes of a $\mod p$ element are not uniformly distributed. The number of bytes good to be used can be discovered playing with [our scripts](https://github.com/arkworks-rs/spongefish/blob/main/scripts/useful_bits_modp.py).
-pub trait UnitToBytes {
+pub trait UnitToBytes<U = u8>
+where
+    U: Unit,
+{
     /// Fill `input` with units sampled uniformly at random.
-    fn fill_challenge_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch>;
+    fn fill_challenge_bytes(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch>;
 }

@@ -1,4 +1,4 @@
-use std::{io::Read, marker::PhantomData};
+use std::marker::PhantomData;
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::{Hash, Permutation};
@@ -13,6 +13,7 @@ use super::{
     sho::HashStateWithInstructions,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
 };
+use crate::fiat_shamir::duplex_sponge::interface::Unit;
 
 /// [`VerifierState`] is the verifier state.
 ///
@@ -21,17 +22,18 @@ use super::{
 /// de-serialize elements from the NARG string and make them available to the zero-knowledge
 /// verifier.
 #[derive(Debug)]
-pub struct VerifierState<'a, EF, F, Perm = DefaultPerm, H = DefaultHash>
+pub struct VerifierState<'a, EF, F, Perm = DefaultPerm, H = DefaultHash, U = u8>
 where
-    Perm: Permutation<[u8; 200]>,
-    H: DuplexSpongeInterface<Perm>,
+    U: Unit,
+    Perm: Permutation<[U; 200]>,
+    H: DuplexSpongeInterface<Perm, U>,
 {
     /// Internal sponge transcript that tracks the domain separator state and absorbs values.
     ///
     /// This manages the full Fiat-Shamir interaction logic, such as absorbing inputs and
     /// squeezing challenges. It also stores the domain separator instructions to enforce
     /// consistency between prover and verifier.
-    pub(crate) hash_state: HashStateWithInstructions<H, Perm>,
+    pub(crate) hash_state: HashStateWithInstructions<H, Perm, U>,
 
     /// The "NARG" string: raw serialized input provided by the prover.
     ///
@@ -51,10 +53,11 @@ where
     _extension_field: PhantomData<EF>,
 }
 
-impl<'a, EF, F, Perm, H> VerifierState<'a, EF, F, Perm, H>
+impl<'a, EF, F, Perm, H, U> VerifierState<'a, EF, F, Perm, H, U>
 where
-    Perm: Permutation<[u8; 200]>,
-    H: DuplexSpongeInterface<Perm>,
+    U: Unit + Default + Copy,
+    Perm: Permutation<[U; 200]>,
+    H: DuplexSpongeInterface<Perm, U>,
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
@@ -76,7 +79,7 @@ where
     /// ```
     #[must_use]
     pub fn new(
-        domain_separator: &DomainSeparator<EF, F, Perm, H>,
+        domain_separator: &DomainSeparator<EF, F, Perm, H, U>,
         narg_string: &'a [u8],
         perm: Perm,
     ) -> Self {
@@ -91,22 +94,22 @@ where
 
     /// Read `input.len()` bytes from the NARG transcript and absorb them.
     #[inline]
-    pub fn fill_next_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
-        self.narg_string.read_exact(input)?;
+    pub fn fill_next_bytes(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+        U::read(&mut self.narg_string, input)?;
         self.hash_state.absorb(input)?;
         Ok(())
     }
 
     /// Read a fixed-size byte array from the transcript.
-    pub fn next_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
-        let mut input = [0u8; N];
+    pub fn next_bytes<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
+        let mut input = [U::default(); N];
         self.fill_next_bytes(&mut input)?;
         Ok(input)
     }
 
     /// Absorb raw public data (not read from the transcript) into the sponge.
     #[inline]
-    pub fn public_units(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn public_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.absorb(input)
     }
 
@@ -122,14 +125,17 @@ where
         let scalar_size = ext_degree * base_bytes;
 
         // Temporary buffer to deserialize each F element
-        let mut buf = vec![0u8; scalar_size];
+        let mut u_buf = vec![U::default(); scalar_size];
 
         for out in output.iter_mut() {
             // Fetch the next group of bytes from the transcript
-            self.fill_next_bytes(&mut buf)?;
+            self.fill_next_bytes(&mut u_buf)?;
+
+            // Convert &[U] → &[u8]
+            let byte_buf: &[u8] = U::slice_to_u8_slice(&u_buf);
 
             // Interpret each chunk as a base field coefficient
-            let coeffs = buf.chunks(base_bytes).map(from_le_bytes_mod_order);
+            let coeffs = byte_buf.chunks(base_bytes).map(from_le_bytes_mod_order);
 
             // Reconstruct the field element from its base field coefficients
             *out = EF::from_basis_coefficients_iter(coeffs).unwrap();
@@ -148,8 +154,8 @@ where
     /// Perform a PoW challenge check using a derived challenge and 64-bit nonce.
     pub fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
         let challenge = self.challenge_bytes()?;
-        let nonce = u64::from_be_bytes(self.next_bytes()?);
-        if S::new(challenge, bits).check(nonce) {
+        let nonce = u64::from_be_bytes(U::array_to_u8_array(&self.next_bytes()?));
+        if S::new(U::array_to_u8_array(&challenge), bits).check(nonce) {
             Ok(())
         } else {
             Err(ProofError::InvalidProof)
@@ -159,22 +165,22 @@ where
     /// Read a digest from the transcript as raw bytes.
     pub fn read_digest<const DIGEST_ELEMS: usize>(
         &mut self,
-    ) -> ProofResult<Hash<F, u8, DIGEST_ELEMS>> {
-        let mut digest = [0u8; DIGEST_ELEMS];
+    ) -> ProofResult<Hash<F, U, DIGEST_ELEMS>> {
+        let mut digest = [U::default(); DIGEST_ELEMS];
         self.fill_next_bytes(&mut digest)?;
         Ok(digest.into())
     }
 
     /// Derive a fixed-size byte array from the sponge as a Fiat-Shamir challenge.
-    pub fn challenge_bytes<const N: usize>(&mut self) -> Result<[u8; N], DomainSeparatorMismatch> {
-        let mut output = [0u8; N];
+    pub fn challenge_bytes<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
+        let mut output = [U::default(); N];
         self.fill_challenge_bytes(&mut output)?;
         Ok(output)
     }
 
     /// Absorb external public bytes into the sponge.
     #[inline]
-    pub fn public_bytes(&mut self, input: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn public_bytes(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
         self.public_units(input)
     }
 
@@ -184,18 +190,23 @@ where
         let base_field_size = bytes_uniform_modp(F::bits() as u32);
 
         // Total bytes needed for one EF element = extension degree × base field size
-        let field_byte_len = EF::DIMENSION * base_field_size;
+        let field_unit_len = EF::DIMENSION * base_field_size;
 
         // Temporary buffer to hold bytes for each field element
-        let mut buf = vec![0u8; field_byte_len];
+        let mut u_buf = vec![U::default(); field_unit_len];
 
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.fill_challenge_bytes(&mut buf)?;
+            self.fill_challenge_bytes(&mut u_buf)?;
+
+            // Reinterpret as bytes (safe because U must be u8-width)
+            let byte_buf = U::slice_to_u8_slice(&u_buf);
 
             // For each chunk, convert to base field element via modular reduction
-            let base_coeffs = buf.chunks(base_field_size).map(from_be_bytes_mod_order);
+            let base_coeffs = byte_buf
+                .chunks(base_field_size)
+                .map(from_be_bytes_mod_order);
 
             // Reconstruct the full field element using canonical basis
             *o = EF::from_basis_coefficients_iter(base_coeffs).unwrap();
@@ -234,7 +245,7 @@ where
         }
 
         // Absorb the serialized bytes into the Fiat-Shamir transcript
-        self.public_bytes(&buf)?;
+        self.public_bytes(&U::slice_from_u8_slice(&buf))?;
 
         // Return the serialized byte representation
         Ok(buf)
@@ -303,15 +314,16 @@ where
     }
 }
 
-impl<EF, F, Perm, H> UnitToBytes for VerifierState<'_, EF, F, Perm, H>
+impl<EF, F, Perm, H, U> UnitToBytes<U> for VerifierState<'_, EF, F, Perm, H, U>
 where
-    Perm: Permutation<[u8; 200]>,
-    H: DuplexSpongeInterface<Perm>,
+    U: Unit + Default + Copy,
+    Perm: Permutation<[U; 200]>,
+    H: DuplexSpongeInterface<Perm, U>,
     EF: ExtensionField<F>,
     F: Field,
 {
     #[inline]
-    fn fill_challenge_bytes(&mut self, input: &mut [u8]) -> Result<(), DomainSeparatorMismatch> {
+    fn fill_challenge_bytes(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.squeeze(input)
     }
 }
