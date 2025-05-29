@@ -94,7 +94,7 @@ where
 
     /// Read `input.len()` bytes from the NARG transcript and absorb them.
     #[inline]
-    pub fn fill_next_bytes(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn fill_next_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         U::read(&mut self.narg_string, input)?;
         self.hash_state.absorb(input)?;
         Ok(())
@@ -103,7 +103,7 @@ where
     /// Read a fixed-size byte array from the transcript.
     pub fn next_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut input = [U::default(); N];
-        self.fill_next_bytes(&mut input)?;
+        self.fill_next_units(&mut input)?;
         Ok(input)
     }
 
@@ -129,7 +129,7 @@ where
 
         for out in output.iter_mut() {
             // Fetch the next group of bytes from the transcript
-            self.fill_next_bytes(&mut u_buf)?;
+            self.fill_next_units(&mut u_buf)?;
 
             // Convert &[U] → &[u8]
             let byte_buf: &[u8] = U::slice_to_u8_slice(&u_buf);
@@ -167,7 +167,7 @@ where
         &mut self,
     ) -> ProofResult<Hash<F, U, DIGEST_ELEMS>> {
         let mut digest = [U::default(); DIGEST_ELEMS];
-        self.fill_next_bytes(&mut digest)?;
+        self.fill_next_units(&mut digest)?;
         Ok(digest.into())
     }
 
@@ -407,7 +407,7 @@ mod tests {
         ds.absorb(3, "input");
         let mut vs = VerifierState::<F, F, _, DummySponge>::new(&ds, b"abc", KeccakF);
         let mut buf = [0u8; 3];
-        let res = vs.fill_next_bytes(&mut buf);
+        let res = vs.fill_next_units(&mut buf);
         assert!(res.is_ok());
         assert_eq!(buf, *b"abc");
         assert_eq!(*vs.hash_state.ds.absorbed.borrow(), b"abc");
@@ -419,7 +419,7 @@ mod tests {
         ds.absorb(4, "fail");
         let mut vs = VerifierState::<F, F, _, DummySponge>::new(&ds, b"xy", KeccakF);
         let mut buf = [0u8; 4];
-        let res = vs.fill_next_bytes(&mut buf);
+        let res = vs.fill_next_units(&mut buf);
         assert!(res.is_err());
     }
 
@@ -443,12 +443,12 @@ mod tests {
     }
 
     #[test]
-    fn test_fill_next_bytes_impl() {
+    fn test_fill_next_units_impl() {
         let mut ds = DomainSeparator::<F, F, _, DummySponge>::new("x", KeccakF);
         ds.absorb(3, "byte");
         let mut vs = VerifierState::<F, F, _, DummySponge>::new(&ds, b"xyz", KeccakF);
         let mut out = [0u8; 3];
-        assert!(vs.fill_next_bytes(&mut out).is_ok());
+        assert!(vs.fill_next_units(&mut out).is_ok());
         assert_eq!(out, *b"xyz");
     }
 
