@@ -84,13 +84,9 @@ where
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
     pub fn add_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
-        let old_len = self.narg_string.len();
         self.hash_state.absorb(input)?;
-        // write should never fail
         U::write(input, &mut self.narg_string).unwrap();
-        self.ds
-            .absorb_unchecked(&U::slice_from_u8_slice(&self.narg_string[old_len..]));
-
+        self.ds.absorb_unchecked(input);
         Ok(())
     }
 
