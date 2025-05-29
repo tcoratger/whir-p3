@@ -174,7 +174,7 @@ where
     /// Derive a fixed-size byte array from the sponge as a Fiat-Shamir challenge.
     pub fn challenge_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut output = [U::default(); N];
-        self.fill_challenge_bytes(&mut output)?;
+        self.fill_challenge_units(&mut output)?;
         Ok(output)
     }
 
@@ -192,7 +192,7 @@ where
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.fill_challenge_bytes(&mut u_buf)?;
+            self.fill_challenge_units(&mut u_buf)?;
 
             // Reinterpret as bytes (safe because U must be u8-width)
             let byte_buf = U::slice_to_u8_slice(&u_buf);
@@ -317,7 +317,7 @@ where
     F: Field,
 {
     #[inline]
-    fn fill_challenge_bytes(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+    fn fill_challenge_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.squeeze(input)
     }
 }
@@ -432,7 +432,7 @@ mod tests {
         ds.squeeze(4, "c");
         let mut vs = VerifierState::<F, F, _, DummySponge>::new(&ds, b"abcd", KeccakF);
         let mut out = [0u8; 4];
-        assert!(vs.fill_challenge_bytes(&mut out).is_ok());
+        assert!(vs.fill_challenge_units(&mut out).is_ok());
         assert_eq!(out, [0, 1, 2, 3]);
     }
 

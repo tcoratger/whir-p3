@@ -41,7 +41,7 @@ where
 
     // Allocate space for query bytes
     let mut queries = zeroed_vec(num_queries * domain_size_bytes);
-    narg_string.fill_challenge_bytes(&mut queries)?;
+    narg_string.fill_challenge_units(&mut queries)?;
 
     // Convert bytes into indices in **one efficient pass**
     Ok(queries

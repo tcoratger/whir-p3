@@ -176,7 +176,7 @@ where
     /// Used for sampling scalar field elements or general randomness.
     pub fn challenge_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut output = [U::default(); N];
-        self.fill_challenge_bytes(&mut output)?;
+        self.fill_challenge_units(&mut output)?;
         Ok(output)
     }
 
@@ -205,7 +205,7 @@ where
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.fill_challenge_bytes(&mut u_buf)?;
+            self.fill_challenge_units(&mut u_buf)?;
 
             // Reinterpret as bytes (safe because U must be 1-byte width)
             let byte_buf = U::slice_to_u8_slice(&u_buf);
@@ -281,7 +281,7 @@ where
     EF: ExtensionField<F>,
     F: Field,
 {
-    fn fill_challenge_bytes(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+    fn fill_challenge_units(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.squeeze(output)
     }
 }
@@ -350,7 +350,7 @@ mod tests {
         let mut pstate = domsep.to_prover_state();
 
         let mut out = [0u8; 8];
-        let _ = pstate.fill_challenge_bytes(&mut out);
+        let _ = pstate.fill_challenge_units(&mut out);
         assert_eq!(out, [77, 249, 17, 180, 176, 109, 121, 62]);
     }
 
