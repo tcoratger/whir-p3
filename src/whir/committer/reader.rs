@@ -171,7 +171,7 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_dft::Radix2DitSmallBatch;
     use p3_field::PrimeCharacteristicRing;
-    use p3_keccak::Keccak256Hash;
+    use p3_keccak::{Keccak256Hash, KeccakF};
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
     use rand::Rng;
 
@@ -251,7 +251,7 @@ mod tests {
         let dft = Radix2DitSmallBatch::default();
 
         // Set up Fiat-Shamir transcript and commit the protocol parameters.
-        let mut ds = DomainSeparator::new("test");
+        let mut ds = DomainSeparator::new("test", KeccakF);
         ds.commit_statement(&params);
 
         // Create the prover state from the transcript.
@@ -290,7 +290,7 @@ mod tests {
         let dft = Radix2DitSmallBatch::default();
 
         // Begin the transcript and commit to the statement parameters.
-        let mut ds = DomainSeparator::new("test");
+        let mut ds = DomainSeparator::new("test", KeccakF);
         ds.commit_statement(&params);
 
         // Generate the prover state from the transcript.
@@ -332,7 +332,7 @@ mod tests {
         let dft = Radix2DitSmallBatch::default();
 
         // Start a new transcript and commit to the public parameters.
-        let mut ds = DomainSeparator::new("test");
+        let mut ds = DomainSeparator::new("test", KeccakF);
         ds.commit_statement(&params);
 
         // Create prover state from the transcript.
@@ -369,7 +369,7 @@ mod tests {
         let dft = Radix2DitSmallBatch::default();
 
         // Set up Fiat-Shamir transcript and commit to the public parameters.
-        let mut ds = DomainSeparator::new("oods_constraints_test");
+        let mut ds = DomainSeparator::new("oods_constraints_test", KeccakF);
         ds.commit_statement(&params);
 
         // Generate prover and verifier transcript states.

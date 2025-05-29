@@ -129,7 +129,7 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_dft::Radix2DitSmallBatch;
-    use p3_keccak::Keccak256Hash;
+    use p3_keccak::{Keccak256Hash, KeccakF};
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
     use rand::Rng;
 
@@ -189,7 +189,7 @@ mod tests {
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new("🌪️");
+        let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new("🌪️", KeccakF);
         domainsep.commit_statement(&params);
         domainsep.add_whir_proof(&params);
         let mut prover_state = domainsep.to_prover_state();
@@ -270,7 +270,7 @@ mod tests {
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
 
-        let mut domainsep = DomainSeparator::new("🌪️");
+        let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
         domainsep.commit_statement(&params);
 
         let mut prover_state = domainsep.to_prover_state();
@@ -321,7 +321,7 @@ mod tests {
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        let mut domainsep = DomainSeparator::new("🌪️");
+        let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
         domainsep.commit_statement(&params);
         let mut prover_state = domainsep.to_prover_state();
 

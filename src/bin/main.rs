@@ -4,6 +4,7 @@ use p3_blake3::Blake3;
 use p3_dft::Radix2DitSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
+use p3_keccak::KeccakF;
 use p3_koala_bear::KoalaBear;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -138,7 +139,7 @@ fn main() {
     }
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
-    let mut domainsep = DomainSeparator::new("🌪️");
+    let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
     domainsep.commit_statement(&params);
     domainsep.add_whir_proof(&params);
 
