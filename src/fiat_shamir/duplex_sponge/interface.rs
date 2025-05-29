@@ -9,10 +9,16 @@ use p3_symmetric::Permutation;
 ///
 /// **HAZARD**: Don't implement this trait unless you know what you are doing.
 /// Consider using the sponges already provided by this library.
-pub trait DuplexSpongeInterface<C: Permutation<[u8; 200]>, U = u8>: zeroize::Zeroize
+pub trait DuplexSpongeInterface<C: Permutation<[U; 200]>, U = u8>: zeroize::Zeroize
 where
     U: Unit,
 {
+    /// The width of the sponge (state size).
+    const N: usize;
+
+    /// The rate of the sponge (how many bytes per absorb/squeeze).
+    const R: usize;
+
     /// Initializes a new sponge, setting up the state.
     fn new(permutation: C, iv: [u8; 32]) -> Self;
 
@@ -32,6 +38,8 @@ pub trait Unit: Clone + Sized + zeroize::Zeroize {
     fn write(bunch: &[Self], w: &mut impl std::io::Write) -> Result<(), std::io::Error>;
     /// Read a bunch of units from the wire
     fn read(r: &mut impl std::io::Read, bunch: &mut [Self]) -> Result<(), std::io::Error>;
+    /// Convert a `u8` to a unit.
+    fn from_u8(x: u8) -> Self;
 }
 
 impl Unit for u8 {
@@ -41,5 +49,9 @@ impl Unit for u8 {
 
     fn read(r: &mut impl std::io::Read, bunch: &mut [Self]) -> Result<(), std::io::Error> {
         r.read_exact(bunch)
+    }
+
+    fn from_u8(x: u8) -> Self {
+        x
     }
 }
