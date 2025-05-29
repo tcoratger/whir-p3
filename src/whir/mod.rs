@@ -3,6 +3,7 @@ use p3_baby_bear::BabyBear;
 use p3_blake3::Blake3;
 use p3_dft::Radix2DitSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_keccak::KeccakF;
 use p3_monty_31::dft::RecursiveDft;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use parameters::WhirConfig;
@@ -104,7 +105,7 @@ pub fn make_whir_things(
     statement.add_constraint(linear_claim_weight, sum);
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
-    let mut domainsep = DomainSeparator::new("🌪️");
+    let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
     domainsep.commit_statement(&params);
     domainsep.add_whir_proof(&params);
 

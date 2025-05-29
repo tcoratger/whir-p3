@@ -197,6 +197,7 @@ mod tests {
     use p3_blake3::Blake3;
     use p3_dft::NaiveDft;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_keccak::KeccakF;
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 
     use super::*;
@@ -276,7 +277,7 @@ mod tests {
         Witness<EF4, F, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.
-        let mut domsep = DomainSeparator::new("🌪️");
+        let mut domsep = DomainSeparator::new("🌪️", KeccakF);
 
         // Absorb the public statement into the transcript for binding.
         domsep.commit_statement(params);

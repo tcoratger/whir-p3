@@ -202,6 +202,7 @@ impl Blake3PoW {
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_keccak::KeccakF;
 
     use super::*;
     use crate::fiat_shamir::domain_separator::DomainSeparator;
@@ -222,7 +223,8 @@ mod tests {
     fn test_pow_blake3() {
         const BITS: f64 = 10.0;
 
-        let mut domain_separator = DomainSeparator::<F, F>::new("the proof of work lottery 🎰");
+        let mut domain_separator =
+            DomainSeparator::<F, F>::new("the proof of work lottery 🎰", KeccakF);
         domain_separator.absorb(1, "something");
         domain_separator.challenge_pow("rolling dices");
 
