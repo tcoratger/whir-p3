@@ -137,14 +137,34 @@ impl<F: Field> Statement<F> {
         Base: Field,
         F: ExtensionField<Base>,
     {
-        let evaluations_vec = vec![F::ZERO; 1 << self.num_variables];
+        if self.constraints.is_empty() {
+            return (
+                EvaluationsList::new(vec![F::ZERO; 1 << self.num_variables]),
+                F::ZERO,
+            );
+        }
+        // Alloc memory without initializing it to zero.
+        // This is safe because there is at least one constraint (otherwise it would return early),
+        // and the first iteration of the loop will overwrite the entire vector.
+        let mut evaluations_vec: Vec<F> = Vec::with_capacity(1 << self.num_variables);
+        #[allow(clippy::uninit_vec)]
+        unsafe {
+            evaluations_vec.set_len(1 << self.num_variables);
+        }
         let mut combined_evals = EvaluationsList::new(evaluations_vec);
-        let (combined_sum, _) = self.constraints.iter().fold(
+        let (combined_sum, _) = self.constraints.iter().enumerate().fold(
             (F::ZERO, F::ONE),
-            |(mut acc_sum, gamma_pow), constraint| {
-                constraint
-                    .weights
-                    .accumulate::<Base>(&mut combined_evals, gamma_pow);
+            |(mut acc_sum, gamma_pow), (i, constraint)| {
+                if i == 0 {
+                    // first iteration: combined_evals must be overwritten
+                    constraint
+                        .weights
+                        .accumulate::<Base, false>(&mut combined_evals, gamma_pow);
+                } else {
+                    constraint
+                        .weights
+                        .accumulate::<Base, true>(&mut combined_evals, gamma_pow);
+                }
                 acc_sum += constraint.sum * gamma_pow;
                 (acc_sum, gamma_pow * challenge)
             },

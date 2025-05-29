@@ -125,35 +125,36 @@ impl<F: Field> Weights<F> {
     ///
     /// **Precondition:**
     /// `accumulator.num_variables()` must match `self.num_variables()`.
+    ///
+    /// **Warning:**
+    /// If INITIALIZED is `false`, the accumulator must be overwritten with the new values.
     #[instrument(skip_all)]
-    pub fn accumulate<Base>(&self, accumulator: &mut EvaluationsList<F>, factor: F)
-    where
+    pub fn accumulate<Base, const INITIALIZED: bool>(
+        &self,
+        accumulator: &mut EvaluationsList<F>,
+        factor: F,
+    ) where
         Base: Field,
         F: ExtensionField<Base>,
     {
         assert_eq!(accumulator.num_variables(), self.num_variables());
         match self {
             Self::Evaluation { point } => {
-                eval_eq::<Base, F>(&point.0, accumulator.evals_mut(), factor);
+                eval_eq::<Base, F, INITIALIZED>(&point.0, accumulator.evals_mut(), factor);
             }
             Self::Linear { weight } => {
                 #[cfg(feature = "parallel")]
-                accumulator
-                    .evals_mut()
-                    .par_iter_mut()
-                    .enumerate()
-                    .for_each(|(corner, acc)| {
-                        *acc += factor * weight[corner];
-                    });
-
+                let accumulator_iter = accumulator.evals_mut().par_iter_mut();
                 #[cfg(not(feature = "parallel"))]
-                accumulator
-                    .evals_mut()
-                    .iter_mut()
-                    .enumerate()
-                    .for_each(|(corner, acc)| {
+                let accumulator_iter = accumulator.evals_mut().iter_mut();
+
+                accumulator_iter.enumerate().for_each(|(corner, acc)| {
+                    if INITIALIZED {
                         *acc += factor * weight[corner];
-                    });
+                    } else {
+                        *acc = factor * weight[corner];
+                    }
+                });
             }
         }
     }
@@ -300,7 +301,7 @@ mod tests {
         let factor = F::from_u64(4);
 
         // Accumulate weighted values
-        weight.accumulate(&mut accumulator, factor);
+        weight.accumulate::<_, true>(&mut accumulator, factor);
 
         // Expected result:
         //
@@ -328,11 +329,11 @@ mod tests {
         let factor = F::from_u64(5);
 
         // Accumulate weighted values
-        weight.accumulate(&mut accumulator, factor);
+        weight.accumulate::<_, true>(&mut accumulator, factor);
 
         // Compute expected result manually
         let mut expected = vec![F::ZERO, F::ZERO];
-        eval_eq(&point.0, &mut expected, factor);
+        eval_eq::<_, _, true>(&point.0, &mut expected, factor);
 
         assert_eq!(accumulator.evals(), &expected);
     }
