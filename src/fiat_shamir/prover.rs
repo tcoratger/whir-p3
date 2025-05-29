@@ -163,7 +163,7 @@ where
     ///
     /// Requires specifying number of PoW bits and a strategy for solving it.
     pub fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
-        let challenge = self.challenge_bytes()?;
+        let challenge = self.challenge_units()?;
         let nonce = S::new(U::array_to_u8_array(&challenge), bits)
             .solve()
             .ok_or(ProofError::InvalidProof)?;
@@ -174,7 +174,7 @@ where
     /// Sample N fresh challenge bytes from the Fiat-Shamir sponge.
     ///
     /// Used for sampling scalar field elements or general randomness.
-    pub fn challenge_bytes<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
+    pub fn challenge_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut output = [U::default(); N];
         self.fill_challenge_bytes(&mut output)?;
         Ok(output)

@@ -73,7 +73,7 @@ where
     /// let narg_string = &[0x42];
     /// let mut verifier_state = domsep.to_verifier_state(narg_string);
     /// assert_eq!(verifier_state.next_units().unwrap(), [0x42]);
-    /// let challenge = verifier_state.challenge_bytes::<32>();
+    /// let challenge = verifier_state.challenge_units::<32>();
     /// assert!(challenge.is_ok());
     /// assert_ne!(challenge.unwrap(), [0; 32]);
     /// ```
@@ -153,7 +153,7 @@ where
 
     /// Perform a PoW challenge check using a derived challenge and 64-bit nonce.
     pub fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
-        let challenge = self.challenge_bytes()?;
+        let challenge = self.challenge_units()?;
         let nonce = u64::from_be_bytes(U::array_to_u8_array(&self.next_units()?));
         if S::new(U::array_to_u8_array(&challenge), bits).check(nonce) {
             Ok(())
@@ -172,7 +172,7 @@ where
     }
 
     /// Derive a fixed-size byte array from the sponge as a Fiat-Shamir challenge.
-    pub fn challenge_bytes<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
+    pub fn challenge_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut output = [U::default(); N];
         self.fill_challenge_bytes(&mut output)?;
         Ok(output)
