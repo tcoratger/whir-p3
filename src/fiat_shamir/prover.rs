@@ -83,7 +83,7 @@ where
     /// Add a slice `[U]` to the protocol transcript.
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
-    pub fn add_bytes(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn add_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
         let old_len = self.narg_string.len();
         self.hash_state.absorb(input)?;
         // write should never fail
@@ -154,7 +154,7 @@ where
     /// the prover state.
     pub fn public_bytes(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
         let len = self.narg_string.len();
-        self.add_bytes(input)?;
+        self.add_units(input)?;
         self.narg_string.truncate(len);
         Ok(())
     }
@@ -167,7 +167,7 @@ where
         let nonce = S::new(U::array_to_u8_array(&challenge), bits)
             .solve()
             .ok_or(ProofError::InvalidProof)?;
-        self.add_bytes(&U::slice_from_u8_slice(&nonce.to_be_bytes()))?;
+        self.add_units(&U::slice_from_u8_slice(&nonce.to_be_bytes()))?;
         Ok(())
     }
 
@@ -185,7 +185,7 @@ where
         &mut self,
         digest: Hash<F, u8, DIGEST_ELEMS>,
     ) -> ProofResult<()> {
-        self.add_bytes(&U::slice_from_u8_slice(digest.as_ref()))
+        self.add_units(&U::slice_from_u8_slice(digest.as_ref()))
             .map_err(ProofError::InvalidDomainSeparator)
     }
 
@@ -319,7 +319,7 @@ mod tests {
         let mut pstate = domsep.to_prover_state();
         let input = [42, 43, 44];
 
-        assert!(pstate.add_bytes(&input).is_ok());
+        assert!(pstate.add_units(&input).is_ok());
         assert_eq!(pstate.narg_string(), &input);
     }
 
@@ -329,7 +329,7 @@ mod tests {
         domsep.absorb(2, "short");
         let mut pstate = domsep.to_prover_state();
 
-        let result = pstate.add_bytes(&[1, 2, 3]);
+        let result = pstate.add_units(&[1, 2, 3]);
         assert!(result.is_err());
     }
 
@@ -361,8 +361,8 @@ mod tests {
         domsep.absorb(3, "b");
         let mut p = domsep.to_prover_state();
 
-        p.add_bytes(&[10, 11]).unwrap();
-        p.add_bytes(&[20, 21, 22]).unwrap();
+        p.add_units(&[10, 11]).unwrap();
+        p.add_units(&[20, 21, 22]).unwrap();
 
         assert_eq!(p.narg_string(), &[10, 11, 20, 21, 22]);
     }
@@ -374,7 +374,7 @@ mod tests {
         let mut p = domsep.to_prover_state();
 
         let msg = b"zkp42";
-        p.add_bytes(msg).unwrap();
+        p.add_units(msg).unwrap();
 
         let encoded = p.narg_string();
         assert_eq!(encoded, msg);
