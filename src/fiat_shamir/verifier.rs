@@ -339,6 +339,7 @@ mod tests {
     use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_goldilocks::Goldilocks;
     use p3_keccak::KeccakF;
+    use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
 
@@ -1095,5 +1096,41 @@ mod tests {
         // Deserialize and verify match
         let hint = verifier.hint::<Vec<Vec<[u8; DIGEST_ELEMS]>>>().unwrap();
         assert_eq!(hint, elems);
+    }
+
+    #[test]
+    fn test_public_scalars_round_trip_to_verifier_challenge_scalars() {
+        let mut rng = SmallRng::seed_from_u64(1);
+
+        // Create domain separator
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("roundtrip", KeccakF);
+
+        // Number of public scalars to generate
+        const NUM_SCALARS: usize = 5;
+
+        // Generate random EF4 scalars
+        let random_scalars: Vec<EF4> = (0..NUM_SCALARS).map(|_| rng.random()).collect();
+
+        // Record public scalars in the transcript
+        domsep.add_scalars(NUM_SCALARS, "public-scalars");
+
+        // Create prover and absorb public scalars
+        let mut prover = domsep.to_prover_state();
+        prover.add_scalars(&random_scalars).unwrap();
+
+        // Extract transcript (narg string)
+        let narg = prover.narg_string();
+
+        // Create verifier
+        let mut verifier = domsep.to_verifier_state(narg);
+
+        // Read back absorbed scalars
+        let mut verifier_scalars = [EF4::ZERO; NUM_SCALARS];
+        verifier.fill_next_scalars(&mut verifier_scalars).unwrap();
+        assert_eq!(
+            verifier_scalars.to_vec(),
+            random_scalars,
+            "Verifier absorbed scalars should match"
+        );
     }
 }
