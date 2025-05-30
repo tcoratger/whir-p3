@@ -226,31 +226,30 @@ where
 
     /// Serialize and absorb public scalar values into the sponge, returning their byte encoding.
     pub fn public_scalars(&mut self, input: &[EF]) -> ProofResult<Vec<u8>> {
-        // Initialize a buffer to store the final serialized byte output
-        let mut buf = Vec::new();
+        // Build the byte vector by flattening all basis coefficients.
+        //
+        // For each extension field element:
+        // - Decompose it into its canonical basis over the base field (returns a slice of F coefficients).
+        //
+        // For each base field coefficient:
+        // - Convert it to a canonical little-endian u64 byte array (8 bytes).
+        // - Truncate the byte array to `num_bytes` (only keep the low significant part).
+        // - Collect all these truncated bytes into a flat vector.
+        //
+        // Example:
+        // - BabyBear: one limb → 4 bytes.
+        // - EF4 over BabyBear: 4 limbs → 16 bytes.
+        let bytes: Vec<u8> = input
+            .iter()
+            .flat_map(p3_field::BasedVectorSpace::as_basis_coefficients_slice)
+            .flat_map(|coeff| coeff.as_canonical_u64().to_le_bytes()[..F::NUM_BYTES].to_vec())
+            .collect();
 
-        // How many bytes are needed to sample a single base field element
-        let num_bytes = F::NUM_BYTES;
-
-        // Loop over each scalar field element (could be base or extension field)
-        for scalar in input {
-            // Decompose the field element into its basis coefficients over the base field
-            //
-            // For base fields, this is just [scalar]; for extensions, it's length-D array
-            for coeff in scalar.as_basis_coefficients_slice() {
-                // Serialize each base field coefficient to 4 bytes (LE canonical form)
-                let bytes = coeff.as_canonical_u64().to_le_bytes();
-
-                // Append the serialized bytes to the output buffer
-                buf.extend_from_slice(&bytes[..num_bytes]);
-            }
-        }
-
-        // Absorb the serialized bytes into the Fiat-Shamir transcript
-        self.public_units(&U::slice_from_u8_slice(&buf))?;
+        // Absorb the serialized bytes into the Fiat-Shamir transcript sponge
+        self.public_units(&U::slice_from_u8_slice(&bytes))?;
 
         // Return the serialized byte representation
-        Ok(buf)
+        Ok(bytes)
     }
 
     /// Read a hint from the NARG string. Returns the number of units read.
