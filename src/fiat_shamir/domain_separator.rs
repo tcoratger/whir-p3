@@ -46,7 +46,7 @@ pub struct DomainSeparator<EF, F, Perm = DefaultPerm, H = DefaultHash, U = u8>
 where
     U: Unit,
     Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U>,
+    H: DuplexSpongeInterface<Perm, U, 200>,
 {
     /// The internal IOPattern string representation.
     ///
@@ -85,7 +85,7 @@ where
 impl<EF, F, Perm, H, U> DomainSeparator<EF, F, Perm, H, U>
 where
     U: Unit + Default + Copy,
-    H: DuplexSpongeInterface<Perm, U>,
+    H: DuplexSpongeInterface<Perm, U, 200>,
     Perm: Permutation<[U; 200]>,
     EF: ExtensionField<F> + TwoAdicField,
     F: Field + TwoAdicField + PrimeField64,

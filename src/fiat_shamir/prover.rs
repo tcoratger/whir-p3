@@ -36,7 +36,7 @@ pub struct ProverState<EF, F, Perm = DefaultPerm, H = DefaultHash, U = u8>
 where
     U: Unit,
     Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U>,
+    H: DuplexSpongeInterface<Perm, U, 200>,
 {
     /// The duplex sponge that is used to generate the random coins.
     pub(crate) ds: H,
@@ -56,7 +56,7 @@ impl<EF, F, Perm, H, U> ProverState<EF, F, Perm, H, U>
 where
     U: Unit + Default + Copy,
     Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U>,
+    H: DuplexSpongeInterface<Perm, U, 200>,
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
@@ -273,7 +273,7 @@ impl<EF, F, Perm, H, U> UnitToBytes<U> for ProverState<EF, F, Perm, H, U>
 where
     U: Unit + Default + Copy,
     Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U>,
+    H: DuplexSpongeInterface<Perm, U, 200>,
     EF: ExtensionField<F>,
     F: Field,
 {

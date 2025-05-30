@@ -16,7 +16,7 @@ pub struct HashStateWithInstructions<H, Perm, U>
 where
     U: Unit,
     Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U>,
+    H: DuplexSpongeInterface<Perm, U, 200>,
 {
     /// The internal duplex sponge used for absorbing and squeezing data.
     pub(crate) ds: H,
@@ -32,7 +32,7 @@ impl<H, Perm, U> HashStateWithInstructions<H, Perm, U>
 where
     U: Unit + Default + Copy,
     Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U>,
+    H: DuplexSpongeInterface<Perm, U, 200>,
 {
     /// Initialise a stateful hash object,
     /// setting up the state of the sponge function and parsing the tag string.
@@ -146,7 +146,7 @@ impl<H, Perm, U> Drop for HashStateWithInstructions<H, Perm, U>
 where
     U: Unit,
     Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U>,
+    H: DuplexSpongeInterface<Perm, U, 200>,
 {
     /// Destroy the sponge state.
     fn drop(&mut self) {
@@ -199,7 +199,7 @@ mod tests {
         }
     }
 
-    impl DuplexSpongeInterface<KeccakF, u8> for DummySponge {
+    impl DuplexSpongeInterface<KeccakF, u8, 200> for DummySponge {
         fn new(_permutation: KeccakF, _iv: [u8; 32]) -> Self {
             Self::new_inner()
         }

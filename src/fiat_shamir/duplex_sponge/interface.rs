@@ -9,7 +9,7 @@ use p3_symmetric::Permutation;
 ///
 /// **HAZARD**: Don't implement this trait unless you know what you are doing.
 /// Consider using the sponges already provided by this library.
-pub trait DuplexSpongeInterface<C, U = u8, const WIDTH: usize = 200>: zeroize::Zeroize
+pub trait DuplexSpongeInterface<C, U, const WIDTH: usize>: zeroize::Zeroize
 where
     U: Unit,
     C: Permutation<[U; WIDTH]>,
