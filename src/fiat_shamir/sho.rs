@@ -12,11 +12,11 @@ use crate::fiat_shamir::duplex_sponge::interface::Unit;
 
 /// A stateful hash object that interfaces with duplex interfaces.
 #[derive(Clone, Debug)]
-pub struct HashStateWithInstructions<H, Perm, U>
+pub struct HashStateWithInstructions<H, Perm, U, const WIDTH: usize>
 where
     U: Unit,
-    Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U, 200>,
+    Perm: Permutation<[U; WIDTH]>,
+    H: DuplexSpongeInterface<Perm, U, WIDTH>,
 {
     /// The internal duplex sponge used for absorbing and squeezing data.
     pub(crate) ds: H,
@@ -28,16 +28,19 @@ where
     _unit: PhantomData<U>,
 }
 
-impl<H, Perm, U> HashStateWithInstructions<H, Perm, U>
+impl<H, Perm, U, const WIDTH: usize> HashStateWithInstructions<H, Perm, U, WIDTH>
 where
     U: Unit + Default + Copy,
-    Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U, 200>,
+    Perm: Permutation<[U; WIDTH]>,
+    H: DuplexSpongeInterface<Perm, U, WIDTH>,
 {
     /// Initialise a stateful hash object,
     /// setting up the state of the sponge function and parsing the tag string.
     #[must_use]
-    pub fn new<EF, F>(domain_separator: &DomainSeparator<EF, F, Perm, H, U>, perm: Perm) -> Self
+    pub fn new<EF, F>(
+        domain_separator: &DomainSeparator<EF, F, Perm, H, U, WIDTH>,
+        perm: Perm,
+    ) -> Self
     where
         EF: ExtensionField<F> + TwoAdicField,
         F: Field + TwoAdicField + PrimeField64,
@@ -142,11 +145,11 @@ where
     }
 }
 
-impl<H, Perm, U> Drop for HashStateWithInstructions<H, Perm, U>
+impl<H, Perm, U, const WIDTH: usize> Drop for HashStateWithInstructions<H, Perm, U, WIDTH>
 where
     U: Unit,
-    Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U, 200>,
+    Perm: Permutation<[U; WIDTH]>,
+    H: DuplexSpongeInterface<Perm, U, WIDTH>,
 {
     /// Destroy the sponge state.
     fn drop(&mut self) {
