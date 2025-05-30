@@ -139,7 +139,7 @@ impl<F: Field> Statement<F> {
     {
         if self.constraints.is_empty() {
             return (
-                EvaluationsList::new(vec![F::ZERO; 1 << self.num_variables]),
+                EvaluationsList::new(F::zero_vec(1 << self.num_variables)),
                 F::ZERO,
             );
         }

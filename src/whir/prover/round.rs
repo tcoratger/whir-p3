@@ -160,7 +160,7 @@ where
             // If there is no initial statement, there is no need to run the
             // initial rounds of the sum-check, and the verifier directly sends
             // the initial folding randomnesses.
-            let mut folding_randomness = vec![EF::ZERO; prover.folding_factor.at_round(0)];
+            let mut folding_randomness = EF::zero_vec(prover.folding_factor.at_round(0));
             prover_state.fill_challenge_scalars(&mut folding_randomness)?;
 
             if prover.starting_folding_pow_bits > 0. {
