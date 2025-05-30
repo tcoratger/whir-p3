@@ -115,12 +115,6 @@ where
         Ok(input)
     }
 
-    /// Absorb raw public data (not read from the transcript) into the sponge.
-    #[inline]
-    pub fn public_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.absorb(input)
-    }
-
     /// Deserialize a list of extension scalars from the transcript and absorb them.
     pub fn fill_next_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // Size of one base field element in bytes
@@ -246,7 +240,7 @@ where
             .collect();
 
         // Absorb the serialized bytes into the Fiat-Shamir transcript sponge
-        self.public_units(&U::slice_from_u8_slice(&bytes))?;
+        self.hash_state.absorb(&U::slice_from_u8_slice(&bytes))?;
 
         // Return the serialized byte representation
         Ok(bytes)
@@ -421,15 +415,6 @@ mod tests {
         let mut buf = [0u8; 4];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_err());
-    }
-
-    #[test]
-    fn test_unit_transcript_public_units() {
-        let mut ds = DomainSeparator::<F, F, _, DummySponge>::new("x", KeccakF);
-        ds.absorb(2, "public");
-        let mut vs = VerifierState::<F, F, _, DummySponge>::new(&ds, b"..", KeccakF);
-        assert!(vs.public_units(&[1, 2]).is_ok());
-        assert_eq!(*vs.hash_state.ds.absorbed.borrow(), &[1, 2]);
     }
 
     #[test]
