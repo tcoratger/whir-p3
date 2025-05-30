@@ -366,9 +366,6 @@ mod tests {
     }
 
     impl DuplexSpongeInterface<KeccakF, u8> for DummySponge {
-        const N: usize = 200;
-        const R: usize = 136;
-
         fn new(_keccak: KeccakF, _iv: [u8; 32]) -> Self {
             Self::new_inner()
         }
