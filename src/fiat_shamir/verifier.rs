@@ -9,6 +9,7 @@ use super::{
     domain_separator::DomainSeparator,
     duplex_sponge::interface::DuplexSpongeInterface,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
+    keccak::KECCAK_WIDTH_BYTES,
     pow::traits::PowStrategy,
     sho::HashStateWithInstructions,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
@@ -22,18 +23,25 @@ use crate::fiat_shamir::duplex_sponge::interface::Unit;
 /// de-serialize elements from the NARG string and make them available to the zero-knowledge
 /// verifier.
 #[derive(Debug)]
-pub struct VerifierState<'a, EF, F, Perm = DefaultPerm, H = DefaultHash, U = u8>
-where
+pub struct VerifierState<
+    'a,
+    EF,
+    F,
+    Perm = DefaultPerm,
+    H = DefaultHash,
+    U = u8,
+    const WIDTH: usize = KECCAK_WIDTH_BYTES,
+> where
     U: Unit,
-    Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U, 200>,
+    Perm: Permutation<[U; WIDTH]>,
+    H: DuplexSpongeInterface<Perm, U, WIDTH>,
 {
     /// Internal sponge transcript that tracks the domain separator state and absorbs values.
     ///
     /// This manages the full Fiat-Shamir interaction logic, such as absorbing inputs and
     /// squeezing challenges. It also stores the domain separator instructions to enforce
     /// consistency between prover and verifier.
-    pub(crate) hash_state: HashStateWithInstructions<H, Perm, U>,
+    pub(crate) hash_state: HashStateWithInstructions<H, Perm, U, WIDTH>,
 
     /// The "NARG" string: raw serialized input provided by the prover.
     ///
@@ -53,11 +61,11 @@ where
     _extension_field: PhantomData<EF>,
 }
 
-impl<'a, EF, F, Perm, H, U> VerifierState<'a, EF, F, Perm, H, U>
+impl<'a, EF, F, Perm, H, U, const WIDTH: usize> VerifierState<'a, EF, F, Perm, H, U, WIDTH>
 where
     U: Unit + Default + Copy,
-    Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U, 200>,
+    Perm: Permutation<[U; WIDTH]>,
+    H: DuplexSpongeInterface<Perm, U, WIDTH>,
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
@@ -79,7 +87,7 @@ where
     /// ```
     #[must_use]
     pub fn new(
-        domain_separator: &DomainSeparator<EF, F, Perm, H, U>,
+        domain_separator: &DomainSeparator<EF, F, Perm, H, U, WIDTH>,
         narg_string: &'a [u8],
         perm: Perm,
     ) -> Self {
@@ -308,11 +316,12 @@ where
     }
 }
 
-impl<EF, F, Perm, H, U> UnitToBytes<U> for VerifierState<'_, EF, F, Perm, H, U>
+impl<EF, F, Perm, H, U, const WIDTH: usize> UnitToBytes<U>
+    for VerifierState<'_, EF, F, Perm, H, U, WIDTH>
 where
     U: Unit + Default + Copy,
-    Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U, 200>,
+    Perm: Permutation<[U; WIDTH]>,
+    H: DuplexSpongeInterface<Perm, U, WIDTH>,
     EF: ExtensionField<F>,
     F: Field,
 {

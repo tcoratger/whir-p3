@@ -5,7 +5,7 @@ use p3_symmetric::Permutation;
 
 use super::{
     DefaultHash, duplex_sponge::interface::DuplexSpongeInterface, errors::DomainSeparatorMismatch,
-    utils::bytes_uniform_modp,
+    keccak::KECCAK_WIDTH_BYTES, utils::bytes_uniform_modp,
 };
 use crate::{
     fiat_shamir::{
@@ -42,11 +42,17 @@ const SEP_BYTE: &str = "\0";
 /// lengths are coherent with the types described in the protocol. No information about the types
 /// themselves is stored in an IO Pattern. This means that [`ProverState`][`crate::ProverState`] or [`VerifierState`][`crate::VerifierState`] instances can generate successfully a protocol transcript respecting the length constraint but not the types. See [issue #6](https://github.com/arkworks-rs/spongefish/issues/6) for a discussion on the topic.
 #[derive(Clone, Debug)]
-pub struct DomainSeparator<EF, F, Perm = DefaultPerm, H = DefaultHash, U = u8>
-where
+pub struct DomainSeparator<
+    EF,
+    F,
+    Perm = DefaultPerm,
+    H = DefaultHash,
+    U = u8,
+    const WIDTH: usize = KECCAK_WIDTH_BYTES,
+> where
     U: Unit,
-    Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U, 200>,
+    Perm: Permutation<[U; WIDTH]>,
+    H: DuplexSpongeInterface<Perm, U, WIDTH>,
 {
     /// The internal IOPattern string representation.
     ///
@@ -82,11 +88,11 @@ where
     _unit: PhantomData<U>,
 }
 
-impl<EF, F, Perm, H, U> DomainSeparator<EF, F, Perm, H, U>
+impl<EF, F, Perm, H, U, const WIDTH: usize> DomainSeparator<EF, F, Perm, H, U, WIDTH>
 where
     U: Unit + Default + Copy,
-    H: DuplexSpongeInterface<Perm, U, 200>,
-    Perm: Permutation<[U; 200]>,
+    H: DuplexSpongeInterface<Perm, U, WIDTH>,
+    Perm: Permutation<[U; WIDTH]>,
     EF: ExtensionField<F> + TwoAdicField,
     F: Field + TwoAdicField + PrimeField64,
 {
@@ -217,7 +223,7 @@ where
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
     #[must_use]
-    pub fn to_prover_state(&self) -> ProverState<EF, F, Perm, H, U> {
+    pub fn to_prover_state(&self) -> ProverState<EF, F, Perm, H, U, WIDTH> {
         ProverState::new(self, self.perm.clone())
     }
 
@@ -227,7 +233,7 @@ where
     pub fn to_verifier_state<'a>(
         &self,
         transcript: &'a [u8],
-    ) -> VerifierState<'a, EF, F, Perm, H, U> {
+    ) -> VerifierState<'a, EF, F, Perm, H, U, WIDTH> {
         VerifierState::new(self, transcript, self.perm.clone())
     }
 

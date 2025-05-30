@@ -9,6 +9,7 @@ use super::{
     domain_separator::DomainSeparator,
     duplex_sponge::interface::DuplexSpongeInterface,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
+    keccak::KECCAK_WIDTH_BYTES,
     pow::traits::PowStrategy,
     sho::HashStateWithInstructions,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order},
@@ -32,16 +33,22 @@ use crate::fiat_shamir::{DefaultPerm, duplex_sponge::interface::Unit};
 /// the zero-knowledge property. [`ProverState`] does not implement [`Clone`] or [`Copy`] to prevent
 /// accidental leaks.
 #[derive(Debug)]
-pub struct ProverState<EF, F, Perm = DefaultPerm, H = DefaultHash, U = u8>
-where
+pub struct ProverState<
+    EF,
+    F,
+    Perm = DefaultPerm,
+    H = DefaultHash,
+    U = u8,
+    const WIDTH: usize = KECCAK_WIDTH_BYTES,
+> where
     U: Unit,
-    Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U, 200>,
+    Perm: Permutation<[U; WIDTH]>,
+    H: DuplexSpongeInterface<Perm, U, WIDTH>,
 {
     /// The duplex sponge that is used to generate the random coins.
     pub(crate) ds: H,
     /// The public coins for the protocol
-    pub(crate) hash_state: HashStateWithInstructions<H, Perm, U>,
+    pub(crate) hash_state: HashStateWithInstructions<H, Perm, U, WIDTH>,
     /// The encoded data.
     pub(crate) narg_string: Vec<u8>,
     /// Marker for the field.
@@ -52,11 +59,11 @@ where
     _unit: PhantomData<U>,
 }
 
-impl<EF, F, Perm, H, U> ProverState<EF, F, Perm, H, U>
+impl<EF, F, Perm, H, U, const WIDTH: usize> ProverState<EF, F, Perm, H, U, WIDTH>
 where
     U: Unit + Default + Copy,
-    Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U, 200>,
+    Perm: Permutation<[U; WIDTH]>,
+    H: DuplexSpongeInterface<Perm, U, WIDTH>,
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
@@ -64,7 +71,7 @@ where
     ///
     /// Seeds the internal sponge with the domain separator.
     #[must_use]
-    pub fn new(domain_separator: &DomainSeparator<EF, F, Perm, H, U>, perm: Perm) -> Self {
+    pub fn new(domain_separator: &DomainSeparator<EF, F, Perm, H, U, WIDTH>, perm: Perm) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator, perm.clone());
 
         let mut ds = H::new(perm, [0u8; 32]);
@@ -269,11 +276,11 @@ where
     }
 }
 
-impl<EF, F, Perm, H, U> UnitToBytes<U> for ProverState<EF, F, Perm, H, U>
+impl<EF, F, Perm, H, U, const WIDTH: usize> UnitToBytes<U> for ProverState<EF, F, Perm, H, U, WIDTH>
 where
     U: Unit + Default + Copy,
-    Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U, 200>,
+    Perm: Permutation<[U; WIDTH]>,
+    H: DuplexSpongeInterface<Perm, U, WIDTH>,
     EF: ExtensionField<F>,
     F: Field,
 {
