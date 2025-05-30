@@ -6,67 +6,64 @@ use crate::fiat_shamir::duplex_sponge::interface::DuplexSpongeInterface;
 
 pub mod interface;
 
-/// Width of the Keccak-f1600 sponge (in bytes)
-const KECCAK_WIDTH_BYTES: usize = 200;
-/// Rate of the sponge (bytes): 136
-const KECCAK_RATE_BYTES: usize = 136;
-
 /// A cryptographic sponge.
 #[derive(Debug, Clone)]
-pub struct DuplexSponge<U: Unit, C: Permutation<[U; KECCAK_WIDTH_BYTES]>> {
+pub struct DuplexSponge<U, C, const WIDTH: usize, const RATE: usize>
+where
+    U: Unit,
+    C: Permutation<[U; WIDTH]>,
+{
     permutation: C,
-    state: [U; KECCAK_WIDTH_BYTES],
+    state: [U; WIDTH],
     absorb_pos: usize,
     squeeze_pos: usize,
 }
 
-impl<U, C> Zeroize for DuplexSponge<U, C>
+impl<U, C, const WIDTH: usize, const RATE: usize> Zeroize for DuplexSponge<U, C, WIDTH, RATE>
 where
     U: Unit,
-    C: Permutation<[U; KECCAK_WIDTH_BYTES]>,
+    C: Permutation<[U; WIDTH]>,
 {
     fn zeroize(&mut self) {
         self.state.zeroize();
     }
 }
 
-impl<U, C> ZeroizeOnDrop for DuplexSponge<U, C>
+impl<U, C, const WIDTH: usize, const RATE: usize> ZeroizeOnDrop for DuplexSponge<U, C, WIDTH, RATE>
 where
     U: Unit,
-    C: Permutation<[U; KECCAK_WIDTH_BYTES]>,
+    C: Permutation<[U; WIDTH]>,
 {
 }
 
-impl<U, C> DuplexSpongeInterface<C, U> for DuplexSponge<U, C>
+impl<U, C, const WIDTH: usize, const RATE: usize> DuplexSpongeInterface<C, U, WIDTH>
+    for DuplexSponge<U, C, WIDTH, RATE>
 where
     U: Unit + Default + Copy,
-    C: Permutation<[U; KECCAK_WIDTH_BYTES]>,
+    C: Permutation<[U; WIDTH]>,
 {
-    const N: usize = KECCAK_WIDTH_BYTES;
-    const R: usize = KECCAK_RATE_BYTES;
-
     fn new(permutation: C, iv: [u8; 32]) -> Self {
-        let mut state = [U::default(); KECCAK_WIDTH_BYTES];
+        let mut state = [U::default(); WIDTH];
         for (i, &b) in iv.iter().enumerate() {
-            state[Self::R + i] = U::from_u8(b);
+            state[RATE + i] = U::from_u8(b);
         }
 
         Self {
             permutation,
             state,
             absorb_pos: 0,
-            squeeze_pos: Self::R,
+            squeeze_pos: RATE,
         }
     }
 
     fn absorb_unchecked(&mut self, mut input: &[U]) -> &mut Self {
         while !input.is_empty() {
-            if self.absorb_pos == Self::R {
+            if self.absorb_pos == RATE {
                 self.permutation.permute_mut(&mut self.state);
                 self.absorb_pos = 0;
             } else {
-                assert!(self.absorb_pos < Self::R);
-                let chunk_len = usize::min(input.len(), Self::R - self.absorb_pos);
+                assert!(self.absorb_pos < RATE);
+                let chunk_len = usize::min(input.len(), RATE - self.absorb_pos);
                 let (chunk, rest) = input.split_at(chunk_len);
 
                 self.state[self.absorb_pos..self.absorb_pos + chunk_len].clone_from_slice(chunk);
@@ -74,7 +71,7 @@ where
                 input = rest;
             }
         }
-        self.squeeze_pos = Self::R;
+        self.squeeze_pos = RATE;
         self
     }
 
@@ -83,14 +80,14 @@ where
             return self;
         }
 
-        if self.squeeze_pos == Self::R {
+        if self.squeeze_pos == RATE {
             self.squeeze_pos = 0;
             self.absorb_pos = 0;
             self.permutation.permute_mut(&mut self.state);
         }
 
-        assert!(self.squeeze_pos < Self::R);
-        let chunk_len = usize::min(output.len(), Self::R - self.squeeze_pos);
+        assert!(self.squeeze_pos < RATE);
+        let chunk_len = usize::min(output.len(), RATE - self.squeeze_pos);
         let (output, rest) = output.split_at_mut(chunk_len);
         output.clone_from_slice(&self.state[self.squeeze_pos..self.squeeze_pos + chunk_len]);
         self.squeeze_pos += chunk_len;
@@ -101,6 +98,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fiat_shamir::keccak::{KECCAK_RATE_BYTES, KECCAK_WIDTH_BYTES};
 
     // A dummy permutation
     #[derive(Clone, Debug)]
@@ -118,7 +116,7 @@ mod tests {
         }
     }
 
-    type Sponge = DuplexSponge<u8, DummyPermutation>;
+    type Sponge = DuplexSponge<u8, DummyPermutation, KECCAK_WIDTH_BYTES, KECCAK_RATE_BYTES>;
 
     #[test]
     fn test_new_sponge_initializes_state() {
@@ -126,14 +124,14 @@ mod tests {
         let iv = [42u8; 32];
         let sponge = Sponge::new(DummyPermutation, iv);
         assert_eq!(sponge.absorb_pos, 0);
-        assert_eq!(sponge.squeeze_pos, Sponge::R);
+        assert_eq!(sponge.squeeze_pos, KECCAK_RATE_BYTES);
         // The last N - R elements should store the IV
         for i in 0..iv.len() {
             assert_eq!(
-                sponge.state[Sponge::R + i],
+                sponge.state[KECCAK_RATE_BYTES + i],
                 42,
                 "Expected sponge.state[{}] to be 42",
-                Sponge::R + i
+                KECCAK_RATE_BYTES + i
             );
         }
     }
@@ -147,7 +145,7 @@ mod tests {
         // One position consumed
         assert_eq!(sponge.absorb_pos, 1);
         // Reset after absorb
-        assert_eq!(sponge.squeeze_pos, Sponge::R);
+        assert_eq!(sponge.squeeze_pos, KECCAK_RATE_BYTES);
     }
 
     #[test]
@@ -155,7 +153,7 @@ mod tests {
         let mut sponge = Sponge::new(DummyPermutation, [0u8; 32]);
 
         // Absorb enough to cross the rate boundary (R + 1 bytes), triggering one permutation
-        let big_input = vec![1u8; Sponge::R + 1];
+        let big_input = vec![1u8; KECCAK_RATE_BYTES + 1];
         sponge.absorb_unchecked(&big_input);
 
         // Last absorbed byte should be at position 0 after permutation
@@ -186,7 +184,7 @@ mod tests {
         let mut sponge = Sponge::new(DummyPermutation, [0u8; 32]);
 
         // Force squeeze position to full → triggers permutation on next squeeze
-        sponge.squeeze_pos = Sponge::R;
+        sponge.squeeze_pos = KECCAK_RATE_BYTES;
 
         // Snapshot state before permutation
         let old_state = sponge.state;

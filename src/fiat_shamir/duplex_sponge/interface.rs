@@ -9,16 +9,11 @@ use p3_symmetric::Permutation;
 ///
 /// **HAZARD**: Don't implement this trait unless you know what you are doing.
 /// Consider using the sponges already provided by this library.
-pub trait DuplexSpongeInterface<C: Permutation<[U; 200]>, U = u8>: zeroize::Zeroize
+pub trait DuplexSpongeInterface<C, U = u8, const WIDTH: usize = 200>: zeroize::Zeroize
 where
     U: Unit,
+    C: Permutation<[U; WIDTH]>,
 {
-    /// The width of the sponge (state size).
-    const N: usize;
-
-    /// The rate of the sponge (how many bytes per absorb/squeeze).
-    const R: usize;
-
     /// Initializes a new sponge, setting up the state.
     fn new(permutation: C, iv: [u8; 32]) -> Self;
 
