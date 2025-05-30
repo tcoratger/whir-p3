@@ -26,7 +26,7 @@ pub struct VerifierState<'a, EF, F, Perm = DefaultPerm, H = DefaultHash, U = u8>
 where
     U: Unit,
     Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U>,
+    H: DuplexSpongeInterface<Perm, U, 200>,
 {
     /// Internal sponge transcript that tracks the domain separator state and absorbs values.
     ///
@@ -57,7 +57,7 @@ impl<'a, EF, F, Perm, H, U> VerifierState<'a, EF, F, Perm, H, U>
 where
     U: Unit + Default + Copy,
     Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U>,
+    H: DuplexSpongeInterface<Perm, U, 200>,
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
@@ -312,7 +312,7 @@ impl<EF, F, Perm, H, U> UnitToBytes<U> for VerifierState<'_, EF, F, Perm, H, U>
 where
     U: Unit + Default + Copy,
     Perm: Permutation<[U; 200]>,
-    H: DuplexSpongeInterface<Perm, U>,
+    H: DuplexSpongeInterface<Perm, U, 200>,
     EF: ExtensionField<F>,
     F: Field,
 {
@@ -365,7 +365,7 @@ mod tests {
         }
     }
 
-    impl DuplexSpongeInterface<KeccakF, u8> for DummySponge {
+    impl DuplexSpongeInterface<KeccakF, u8, 200> for DummySponge {
         fn new(_keccak: KeccakF, _iv: [u8; 32]) -> Self {
             Self::new_inner()
         }
