@@ -116,11 +116,17 @@ where
 
     /// Computes `eq(c, p)`, where `p` is a general `MultilinearPoint` (not necessarily binary).
     ///
-    /// The **equality polynomial** for two `MultilinearPoint`s `c` and `p` is:
+    /// The **equality polynomial** for two vectors is:
     /// ```ignore
-    /// eq(c, p) = ∏ (c_i * p_i + (1 - c_i) * (1 - p_i))
+    /// eq(s1, s2) = ∏ (s1_i * s2_i + (1 - s1_i) * (1 - s2_i))
     /// ```
-    /// which evaluates to `1` if `c == p`, and `0` otherwise.
+    /// which evaluates to `1` if `s1 == s2`, and `0` otherwise.
+    ///
+    /// This uses the algebraic identity:
+    /// ```ignore
+    /// s1_i * s2_i + (1 - s1_i) * (1 - s2_i) = 1 + 2 * s1_i * s2_i - s1_i - s2_i
+    /// ```
+    /// to avoid unnecessary multiplications.
     #[must_use]
     pub fn eq_poly_outside(&self, point: &Self) -> F {
         assert_eq!(self.num_variables(), point.num_variables());
