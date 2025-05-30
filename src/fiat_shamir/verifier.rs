@@ -1100,13 +1100,13 @@ mod tests {
 
     #[test]
     fn test_public_scalars_round_trip_to_verifier_challenge_scalars() {
+        // Number of public scalars to generate
+        const NUM_SCALARS: usize = 5;
+
         let mut rng = SmallRng::seed_from_u64(1);
 
         // Create domain separator
         let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("roundtrip", KeccakF);
-
-        // Number of public scalars to generate
-        const NUM_SCALARS: usize = 5;
 
         // Generate random EF4 scalars
         let random_scalars: Vec<EF4> = (0..NUM_SCALARS).map(|_| rng.random()).collect();
