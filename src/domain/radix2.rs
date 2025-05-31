@@ -99,7 +99,6 @@ impl<F: Field + TwoAdicField> Radix2EvaluationDomain<F> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
@@ -128,7 +127,7 @@ mod tests {
     #[test]
     fn test_non_power_of_two() {
         let domain = Radix2EvaluationDomain::<F>::new(7).unwrap();
-        assert_eq!(domain.size(), 8); 
+        assert_eq!(domain.size(), 8);
         assert_eq!(domain.log_size_of_group, 3);
     }
 
