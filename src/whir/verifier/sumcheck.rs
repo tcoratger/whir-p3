@@ -144,7 +144,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::domain_separator::DomainSeparator,
+        fiat_shamir::{DefaultHash, domain_separator::DomainSeparator},
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
@@ -159,6 +159,7 @@ mod tests {
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
+    type H = DefaultHash;
 
     /// Constructs a default WHIR configuration for testing
     fn default_whir_config(
@@ -292,7 +293,7 @@ mod tests {
             .unwrap();
 
         // Reconstruct verifier state to simulate the rounds
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+        let mut verifier_state = domsep.to_verifier_state::<H>(prover_state.narg_string());
 
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
@@ -441,7 +442,7 @@ mod tests {
         // -------------------------------------------------------------
         // Manually extract expected sumcheck rounds by replaying transcript
         // -------------------------------------------------------------
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+        let mut verifier_state = domsep.to_verifier_state::<H>(prover_state.narg_string());
         let mut expected = Vec::new();
 
         // First skipped round (wide DFT LDE)

@@ -71,7 +71,7 @@ where
     ///
     /// Seeds the internal sponge with the domain separator.
     #[must_use]
-    pub fn new(domain_separator: &DomainSeparator<EF, F, Perm, H, U, WIDTH>, perm: Perm) -> Self {
+    pub fn new(domain_separator: &DomainSeparator<EF, F, Perm, U, WIDTH>, perm: Perm) -> Self {
         let hash_state = HashStateWithInstructions::new(domain_separator, perm.clone());
 
         let mut ds = H::new(perm, [0u8; 32]);
@@ -305,11 +305,13 @@ mod tests {
     type G = Goldilocks;
     type EG2 = BinomialExtensionField<G, 2>;
 
+    type H = DefaultHash;
+
     #[test]
     fn test_prover_state_public_units_does_not_affect_narg() {
         let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.absorb(4, "data");
-        let mut pstate = domsep.to_prover_state();
+        let mut pstate = domsep.to_prover_state::<H>();
 
         pstate.public_units(&[1, 2, 3, 4]).unwrap();
         assert_eq!(pstate.narg_string(), b"");
@@ -319,7 +321,7 @@ mod tests {
     fn test_add_units_appends_to_narg_string() {
         let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.absorb(3, "msg");
-        let mut pstate = domsep.to_prover_state();
+        let mut pstate = domsep.to_prover_state::<H>();
         let input = [42, 43, 44];
 
         assert!(pstate.add_units(&input).is_ok());
@@ -330,7 +332,7 @@ mod tests {
     fn test_add_units_too_many_elements_should_error() {
         let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.absorb(2, "short");
-        let mut pstate = domsep.to_prover_state();
+        let mut pstate = domsep.to_prover_state::<H>();
 
         let result = pstate.add_units(&[1, 2, 3]);
         assert!(result.is_err());
@@ -340,7 +342,7 @@ mod tests {
     fn test_public_units_does_not_update_transcript() {
         let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.absorb(2, "p");
-        let mut pstate = domsep.to_prover_state();
+        let mut pstate = domsep.to_prover_state::<H>();
         let _ = pstate.public_units(&[0xaa, 0xbb]);
 
         assert_eq!(pstate.narg_string(), b"");
@@ -350,7 +352,7 @@ mod tests {
     fn test_fill_challenge_units() {
         let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.squeeze(8, "ch");
-        let mut pstate = domsep.to_prover_state();
+        let mut pstate = domsep.to_prover_state::<H>();
 
         let mut out = [0u8; 8];
         let _ = pstate.fill_challenge_units(&mut out);
@@ -362,7 +364,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F>::new("t", KeccakF);
         domsep.absorb(2, "a");
         domsep.absorb(3, "b");
-        let mut p = domsep.to_prover_state();
+        let mut p = domsep.to_prover_state::<H>();
 
         p.add_units(&[10, 11]).unwrap();
         p.add_units(&[20, 21, 22]).unwrap();
@@ -374,7 +376,7 @@ mod tests {
     fn test_narg_string_round_trip_check() {
         let mut domsep = DomainSeparator::<F, F>::new("t", KeccakF);
         domsep.absorb(5, "data");
-        let mut p = domsep.to_prover_state();
+        let mut p = domsep.to_prover_state::<H>();
 
         let msg = b"zkp42";
         p.add_units(msg).unwrap();
@@ -393,7 +395,7 @@ mod tests {
         domsep.add_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<H>();
 
         // Step 4: Create 3 F field elements
         let f0 = F::from_u64(111);
@@ -417,7 +419,7 @@ mod tests {
         );
 
         // Step 8: Verify determinism by repeating with a new prover
-        let mut prover_state2 = domsep.to_prover_state();
+        let mut prover_state2 = domsep.to_prover_state::<H>();
         prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
 
         assert_eq!(
@@ -436,7 +438,7 @@ mod tests {
         domsep.add_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<H>();
 
         // Step 4: Create 3 Goldilocks field elements
         let f0 = G::from_u64(111);
@@ -460,7 +462,7 @@ mod tests {
         );
 
         // Step 8: Verify determinism by repeating with a new prover
-        let mut prover_state2 = domsep.to_prover_state();
+        let mut prover_state2 = domsep.to_prover_state::<H>();
         prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
 
         assert_eq!(
@@ -478,7 +480,7 @@ mod tests {
         domsep.add_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<H>();
 
         // Step 4: Construct 3 extension field elements
         // - One large (MAX) value to ensure all 4 limbs are filled
@@ -508,7 +510,7 @@ mod tests {
         );
 
         // Step 8: Repeat with a second prover to confirm determinism
-        let mut prover_state2 = domsep.to_prover_state();
+        let mut prover_state2 = domsep.to_prover_state::<H>();
         prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
 
         assert_eq!(
@@ -526,7 +528,7 @@ mod tests {
         domsep.add_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<H>();
 
         // Step 4: Construct 3 extension field elements
         // - One large (MAX) value to ensure all 4 limbs are filled
@@ -555,7 +557,7 @@ mod tests {
         );
 
         // Step 8: Repeat with a second prover to confirm determinism
-        let mut prover_state2 = domsep.to_prover_state();
+        let mut prover_state2 = domsep.to_prover_state::<H>();
         prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
 
         assert_eq!(
@@ -569,7 +571,7 @@ mod tests {
         // Generate a domain separator with known tag and one challenge scalar
         let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("chal", KeccakF);
         domsep.challenge_scalars(1, "tag");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
 
         // Sample a single scalar
         let mut out = [F::ZERO; 1];
@@ -583,7 +585,7 @@ mod tests {
     fn scalar_challenge_single_basefield_case_2() {
         let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("chal2", KeccakF);
         domsep.challenge_scalars(1, "tag");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
 
         let mut out = [F::ZERO; 1];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -595,7 +597,7 @@ mod tests {
     fn scalar_challenge_multiple_basefield_scalars() {
         let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("chal", KeccakF);
         domsep.challenge_scalars(10, "tag");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
 
         let mut out = [F::ZERO; 10];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -621,7 +623,7 @@ mod tests {
     fn scalar_challenge_single_extension_scalar() {
         let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("chal", KeccakF);
         domsep.challenge_scalars(1, "tag");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
 
         let mut out = [EF4::ZERO; 1];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -644,7 +646,7 @@ mod tests {
     fn scalar_challenge_multiple_extension_scalars() {
         let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("chal", KeccakF);
         domsep.challenge_scalars(5, "tag");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
 
         let mut out = [EF4::ZERO; 5];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -720,7 +722,7 @@ mod tests {
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 222, 0, 0, 0];
 
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
         let actual = prover.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -729,7 +731,7 @@ mod tests {
         );
 
         // Determinism: same input, same transcript = same output
-        let mut prover2 = domsep.to_prover_state();
+        let mut prover2 = domsep.to_prover_state::<H>();
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -750,7 +752,7 @@ mod tests {
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0];
 
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
         let actual = prover.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -759,7 +761,7 @@ mod tests {
         );
 
         // Determinism: same input, same transcript = same output
-        let mut prover2 = domsep.to_prover_state();
+        let mut prover2 = domsep.to_prover_state::<H>();
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -784,7 +786,7 @@ mod tests {
         ];
 
         // Serialize the values through the transcript
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
         let actual = prover.public_scalars(&values).unwrap();
 
         // Check that the actual bytes match expected ones
@@ -794,7 +796,7 @@ mod tests {
         );
 
         // Check determinism: same input = same output
-        let mut prover2 = domsep.to_prover_state();
+        let mut prover2 = domsep.to_prover_state::<H>();
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -819,7 +821,7 @@ mod tests {
         ];
 
         // Serialize the values through the transcript
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
         let actual = prover.public_scalars(&values).unwrap();
 
         // Check that the actual bytes match expected ones
@@ -829,7 +831,7 @@ mod tests {
         );
 
         // Check determinism: same input = same output
-        let mut prover2 = domsep.to_prover_state();
+        let mut prover2 = domsep.to_prover_state::<H>();
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -845,14 +847,14 @@ mod tests {
         let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("mixed", KeccakF);
         domsep.add_scalars(values.len(), "mix");
 
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
         let actual = prover.public_scalars(&values).unwrap();
 
         let expected = vec![0, 0, 0, 0, 1, 0, 0, 0, 64, 226, 1, 0, 67, 104, 120, 0];
 
         assert_eq!(actual, expected, "Mixed values should serialize correctly");
 
-        let mut prover2 = domsep.to_prover_state();
+        let mut prover2 = domsep.to_prover_state::<H>();
         assert_eq!(
             actual,
             prover2.public_scalars(&values).unwrap(),
@@ -864,7 +866,7 @@ mod tests {
     fn test_hint_bytes_appends_hint_length_and_data() {
         let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("hint_test", KeccakF);
         domsep.hint("proof_hint");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
 
         let hint = b"abc123";
         prover.hint_bytes(hint).unwrap();
@@ -883,7 +885,7 @@ mod tests {
     fn test_hint_bytes_empty_hint_is_encoded_correctly() {
         let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("empty_hint", KeccakF);
         domsep.hint("empty");
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
 
         prover.hint_bytes(b"").unwrap();
 
@@ -894,7 +896,7 @@ mod tests {
     #[test]
     fn test_hint_bytes_fails_if_hint_op_missing() {
         let domsep: DomainSeparator<F, F> = DomainSeparator::new("no_hint", KeccakF);
-        let mut prover = domsep.to_prover_state();
+        let mut prover = domsep.to_prover_state::<H>();
 
         // DomainSeparator contains no hint operation
         let result = prover.hint_bytes(b"some_hint");
@@ -910,8 +912,8 @@ mod tests {
         domsep.hint("same");
 
         let hint = b"zkproof_hint";
-        let mut prover1 = domsep.to_prover_state();
-        let mut prover2 = domsep.to_prover_state();
+        let mut prover1 = domsep.to_prover_state::<H>();
+        let mut prover2 = domsep.to_prover_state::<H>();
 
         prover1.hint_bytes(hint).unwrap();
         prover2.hint_bytes(hint).unwrap();

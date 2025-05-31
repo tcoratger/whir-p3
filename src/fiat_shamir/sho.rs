@@ -37,10 +37,7 @@ where
     /// Initialise a stateful hash object,
     /// setting up the state of the sponge function and parsing the tag string.
     #[must_use]
-    pub fn new<EF, F>(
-        domain_separator: &DomainSeparator<EF, F, Perm, H, U, WIDTH>,
-        perm: Perm,
-    ) -> Self
+    pub fn new<EF, F>(domain_separator: &DomainSeparator<EF, F, Perm, U, WIDTH>, perm: Perm) -> Self
     where
         EF: ExtensionField<F> + TwoAdicField,
         F: Field + TwoAdicField + PrimeField64,
@@ -223,9 +220,9 @@ mod tests {
 
     #[test]
     fn test_absorb_works_and_modifies_stack() {
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.absorb(2, "x");
-        let mut state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         assert_eq!(state.stack.len(), 1);
 
@@ -239,9 +236,9 @@ mod tests {
 
     #[test]
     fn test_absorb_too_much_returns_error() {
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.absorb(2, "x");
-        let mut state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         let result = state.absorb(&[1, 2, 3]);
         assert!(result.is_err());
@@ -249,9 +246,9 @@ mod tests {
 
     #[test]
     fn test_squeeze_works() {
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.squeeze(3, "y");
-        let mut state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         let mut out = [0u8; 3];
         let result = state.squeeze(&mut out);
@@ -261,9 +258,9 @@ mod tests {
 
     #[test]
     fn test_squeeze_with_leftover_updates_stack() {
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.squeeze(4, "z");
-        let mut state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         let mut out = [0u8; 2];
         let result = state.squeeze(&mut out);
@@ -274,9 +271,9 @@ mod tests {
 
     #[test]
     fn test_multiple_absorbs_deplete_stack_properly() {
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.absorb(5, "a");
-        let mut state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         let res1 = state.absorb(&[1, 2]);
         assert!(res1.is_ok());
@@ -291,9 +288,9 @@ mod tests {
 
     #[test]
     fn test_multiple_squeeze_deplete_stack_properly() {
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.squeeze(5, "z");
-        let mut state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         let mut out1 = [0u8; 2];
         assert!(state.squeeze(&mut out1).is_ok());
@@ -307,9 +304,9 @@ mod tests {
 
     #[test]
     fn test_absorb_then_wrong_squeeze_clears_stack() {
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.absorb(3, "in");
-        let mut state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         let mut out = [0u8; 1];
         let result = state.squeeze(&mut out);
@@ -319,9 +316,9 @@ mod tests {
 
     #[test]
     fn test_absorb_exact_then_too_much() {
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.absorb(2, "x");
-        let mut state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         assert!(state.absorb(&[10, 20]).is_ok());
         assert!(state.absorb(&[30]).is_err()); // no ops left
@@ -330,9 +327,9 @@ mod tests {
 
     #[test]
     fn test_from_impl_constructs_hash_state() {
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("from", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("from", KeccakF);
         domsep.absorb(1, "in");
-        let state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         assert_eq!(state.stack.len(), 1);
         assert_eq!(state.stack.front(), Some(&Op::Absorb(1)));
@@ -340,22 +337,22 @@ mod tests {
 
     #[test]
     fn test_generate_tag_is_deterministic() {
-        let mut ds1 = DomainSeparator::<F, F, _, DummySponge>::new("session1", KeccakF);
+        let mut ds1 = DomainSeparator::<F, F>::new("session1", KeccakF);
         ds1.absorb(1, "x");
-        let mut ds2 = DomainSeparator::<F, F, _, DummySponge>::new("session1", KeccakF);
+        let mut ds2 = DomainSeparator::<F, F>::new("session1", KeccakF);
         ds2.absorb(1, "x");
 
-        let tag1 = HashStateWithInstructions::new(&ds1, KeccakF);
-        let tag2 = HashStateWithInstructions::new(&ds2, KeccakF);
+        let tag1 = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&ds1, KeccakF);
+        let tag2 = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&ds2, KeccakF);
 
         assert_eq!(&*tag1.ds.absorbed.borrow(), &*tag2.ds.absorbed.borrow());
     }
 
     #[test]
     fn test_hint_works_and_removes_stack_entry() {
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.hint("hint");
-        let mut state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         assert_eq!(state.stack.len(), 1);
         let result = state.hint();
@@ -365,9 +362,9 @@ mod tests {
 
     #[test]
     fn test_hint_wrong_op_errors_and_clears_stack() {
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
         domsep.absorb(1, "x");
-        let mut state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         let result = state.hint(); // Should expect Op::Hint, but see Op::Absorb
         assert!(result.is_err());
@@ -376,8 +373,8 @@ mod tests {
 
     #[test]
     fn test_hint_on_empty_stack_errors() {
-        let domsep = DomainSeparator::<F, F, _, DummySponge>::new("test", KeccakF);
-        let mut state = HashStateWithInstructions::new(&domsep, KeccakF);
+        let domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         let result = state.hint(); // Stack is empty
         assert!(result.is_err());
@@ -394,7 +391,7 @@ mod tests {
             squeezed: Rc::clone(&squeezed),
         };
 
-        let mut domsep = DomainSeparator::<F, F, _, DummySponge>::new("drop-test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F>::new("drop-test", KeccakF);
         domsep.absorb(1, "x");
 
         {
