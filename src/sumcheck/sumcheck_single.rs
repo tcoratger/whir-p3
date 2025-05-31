@@ -566,13 +566,14 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+        fiat_shamir::{DefaultHash, domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
         whir::statement::weights::Weights,
     };
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<BabyBear, 4>;
+    type H = DefaultHash;
 
     #[test]
     fn test_sumcheck_single_initialization() {
@@ -1524,7 +1525,7 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Reconstruct verifier state to manually validate the sumcheck round
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+        let mut verifier_state = domsep.to_verifier_state::<H>(prover_state.narg_string());
 
         // Read the sumcheck polynomial evaluations: h(0), h(1), h(2)
         let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars().unwrap();
@@ -1605,7 +1606,7 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Reconstruct verifier state for round-by-round checks
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+        let mut verifier_state = domsep.to_verifier_state::<H>(prover_state.narg_string());
 
         // Initialize claimed sum with the expected initial value from constraints (before any folding)
         let mut current_sum = expected_initial_sum;
@@ -1745,7 +1746,7 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Initialize the verifier state for checking round-by-round
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+        let mut verifier_state = domsep.to_verifier_state::<H>(prover_state.narg_string());
 
         // Initialize the sum to be verified round-by-round
         let mut current_sum = expected_initial_sum;
@@ -2078,7 +2079,7 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Reconstruct verifier state to simulate the rounds
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+        let mut verifier_state = domsep.to_verifier_state::<H>(prover_state.narg_string());
 
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
@@ -2482,7 +2483,7 @@ mod tests {
         // -------------------------------------------------------------
         // Replay verifier's side using same Fiat-Shamir transcript
         // -------------------------------------------------------------
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+        let mut verifier_state = domsep.to_verifier_state::<H>(prover_state.narg_string());
         let mut current_sum = expected_sum;
 
         // Get the 8 evaluations of the skipping polynomial h₀(X)

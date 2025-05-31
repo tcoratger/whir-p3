@@ -4,7 +4,7 @@ use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::Permutation;
 
 use super::{
-    DefaultHash, duplex_sponge::interface::DuplexSpongeInterface, errors::DomainSeparatorMismatch,
+    duplex_sponge::interface::DuplexSpongeInterface, errors::DomainSeparatorMismatch,
     keccak::KECCAK_WIDTH_BYTES, utils::bytes_uniform_modp,
 };
 use crate::{
@@ -46,13 +46,11 @@ pub struct DomainSeparator<
     EF,
     F,
     Perm = DefaultPerm,
-    H = DefaultHash,
     U = u8,
     const WIDTH: usize = KECCAK_WIDTH_BYTES,
 > where
     U: Unit,
     Perm: Permutation<[U; WIDTH]>,
-    H: DuplexSpongeInterface<Perm, U, WIDTH>,
 {
     /// The internal IOPattern string representation.
     ///
@@ -65,12 +63,6 @@ pub struct DomainSeparator<
 
     /// Permutation
     perm: Perm,
-
-    /// Phantom type marker for the hash function used (e.g., Poseidon, Keccak).
-    ///
-    /// Used to enforce that this domain separator is compatible with the hash function
-    /// required by the prover/verifier state or proof system.
-    _hash: PhantomData<H>,
 
     /// Phantom marker for the base field type `F`.
     ///
@@ -88,10 +80,9 @@ pub struct DomainSeparator<
     _unit: PhantomData<U>,
 }
 
-impl<EF, F, Perm, H, U, const WIDTH: usize> DomainSeparator<EF, F, Perm, H, U, WIDTH>
+impl<EF, F, Perm, U, const WIDTH: usize> DomainSeparator<EF, F, Perm, U, WIDTH>
 where
     U: Unit + Default + Copy,
-    H: DuplexSpongeInterface<Perm, U, WIDTH>,
     Perm: Permutation<[U; WIDTH]>,
     EF: ExtensionField<F> + TwoAdicField,
     F: Field + TwoAdicField + PrimeField64,
@@ -101,7 +92,6 @@ where
         Self {
             io,
             perm,
-            _hash: PhantomData,
             _field: PhantomData,
             _extension_field: PhantomData,
             _unit: PhantomData,
@@ -223,17 +213,23 @@ where
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
     #[must_use]
-    pub fn to_prover_state(&self) -> ProverState<EF, F, Perm, H, U, WIDTH> {
+    pub fn to_prover_state<H>(&self) -> ProverState<EF, F, Perm, H, U, WIDTH>
+    where
+        H: DuplexSpongeInterface<Perm, U, WIDTH>,
+    {
         ProverState::new(self, self.perm.clone())
     }
 
     /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript
     /// (bytes).
     #[must_use]
-    pub fn to_verifier_state<'a>(
+    pub fn to_verifier_state<'a, H>(
         &self,
         transcript: &'a [u8],
-    ) -> VerifierState<'a, EF, F, Perm, H, U, WIDTH> {
+    ) -> VerifierState<'a, EF, F, Perm, H, U, WIDTH>
+    where
+        H: DuplexSpongeInterface<Perm, U, WIDTH>,
+    {
         VerifierState::new(self, transcript, self.perm.clone())
     }
 

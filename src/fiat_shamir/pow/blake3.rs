@@ -205,9 +205,10 @@ mod tests {
     use p3_keccak::KeccakF;
 
     use super::*;
-    use crate::fiat_shamir::domain_separator::DomainSeparator;
+    use crate::fiat_shamir::{DefaultHash, domain_separator::DomainSeparator};
 
     type F = BabyBear;
+    type H = DefaultHash;
 
     fn sample_challenges() -> Vec<[u8; 32]> {
         vec![
@@ -228,11 +229,11 @@ mod tests {
         domain_separator.absorb(1, "something");
         domain_separator.challenge_pow("rolling dices");
 
-        let mut prover = domain_separator.to_prover_state();
+        let mut prover = domain_separator.to_prover_state::<H>();
         prover.add_units(b"\0").expect("Invalid DomainSeparator");
         prover.challenge_pow::<Blake3PoW>(BITS).unwrap();
 
-        let mut verifier = domain_separator.to_verifier_state(prover.narg_string());
+        let mut verifier = domain_separator.to_verifier_state::<H>(prover.narg_string());
         let byte = verifier.next_units::<1>().unwrap();
         assert_eq!(&byte, b"\0");
         verifier.challenge_pow::<Blake3PoW>(BITS).unwrap();
