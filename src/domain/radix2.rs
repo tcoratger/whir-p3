@@ -109,6 +109,29 @@ mod tests {
     type F = BabyBear;
 
     #[test]
+    fn test_smallest_domain() {
+        let domain = Radix2EvaluationDomain::<F>::new(1).unwrap();
+        assert_eq!(domain.size(), 1);
+        assert_eq!(domain.log_size_of_group, 0);
+        assert_eq!(domain.group_gen().exp_u64(1), F::ONE);
+    }
+
+    #[test]
+    fn test_maximum_domain() {
+        let max_size = 1 << F::TWO_ADICITY;
+        let domain = Radix2EvaluationDomain::<F>::new(max_size).unwrap();
+        assert_eq!(domain.size(), (max_size as u64).try_into().unwrap());
+        assert_eq!(domain.log_size_of_group, F::TWO_ADICITY as u32);
+    }
+
+    #[test]
+    fn test_non_power_of_two() {
+        let domain = Radix2EvaluationDomain::<F>::new(7).unwrap();
+        assert_eq!(domain.size(), 8);
+        assert_eq!(domain.log_size_of_group, 3);
+    }
+
+    #[test]
     fn test_domain_creation() {
         let domain = Radix2EvaluationDomain::<F>::new(8).unwrap();
         assert_eq!(domain.size(), 8);
