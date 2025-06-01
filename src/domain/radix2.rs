@@ -105,8 +105,68 @@ mod tests {
     use p3_field::PrimeCharacteristicRing;
 
     use super::*;
+    use crate::domain::general::GeneralEvaluationDomain;
 
     type F = BabyBear;
+
+    #[test]
+    fn test_subgroup_properties() {
+        let domain = Radix2EvaluationDomain::<F>::new(8).unwrap();
+        let mut elements = Vec::new();
+
+        // Validate that every element in subgroup is unique
+        for i in 0..domain.size() {
+            elements.push(domain.group_gen.exp_u64(i as u64));
+        }
+        elements.sort();
+        elements.dedup();
+        assert_eq!(elements.len(), domain.size());
+    }
+
+    #[test]
+    fn test_boundary_valid_domain() {
+        let max_valid_size = 1 << F::TWO_ADICITY;
+        let domain = Radix2EvaluationDomain::<F>::new(max_valid_size).unwrap();
+        assert_eq!(domain.size(), max_valid_size);
+    }
+
+    #[test]
+    fn test_vanishing_polynomial() {
+        let domain = Radix2EvaluationDomain::<F>::new(8).unwrap();
+
+        // Validate that `x^size - offset_pow_size` at subgroup is zero
+        for i in 0..domain.size() {
+            let x = domain.group_gen().exp_u64(i as u64);
+            let vanishing_value = x.exp_u64(domain.size) - domain.offset_pow_size;
+            assert_eq!(vanishing_value, F::ZERO);
+        }
+    }
+
+    #[test]
+    fn test_various_sizes_consistency() {
+        for log_size in 0..=10 {
+            let size = 1 << log_size;
+            if let Some(domain) = Radix2EvaluationDomain::<F>::new(size) {
+                assert_eq!(domain.size(), size);
+                assert_eq!(domain.log_size_of_group, log_size);
+                assert_eq!(domain.group_gen().exp_u64(size as u64), F::ONE);
+            }
+        }
+    }
+
+    #[test]
+    fn test_general_domain_compatibility() {
+        let size = 16;
+        let radix2_domain = Radix2EvaluationDomain::<F>::new(size).unwrap();
+        let general_domain = GeneralEvaluationDomain::<F>::new(size).unwrap();
+
+        match general_domain {
+            GeneralEvaluationDomain::Radix2(domain) => {
+                assert_eq!(domain.size(), radix2_domain.size());
+                assert_eq!(domain.group_gen(), radix2_domain.group_gen());
+            }
+        }
+    }
 
     #[test]
     fn test_smallest_domain() {
