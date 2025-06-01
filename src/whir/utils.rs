@@ -67,16 +67,8 @@ where
 ///
 /// This should be used on the prover side.
 #[instrument(skip_all)]
-pub fn sample_ood_points<
-    F,
-    EF,
-    E,
-    FiatShamirPerm,
-    FiatShamirHash,
-    W,
-    const FIAT_SHAMIR_WIDTH: usize,
->(
-    prover_state: &mut ProverState<EF, F, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+pub fn sample_ood_points<F, EF, E, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>(
+    prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
     num_samples: usize,
     num_variables: usize,
     evaluate_fn: E,
@@ -86,8 +78,8 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     E: Fn(&MultilinearPoint<EF>) -> EF,
     W: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
+    Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
 {
     let mut ood_points = EF::zero_vec(num_samples);
     let mut ood_answers = Vec::with_capacity(num_samples);

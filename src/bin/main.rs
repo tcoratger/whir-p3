@@ -38,7 +38,7 @@ type __EF = BinomialExtensionField<__F, 4>;
 type ByteHash = Blake3;
 type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-type FiatShamirPerm = DefaultPerm;
+type Perm = DefaultPerm;
 type FiatShamirHash = DefaultHash;
 type W = u8;
 const FIAT_SHAMIR_WIDTH: usize = KECCAK_WIDTH_BYTES;
@@ -129,7 +129,7 @@ fn main() {
         FieldHash,
         MyCompress,
         Blake3PoW,
-        FiatShamirPerm,
+        Perm,
         FiatShamirHash,
         W,
         FIAT_SHAMIR_WIDTH,

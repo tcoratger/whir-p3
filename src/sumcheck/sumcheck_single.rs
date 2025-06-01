@@ -333,13 +333,13 @@ where
     pub fn compute_sumcheck_polynomials<
         S,
         DFT,
-        FiatShamirPerm,
+        Perm,
         FiatShamirHash,
         W,
         const FIAT_SHAMIR_WIDTH: usize,
     >(
         &mut self,
-        prover_state: &mut ProverState<EF, F, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
         folding_factor: usize,
         pow_bits: f64,
         k_skip: Option<usize>,
@@ -351,8 +351,8 @@ where
         S: PowStrategy,
         DFT: TwoAdicSubgroupDft<F>,
         W: Unit + Default + Copy,
-        FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-        FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
+        Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+        FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
     {
         // Will store the verifier's folding challenges for each round.
         let mut res = Vec::with_capacity(folding_factor);

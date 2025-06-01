@@ -44,50 +44,40 @@ pub struct Prover<
     H,
     C,
     PowStrategy,
-    FiatShamirPerm,
+    Perm,
     FiatShamirHash,
     W,
     const FIAT_SHAMIR_WIDTH: usize,
 >(
     /// Reference to the protocol configuration shared across prover components.
-    pub  &'a WhirConfig<
-        EF,
-        F,
-        H,
-        C,
-        PowStrategy,
-        FiatShamirPerm,
-        FiatShamirHash,
-        W,
-        FIAT_SHAMIR_WIDTH,
-    >,
+    pub &'a WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize> Deref
-    for Prover<'_, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
+impl<EF, F, H, C, PS, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize> Deref
+    for Prover<'_, EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0
     }
 }
 
-impl<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
-    Prover<'_, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
+impl<EF, F, H, C, PS, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
+    Prover<'_, EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
     W: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
+    Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
 {
     /// Validates that the total number of variables expected by the prover configuration
     /// matches the number implied by the folding schedule and the final rounds.
@@ -171,7 +161,7 @@ where
     pub fn prove<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
-        prover_state: &mut ProverState<EF, F, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
         statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
@@ -225,7 +215,7 @@ where
         &self,
         round_index: usize,
         dft: &D,
-        prover_state: &mut ProverState<EF, F, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
         round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
@@ -451,7 +441,7 @@ where
     fn final_round<D, const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<EF, F, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
         round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
         folded_evaluations: &EvaluationsList<EF>,
@@ -558,7 +548,7 @@ where
     fn compute_stir_queries<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<EF, F, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
         round_state: &RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig<EF>,

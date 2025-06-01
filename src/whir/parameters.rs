@@ -32,7 +32,7 @@ pub struct WhirConfig<
     H,
     C,
     PowStrategy,
-    FiatShamirPerm,
+    Perm,
     FiatShamirHash,
     W,
     const FIAT_SHAMIR_WIDTH: usize,
@@ -75,19 +75,19 @@ pub struct WhirConfig<
 
     pub _base_field: PhantomData<F>,
     pub _extension_field: PhantomData<EF>,
-    pub _fiat_shamir_permutation: PhantomData<FiatShamirPerm>,
+    pub _fiat_shamir_permutation: PhantomData<Perm>,
     pub _fiat_shamir_hash: PhantomData<FiatShamirHash>,
     pub _fiat_shamir_unit: PhantomData<W>,
 }
 
-impl<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
-    WhirConfig<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
+impl<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
+    WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     W: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
+    Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
 {
     #[allow(clippy::too_many_lines)]
     pub fn new(
@@ -435,7 +435,7 @@ mod tests {
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 
     use super::*;
-    use crate::whir::{FiatShamirHash, FiatShamirPerm, W};
+    use crate::whir::{FiatShamirHash, Perm, W};
 
     type F = BabyBear;
     type Poseidon2Compression<Perm16> = TruncatedPermutation<Perm16, 2, 8, 16>;
@@ -468,7 +468,7 @@ mod tests {
             Poseidon2Sponge<u8>,
             Poseidon2Compression<u8>,
             (),
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,
@@ -490,7 +490,7 @@ mod tests {
             Poseidon2Sponge<u8>,
             Poseidon2Compression<u8>,
             (),
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,
@@ -504,23 +504,14 @@ mod tests {
         let field_size_bits = 64;
         let soundness = SecurityAssumption::CapacityBound;
 
-        let pow_bits = WhirConfig::<
-            F,
-            F,
-            u8,
-            u8,
-            (),
-            FiatShamirPerm,
-            FiatShamirHash,
-            W,
-            200,
-        >::folding_pow_bits(
-            100, // Security level
-            soundness,
-            field_size_bits,
-            10, // Number of variables
-            5,  // Log inverse rate
-        );
+        let pow_bits =
+            WhirConfig::<F, F, u8, u8, (), Perm, FiatShamirHash, W, 200>::folding_pow_bits(
+                100, // Security level
+                soundness,
+                field_size_bits,
+                10, // Number of variables
+                5,  // Log inverse rate
+            );
 
         // PoW bits should never be negative
         assert!(pow_bits >= 0.);
@@ -536,7 +527,7 @@ mod tests {
             Poseidon2Sponge<u8>,
             Poseidon2Compression<u8>,
             (),
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,
@@ -592,7 +583,7 @@ mod tests {
             Poseidon2Sponge<u8>,
             Poseidon2Compression<u8>,
             (),
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,
@@ -619,7 +610,7 @@ mod tests {
             Poseidon2Sponge<u8>,
             Poseidon2Compression<u8>,
             (),
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,
@@ -646,7 +637,7 @@ mod tests {
             Poseidon2Sponge<u8>,
             Poseidon2Compression<u8>,
             (),
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,
@@ -687,7 +678,7 @@ mod tests {
             Poseidon2Sponge<u8>,
             Poseidon2Compression<u8>,
             (),
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,
@@ -728,7 +719,7 @@ mod tests {
             Poseidon2Sponge<u8>,
             Poseidon2Compression<u8>,
             (),
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,
@@ -768,7 +759,7 @@ mod tests {
             Poseidon2Sponge<u8>,
             Poseidon2Compression<u8>,
             (),
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,

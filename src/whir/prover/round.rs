@@ -118,12 +118,12 @@ where
         C,
         PS,
         D,
-        FiatShamirPerm,
+        Perm,
         FiatShamirHash,
         const FIAT_SHAMIR_WIDTH: usize,
     >(
-        prover: &Prover<'_, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
-        prover_state: &mut ProverState<EF, F, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        prover: &Prover<'_, EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         dft: &D,
@@ -132,8 +132,8 @@ where
         PS: PowStrategy,
         D: TwoAdicSubgroupDft<F>,
         W: Unit + Default + Copy,
-        FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-        FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
+        Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+        FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
     {
         // Convert witness ood_points into constraints
         let new_constraints = witness
@@ -230,9 +230,7 @@ mod tests {
             coeffs::CoefficientList,
             evals::{EvaluationStorage, EvaluationsList},
         },
-        whir::{
-            FiatShamirHash, FiatShamirPerm, W, WhirConfig, committer::writer::CommitmentWriter,
-        },
+        whir::{FiatShamirHash, Perm, W, WhirConfig, committer::writer::CommitmentWriter},
     };
 
     type F = BabyBear;
@@ -258,8 +256,7 @@ mod tests {
         initial_statement: bool,
         folding_factor: usize,
         pow_bits: usize,
-    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, FiatShamirPerm, FiatShamirHash, W, 200>
-    {
+    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, Perm, FiatShamirHash, W, 200> {
         // Construct the multivariate parameter set with `num_variables` variables,
         // determining the size of the evaluation domain.
         let mv_params = MultivariateParameters::<EF4>::new(num_variables);
@@ -293,21 +290,11 @@ mod tests {
     /// This is used as a boilerplate step before running the first WHIR round.
     #[allow(clippy::type_complexity)]
     fn setup_domain_and_commitment(
-        params: &WhirConfig<
-            EF4,
-            F,
-            FieldHash,
-            MyCompress,
-            Blake3PoW,
-            FiatShamirPerm,
-            FiatShamirHash,
-            W,
-            200,
-        >,
+        params: &WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, Perm, FiatShamirHash, W, 200>,
         poly: EvaluationsList<F>,
     ) -> (
         DomainSeparator<EF4, F, DefaultPerm, u8, 200>,
-        ProverState<EF4, F, FiatShamirPerm, FiatShamirHash, W, 200>,
+        ProverState<EF4, F, Perm, FiatShamirHash, W, 200>,
         Witness<EF4, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.

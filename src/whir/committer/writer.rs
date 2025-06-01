@@ -34,40 +34,30 @@ pub struct CommitmentWriter<
     H,
     C,
     PowStrategy,
-    FiatShamirPerm,
+    Perm,
     FiatShamirHash,
     W,
     const FIAT_SHAMIR_WIDTH: usize,
 >(
     /// Reference to the WHIR protocol configuration.
-    &'a WhirConfig<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+    &'a WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
-    CommitmentWriter<'a, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
+impl<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
+    CommitmentWriter<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     W: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
+    Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
 {
     /// Create a new writer that borrows the WHIR protocol configuration.
     pub const fn new(
-        params: &'a WhirConfig<
-            EF,
-            F,
-            H,
-            C,
-            PS,
-            FiatShamirPerm,
-            FiatShamirHash,
-            W,
-            FIAT_SHAMIR_WIDTH,
-        >,
+        params: &'a WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
     ) -> Self {
         Self(params)
     }
@@ -85,7 +75,7 @@ where
     pub fn commit<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
-        prover_state: &mut ProverState<EF, F, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
         polynomial: EvaluationsList<F>,
     ) -> ProofResult<Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>>
     where
@@ -145,26 +135,13 @@ where
     }
 }
 
-impl<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
-    Deref
-    for CommitmentWriter<
-        '_,
-        EF,
-        F,
-        H,
-        C,
-        PowStrategy,
-        FiatShamirPerm,
-        FiatShamirHash,
-        W,
-        FIAT_SHAMIR_WIDTH,
-    >
+impl<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize> Deref
+    for CommitmentWriter<'_, EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target =
-        WhirConfig<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -186,7 +163,7 @@ mod tests {
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
         poly::multilinear::MultilinearPoint,
-        whir::{FiatShamirHash, FiatShamirPerm, W},
+        whir::{FiatShamirHash, Perm, W},
     };
 
     type F = BabyBear;
@@ -234,7 +211,7 @@ mod tests {
             FieldHash,
             MyCompress,
             Blake3PoW,
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,
@@ -327,7 +304,7 @@ mod tests {
             FieldHash,
             MyCompress,
             Blake3PoW,
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,
@@ -384,7 +361,7 @@ mod tests {
             FieldHash,
             MyCompress,
             Blake3PoW,
-            FiatShamirPerm,
+            Perm,
             FiatShamirHash,
             W,
             200,
