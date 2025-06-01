@@ -133,6 +133,48 @@ mod tests {
     type F = BabyBear;
 
     #[test]
+    #[should_panic]
+    fn test_evaluate_at_point_wrong_dimensions() {
+        let poly = SumcheckPolynomial::new(vec![F::ZERO; 9], 2);
+        let point = MultilinearPoint(vec![F::ONE]); // Wrong dimension  
+        assert_eq!(poly.evaluate_at_point(&point), F::ZERO);
+    }
+
+    #[test]
+    fn test_all_zero_evaluations() {
+        let poly = SumcheckPolynomial::new(vec![F::ZERO; 9], 2);
+        assert_eq!(poly.sum_over_boolean_hypercube(), F::ZERO);
+
+        let point = MultilinearPoint(vec![F::from_u64(5), F::from_u64(7)]);
+        assert_eq!(poly.evaluate_at_point(&point), F::ZERO);
+    }
+
+    #[test]
+    fn test_single_nonzero_evaluation() {
+        let mut evaluations = vec![F::ZERO; 9];
+        evaluations[4] = F::from_u64(100); // f(1,1) = 100  
+        let poly = SumcheckPolynomial::new(evaluations, 2);
+
+        // Only f(1,1) contributes to boolean sum
+        assert_eq!(poly.sum_over_boolean_hypercube(), F::from_u64(100));
+    }
+
+    #[test]
+    fn test_binary_to_ternary_systematic() {
+        for n_vars in 1..=4 {
+            let total_evals = 3_usize.pow(n_vars as u32);
+            let poly = SumcheckPolynomial::new(vec![F::ZERO; total_evals], n_vars);
+
+            let mut used_indices = std::collections::HashSet::new();
+            for binary_idx in 0..(1 << n_vars) {
+                let ternary_idx = poly.binary_to_ternary_index(binary_idx);
+                assert!(ternary_idx < total_evals);
+                assert!(used_indices.insert(ternary_idx), "Duplicate ternary index");
+            }
+        }
+    }
+
+    #[test]
     fn test_binary_to_ternary_index() {
         let poly = SumcheckPolynomial::new(vec![F::ZERO; 9], 2);
 
@@ -223,6 +265,26 @@ mod tests {
     }
 
     #[test]
+    fn test_linearity_of_evaluate_at_point() {
+        let evals1: Vec<_> = (1..=9).map(F::from_u64).collect();
+        let evals2: Vec<_> = (10..=18).map(F::from_u64).collect();
+        let poly1 = SumcheckPolynomial::new(evals1.clone(), 2);
+        let poly2 = SumcheckPolynomial::new(evals2.clone(), 2);
+
+        // Create combined polynomial: poly1 + 2*poly2
+        let combined_evals: Vec<_> = evals1
+            .iter()
+            .zip(evals2.iter())
+            .map(|(&e1, &e2)| e1 + e2.double())
+            .collect();
+        let combined_poly = SumcheckPolynomial::new(combined_evals, 2);
+
+        let point = MultilinearPoint(vec![F::from_u64(3), F::from_u64(7)]);
+        let expected = poly1.evaluate_at_point(&point) + poly2.evaluate_at_point(&point).double();
+        assert_eq!(combined_poly.evaluate_at_point(&point), expected);
+    }
+
+    #[test]
     fn test_evaluate_at_point() {
         // Define a function f where evaluations are hardcoded:
         // f(0,0) = 1, f(0,1) = 2, f(0,2) = 3
@@ -266,5 +328,19 @@ mod tests {
 
         let computed_value = poly.evaluate_at_point(&point);
         assert_eq!(computed_value, expected_value);
+    }
+
+    #[test]
+    fn test_large_polynomial_performance() {
+        let n_vars = 10 as usize; // 3^10 = 59,049 evaluations  
+        let evaluations: Vec<_> = (0..3_usize.pow(n_vars.try_into().unwrap()))
+            .map(|i| F::from_u64(i as u64 % 1000))
+            .collect();
+        let poly = SumcheckPolynomial::new(evaluations, n_vars);
+
+        let start = std::time::Instant::now();
+        let _sum = poly.sum_over_boolean_hypercube();
+        let duration = start.elapsed();
+        assert!(duration.as_millis() < 100); // Should be fast  
     }
 }
