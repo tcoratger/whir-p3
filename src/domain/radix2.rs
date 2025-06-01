@@ -114,7 +114,7 @@ mod tests {
         let domain = Radix2EvaluationDomain::<F>::new(8).unwrap();
         let mut elements = Vec::new();
 
-        //validate every element in subgroup is unique
+        // Validate that every element in subgroup is unique
         for i in 0..domain.size() {
             elements.push(domain.group_gen.exp_u64(i as u64));
         }
