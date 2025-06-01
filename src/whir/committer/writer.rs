@@ -56,7 +56,7 @@ where
         dft: &D,
         prover_state: &mut ProverState<EF, F>,
         polynomial: EvaluationsList<F>,
-    ) -> ProofResult<Witness<EF, F, DIGEST_ELEMS>>
+    ) -> ProofResult<Witness<EF, F, u8, DIGEST_ELEMS>>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,

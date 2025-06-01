@@ -25,7 +25,7 @@ use crate::{
 /// The `RoundState` evolves with each round and captures all intermediate data required
 /// to continue proving or to verify challenges from the verifier.
 #[derive(Debug)]
-pub(crate) struct RoundState<EF, F, const DIGEST_ELEMS: usize>
+pub(crate) struct RoundState<EF, F, W, const DIGEST_ELEMS: usize>
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
@@ -52,7 +52,7 @@ where
 
     /// Merkle commitment prover data for the **base field** polynomial from the first round.
     /// This is used to open values at queried locations.
-    pub(crate) commitment_merkle_prover_data: CommitmentMerkleTree<F, DIGEST_ELEMS>,
+    pub(crate) commitment_merkle_prover_data: CommitmentMerkleTree<F, W, DIGEST_ELEMS>,
 
     /// Merkle commitment prover data for the **extension field** polynomials (folded rounds).
     /// Present only after the first round.
@@ -80,7 +80,7 @@ where
     pub(crate) statement: Statement<EF>,
 }
 
-impl<EF, F, const DIGEST_ELEMS: usize> RoundState<EF, F, DIGEST_ELEMS>
+impl<EF, F, W, const DIGEST_ELEMS: usize> RoundState<EF, F, W, DIGEST_ELEMS>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -109,7 +109,7 @@ where
         prover: &Prover<'_, EF, F, H, C, PS>,
         prover_state: &mut ProverState<EF, F>,
         mut statement: Statement<EF>,
-        witness: Witness<EF, F, DIGEST_ELEMS>,
+        witness: Witness<EF, F, W, DIGEST_ELEMS>,
         dft: &D,
     ) -> ProofResult<Self>
     where
@@ -268,13 +268,14 @@ mod tests {
     /// - and a `Witness` object containing the committed polynomial and Merkle data.
     ///
     /// This is used as a boilerplate step before running the first WHIR round.
+    #[allow(clippy::type_complexity)]
     fn setup_domain_and_commitment(
         params: &WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW>,
         poly: EvaluationsList<F>,
     ) -> (
         DomainSeparator<EF4, F>,
         ProverState<EF4, F>,
-        Witness<EF4, F, DIGEST_ELEMS>,
+        Witness<EF4, F, u8, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.
         let mut domsep = DomainSeparator::new("🌪️", KeccakF);
