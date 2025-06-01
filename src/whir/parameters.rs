@@ -1,9 +1,11 @@
 use std::{any::TypeId, f64::consts::LOG2_10, marker::PhantomData};
 
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_symmetric::Permutation;
 
 use crate::{
     domain::Domain,
+    fiat_shamir::duplex_sponge::interface::{DuplexSpongeInterface, Unit},
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },
@@ -24,8 +26,17 @@ pub struct RoundConfig<F> {
 }
 
 #[derive(Debug, Clone)]
-pub struct WhirConfig<EF, F, H, C, PowStrategy>
-where
+pub struct WhirConfig<
+    EF,
+    F,
+    H,
+    C,
+    PowStrategy,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+> where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
 {
@@ -64,12 +75,39 @@ where
 
     pub _base_field: PhantomData<F>,
     pub _extension_field: PhantomData<EF>,
+    pub _fiat_shamir_permutation: PhantomData<FiatShamirPerm>,
+    pub _fiat_shamir_hash: PhantomData<FiatShamirHash>,
+    pub _fiat_shamir_unit: PhantomData<FiatShamirU>,
 }
 
-impl<EF, F, H, C, PowStrategy> WhirConfig<EF, F, H, C, PowStrategy>
+impl<
+    EF,
+    F,
+    H,
+    C,
+    PowStrategy,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+>
+    WhirConfig<
+        EF,
+        F,
+        H,
+        C,
+        PowStrategy,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
 {
     #[allow(clippy::too_many_lines)]
     pub fn new(
@@ -252,6 +290,9 @@ where
             merkle_compress: whir_parameters.merkle_compress,
             _base_field: PhantomData,
             _extension_field: PhantomData,
+            _fiat_shamir_permutation: PhantomData,
+            _fiat_shamir_hash: PhantomData,
+            _fiat_shamir_unit: PhantomData,
         }
     }
 
@@ -414,6 +455,7 @@ mod tests {
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 
     use super::*;
+    use crate::whir::{FiatShamirHash, FiatShamirPerm, FiatShamirU};
 
     type F = BabyBear;
     type Poseidon2Compression<Perm16> = TruncatedPermutation<Perm16, 2, 8, 16>;
@@ -440,9 +482,17 @@ mod tests {
         let params = default_whir_params();
 
         let mv_params = MultivariateParameters::<F>::new(10);
-        let config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
-            mv_params, params,
-        );
+        let config = WhirConfig::<
+            F,
+            F,
+            Poseidon2Sponge<u8>,
+            Poseidon2Compression<u8>,
+            (),
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, params);
 
         assert_eq!(config.security_level, 100);
         assert_eq!(config.max_pow_bits, 20);
@@ -454,9 +504,17 @@ mod tests {
     fn test_n_rounds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
-            mv_params, params,
-        );
+        let config = WhirConfig::<
+            F,
+            F,
+            Poseidon2Sponge<u8>,
+            Poseidon2Compression<u8>,
+            (),
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, params);
 
         assert_eq!(config.n_rounds(), config.round_parameters.len());
     }
@@ -466,7 +524,17 @@ mod tests {
         let field_size_bits = 64;
         let soundness = SecurityAssumption::CapacityBound;
 
-        let pow_bits = WhirConfig::<F, F, u8, u8, ()>::folding_pow_bits(
+        let pow_bits = WhirConfig::<
+            F,
+            F,
+            u8,
+            u8,
+            (),
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::folding_pow_bits(
             100, // Security level
             soundness,
             field_size_bits,
@@ -482,9 +550,17 @@ mod tests {
     fn test_check_pow_bits_within_limits() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
-            mv_params, params,
-        );
+        let mut config = WhirConfig::<
+            F,
+            F,
+            Poseidon2Sponge<u8>,
+            Poseidon2Compression<u8>,
+            (),
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, params);
 
         // Set all values within limits
         config.max_pow_bits = 20;
@@ -530,9 +606,17 @@ mod tests {
     fn test_check_pow_bits_starting_folding_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
-            mv_params, params,
-        );
+        let mut config = WhirConfig::<
+            F,
+            F,
+            Poseidon2Sponge<u8>,
+            Poseidon2Compression<u8>,
+            (),
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 21.0; // Exceeds max_pow_bits
@@ -549,9 +633,17 @@ mod tests {
     fn test_check_pow_bits_final_pow_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
-            mv_params, params,
-        );
+        let mut config = WhirConfig::<
+            F,
+            F,
+            Poseidon2Sponge<u8>,
+            Poseidon2Compression<u8>,
+            (),
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15.0;
@@ -568,9 +660,17 @@ mod tests {
     fn test_check_pow_bits_round_pow_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
-            mv_params, params,
-        );
+        let mut config = WhirConfig::<
+            F,
+            F,
+            Poseidon2Sponge<u8>,
+            Poseidon2Compression<u8>,
+            (),
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15.0;
@@ -601,9 +701,17 @@ mod tests {
     fn test_check_pow_bits_round_folding_pow_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
-            mv_params, params,
-        );
+        let mut config = WhirConfig::<
+            F,
+            F,
+            Poseidon2Sponge<u8>,
+            Poseidon2Compression<u8>,
+            (),
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15.0;
@@ -634,9 +742,17 @@ mod tests {
     fn test_check_pow_bits_exactly_at_limit() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
-            mv_params, params,
-        );
+        let mut config = WhirConfig::<
+            F,
+            F,
+            Poseidon2Sponge<u8>,
+            Poseidon2Compression<u8>,
+            (),
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 20.0;
@@ -666,9 +782,17 @@ mod tests {
     fn test_check_pow_bits_all_exceed() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, ()>::new(
-            mv_params, params,
-        );
+        let mut config = WhirConfig::<
+            F,
+            F,
+            Poseidon2Sponge<u8>,
+            Poseidon2Compression<u8>,
+            (),
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 22.0;

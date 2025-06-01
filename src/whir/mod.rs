@@ -12,7 +12,10 @@ use statement::{Statement, weights::Weights};
 use verifier::Verifier;
 
 use crate::{
-    fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+    fiat_shamir::{
+        DefaultHash, DefaultPerm, domain_separator::DomainSeparator, keccak::KECCAK_WIDTH_BYTES,
+        pow::blake3::Blake3PoW,
+    },
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },
@@ -31,6 +34,10 @@ type EF = BinomialExtensionField<F, 4>;
 type ByteHash = Blake3;
 type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+type FiatShamirPerm = DefaultPerm;
+type FiatShamirHash = DefaultHash;
+type FiatShamirU = u8;
+const FIAT_SHAMIR_WIDTH: usize = KECCAK_WIDTH_BYTES;
 
 /// Run a complete WHIR STARK proof lifecycle.
 ///
@@ -76,7 +83,17 @@ pub fn make_whir_things(
     };
 
     // Combine protocol and polynomial parameters into a single config
-    let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+    let params = WhirConfig::<
+        EF,
+        F,
+        FieldHash,
+        MyCompress,
+        Blake3PoW,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >::new(mv_params, whir_params);
 
     // Define a polynomial with all coefficients set to 1
     let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]).to_evaluations();

@@ -27,7 +27,7 @@ pub type DefaultPerm = KeccakF;
 ///   `implementor.fill_challenge_units(&mut out[..1]); implementor.fill_challenge_units(&mut
 ///   out[1..]);` is expected to be equivalent to `implementor.fill_challenge_units(&mut out);`.
 /// - $\mathbb{F}_p$ implementations are expected to provide no such guarantee. In addition, we expect the implementation to return bytes that are uniformly distributed. In particular, note that the most significant bytes of a $\mod p$ element are not uniformly distributed. The number of bytes good to be used can be discovered playing with [our scripts](https://github.com/arkworks-rs/spongefish/blob/main/scripts/useful_bits_modp.py).
-pub trait UnitToBytes<U = u8>
+pub trait UnitToBytes<U>
 where
     U: Unit,
 {

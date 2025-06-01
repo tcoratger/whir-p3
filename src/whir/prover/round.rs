@@ -2,12 +2,18 @@ use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
+use p3_symmetric::Permutation;
 use tracing::{info_span, instrument};
 
 use super::{Leafs, Proof, Prover};
 use crate::{
     domain::Domain,
-    fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
+    fiat_shamir::{
+        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
+        errors::ProofResult,
+        pow::traits::PowStrategy,
+        prover::ProverState,
+    },
     poly::{coeffs::CoefficientStorage, evals::EvaluationStorage, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
@@ -64,13 +70,13 @@ where
     /// - First: list of opened leaf values in the base field.
     /// - Second: corresponding Merkle authentication paths.
     /// - Empty during setup; populated during final query phase.
-    pub(crate) commitment_merkle_proof: Option<(Leafs<F>, Proof<DIGEST_ELEMS>)>,
+    pub(crate) commitment_merkle_proof: Option<(Leafs<F>, Proof<W, DIGEST_ELEMS>)>,
 
     /// Merkle proofs for intermediate folded rounds.
     /// Each entry contains:
     /// - The opened values at verifier-chosen locations,
     /// - The corresponding authentication paths.
-    pub(crate) merkle_proofs: Vec<(Leafs<EF>, Proof<DIGEST_ELEMS>)>,
+    pub(crate) merkle_proofs: Vec<(Leafs<EF>, Proof<W, DIGEST_ELEMS>)>,
 
     /// Flat vector of challenge values used across all rounds.
     /// Populated progressively as folding randomness is sampled.
@@ -107,9 +113,36 @@ where
     /// This function should be called once at the beginning of the proof, before entering the
     /// main WHIR folding loop.
     #[instrument(skip_all)]
-    pub(crate) fn initialize_first_round_state<H, C, PS, D>(
-        prover: &Prover<'_, EF, F, H, C, PS>,
-        prover_state: &mut ProverState<EF, F>,
+    pub(crate) fn initialize_first_round_state<
+        H,
+        C,
+        PS,
+        D,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        const FIAT_SHAMIR_WIDTH: usize,
+    >(
+        prover: &Prover<
+            '_,
+            EF,
+            F,
+            H,
+            C,
+            PS,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
+        prover_state: &mut ProverState<
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         dft: &D,
@@ -117,6 +150,9 @@ where
     where
         PS: PowStrategy,
         D: TwoAdicSubgroupDft<F>,
+        FiatShamirU: Unit + Default + Copy,
+        FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+        FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
     {
         // Convert witness ood_points into constraints
         let new_constraints = witness
@@ -148,13 +184,14 @@ where
             );
 
             // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS, _>(
-                prover_state,
-                prover.folding_factor.at_round(0),
-                prover.starting_folding_pow_bits,
-                None,
-                dft,
-            )?;
+            let folding_randomness = sumcheck
+                .compute_sumcheck_polynomials::<PS, _, _, _, _, FIAT_SHAMIR_WIDTH>(
+                    prover_state,
+                    prover.folding_factor.at_round(0),
+                    prover.starting_folding_pow_bits,
+                    None,
+                    dft,
+                )?;
 
             sumcheck_prover = Some(sumcheck);
             folding_randomness
@@ -212,7 +249,10 @@ mod tests {
             coeffs::CoefficientList,
             evals::{EvaluationStorage, EvaluationsList},
         },
-        whir::{WhirConfig, committer::writer::CommitmentWriter},
+        whir::{
+            FiatShamirHash, FiatShamirPerm, FiatShamirU, WhirConfig,
+            committer::writer::CommitmentWriter,
+        },
     };
 
     type F = BabyBear;
@@ -238,7 +278,17 @@ mod tests {
         initial_statement: bool,
         folding_factor: usize,
         pow_bits: usize,
-    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW> {
+    ) -> WhirConfig<
+        EF4,
+        F,
+        FieldHash,
+        MyCompress,
+        Blake3PoW,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        200,
+    > {
         // Construct the multivariate parameter set with `num_variables` variables,
         // determining the size of the evaluation domain.
         let mv_params = MultivariateParameters::<EF4>::new(num_variables);
@@ -272,11 +322,21 @@ mod tests {
     /// This is used as a boilerplate step before running the first WHIR round.
     #[allow(clippy::type_complexity)]
     fn setup_domain_and_commitment(
-        params: &WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW>,
+        params: &WhirConfig<
+            EF4,
+            F,
+            FieldHash,
+            MyCompress,
+            Blake3PoW,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >,
         poly: EvaluationsList<F>,
     ) -> (
         DomainSeparator<EF4, F, DefaultPerm, u8, 200>,
-        ProverState<EF4, F>,
+        ProverState<EF4, F, FiatShamirPerm, FiatShamirHash, FiatShamirU, 200>,
         Witness<EF4, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.
