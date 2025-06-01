@@ -36,56 +36,24 @@ pub struct CommitmentWriter<
     PowStrategy,
     FiatShamirPerm,
     FiatShamirHash,
-    FiatShamirU,
+    W,
     const FIAT_SHAMIR_WIDTH: usize,
 >(
     /// Reference to the WHIR protocol configuration.
-    &'a WhirConfig<
-        EF,
-        F,
-        H,
-        C,
-        PowStrategy,
-        FiatShamirPerm,
-        FiatShamirHash,
-        FiatShamirU,
-        FIAT_SHAMIR_WIDTH,
-    >,
+    &'a WhirConfig<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<
-    'a,
-    EF,
-    F,
-    H,
-    C,
-    PS,
-    FiatShamirPerm,
-    FiatShamirHash,
-    FiatShamirU,
-    const FIAT_SHAMIR_WIDTH: usize,
->
-    CommitmentWriter<
-        'a,
-        EF,
-        F,
-        H,
-        C,
-        PS,
-        FiatShamirPerm,
-        FiatShamirHash,
-        FiatShamirU,
-        FIAT_SHAMIR_WIDTH,
-    >
+impl<'a, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
+    CommitmentWriter<'a, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
-    FiatShamirU: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
+    W: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
 {
     /// Create a new writer that borrows the WHIR protocol configuration.
     pub const fn new(
@@ -97,7 +65,7 @@ where
             PS,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             FIAT_SHAMIR_WIDTH,
         >,
     ) -> Self {
@@ -117,22 +85,15 @@ where
     pub fn commit<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
-        prover_state: &mut ProverState<
-            EF,
-            F,
-            FiatShamirPerm,
-            FiatShamirHash,
-            FiatShamirU,
-            FIAT_SHAMIR_WIDTH,
-        >,
+        prover_state: &mut ProverState<EF, F, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
         polynomial: EvaluationsList<F>,
-    ) -> ProofResult<Witness<EF, F, FiatShamirU, DenseMatrix<F>, DIGEST_ELEMS>>
+    ) -> ProofResult<Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [FiatShamirU; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[FiatShamirU; DIGEST_ELEMS], 2> + Sync,
-        [FiatShamirU; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        H: CryptographicHasher<F, [W; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2> + Sync,
+        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
-        FiatShamirU: Eq + Packable,
+        W: Eq + Packable,
     {
         // convert evaluations -> coefficients form
         let pol_coeffs: CoefficientList<F> = polynomial.clone().to_coefficients();
@@ -184,17 +145,8 @@ where
     }
 }
 
-impl<
-    EF,
-    F,
-    H,
-    C,
-    PowStrategy,
-    FiatShamirPerm,
-    FiatShamirHash,
-    FiatShamirU,
-    const FIAT_SHAMIR_WIDTH: usize,
-> Deref
+impl<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
+    Deref
     for CommitmentWriter<
         '_,
         EF,
@@ -204,24 +156,15 @@ impl<
         PowStrategy,
         FiatShamirPerm,
         FiatShamirHash,
-        FiatShamirU,
+        W,
         FIAT_SHAMIR_WIDTH,
     >
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<
-        EF,
-        F,
-        H,
-        C,
-        PowStrategy,
-        FiatShamirPerm,
-        FiatShamirHash,
-        FiatShamirU,
-        FIAT_SHAMIR_WIDTH,
-    >;
+    type Target =
+        WhirConfig<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -243,7 +186,7 @@ mod tests {
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
         poly::multilinear::MultilinearPoint,
-        whir::{FiatShamirHash, FiatShamirPerm, FiatShamirU},
+        whir::{FiatShamirHash, FiatShamirPerm, W},
     };
 
     type F = BabyBear;
@@ -293,7 +236,7 @@ mod tests {
             Blake3PoW,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, whir_params);
 
@@ -386,7 +329,7 @@ mod tests {
             Blake3PoW,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, whir_params);
 
@@ -443,7 +386,7 @@ mod tests {
             Blake3PoW,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, whir_params);
 

@@ -18,15 +18,15 @@ use crate::{
 /// The full vector of folding randomness values, in reverse round order.
 type SumcheckRandomness<F> = MultilinearPoint<F>;
 
-impl<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, const FIAT_SHAMIR_WIDTH: usize>
-    Verifier<'_, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, FIAT_SHAMIR_WIDTH>
+impl<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
+    Verifier<'_, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
-    FiatShamirU: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
+    W: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
 {
     /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
     /// and computes the corresponding `MultilinearPoint` folding randomness in reverse order.
@@ -64,7 +64,7 @@ where
             F,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             FIAT_SHAMIR_WIDTH,
         >,
         claimed_sum: &mut EF,
@@ -165,8 +165,7 @@ mod tests {
         poly::{coeffs::CoefficientList, evals::EvaluationStorage, multilinear::MultilinearPoint},
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
-            Blake3PoW, ByteHash, FiatShamirHash, FiatShamirPerm, FiatShamirU, FieldHash,
-            MyCompress,
+            Blake3PoW, ByteHash, FiatShamirHash, FiatShamirPerm, FieldHash, MyCompress, W,
             parameters::WhirConfig,
             statement::{Statement, weights::Weights},
         },
@@ -179,17 +178,8 @@ mod tests {
     /// Constructs a default WHIR configuration for testing
     fn default_whir_config(
         num_variables: usize,
-    ) -> WhirConfig<
-        EF4,
-        F,
-        FieldHash,
-        MyCompress,
-        Blake3PoW,
-        FiatShamirPerm,
-        FiatShamirHash,
-        FiatShamirU,
-        200,
-    > {
+    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, FiatShamirPerm, FiatShamirHash, W, 200>
+    {
         // Create hash and compression functions for the Merkle tree
         let byte_hash = ByteHash {};
         let merkle_hash = FieldHash::new(byte_hash);
@@ -220,7 +210,7 @@ mod tests {
             Blake3PoW,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, whir_params)
     }
@@ -372,7 +362,7 @@ mod tests {
             Blake3PoW,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(&whir_config);
 
@@ -521,7 +511,7 @@ mod tests {
             Blake3PoW,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(&whir_config);
 

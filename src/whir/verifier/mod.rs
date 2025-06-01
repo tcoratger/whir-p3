@@ -42,7 +42,7 @@ pub struct Verifier<
     PowStrategy,
     FiatShamirPerm,
     FiatShamirHash,
-    FiatShamirU,
+    W,
     const FIAT_SHAMIR_WIDTH: usize,
 >(
     /// Reference to the verifier’s configuration containing all round parameters.
@@ -54,7 +54,7 @@ pub struct Verifier<
         PowStrategy,
         FiatShamirPerm,
         FiatShamirHash,
-        FiatShamirU,
+        W,
         FIAT_SHAMIR_WIDTH,
     >,
 )
@@ -62,25 +62,15 @@ where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<
-    'a,
-    EF,
-    F,
-    H,
-    C,
-    PS,
-    FiatShamirPerm,
-    FiatShamirHash,
-    FiatShamirU,
-    const FIAT_SHAMIR_WIDTH: usize,
-> Verifier<'a, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, FIAT_SHAMIR_WIDTH>
+impl<'a, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
+    Verifier<'a, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
-    FiatShamirU: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
+    W: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
 {
     pub const fn new(
         params: &'a WhirConfig<
@@ -91,7 +81,7 @@ where
             PS,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             FIAT_SHAMIR_WIDTH,
         >,
     ) -> Self {
@@ -108,17 +98,17 @@ where
             F,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             FIAT_SHAMIR_WIDTH,
         >,
-        parsed_commitment: &ParsedCommitment<EF, Hash<F, FiatShamirU, DIGEST_ELEMS>>,
+        parsed_commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         statement: &Statement<EF>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
     where
-        H: CryptographicHasher<F, [FiatShamirU; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[FiatShamirU; DIGEST_ELEMS], 2> + Sync,
-        [FiatShamirU; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        FiatShamirU: Eq + Packable,
+        H: CryptographicHasher<F, [W; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2> + Sync,
+        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        W: Eq + Packable,
     {
         // During the rounds we collect constraints, combination randomness, folding randomness
         // and we update the claimed sum of constraint evaluation.
@@ -166,7 +156,7 @@ where
             let round_params = &self.round_parameters[round_index];
 
             // Receive commitment to the folded polynomial (likely encoded at higher expansion)
-            let new_commitment = ParsedCommitment::<_, Hash<F, FiatShamirU, DIGEST_ELEMS>>::parse(
+            let new_commitment = ParsedCommitment::<_, Hash<F, W, DIGEST_ELEMS>>::parse(
                 verifier_state,
                 round_params.num_variables,
                 round_params.ood_samples,
@@ -284,7 +274,7 @@ where
             F,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             FIAT_SHAMIR_WIDTH,
         >,
         claimed_sum: &mut EF,
@@ -327,7 +317,7 @@ where
             F,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             FIAT_SHAMIR_WIDTH,
         >,
         bits: f64,
@@ -370,19 +360,19 @@ where
             F,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             FIAT_SHAMIR_WIDTH,
         >,
         params: &RoundConfig<EF>,
-        commitment: &ParsedCommitment<EF, Hash<F, FiatShamirU, DIGEST_ELEMS>>,
+        commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
         leafs_base_field: bool,
     ) -> ProofResult<Vec<Constraint<EF>>>
     where
-        H: CryptographicHasher<F, [FiatShamirU; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[FiatShamirU; DIGEST_ELEMS], 2> + Sync,
-        [FiatShamirU; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        FiatShamirU: Eq + Packable,
+        H: CryptographicHasher<F, [W; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2> + Sync,
+        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        W: Eq + Packable,
     {
         let stir_challenges_indexes = get_challenge_stir_queries(
             params.domain_size,
@@ -457,19 +447,19 @@ where
             F,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             FIAT_SHAMIR_WIDTH,
         >,
-        root: &Hash<F, FiatShamirU, DIGEST_ELEMS>,
+        root: &Hash<F, W, DIGEST_ELEMS>,
         indices: &[usize],
         dimensions: &[Dimensions],
         leafs_base_field: bool,
     ) -> ProofResult<Vec<Vec<EF>>>
     where
-        H: CryptographicHasher<F, [FiatShamirU; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[FiatShamirU; DIGEST_ELEMS], 2> + Sync,
-        [FiatShamirU; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        FiatShamirU: Eq + Packable,
+        H: CryptographicHasher<F, [W; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2> + Sync,
+        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        W: Eq + Packable,
     {
         // Create a Merkle MMCS instance
         let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
@@ -483,7 +473,7 @@ where
             let answers = verifier_state.hint::<Leafs<F>>()?;
 
             // Read the Merkle proofs for each queried index from the Fiat-Shamir transcript.
-            let merkle_proof = verifier_state.hint::<Proof<FiatShamirU, DIGEST_ELEMS>>()?;
+            let merkle_proof = verifier_state.hint::<Proof<W, DIGEST_ELEMS>>()?;
 
             // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
@@ -510,7 +500,7 @@ where
             let answers = verifier_state.hint::<Leafs<EF>>()?;
 
             // Read the Merkle proofs.
-            let merkle_proof = verifier_state.hint::<Proof<FiatShamirU, DIGEST_ELEMS>>()?;
+            let merkle_proof = verifier_state.hint::<Proof<W, DIGEST_ELEMS>>()?;
 
             // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
@@ -592,26 +582,13 @@ where
     }
 }
 
-impl<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, const FIAT_SHAMIR_WIDTH: usize>
-    Deref
-    for Verifier<
-        '_,
-        EF,
-        F,
-        H,
-        C,
-        PS,
-        FiatShamirPerm,
-        FiatShamirHash,
-        FiatShamirU,
-        FIAT_SHAMIR_WIDTH,
-    >
+impl<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize> Deref
+    for Verifier<'_, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target =
-        WhirConfig<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, FIAT_SHAMIR_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0

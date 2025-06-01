@@ -36,7 +36,7 @@ type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 type FiatShamirPerm = DefaultPerm;
 type FiatShamirHash = DefaultHash;
-type FiatShamirU = u8;
+type W = u8;
 const FIAT_SHAMIR_WIDTH: usize = KECCAK_WIDTH_BYTES;
 
 /// Run a complete WHIR STARK proof lifecycle.
@@ -91,7 +91,7 @@ pub fn make_whir_things(
         Blake3PoW,
         FiatShamirPerm,
         FiatShamirHash,
-        FiatShamirU,
+        W,
         FIAT_SHAMIR_WIDTH,
     >::new(mv_params, whir_params);
 

@@ -34,7 +34,7 @@ pub struct WhirConfig<
     PowStrategy,
     FiatShamirPerm,
     FiatShamirHash,
-    FiatShamirU,
+    W,
     const FIAT_SHAMIR_WIDTH: usize,
 > where
     F: Field,
@@ -77,37 +77,17 @@ pub struct WhirConfig<
     pub _extension_field: PhantomData<EF>,
     pub _fiat_shamir_permutation: PhantomData<FiatShamirPerm>,
     pub _fiat_shamir_hash: PhantomData<FiatShamirHash>,
-    pub _fiat_shamir_unit: PhantomData<FiatShamirU>,
+    pub _fiat_shamir_unit: PhantomData<W>,
 }
 
-impl<
-    EF,
-    F,
-    H,
-    C,
-    PowStrategy,
-    FiatShamirPerm,
-    FiatShamirHash,
-    FiatShamirU,
-    const FIAT_SHAMIR_WIDTH: usize,
->
-    WhirConfig<
-        EF,
-        F,
-        H,
-        C,
-        PowStrategy,
-        FiatShamirPerm,
-        FiatShamirHash,
-        FiatShamirU,
-        FIAT_SHAMIR_WIDTH,
-    >
+impl<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
+    WhirConfig<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    FiatShamirU: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
+    W: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
 {
     #[allow(clippy::too_many_lines)]
     pub fn new(
@@ -455,7 +435,7 @@ mod tests {
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 
     use super::*;
-    use crate::whir::{FiatShamirHash, FiatShamirPerm, FiatShamirU};
+    use crate::whir::{FiatShamirHash, FiatShamirPerm, W};
 
     type F = BabyBear;
     type Poseidon2Compression<Perm16> = TruncatedPermutation<Perm16, 2, 8, 16>;
@@ -490,7 +470,7 @@ mod tests {
             (),
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, params);
 
@@ -512,7 +492,7 @@ mod tests {
             (),
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, params);
 
@@ -532,7 +512,7 @@ mod tests {
             (),
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::folding_pow_bits(
             100, // Security level
@@ -558,7 +538,7 @@ mod tests {
             (),
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, params);
 
@@ -614,7 +594,7 @@ mod tests {
             (),
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, params);
 
@@ -641,7 +621,7 @@ mod tests {
             (),
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, params);
 
@@ -668,7 +648,7 @@ mod tests {
             (),
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, params);
 
@@ -709,7 +689,7 @@ mod tests {
             (),
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, params);
 
@@ -750,7 +730,7 @@ mod tests {
             (),
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, params);
 
@@ -790,7 +770,7 @@ mod tests {
             (),
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(mv_params, params);
 

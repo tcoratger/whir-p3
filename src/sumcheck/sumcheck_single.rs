@@ -335,18 +335,11 @@ where
         DFT,
         FiatShamirPerm,
         FiatShamirHash,
-        FiatShamirU,
+        W,
         const FIAT_SHAMIR_WIDTH: usize,
     >(
         &mut self,
-        prover_state: &mut ProverState<
-            EF,
-            F,
-            FiatShamirPerm,
-            FiatShamirHash,
-            FiatShamirU,
-            FIAT_SHAMIR_WIDTH,
-        >,
+        prover_state: &mut ProverState<EF, F, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
         folding_factor: usize,
         pow_bits: f64,
         k_skip: Option<usize>,
@@ -357,9 +350,9 @@ where
         EF: ExtensionField<F> + TwoAdicField,
         S: PowStrategy,
         DFT: TwoAdicSubgroupDft<F>,
-        FiatShamirU: Unit + Default + Copy,
-        FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-        FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
+        W: Unit + Default + Copy,
+        FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+        FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
     {
         // Will store the verifier's folding challenges for each round.
         let mut res = Vec::with_capacity(folding_factor);

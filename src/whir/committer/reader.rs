@@ -66,7 +66,7 @@ where
         EF,
         FiatShamirPerm,
         FiatShamirHash,
-        FiatShamirU,
+        W,
         const FIAT_SHAMIR_WIDTH: usize,
         const DIGEST_ELEMS: usize,
     >(
@@ -76,18 +76,18 @@ where
             F,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             FIAT_SHAMIR_WIDTH,
         >,
         num_variables: usize,
         ood_samples: usize,
-    ) -> ProofResult<ParsedCommitment<EF, Hash<F, FiatShamirU, DIGEST_ELEMS>>>
+    ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>>
     where
         F: TwoAdicField + PrimeField64,
         EF: ExtensionField<F> + TwoAdicField,
-        FiatShamirU: Unit + Default + Copy,
-        FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-        FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
+        W: Unit + Default + Copy,
+        FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+        FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
     {
         // Read the Merkle root hash committed by the prover.
         let root = verifier_state.read_digest()?;
@@ -146,59 +146,27 @@ pub struct CommitmentReader<
     PowStrategy,
     FiatShamirPerm,
     FiatShamirHash,
-    FiatShamirU,
+    W,
     const FIAT_SHAMIR_WIDTH: usize,
 >(
     /// Reference to the verifier’s configuration object.
     ///
     /// This contains all parameters needed to parse the commitment,
     /// including how many out-of-domain samples are expected.
-    &'a WhirConfig<
-        EF,
-        F,
-        H,
-        C,
-        PowStrategy,
-        FiatShamirPerm,
-        FiatShamirHash,
-        FiatShamirU,
-        FIAT_SHAMIR_WIDTH,
-    >,
+    &'a WhirConfig<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<
-    'a,
-    EF,
-    F,
-    H,
-    C,
-    PS,
-    FiatShamirPerm,
-    FiatShamirHash,
-    FiatShamirU,
-    const FIAT_SHAMIR_WIDTH: usize,
->
-    CommitmentReader<
-        'a,
-        EF,
-        F,
-        H,
-        C,
-        PS,
-        FiatShamirPerm,
-        FiatShamirHash,
-        FiatShamirU,
-        FIAT_SHAMIR_WIDTH,
-    >
+impl<'a, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
+    CommitmentReader<'a, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
-    FiatShamirU: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
+    W: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
 {
     /// Create a new commitment reader from a WHIR configuration.
     ///
@@ -212,7 +180,7 @@ where
             PS,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             FIAT_SHAMIR_WIDTH,
         >,
     ) -> Self {
@@ -231,11 +199,11 @@ where
             F,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             FIAT_SHAMIR_WIDTH,
         >,
-    ) -> ProofResult<ParsedCommitment<EF, Hash<F, FiatShamirU, DIGEST_ELEMS>>> {
-        ParsedCommitment::<_, Hash<F, FiatShamirU, DIGEST_ELEMS>>::parse(
+    ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>> {
+        ParsedCommitment::<_, Hash<F, W, DIGEST_ELEMS>>::parse(
             verifier_state,
             self.mv_parameters.num_variables,
             self.committment_ood_samples,
@@ -243,17 +211,8 @@ where
     }
 }
 
-impl<
-    EF,
-    F,
-    H,
-    C,
-    PowStrategy,
-    FiatShamirPerm,
-    FiatShamirHash,
-    FiatShamirU,
-    const FIAT_SHAMIR_WIDTH: usize,
-> Deref
+impl<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
+    Deref
     for CommitmentReader<
         '_,
         EF,
@@ -263,24 +222,15 @@ impl<
         PowStrategy,
         FiatShamirPerm,
         FiatShamirHash,
-        FiatShamirU,
+        W,
         FIAT_SHAMIR_WIDTH,
     >
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<
-        EF,
-        F,
-        H,
-        C,
-        PowStrategy,
-        FiatShamirPerm,
-        FiatShamirHash,
-        FiatShamirU,
-        FIAT_SHAMIR_WIDTH,
-    >;
+    type Target =
+        WhirConfig<EF, F, H, C, PowStrategy, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -304,8 +254,7 @@ mod tests {
         },
         poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
         whir::{
-            DomainSeparator, FiatShamirHash, FiatShamirPerm, FiatShamirU,
-            committer::writer::CommitmentWriter,
+            DomainSeparator, FiatShamirHash, FiatShamirPerm, W, committer::writer::CommitmentWriter,
         },
     };
 
@@ -331,7 +280,7 @@ mod tests {
             Blake3PoW,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >,
         rand::rngs::ThreadRng,
@@ -367,7 +316,7 @@ mod tests {
             Blake3PoW,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >::new(MultivariateParameters::new(num_variables), whir_params);
 

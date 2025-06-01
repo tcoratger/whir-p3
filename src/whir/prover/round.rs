@@ -120,29 +120,10 @@ where
         D,
         FiatShamirPerm,
         FiatShamirHash,
-        FiatShamirU,
         const FIAT_SHAMIR_WIDTH: usize,
     >(
-        prover: &Prover<
-            '_,
-            EF,
-            F,
-            H,
-            C,
-            PS,
-            FiatShamirPerm,
-            FiatShamirHash,
-            FiatShamirU,
-            FIAT_SHAMIR_WIDTH,
-        >,
-        prover_state: &mut ProverState<
-            EF,
-            F,
-            FiatShamirPerm,
-            FiatShamirHash,
-            FiatShamirU,
-            FIAT_SHAMIR_WIDTH,
-        >,
+        prover: &Prover<'_, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        prover_state: &mut ProverState<EF, F, FiatShamirPerm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         dft: &D,
@@ -150,9 +131,9 @@ where
     where
         PS: PowStrategy,
         D: TwoAdicSubgroupDft<F>,
-        FiatShamirU: Unit + Default + Copy,
-        FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-        FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
+        W: Unit + Default + Copy,
+        FiatShamirPerm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
+        FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, W, FIAT_SHAMIR_WIDTH>,
     {
         // Convert witness ood_points into constraints
         let new_constraints = witness
@@ -250,8 +231,7 @@ mod tests {
             evals::{EvaluationStorage, EvaluationsList},
         },
         whir::{
-            FiatShamirHash, FiatShamirPerm, FiatShamirU, WhirConfig,
-            committer::writer::CommitmentWriter,
+            FiatShamirHash, FiatShamirPerm, W, WhirConfig, committer::writer::CommitmentWriter,
         },
     };
 
@@ -278,17 +258,8 @@ mod tests {
         initial_statement: bool,
         folding_factor: usize,
         pow_bits: usize,
-    ) -> WhirConfig<
-        EF4,
-        F,
-        FieldHash,
-        MyCompress,
-        Blake3PoW,
-        FiatShamirPerm,
-        FiatShamirHash,
-        FiatShamirU,
-        200,
-    > {
+    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, FiatShamirPerm, FiatShamirHash, W, 200>
+    {
         // Construct the multivariate parameter set with `num_variables` variables,
         // determining the size of the evaluation domain.
         let mv_params = MultivariateParameters::<EF4>::new(num_variables);
@@ -330,13 +301,13 @@ mod tests {
             Blake3PoW,
             FiatShamirPerm,
             FiatShamirHash,
-            FiatShamirU,
+            W,
             200,
         >,
         poly: EvaluationsList<F>,
     ) -> (
         DomainSeparator<EF4, F, DefaultPerm, u8, 200>,
-        ProverState<EF4, F, FiatShamirPerm, FiatShamirHash, FiatShamirU, 200>,
+        ProverState<EF4, F, FiatShamirPerm, FiatShamirHash, W, 200>,
         Witness<EF4, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.
