@@ -11,11 +11,11 @@ pub mod radix2;
 /// This domain is constructed over a multiplicative subgroup of a finite field, enabling
 /// efficient Fast Fourier Transforms (FFTs).
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Domain<EF: TwoAdicField> {
-    pub backing_domain: GeneralEvaluationDomain<EF>,
+pub struct Domain<F> {
+    pub backing_domain: GeneralEvaluationDomain<F>,
 }
 
-impl<EF: TwoAdicField> Domain<EF> {
+impl<F: TwoAdicField> Domain<F> {
     /// Constructs a new evaluation domain for a polynomial of given `degree`.
     ///
     /// The domain size is computed as:
@@ -71,12 +71,12 @@ impl<EF: TwoAdicField> Domain<EF> {
     /// new_size = size / power
     /// ```
     /// It ensures `size % power == 0` for a valid transformation.
-    fn scale_generator_by(&self, power: usize) -> GeneralEvaluationDomain<EF> {
+    fn scale_generator_by(&self, power: usize) -> GeneralEvaluationDomain<F> {
         let starting_size = self.size();
         assert_eq!(starting_size % power, 0);
         let new_size = starting_size / power;
         let log_size_of_group = new_size.trailing_zeros();
-        let size_as_field_element = EF::from_u64(new_size as u64);
+        let size_as_field_element = F::from_u64(new_size as u64);
 
         match self.backing_domain {
             GeneralEvaluationDomain::Radix2(r2) => {
