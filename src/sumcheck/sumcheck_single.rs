@@ -2,13 +2,19 @@ use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
+use p3_symmetric::Permutation;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use tracing::{debug_span, instrument};
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
-    fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
+    fiat_shamir::{
+        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
+        errors::ProofResult,
+        pow::traits::PowStrategy,
+        prover::ProverState,
+    },
     poly::{
         coeffs::CoefficientList,
         evals::{EvaluationStorage, EvaluationsList},
@@ -324,9 +330,23 @@ where
     /// - If `folding_factor > num_variables()`
     /// - If univariate skip is attempted with evaluations in the extension field.
     #[instrument(skip_all)]
-    pub fn compute_sumcheck_polynomials<S, DFT>(
+    pub fn compute_sumcheck_polynomials<
+        S,
+        DFT,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        const FIAT_SHAMIR_WIDTH: usize,
+    >(
         &mut self,
-        prover_state: &mut ProverState<EF, F>,
+        prover_state: &mut ProverState<
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
         folding_factor: usize,
         pow_bits: f64,
         k_skip: Option<usize>,
@@ -337,6 +357,9 @@ where
         EF: ExtensionField<F> + TwoAdicField,
         S: PowStrategy,
         DFT: TwoAdicSubgroupDft<F>,
+        FiatShamirU: Unit + Default + Copy,
+        FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+        FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
     {
         // Will store the verifier's folding challenges for each round.
         let mut res = Vec::with_capacity(folding_factor);
@@ -1503,7 +1526,7 @@ mod tests {
         domsep.challenge_scalars(1, "test");
 
         // Convert the domain separator to a prover state
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<DefaultHash>();
 
         let folding_factor = 1; // Minimum folding factor
         let pow_bits = 0.; // No grinding
@@ -1515,7 +1538,7 @@ mod tests {
 
         // Compute sumcheck polynomials
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, _, 200>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -1594,10 +1617,10 @@ mod tests {
         }
 
         // Convert the domain separator to a prover state
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<DefaultHash>();
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, _, 200>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -1735,10 +1758,10 @@ mod tests {
         }
 
         // Convert the domain separator to a prover state
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<DefaultHash>();
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, _, 200>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -1821,10 +1844,10 @@ mod tests {
         // No domain separator logic needed since we don't fold
         let domsep: DomainSeparator<F, F, DefaultPerm, u8, 200> =
             DomainSeparator::new("test", KeccakF);
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<DefaultHash>();
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, _, 200>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -2069,11 +2092,11 @@ mod tests {
         }
 
         // Convert domain separator into prover state object
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<DefaultHash>();
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, _, 200>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -2282,16 +2305,16 @@ mod tests {
 
 
             // Convert into prover states
-            let mut state_base = domsep_base.to_prover_state();
-            let mut state_ext = domsep_ext.to_prover_state();
+            let mut state_base = domsep_base.to_prover_state::<DefaultHash>();
+            let mut state_ext = domsep_ext.to_prover_state::<DefaultHash>();
 
             // Run sumcheck with zero grinding (no challenge_pow)
             let final_point_base = prover_base
-                .compute_sumcheck_polynomials::<Blake3PoW,_>(&mut state_base, folding_rounds, 0.0, None, &NaiveDft)
+                .compute_sumcheck_polynomials::<Blake3PoW,_,_,_,_,200>(&mut state_base, folding_rounds, 0.0, None, &NaiveDft)
                 .unwrap();
 
             let final_point_ext = prover_ext
-                .compute_sumcheck_polynomials::<Blake3PoW,_>(&mut state_ext, folding_rounds, 0.0, None, &NaiveDft)
+                .compute_sumcheck_polynomials::<Blake3PoW,_,_,_,_,200>(&mut state_ext, folding_rounds, 0.0, None, &NaiveDft)
                 .unwrap();
 
             // Ensure roundtrip consistency
@@ -2468,11 +2491,11 @@ mod tests {
         domsep.challenge_scalars(1, "tag");
 
         // Convert domain separator into prover state object
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<DefaultHash>();
 
         // Run sumcheck with k = 2 skipped rounds and 1 regular round
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, _, 200>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,

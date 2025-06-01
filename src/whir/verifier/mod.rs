@@ -4,7 +4,7 @@ use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, Hash, Permutation, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -17,6 +17,7 @@ use super::{
 };
 use crate::{
     fiat_shamir::{
+        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
         errors::{ProofError, ProofResult},
         pow::traits::PowStrategy,
         verifier::VerifierState,
@@ -32,21 +33,71 @@ pub mod sumcheck;
 /// This type provides a lightweight, ergonomic interface to verification methods
 /// by wrapping a reference to the `WhirConfig`.
 #[derive(Debug)]
-pub struct Verifier<'a, EF, F, H, C, PowStrategy>(
+pub struct Verifier<
+    'a,
+    EF,
+    F,
+    H,
+    C,
+    PowStrategy,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+>(
     /// Reference to the verifier’s configuration containing all round parameters.
-    pub(crate) &'a WhirConfig<EF, F, H, C, PowStrategy>,
+    pub(crate)  &'a WhirConfig<
+        EF,
+        F,
+        H,
+        C,
+        PowStrategy,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >,
 )
 where
     F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField;
+    EF: ExtensionField<F> + TwoAdicField,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>;
 
-impl<'a, EF, F, H, C, PS> Verifier<'a, EF, F, H, C, PS>
+impl<
+    'a,
+    EF,
+    F,
+    H,
+    C,
+    PS,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+> Verifier<'a, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
 {
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {
+    pub const fn new(
+        params: &'a WhirConfig<
+            EF,
+            F,
+            H,
+            C,
+            PS,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
+    ) -> Self {
         Self(params)
     }
 
@@ -392,7 +443,7 @@ where
             let answers = verifier_state.hint::<Leafs<F>>()?;
 
             // Read the Merkle proofs for each queried index from the Fiat-Shamir transcript.
-            let merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
+            let merkle_proof = verifier_state.hint::<Proof<u8, DIGEST_ELEMS>>()?;
 
             // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
@@ -419,7 +470,7 @@ where
             let answers = verifier_state.hint::<Leafs<EF>>()?;
 
             // Read the Merkle proofs.
-            let merkle_proof = verifier_state.hint::<Proof<DIGEST_ELEMS>>()?;
+            let merkle_proof = verifier_state.hint::<Proof<u8, DIGEST_ELEMS>>()?;
 
             // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
@@ -501,12 +552,29 @@ where
     }
 }
 
-impl<EF, F, H, C, PS> Deref for Verifier<'_, EF, F, H, C, PS>
+impl<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, const FIAT_SHAMIR_WIDTH: usize>
+    Deref
+    for Verifier<
+        '_,
+        EF,
+        F,
+        H,
+        C,
+        PS,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
 {
-    type Target = WhirConfig<EF, F, H, C, PS>;
+    type Target =
+        WhirConfig<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, FIAT_SHAMIR_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0

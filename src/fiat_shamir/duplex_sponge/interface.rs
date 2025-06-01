@@ -38,6 +38,9 @@ pub trait Unit: Clone + Sized + zeroize::Zeroize {
     /// Convert a `u8` to a unit.
     fn from_u8(x: u8) -> Self;
 
+    /// Convert a `Unit` to a `u8`.
+    fn to_u8(x: Self) -> u8;
+
     /// Convert a `[u8]` slice to a `Vec<Self>`.
     #[must_use]
     fn slice_from_u8_slice(src: &[u8]) -> Vec<Self> {
@@ -70,6 +73,10 @@ impl Unit for u8 {
     }
 
     fn from_u8(x: u8) -> Self {
+        x
+    }
+
+    fn to_u8(x: Self) -> u8 {
         x
     }
 

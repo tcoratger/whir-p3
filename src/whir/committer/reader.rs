@@ -1,10 +1,14 @@
 use std::ops::Deref;
 
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
-use p3_symmetric::Hash;
+use p3_symmetric::{Hash, Permutation};
 
 use crate::{
-    fiat_shamir::{errors::ProofResult, verifier::VerifierState},
+    fiat_shamir::{
+        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
+        errors::ProofResult,
+        verifier::VerifierState,
+    },
     whir::{
         parameters::WhirConfig,
         statement::{constraint::Constraint, weights::Weights},
@@ -115,26 +119,88 @@ where
 /// The `CommitmentReader` wraps the WHIR configuration and provides a convenient
 /// method to extract a `ParsedCommitment` by reading values from the Fiat-Shamir transcript.
 #[derive(Debug)]
-pub struct CommitmentReader<'a, EF, F, H, C, PowStrategy>(
+pub struct CommitmentReader<
+    'a,
+    EF,
+    F,
+    H,
+    C,
+    PowStrategy,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+>(
     /// Reference to the verifier’s configuration object.
     ///
     /// This contains all parameters needed to parse the commitment,
     /// including how many out-of-domain samples are expected.
-    &'a WhirConfig<EF, F, H, C, PowStrategy>,
+    &'a WhirConfig<
+        EF,
+        F,
+        H,
+        C,
+        PowStrategy,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >,
 )
 where
     F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField;
+    EF: ExtensionField<F> + TwoAdicField,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>;
 
-impl<'a, EF, F, H, C, PS> CommitmentReader<'a, EF, F, H, C, PS>
+impl<
+    'a,
+    EF,
+    F,
+    H,
+    C,
+    PS,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+>
+    CommitmentReader<
+        'a,
+        EF,
+        F,
+        H,
+        C,
+        PS,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
 {
     /// Create a new commitment reader from a WHIR configuration.
     ///
     /// This allows the verifier to parse a commitment from the Fiat-Shamir transcript.
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {
+    pub const fn new(
+        params: &'a WhirConfig<
+            EF,
+            F,
+            H,
+            C,
+            PS,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
+    ) -> Self {
         Self(params)
     }
 
@@ -154,12 +220,47 @@ where
     }
 }
 
-impl<EF, F, H, C, PowStrategy> Deref for CommitmentReader<'_, EF, F, H, C, PowStrategy>
+impl<
+    EF,
+    F,
+    H,
+    C,
+    PowStrategy,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+> Deref
+    for CommitmentReader<
+        '_,
+        EF,
+        F,
+        H,
+        C,
+        PowStrategy,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
 {
-    type Target = WhirConfig<EF, F, H, C, PowStrategy>;
+    type Target = WhirConfig<
+        EF,
+        F,
+        H,
+        C,
+        PowStrategy,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -182,7 +283,10 @@ mod tests {
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
         poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-        whir::{DomainSeparator, committer::writer::CommitmentWriter},
+        whir::{
+            DomainSeparator, FiatShamirHash, FiatShamirPerm, FiatShamirU,
+            committer::writer::CommitmentWriter,
+        },
     };
 
     type F = BabyBear;
@@ -194,11 +298,22 @@ mod tests {
     ///
     /// This sets up the protocol parameters and multivariate polynomial settings,
     /// with control over number of variables and OOD samples.
+    #[allow(clippy::type_complexity)]
     fn make_test_params(
         num_variables: usize,
         ood_samples: usize,
     ) -> (
-        WhirConfig<BabyBear, BabyBear, FieldHash, MyCompress, Blake3PoW>,
+        WhirConfig<
+            BabyBear,
+            BabyBear,
+            FieldHash,
+            MyCompress,
+            Blake3PoW,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >,
         rand::rngs::ThreadRng,
     ) {
         // Initialize the underlying byte-level hash function (e.g., Keccak256).
@@ -224,10 +339,17 @@ mod tests {
         };
 
         // Construct full WHIR configuration with MV polynomial shape and protocol rules.
-        let mut config = WhirConfig::<BabyBear, BabyBear, FieldHash, MyCompress, Blake3PoW>::new(
-            MultivariateParameters::new(num_variables),
-            whir_params,
-        );
+        let mut config = WhirConfig::<
+            BabyBear,
+            BabyBear,
+            FieldHash,
+            MyCompress,
+            Blake3PoW,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(MultivariateParameters::new(num_variables), whir_params);
 
         // Set the number of OOD samples for commitment testing.
         config.committment_ood_samples = ood_samples;

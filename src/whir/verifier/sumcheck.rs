@@ -1,9 +1,11 @@
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
+use p3_symmetric::Permutation;
 
 use crate::{
     fiat_shamir::{
+        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
         errors::{ProofError, ProofResult},
         pow::traits::PowStrategy,
         verifier::VerifierState,
@@ -16,11 +18,15 @@ use crate::{
 /// The full vector of folding randomness values, in reverse round order.
 type SumcheckRandomness<F> = MultilinearPoint<F>;
 
-impl<EF, F, H, C, PS> Verifier<'_, EF, F, H, C, PS>
+impl<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, const FIAT_SHAMIR_WIDTH: usize>
+    Verifier<'_, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
 {
     /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
     /// and computes the corresponding `MultilinearPoint` folding randomness in reverse order.
@@ -151,7 +157,8 @@ mod tests {
         poly::{coeffs::CoefficientList, evals::EvaluationStorage, multilinear::MultilinearPoint},
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
-            Blake3PoW, ByteHash, FieldHash, MyCompress,
+            Blake3PoW, ByteHash, FiatShamirHash, FiatShamirPerm, FiatShamirU, FieldHash,
+            MyCompress,
             parameters::WhirConfig,
             statement::{Statement, weights::Weights},
         },
@@ -164,7 +171,17 @@ mod tests {
     /// Constructs a default WHIR configuration for testing
     fn default_whir_config(
         num_variables: usize,
-    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW> {
+    ) -> WhirConfig<
+        EF4,
+        F,
+        FieldHash,
+        MyCompress,
+        Blake3PoW,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        200,
+    > {
         // Create hash and compression functions for the Merkle tree
         let byte_hash = ByteHash {};
         let merkle_hash = FieldHash::new(byte_hash);
@@ -187,7 +204,17 @@ mod tests {
         };
 
         // Combine protocol and polynomial parameters into a single config
-        WhirConfig::<EF4, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params)
+        WhirConfig::<
+            EF4,
+            F,
+            FieldHash,
+            MyCompress,
+            Blake3PoW,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, whir_params)
     }
 
     #[test]
@@ -280,11 +307,11 @@ mod tests {
         }
 
         // Convert domain separator into prover state object
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<FiatShamirHash>();
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let _ = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, _, 200>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -329,7 +356,17 @@ mod tests {
 
         // Setup the WHIR verifier
         let whir_config = default_whir_config(n_vars);
-        let verifier = Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW>::new(&whir_config);
+        let verifier = Verifier::<
+            EF4,
+            F,
+            FieldHash,
+            MyCompress,
+            Blake3PoW,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(&whir_config);
 
         let randomness = verifier
             .verify_sumcheck_rounds(
@@ -426,13 +463,13 @@ mod tests {
         }
 
         // Convert to prover state
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<FiatShamirHash>();
 
         // -------------------------------------------------------------
         // Run prover-side folding
         // -------------------------------------------------------------
         let _ = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, _, 200>(
                 &mut prover_state,
                 NUM_VARS,
                 0.0,
@@ -468,7 +505,17 @@ mod tests {
 
         // Setup the WHIR verifier
         let whir_config = default_whir_config(NUM_VARS);
-        let verifier = Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW>::new(&whir_config);
+        let verifier = Verifier::<
+            EF4,
+            F,
+            FieldHash,
+            MyCompress,
+            Blake3PoW,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(&whir_config);
 
         // -------------------------------------------------------------
         // Use verify_sumcheck_rounds with skip enabled

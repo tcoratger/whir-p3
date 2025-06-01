@@ -2,16 +2,20 @@ use std::ops::Deref;
 
 use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, Packable, PrimeField64, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, Permutation, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
-    fiat_shamir::{errors::ProofResult, prover::ProverState},
+    fiat_shamir::{
+        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
+        errors::ProofResult,
+        prover::ProverState,
+    },
     poly::{coeffs::CoefficientList, evals::EvaluationsList},
     whir::{committer::DenseMatrix, parameters::WhirConfig, utils::sample_ood_points},
 };
@@ -23,21 +27,83 @@ use crate::{
 ///
 /// It provides a commitment that can be used for proof generation and verification.
 #[derive(Debug)]
-pub struct CommitmentWriter<'a, EF, F, H, C, PowStrategy>(
+pub struct CommitmentWriter<
+    'a,
+    EF,
+    F,
+    H,
+    C,
+    PowStrategy,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+>(
     /// Reference to the WHIR protocol configuration.
-    &'a WhirConfig<EF, F, H, C, PowStrategy>,
+    &'a WhirConfig<
+        EF,
+        F,
+        H,
+        C,
+        PowStrategy,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >,
 )
 where
     F: Field + TwoAdicField + PrimeField64,
-    EF: ExtensionField<F> + TwoAdicField;
+    EF: ExtensionField<F> + TwoAdicField,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>;
 
-impl<'a, EF, F, H, C, PS> CommitmentWriter<'a, EF, F, H, C, PS>
+impl<
+    'a,
+    EF,
+    F,
+    H,
+    C,
+    PS,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+>
+    CommitmentWriter<
+        'a,
+        EF,
+        F,
+        H,
+        C,
+        PS,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
 {
     /// Create a new writer that borrows the WHIR protocol configuration.
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS>) -> Self {
+    pub const fn new(
+        params: &'a WhirConfig<
+            EF,
+            F,
+            H,
+            C,
+            PS,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
+    ) -> Self {
         Self(params)
     }
 
@@ -54,14 +120,22 @@ where
     pub fn commit<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
-        prover_state: &mut ProverState<EF, F>,
+        prover_state: &mut ProverState<
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
         polynomial: EvaluationsList<F>,
-    ) -> ProofResult<Witness<EF, F, u8, DenseMatrix<F>, DIGEST_ELEMS>>
+    ) -> ProofResult<Witness<EF, F, FiatShamirU, DenseMatrix<F>, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
-        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        H: CryptographicHasher<F, [FiatShamirU; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[FiatShamirU; DIGEST_ELEMS], 2> + Sync,
+        [FiatShamirU; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
+        FiatShamirU: Eq + Packable,
     {
         // convert evaluations -> coefficients form
         let pol_coeffs: CoefficientList<F> = polynomial.clone().to_coefficients();
@@ -113,12 +187,47 @@ where
     }
 }
 
-impl<EF, F, H, C, PowStrategy> Deref for CommitmentWriter<'_, EF, F, H, C, PowStrategy>
+impl<
+    EF,
+    F,
+    H,
+    C,
+    PowStrategy,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+> Deref
+    for CommitmentWriter<
+        '_,
+        EF,
+        F,
+        H,
+        C,
+        PowStrategy,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
 {
-    type Target = WhirConfig<EF, F, H, C, PowStrategy>;
+    type Target = WhirConfig<
+        EF,
+        F,
+        H,
+        C,
+        PowStrategy,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -140,6 +249,7 @@ mod tests {
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
         poly::multilinear::MultilinearPoint,
+        whir::{FiatShamirHash, FiatShamirPerm, FiatShamirU},
     };
 
     type F = BabyBear;
@@ -181,8 +291,17 @@ mod tests {
 
         // Define multivariate parameters for the polynomial.
         let mv_params = MultivariateParameters::new(num_variables);
-        let params =
-            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+        let params = WhirConfig::<
+            F,
+            F,
+            FieldHash,
+            MyCompress,
+            Blake3PoW,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, whir_params);
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = rand::rng();
@@ -265,8 +384,17 @@ mod tests {
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let params =
-            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+        let params = WhirConfig::<
+            F,
+            F,
+            FieldHash,
+            MyCompress,
+            Blake3PoW,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, whir_params);
 
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
@@ -313,8 +441,17 @@ mod tests {
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let mut params =
-            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+        let mut params = WhirConfig::<
+            F,
+            F,
+            FieldHash,
+            MyCompress,
+            Blake3PoW,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            200,
+        >::new(mv_params, whir_params);
 
         // Explicitly set OOD samples to 0
         params.committment_ood_samples = 0;

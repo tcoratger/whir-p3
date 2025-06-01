@@ -233,9 +233,9 @@ where
         }
     }
 
-    pub fn commit_statement<PowStrategy, HC, C>(
+    pub fn commit_statement<PowStrategy, HC, C, FiatShamirHash>(
         &mut self,
-        params: &WhirConfig<EF, F, HC, C, PowStrategy>,
+        params: &WhirConfig<EF, F, HC, C, PowStrategy, Perm, FiatShamirHash, U, WIDTH>,
     ) {
         // TODO: Add params
         self.add_digest("merkle_digest");
@@ -245,10 +245,12 @@ where
         }
     }
 
-    pub fn add_whir_proof<PowStrategy, HC, C>(
+    pub fn add_whir_proof<PowStrategy, HC, C, FiatShamirHash>(
         &mut self,
-        params: &WhirConfig<EF, F, HC, C, PowStrategy>,
-    ) {
+        params: &WhirConfig<EF, F, HC, C, PowStrategy, Perm, FiatShamirHash, U, WIDTH>,
+    ) where
+        FiatShamirHash: DuplexSpongeInterface<Perm, U, WIDTH>,
+    {
         // TODO: Add statement
         if params.initial_statement {
             self.challenge_scalars(1, "initial_combination_randomness");

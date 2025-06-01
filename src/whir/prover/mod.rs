@@ -2,17 +2,22 @@ use std::ops::Deref;
 
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, Packable, PrimeField64, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, Permutation, PseudoCompressionFunction};
 use round::RoundState;
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
 use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
-    fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState},
+    fiat_shamir::{
+        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
+        errors::ProofResult,
+        pow::traits::PowStrategy,
+        prover::ProverState,
+    },
     poly::{
         coeffs::{CoefficientList, CoefficientStorage},
         evals::{EvaluationStorage, EvaluationsList},
@@ -28,35 +33,69 @@ use crate::{
 
 pub mod round;
 
-pub type Proof<const DIGEST_ELEMS: usize> = Vec<Vec<[u8; DIGEST_ELEMS]>>;
+pub type Proof<W, const DIGEST_ELEMS: usize> = Vec<Vec<[W; DIGEST_ELEMS]>>;
 pub type Leafs<F> = Vec<Vec<F>>;
 
 #[derive(Debug)]
-pub struct Prover<'a, EF, F, H, C, PowStrategy>(
+pub struct Prover<
+    'a,
+    EF,
+    F,
+    H,
+    C,
+    PowStrategy,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+>(
     /// Reference to the protocol configuration shared across prover components.
-    pub &'a WhirConfig<EF, F, H, C, PowStrategy>,
+    pub  &'a WhirConfig<
+        EF,
+        F,
+        H,
+        C,
+        PowStrategy,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >,
 )
 where
     F: Field + TwoAdicField + PrimeField64,
-    EF: ExtensionField<F> + TwoAdicField;
+    EF: ExtensionField<F> + TwoAdicField,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>;
 
-impl<EF, F, H, C, PS> Deref for Prover<'_, EF, F, H, C, PS>
+impl<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, const FIAT_SHAMIR_WIDTH: usize>
+    Deref
+    for Prover<'_, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
 {
-    type Target = WhirConfig<EF, F, H, C, PS>;
+    type Target =
+        WhirConfig<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, FIAT_SHAMIR_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0
     }
 }
 
-impl<EF, F, H, C, PS> Prover<'_, EF, F, H, C, PS>
+impl<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, const FIAT_SHAMIR_WIDTH: usize>
+    Prover<'_, EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, FIAT_SHAMIR_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
 {
     /// Validates that the total number of variables expected by the prover configuration
     /// matches the number implied by the folding schedule and the final rounds.
@@ -105,7 +144,7 @@ where
     /// - Panics if OOD data is non-empty despite `initial_statement = false`
     fn validate_witness<const DIGEST_ELEMS: usize>(
         &self,
-        witness: &Witness<EF, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
+        witness: &Witness<EF, F, FiatShamirU, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
         if !self.initial_statement {
@@ -140,15 +179,23 @@ where
     pub fn prove<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
-        prover_state: &mut ProverState<EF, F>,
+        prover_state: &mut ProverState<
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
         statement: Statement<EF>,
-        witness: Witness<EF, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
+        witness: Witness<EF, F, FiatShamirU, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
-        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        H: CryptographicHasher<F, [FiatShamirU; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[FiatShamirU; DIGEST_ELEMS], 2> + Sync,
+        [FiatShamirU; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
+        FiatShamirU: Eq + Packable,
     {
         // Validate parameters
         assert!(
@@ -193,14 +240,22 @@ where
         &self,
         round_index: usize,
         dft: &D,
-        prover_state: &mut ProverState<EF, F>,
-        round_state: &mut RoundState<EF, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
+        round_state: &mut RoundState<EF, F, FiatShamirU, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
-        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        H: CryptographicHasher<F, [FiatShamirU; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[FiatShamirU; DIGEST_ELEMS], 2> + Sync,
+        [FiatShamirU; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
+        FiatShamirU: Eq + Packable,
     {
         // - If a sumcheck already exists, use its evaluations
         // - Otherwise, fold the evaluations from the previous round
@@ -383,13 +438,14 @@ where
                 )
             };
 
-        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS, _>(
-            prover_state,
-            folding_factor_next,
-            round_params.folding_pow_bits,
-            None,
-            dft,
-        )?;
+        let folding_randomness = sumcheck_prover
+            .compute_sumcheck_polynomials::<PS, _, _, _, _, FIAT_SHAMIR_WIDTH>(
+                prover_state,
+                folding_factor_next,
+                round_params.folding_pow_bits,
+                None,
+                dft,
+            )?;
 
         let start_idx = self.folding_factor.total_number(round_index);
         let dst_randomness =
@@ -417,17 +473,25 @@ where
     fn final_round<D, const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<EF, F>,
-        round_state: &mut RoundState<EF, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
+        round_state: &mut RoundState<EF, F, FiatShamirU, DenseMatrix<F>, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
         folded_evaluations: &EvaluationsList<EF>,
         dft: &D,
     ) -> ProofResult<()>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
-        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        H: CryptographicHasher<F, [FiatShamirU; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[FiatShamirU; DIGEST_ELEMS], 2> + Sync,
+        [FiatShamirU; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
+        FiatShamirU: Eq + Packable,
     {
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_scalars(folded_coefficients.coeffs())?;
@@ -496,7 +560,7 @@ where
                         EF::ONE,
                     )
                 })
-                .compute_sumcheck_polynomials::<PS, _>(
+                .compute_sumcheck_polynomials::<PS, _, _, _, _, FIAT_SHAMIR_WIDTH>(
                     prover_state,
                     self.final_sumcheck_rounds,
                     self.final_folding_pow_bits,
@@ -523,8 +587,15 @@ where
     fn compute_stir_queries<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<EF, F>,
-        round_state: &RoundState<EF, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
+        round_state: &RoundState<EF, F, FiatShamirU, DenseMatrix<F>, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig<EF>,
         ood_points: Vec<EF>,

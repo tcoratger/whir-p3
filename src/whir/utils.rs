@@ -1,10 +1,15 @@
-use bytemuck::zeroed_vec;
 use itertools::Itertools;
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
+use p3_symmetric::Permutation;
 use tracing::instrument;
 
 use crate::{
-    fiat_shamir::{UnitToBytes, errors::ProofResult, prover::ProverState},
+    fiat_shamir::{
+        UnitToBytes,
+        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
+        errors::ProofResult,
+        prover::ProverState,
+    },
     poly::multilinear::MultilinearPoint,
 };
 
@@ -26,28 +31,31 @@ pub const fn workload_size<T: Sized>() -> usize {
 /// - Computes the folded domain size: `folded_domain_size = domain_size / 2^folding_factor`.
 /// - Derives query indices from random transcript bytes.
 /// - Deduplicates indices while preserving order.
-pub fn get_challenge_stir_queries<T>(
+pub fn get_challenge_stir_queries<T, FiatShamirU>(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
     narg_string: &mut T,
 ) -> ProofResult<Vec<usize>>
 where
-    T: UnitToBytes,
+    T: UnitToBytes<FiatShamirU>,
+    FiatShamirU: Unit + Default + Copy,
 {
     let folded_domain_size = domain_size >> folding_factor;
     // Compute required bytes per index: `domain_size_bytes = ceil(log2(folded_domain_size) / 8)`
     let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
     // Allocate space for query bytes
-    let mut queries = zeroed_vec(num_queries * domain_size_bytes);
+    let mut queries = vec![FiatShamirU::default(); num_queries * domain_size_bytes];
     narg_string.fill_challenge_units(&mut queries)?;
 
     // Convert bytes into indices in **one efficient pass**
     Ok(queries
         .chunks_exact(domain_size_bytes)
         .map(|chunk| {
-            chunk.iter().fold(0usize, |acc, &b| (acc << 8) | b as usize) % folded_domain_size
+            chunk.iter().fold(0usize, |acc, &b| {
+                (acc << 8) | FiatShamirU::to_u8(b) as usize
+            }) % folded_domain_size
         })
         .sorted_unstable()
         .dedup()
@@ -58,8 +66,23 @@ where
 ///
 /// This should be used on the prover side.
 #[instrument(skip_all)]
-pub fn sample_ood_points<F, EF, E>(
-    prover_state: &mut ProverState<EF, F>,
+pub fn sample_ood_points<
+    F,
+    EF,
+    E,
+    FiatShamirPerm,
+    FiatShamirHash,
+    FiatShamirU,
+    const FIAT_SHAMIR_WIDTH: usize,
+>(
+    prover_state: &mut ProverState<
+        EF,
+        F,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        FIAT_SHAMIR_WIDTH,
+    >,
     num_samples: usize,
     num_variables: usize,
     evaluate_fn: E,
@@ -68,6 +91,9 @@ where
     F: PrimeField64 + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     E: Fn(&MultilinearPoint<EF>) -> EF,
+    FiatShamirU: Unit + Default + Copy,
+    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
 {
     let mut ood_points = EF::zero_vec(num_samples);
     let mut ood_answers = Vec::with_capacity(num_samples);

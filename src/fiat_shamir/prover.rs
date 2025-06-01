@@ -5,16 +5,15 @@ use p3_symmetric::{Hash, Permutation};
 use serde::Serialize;
 
 use super::{
-    DefaultHash, UnitToBytes,
+    UnitToBytes,
     domain_separator::DomainSeparator,
     duplex_sponge::interface::DuplexSpongeInterface,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
-    keccak::KECCAK_WIDTH_BYTES,
     pow::traits::PowStrategy,
     sho::HashStateWithInstructions,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order},
 };
-use crate::fiat_shamir::{DefaultPerm, duplex_sponge::interface::Unit};
+use crate::fiat_shamir::duplex_sponge::interface::Unit;
 
 /// [`ProverState`] is the prover state of an interactive proof (IP) system.
 ///
@@ -33,14 +32,8 @@ use crate::fiat_shamir::{DefaultPerm, duplex_sponge::interface::Unit};
 /// the zero-knowledge property. [`ProverState`] does not implement [`Clone`] or [`Copy`] to prevent
 /// accidental leaks.
 #[derive(Debug)]
-pub struct ProverState<
-    EF,
-    F,
-    Perm = DefaultPerm,
-    H = DefaultHash,
-    U = u8,
-    const WIDTH: usize = KECCAK_WIDTH_BYTES,
-> where
+pub struct ProverState<EF, F, Perm, H, U, const WIDTH: usize>
+where
     U: Unit,
     Perm: Permutation<[U; WIDTH]>,
     H: DuplexSpongeInterface<Perm, U, WIDTH>,
@@ -259,7 +252,7 @@ where
     /// # Errors
     /// - Returns `ProofError::SerializationError` if encoding fails.
     /// - Returns `DomainSeparatorMismatch` if no `.hint("label")` instruction was registered.
-    pub fn hint<T: Serialize + Debug>(&mut self, hint: &T) -> ProofResult<()> {
+    pub fn hint<T: Serialize>(&mut self, hint: &T) -> ProofResult<()> {
         // Serialize the input object to a byte vector using bincode.
         // This encodes the object in a compact, deterministic binary format.
         let bytes = bincode::serde::encode_to_vec(hint, bincode::config::standard())
@@ -298,6 +291,7 @@ mod tests {
     use p3_keccak::KeccakF;
 
     use super::*;
+    use crate::fiat_shamir::{DefaultHash, DefaultPerm};
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
