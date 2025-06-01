@@ -148,11 +148,8 @@ pub struct CommitmentReader<
     >,
 )
 where
-    F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    FiatShamirU: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>;
+    F: Field,
+    EF: ExtensionField<F>;
 
 impl<
     'a,
@@ -244,11 +241,8 @@ impl<
         FIAT_SHAMIR_WIDTH,
     >
 where
-    F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    FiatShamirU: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
+    F: Field,
+    EF: ExtensionField<F>,
 {
     type Target = WhirConfig<
         EF,
