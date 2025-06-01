@@ -134,7 +134,7 @@ mod tests {
     fn test_vanishing_polynomial() {
         let domain = Radix2EvaluationDomain::<F>::new(8).unwrap();
 
-        //validate x^size - offset_pow_size at subgroup is zero
+        // Validate that `x^size - offset_pow_size` at subgroup is zero
         for i in 0..domain.size() {
             let x = domain.group_gen().exp_u64(i as u64);
             let vanishing_value = x.exp_u64(domain.size) - domain.offset_pow_size;
