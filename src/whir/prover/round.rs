@@ -56,7 +56,7 @@ where
 
     /// Merkle commitment prover data for the **extension field** polynomials (folded rounds).
     /// Present only after the first round.
-    pub(crate) merkle_prover_data: Option<RoundMerkleTree<F, EF, DIGEST_ELEMS>>,
+    pub(crate) merkle_prover_data: Option<RoundMerkleTree<F, EF, W, DIGEST_ELEMS>>,
 
     /// Merkle proof from the initial commitment round.
     /// - First: list of opened leaf values in the base field.

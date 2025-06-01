@@ -10,8 +10,8 @@ pub mod writer;
 pub type CommitmentMerkleTree<F, W, const DIGEST_ELEMS: usize> =
     MerkleTree<F, W, DenseMatrix<F>, DIGEST_ELEMS>;
 
-pub type RoundMerkleTree<F, EF, const DIGEST_ELEMS: usize> =
-    MerkleTree<F, u8, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>;
+pub type RoundMerkleTree<F, EF, W, const DIGEST_ELEMS: usize> =
+    MerkleTree<F, W, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>;
 
 /// Represents the commitment and evaluation data for a polynomial.
 ///
