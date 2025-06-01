@@ -33,37 +33,26 @@ pub mod sumcheck;
 /// This type provides a lightweight, ergonomic interface to verification methods
 /// by wrapping a reference to the `WhirConfig`.
 #[derive(Debug)]
-pub struct Verifier<
-    'a,
-    EF,
-    F,
-    H,
-    C,
-    PowStrategy,
-    Perm,
-    FiatShamirHash,
-    W,
-    const FIAT_SHAMIR_WIDTH: usize,
->(
+pub struct Verifier<'a, EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>(
     /// Reference to the verifier’s configuration containing all round parameters.
-    pub(crate) &'a WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+    pub(crate) &'a WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
-    Verifier<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
+impl<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>
+    Verifier<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
     W: Unit + Default + Copy,
-    Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
+    Perm: Permutation<[W; PERM_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
 {
     pub const fn new(
-        params: &'a WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        params: &'a WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>,
     ) -> Self {
         Self(params)
     }
@@ -72,7 +61,7 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         statement: &Statement<EF>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
@@ -240,7 +229,7 @@ where
     /// A vector of randomness values used to weight each constraint.
     pub fn combine_constraints(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
         claimed_sum: &mut EF,
         constraints: &[Constraint<EF>],
     ) -> ProofResult<Vec<EF>> {
@@ -275,7 +264,7 @@ where
     /// Returns `ProofError::InvalidProof` if the PoW response is invalid.
     pub fn verify_proof_of_work(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
         bits: f64,
     ) -> ProofResult<()> {
         if bits > 0. {
@@ -310,7 +299,7 @@ where
     /// or the prover’s data does not match the commitment.
     pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
         params: &RoundConfig<EF>,
         commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
@@ -389,7 +378,7 @@ where
     /// Returns `ProofError::InvalidProof` if any Merkle proof fails verification.
     pub fn verify_merkle_proof<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
         root: &Hash<F, W, DIGEST_ELEMS>,
         indices: &[usize],
         dimensions: &[Dimensions],
@@ -522,13 +511,13 @@ where
     }
 }
 
-impl<EF, F, H, C, PS, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize> Deref
-    for Verifier<'_, EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
+impl<EF, F, H, C, PS, Perm, FiatShamirHash, W, const PERM_WIDTH: usize> Deref
+    for Verifier<'_, EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0

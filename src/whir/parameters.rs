@@ -26,17 +26,8 @@ pub struct RoundConfig<F> {
 }
 
 #[derive(Debug, Clone)]
-pub struct WhirConfig<
-    EF,
-    F,
-    H,
-    C,
-    PowStrategy,
-    Perm,
-    FiatShamirHash,
-    W,
-    const FIAT_SHAMIR_WIDTH: usize,
-> where
+pub struct WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>
+where
     F: Field,
     EF: ExtensionField<F>,
 {
@@ -80,14 +71,14 @@ pub struct WhirConfig<
     pub _fiat_shamir_unit: PhantomData<W>,
 }
 
-impl<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
-    WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
+impl<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>
+    WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     W: Unit + Default + Copy,
-    Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
+    Perm: Permutation<[W; PERM_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
 {
     #[allow(clippy::too_many_lines)]
     pub fn new(

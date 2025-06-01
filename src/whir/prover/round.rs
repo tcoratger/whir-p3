@@ -120,10 +120,10 @@ where
         D,
         Perm,
         FiatShamirHash,
-        const FIAT_SHAMIR_WIDTH: usize,
+        const PERM_WIDTH: usize,
     >(
-        prover: &Prover<'_, EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
-        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        prover: &Prover<'_, EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         dft: &D,
@@ -132,8 +132,8 @@ where
         PS: PowStrategy,
         D: TwoAdicSubgroupDft<F>,
         W: Unit + Default + Copy,
-        Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-        FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
+        Perm: Permutation<[W; PERM_WIDTH]>,
+        FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
     {
         // Convert witness ood_points into constraints
         let new_constraints = witness
@@ -166,7 +166,7 @@ where
 
             // Compute sumcheck polynomials and return the folding randomness values
             let folding_randomness = sumcheck
-                .compute_sumcheck_polynomials::<PS, _, _, _, _, FIAT_SHAMIR_WIDTH>(
+                .compute_sumcheck_polynomials::<PS, _, _, _, _, PERM_WIDTH>(
                     prover_state,
                     prover.folding_factor.at_round(0),
                     prover.starting_folding_pow_bits,

@@ -330,16 +330,9 @@ where
     /// - If `folding_factor > num_variables()`
     /// - If univariate skip is attempted with evaluations in the extension field.
     #[instrument(skip_all)]
-    pub fn compute_sumcheck_polynomials<
-        S,
-        DFT,
-        Perm,
-        FiatShamirHash,
-        W,
-        const FIAT_SHAMIR_WIDTH: usize,
-    >(
+    pub fn compute_sumcheck_polynomials<S, DFT, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>(
         &mut self,
-        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
         folding_factor: usize,
         pow_bits: f64,
         k_skip: Option<usize>,
@@ -351,8 +344,8 @@ where
         S: PowStrategy,
         DFT: TwoAdicSubgroupDft<F>,
         W: Unit + Default + Copy,
-        Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-        FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
+        Perm: Permutation<[W; PERM_WIDTH]>,
+        FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
     {
         // Will store the verifier's folding challenges for each round.
         let mut res = Vec::with_capacity(folding_factor);

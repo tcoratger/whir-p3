@@ -62,15 +62,8 @@ where
     /// - The prover's claimed answers at those points.
     ///
     /// This is used to verify consistency of polynomial commitments in WHIR.
-    pub fn parse<
-        EF,
-        Perm,
-        FiatShamirHash,
-        W,
-        const FIAT_SHAMIR_WIDTH: usize,
-        const DIGEST_ELEMS: usize,
-    >(
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+    pub fn parse<EF, Perm, FiatShamirHash, W, const PERM_WIDTH: usize, const DIGEST_ELEMS: usize>(
+        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
         num_variables: usize,
         ood_samples: usize,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>>
@@ -78,8 +71,8 @@ where
         F: TwoAdicField + PrimeField64,
         EF: ExtensionField<F> + TwoAdicField,
         W: Unit + Default + Copy,
-        Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-        FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
+        Perm: Permutation<[W; PERM_WIDTH]>,
+        FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
     {
         // Read the Merkle root hash committed by the prover.
         let root = verifier_state.read_digest()?;
@@ -139,32 +132,32 @@ pub struct CommitmentReader<
     Perm,
     FiatShamirHash,
     W,
-    const FIAT_SHAMIR_WIDTH: usize,
+    const PERM_WIDTH: usize,
 >(
     /// Reference to the verifier’s configuration object.
     ///
     /// This contains all parameters needed to parse the commitment,
     /// including how many out-of-domain samples are expected.
-    &'a WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+    &'a WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
-    CommitmentReader<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
+impl<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>
+    CommitmentReader<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     W: Unit + Default + Copy,
-    Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
+    Perm: Permutation<[W; PERM_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
 {
     /// Create a new commitment reader from a WHIR configuration.
     ///
     /// This allows the verifier to parse a commitment from the Fiat-Shamir transcript.
     pub const fn new(
-        params: &'a WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        params: &'a WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>,
     ) -> Self {
         Self(params)
     }
@@ -175,7 +168,7 @@ where
     /// expected for verifying the committed polynomial.
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>> {
         ParsedCommitment::<_, Hash<F, W, DIGEST_ELEMS>>::parse(
             verifier_state,
@@ -185,13 +178,13 @@ where
     }
 }
 
-impl<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize> Deref
-    for CommitmentReader<'_, EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
+impl<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, const PERM_WIDTH: usize> Deref
+    for CommitmentReader<'_, EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0

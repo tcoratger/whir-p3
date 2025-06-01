@@ -37,7 +37,7 @@ type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 type Perm = DefaultPerm;
 type FiatShamirHash = DefaultHash;
 type W = u8;
-const FIAT_SHAMIR_WIDTH: usize = KECCAK_WIDTH_BYTES;
+const PERM_WIDTH: usize = KECCAK_WIDTH_BYTES;
 
 /// Run a complete WHIR STARK proof lifecycle.
 ///
@@ -92,7 +92,7 @@ pub fn make_whir_things(
         Perm,
         FiatShamirHash,
         W,
-        FIAT_SHAMIR_WIDTH,
+        PERM_WIDTH,
     >::new(mv_params, whir_params);
 
     // Define a polynomial with all coefficients set to 1

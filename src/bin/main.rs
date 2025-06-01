@@ -41,7 +41,7 @@ type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 type Perm = DefaultPerm;
 type FiatShamirHash = DefaultHash;
 type W = u8;
-const FIAT_SHAMIR_WIDTH: usize = KECCAK_WIDTH_BYTES;
+const PERM_WIDTH: usize = KECCAK_WIDTH_BYTES;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -132,7 +132,7 @@ fn main() {
         Perm,
         FiatShamirHash,
         W,
-        FIAT_SHAMIR_WIDTH,
+        PERM_WIDTH,
     >::new(mv_params, whir_params);
 
     dbg!(&params);

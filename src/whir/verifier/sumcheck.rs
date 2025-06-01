@@ -18,15 +18,15 @@ use crate::{
 /// The full vector of folding randomness values, in reverse round order.
 type SumcheckRandomness<F> = MultilinearPoint<F>;
 
-impl<EF, F, H, C, PS, Perm, FiatShamirHash, W, const FIAT_SHAMIR_WIDTH: usize>
-    Verifier<'_, EF, F, H, C, PS, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>
+impl<EF, F, H, C, PS, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>
+    Verifier<'_, EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
     W: Unit + Default + Copy,
-    Perm: Permutation<[W; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<Perm, W, FIAT_SHAMIR_WIDTH>,
+    Perm: Permutation<[W; PERM_WIDTH]>,
+    FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
 {
     /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
     /// and computes the corresponding `MultilinearPoint` folding randomness in reverse order.
@@ -58,7 +58,7 @@ where
     /// - A `MultilinearPoint` of folding randomness values in reverse order.
     pub(crate) fn verify_sumcheck_rounds(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, FIAT_SHAMIR_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
         claimed_sum: &mut EF,
         rounds: usize,
         pow_bits: f64,
