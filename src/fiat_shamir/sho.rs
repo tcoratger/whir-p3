@@ -174,6 +174,7 @@ mod tests {
     use p3_keccak::KeccakF;
 
     use super::*;
+    use crate::fiat_shamir::DefaultPerm;
 
     type F = BabyBear;
 
@@ -220,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_absorb_works_and_modifies_stack() {
-        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         domsep.absorb(2, "x");
         let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
@@ -236,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_absorb_too_much_returns_error() {
-        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         domsep.absorb(2, "x");
         let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
@@ -246,7 +247,7 @@ mod tests {
 
     #[test]
     fn test_squeeze_works() {
-        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         domsep.squeeze(3, "y");
         let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
@@ -258,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_squeeze_with_leftover_updates_stack() {
-        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         domsep.squeeze(4, "z");
         let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
@@ -271,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_multiple_absorbs_deplete_stack_properly() {
-        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         domsep.absorb(5, "a");
         let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
@@ -288,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_multiple_squeeze_deplete_stack_properly() {
-        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         domsep.squeeze(5, "z");
         let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
@@ -304,7 +305,7 @@ mod tests {
 
     #[test]
     fn test_absorb_then_wrong_squeeze_clears_stack() {
-        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         domsep.absorb(3, "in");
         let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
@@ -316,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_absorb_exact_then_too_much() {
-        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         domsep.absorb(2, "x");
         let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
@@ -327,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_from_impl_constructs_hash_state() {
-        let mut domsep = DomainSeparator::<F, F>::new("from", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("from", KeccakF);
         domsep.absorb(1, "in");
         let state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
@@ -337,9 +338,9 @@ mod tests {
 
     #[test]
     fn test_generate_tag_is_deterministic() {
-        let mut ds1 = DomainSeparator::<F, F>::new("session1", KeccakF);
+        let mut ds1 = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("session1", KeccakF);
         ds1.absorb(1, "x");
-        let mut ds2 = DomainSeparator::<F, F>::new("session1", KeccakF);
+        let mut ds2 = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("session1", KeccakF);
         ds2.absorb(1, "x");
 
         let tag1 = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&ds1, KeccakF);
@@ -350,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_hint_works_and_removes_stack_entry() {
-        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         domsep.hint("hint");
         let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
@@ -362,7 +363,7 @@ mod tests {
 
     #[test]
     fn test_hint_wrong_op_errors_and_clears_stack() {
-        let mut domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         domsep.absorb(1, "x");
         let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
@@ -373,7 +374,7 @@ mod tests {
 
     #[test]
     fn test_hint_on_empty_stack_errors() {
-        let domsep = DomainSeparator::<F, F>::new("test", KeccakF);
+        let domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         let mut state = HashStateWithInstructions::<DummySponge, _, _, 200>::new(&domsep, KeccakF);
 
         let result = state.hint(); // Stack is empty
@@ -391,7 +392,7 @@ mod tests {
             squeezed: Rc::clone(&squeezed),
         };
 
-        let mut domsep = DomainSeparator::<F, F>::new("drop-test", KeccakF);
+        let mut domsep = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("drop-test", KeccakF);
         domsep.absorb(1, "x");
 
         {

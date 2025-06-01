@@ -204,7 +204,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+        fiat_shamir::{DefaultPerm, domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
@@ -275,7 +275,7 @@ mod tests {
         params: &WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW>,
         poly: EvaluationsList<F>,
     ) -> (
-        DomainSeparator<EF4, F>,
+        DomainSeparator<EF4, F, DefaultPerm, u8, 200>,
         ProverState<EF4, F>,
         Witness<EF4, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     ) {

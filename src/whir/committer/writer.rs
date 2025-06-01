@@ -135,7 +135,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+        fiat_shamir::{DefaultPerm, domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
@@ -189,7 +189,8 @@ mod tests {
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new("🌪️", KeccakF);
+        let mut domainsep: DomainSeparator<F, F, DefaultPerm, u8, 200> =
+            DomainSeparator::new("🌪️", KeccakF);
         domainsep.commit_statement(&params);
         domainsep.add_whir_proof(&params);
         let mut prover_state = domainsep.to_prover_state();

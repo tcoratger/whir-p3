@@ -144,7 +144,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::{DefaultHash, domain_separator::DomainSeparator},
+        fiat_shamir::{DefaultHash, DefaultPerm, domain_separator::DomainSeparator},
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
@@ -266,7 +266,8 @@ mod tests {
         assert_eq!(prover.sum, expected_initial_sum);
 
         // Set up domain separator
-        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("tag", KeccakF);
+        let mut domsep: DomainSeparator<EF4, F, DefaultPerm, u8, 200> =
+            DomainSeparator::new("tag", KeccakF);
 
         let folding_factor = 3;
         let pow_bits = 1.;
@@ -414,7 +415,8 @@ mod tests {
         // - 1 skipped round: 2^k_skip + 1 values
         // - remaining rounds: 3 values each
         // -------------------------------------------------------------
-        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("test", KeccakF);
+        let mut domsep: DomainSeparator<EF4, F, DefaultPerm, u8, 200> =
+            DomainSeparator::new("test", KeccakF);
         domsep.add_scalars(1 << (K_SKIP + 1), "skip");
         domsep.challenge_scalars(1, "skip");
 

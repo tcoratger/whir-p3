@@ -205,7 +205,7 @@ mod tests {
     use p3_keccak::KeccakF;
 
     use super::*;
-    use crate::fiat_shamir::{DefaultHash, domain_separator::DomainSeparator};
+    use crate::fiat_shamir::{DefaultHash, DefaultPerm, domain_separator::DomainSeparator};
 
     type F = BabyBear;
     type H = DefaultHash;
@@ -224,8 +224,10 @@ mod tests {
     fn test_pow_blake3() {
         const BITS: f64 = 10.0;
 
-        let mut domain_separator =
-            DomainSeparator::<F, F>::new("the proof of work lottery 🎰", KeccakF);
+        let mut domain_separator = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new(
+            "the proof of work lottery 🎰",
+            KeccakF,
+        );
         domain_separator.absorb(1, "something");
         domain_separator.challenge_pow("rolling dices");
 
