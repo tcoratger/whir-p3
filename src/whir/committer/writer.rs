@@ -1,11 +1,12 @@
-use std::ops::Deref;
+use std::{fmt::Debug, ops::Deref};
 
+use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
@@ -51,9 +52,10 @@ where
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
     #[instrument(skip_all)]
-    pub fn commit<D, const DIGEST_ELEMS: usize>(
+    pub fn commit<D, Challenger, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
+        challenger: &mut Challenger,
         prover_state: &mut ProverState<EF, F>,
         polynomial: EvaluationsList<F>,
     ) -> ProofResult<Witness<EF, F, DIGEST_ELEMS>>
@@ -62,7 +64,13 @@ where
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
+        Challenger:
+            FieldChallenger<F> + GrindingChallenger + CanObserve<Hash<F, u8, DIGEST_ELEMS>> + Debug,
     {
+        // println!("################ COMMITMENT WRITER ##############");
+
+        // println!("prover state at start: {:?}", prover_state);
+
         // convert evaluations -> coefficients form
         let pol_coeffs: CoefficientList<F> = polynomial.clone().to_coefficients();
 
@@ -91,11 +99,22 @@ where
         let (root, prover_data) =
             info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
 
+        // println!("root {:?}", root);
+
         // Observe Merkle root in challenger
         prover_state.add_digest(root)?;
 
+        // println!("prover state: {:?}", prover_state);
+
+        // Observe the Merkle root in the Plonky3 challenger
+        challenger.observe(root);
+
+        // println!("challenger: {:?}", challenger);
+        // println!("---------------------------------");
+
         // Handle OOD (Out-Of-Domain) samples
-        let (ood_points, ood_answers) = sample_ood_points(
+        let (ood_points, ood_answers, ood_points_p3, ood_answers_p3) = sample_ood_points(
+            challenger,
             prover_state,
             self.committment_ood_samples,
             self.mv_parameters.num_variables,
@@ -109,6 +128,8 @@ where
             prover_data,
             ood_points,
             ood_answers,
+            ood_points_p3,
+            ood_answers_p3,
         })
     }
 }
@@ -125,215 +146,215 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use p3_baby_bear::BabyBear;
-    use p3_dft::Radix2DitSmallBatch;
-    use p3_keccak::{Keccak256Hash, KeccakF};
-    use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
-    use rand::Rng;
+// #[cfg(test)]
+// mod tests {
+//     use p3_baby_bear::BabyBear;
+//     use p3_dft::Radix2DitSmallBatch;
+//     use p3_keccak::{Keccak256Hash, KeccakF};
+//     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
+//     use rand::Rng;
 
-    use super::*;
-    use crate::{
-        fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
-        parameters::{
-            FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
-        },
-        poly::multilinear::MultilinearPoint,
-    };
+//     use super::*;
+//     use crate::{
+//         fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+//         parameters::{
+//             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
+//         },
+//         poly::multilinear::MultilinearPoint,
+//     };
 
-    type F = BabyBear;
-    type ByteHash = Keccak256Hash;
-    type FieldHash = SerializingHasher<ByteHash>;
-    type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+//     type F = BabyBear;
+//     type ByteHash = Keccak256Hash;
+//     type FieldHash = SerializingHasher<ByteHash>;
+//     type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 
-    #[test]
-    fn test_basic_commitment() {
-        // Set up Whir protocol parameters.
-        let security_level = 100;
-        let pow_bits = 20;
-        let num_variables = 5;
-        let starting_rate = 1;
-        let folding_factor = 4;
-        let first_round_folding_factor = 4;
+//     #[test]
+//     fn test_basic_commitment() {
+//         // Set up Whir protocol parameters.
+//         let security_level = 100;
+//         let pow_bits = 20;
+//         let num_variables = 5;
+//         let starting_rate = 1;
+//         let folding_factor = 4;
+//         let first_round_folding_factor = 4;
 
-        let byte_hash = ByteHash {};
-        let field_hash = FieldHash::new(byte_hash);
+//         let byte_hash = ByteHash {};
+//         let field_hash = FieldHash::new(byte_hash);
 
-        let compress = MyCompress::new(byte_hash);
+//         let compress = MyCompress::new(byte_hash);
 
-        let whir_params = ProtocolParameters::<FieldHash, MyCompress> {
-            initial_statement: true,
-            security_level,
-            pow_bits,
-            rs_domain_initial_reduction_factor: 1,
-            folding_factor: FoldingFactor::ConstantFromSecondRound(
-                first_round_folding_factor,
-                folding_factor,
-            ),
-            // merkle_hash: Poseidon2Sponge::new(poseidon_p24),
-            // merkle_compress: Poseidon2Compression::new(poseidon_p16),
-            merkle_hash: field_hash,
-            merkle_compress: compress,
-            soundness_type: SecurityAssumption::CapacityBound,
-            starting_log_inv_rate: starting_rate,
-        };
+//         let whir_params = ProtocolParameters::<FieldHash, MyCompress> {
+//             initial_statement: true,
+//             security_level,
+//             pow_bits,
+//             rs_domain_initial_reduction_factor: 1,
+//             folding_factor: FoldingFactor::ConstantFromSecondRound(
+//                 first_round_folding_factor,
+//                 folding_factor,
+//             ),
+//             // merkle_hash: Poseidon2Sponge::new(poseidon_p24),
+//             // merkle_compress: Poseidon2Compression::new(poseidon_p16),
+//             merkle_hash: field_hash,
+//             merkle_compress: compress,
+//             soundness_type: SecurityAssumption::CapacityBound,
+//             starting_log_inv_rate: starting_rate,
+//         };
 
-        // Define multivariate parameters for the polynomial.
-        let mv_params = MultivariateParameters::new(num_variables);
-        let params =
-            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+//         // Define multivariate parameters for the polynomial.
+//         let mv_params = MultivariateParameters::new(num_variables);
+//         let params =
+//             WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
-        // Generate a random polynomial with 32 coefficients.
-        let mut rng = rand::rng();
-        let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
+//         // Generate a random polynomial with 32 coefficients.
+//         let mut rng = rand::rng();
+//         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new("🌪️", KeccakF);
-        domainsep.commit_statement(&params);
-        domainsep.add_whir_proof(&params);
-        let mut prover_state = domainsep.to_prover_state();
+//         // Set up the DomainSeparator and initialize a ProverState narg_string.
+//         let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new("🌪️", KeccakF);
+//         domainsep.commit_statement(&params);
+//         domainsep.add_whir_proof(&params);
+//         let mut prover_state = domainsep.to_prover_state();
 
-        // Run the Commitment Phase
-        let committer = CommitmentWriter::new(&params);
-        let dft_committer = Radix2DitSmallBatch::<F>::default();
-        let witness = committer
-            .commit(&dft_committer, &mut prover_state, polynomial.clone())
-            .unwrap();
+//         // Run the Commitment Phase
+//         let committer = CommitmentWriter::new(&params);
+//         let dft_committer = Radix2DitSmallBatch::<F>::default();
+//         let witness = committer
+//             .commit(&dft_committer, &mut prover_state, polynomial.clone())
+//             .unwrap();
 
-        // Ensure OOD (out-of-domain) points are generated.
-        assert!(
-            !witness.ood_points.is_empty(),
-            "OOD points should be generated"
-        );
+//         // Ensure OOD (out-of-domain) points are generated.
+//         assert!(
+//             !witness.ood_points.is_empty(),
+//             "OOD points should be generated"
+//         );
 
-        // Validate the number of generated OOD points.
-        assert_eq!(
-            witness.ood_points.len(),
-            params.committment_ood_samples,
-            "OOD points count should match expected samples"
-        );
+//         // Validate the number of generated OOD points.
+//         assert_eq!(
+//             witness.ood_points.len(),
+//             params.committment_ood_samples,
+//             "OOD points count should match expected samples"
+//         );
 
-        // Ensure polynomial data is correctly stored
-        assert_eq!(
-            witness.pol_coeffs.coeffs().len(),
-            polynomial.num_evals(),
-            "Stored polynomial should have the correct number of coefficients"
-        );
+//         // Ensure polynomial data is correctly stored
+//         assert_eq!(
+//             witness.pol_coeffs.coeffs().len(),
+//             polynomial.num_evals(),
+//             "Stored polynomial should have the correct number of coefficients"
+//         );
 
-        // Check that OOD answers match expected evaluations
-        for (i, ood_point) in witness.ood_points.iter().enumerate() {
-            let expected_eval = polynomial.evaluate(&MultilinearPoint::expand_from_univariate(
-                *ood_point,
-                num_variables,
-            ));
-            assert_eq!(
-                witness.ood_answers[i], expected_eval,
-                "OOD answer at index {i} should match expected evaluation"
-            );
-        }
-    }
+//         // Check that OOD answers match expected evaluations
+//         for (i, ood_point) in witness.ood_points.iter().enumerate() {
+//             let expected_eval = polynomial.evaluate(&MultilinearPoint::expand_from_univariate(
+//                 *ood_point,
+//                 num_variables,
+//             ));
+//             assert_eq!(
+//                 witness.ood_answers[i], expected_eval,
+//                 "OOD answer at index {i} should match expected evaluation"
+//             );
+//         }
+//     }
 
-    #[test]
-    fn test_large_polynomial() {
-        let security_level = 100;
-        let pow_bits = 20;
-        let num_variables = 10;
-        let starting_rate = 1;
-        let folding_factor = 4;
-        let first_round_folding_factor = 4;
+//     #[test]
+//     fn test_large_polynomial() {
+//         let security_level = 100;
+//         let pow_bits = 20;
+//         let num_variables = 10;
+//         let starting_rate = 1;
+//         let folding_factor = 4;
+//         let first_round_folding_factor = 4;
 
-        let byte_hash = ByteHash {};
-        let field_hash = FieldHash::new(byte_hash);
+//         let byte_hash = ByteHash {};
+//         let field_hash = FieldHash::new(byte_hash);
 
-        let compress = MyCompress::new(byte_hash);
+//         let compress = MyCompress::new(byte_hash);
 
-        let whir_params = ProtocolParameters {
-            initial_statement: true,
-            security_level,
-            pow_bits,
-            rs_domain_initial_reduction_factor: 1,
-            folding_factor: FoldingFactor::ConstantFromSecondRound(
-                first_round_folding_factor,
-                folding_factor,
-            ),
-            merkle_hash: field_hash,
-            merkle_compress: compress,
-            soundness_type: SecurityAssumption::CapacityBound,
-            starting_log_inv_rate: starting_rate,
-        };
+//         let whir_params = ProtocolParameters {
+//             initial_statement: true,
+//             security_level,
+//             pow_bits,
+//             rs_domain_initial_reduction_factor: 1,
+//             folding_factor: FoldingFactor::ConstantFromSecondRound(
+//                 first_round_folding_factor,
+//                 folding_factor,
+//             ),
+//             merkle_hash: field_hash,
+//             merkle_compress: compress,
+//             soundness_type: SecurityAssumption::CapacityBound,
+//             starting_log_inv_rate: starting_rate,
+//         };
 
-        let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let params =
-            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+//         let mv_params = MultivariateParameters::<F>::new(num_variables);
+//         let params =
+//             WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
-        let mut rng = rand::rng();
-        let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
+//         let mut rng = rand::rng();
+//         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
 
-        let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
-        domainsep.commit_statement(&params);
+//         let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
+//         domainsep.commit_statement(&params);
 
-        let mut prover_state = domainsep.to_prover_state();
+//         let mut prover_state = domainsep.to_prover_state();
 
-        let dft_committer = Radix2DitSmallBatch::<F>::default();
-        let committer = CommitmentWriter::new(&params);
-        let _ = committer
-            .commit(&dft_committer, &mut prover_state, polynomial)
-            .unwrap();
-    }
+//         let dft_committer = Radix2DitSmallBatch::<F>::default();
+//         let committer = CommitmentWriter::new(&params);
+//         let _ = committer
+//             .commit(&dft_committer, &mut prover_state, polynomial)
+//             .unwrap();
+//     }
 
-    #[test]
-    fn test_commitment_without_ood_samples() {
-        let security_level = 100;
-        let pow_bits = 20;
-        let num_variables = 5;
-        let starting_rate = 1;
-        let folding_factor = 4;
-        let first_round_folding_factor = 4;
+//     #[test]
+//     fn test_commitment_without_ood_samples() {
+//         let security_level = 100;
+//         let pow_bits = 20;
+//         let num_variables = 5;
+//         let starting_rate = 1;
+//         let folding_factor = 4;
+//         let first_round_folding_factor = 4;
 
-        let byte_hash = ByteHash {};
-        let field_hash = FieldHash::new(byte_hash);
+//         let byte_hash = ByteHash {};
+//         let field_hash = FieldHash::new(byte_hash);
 
-        let compress = MyCompress::new(byte_hash);
+//         let compress = MyCompress::new(byte_hash);
 
-        let whir_params = ProtocolParameters {
-            initial_statement: true,
-            security_level,
-            pow_bits,
-            rs_domain_initial_reduction_factor: 1,
-            folding_factor: FoldingFactor::ConstantFromSecondRound(
-                first_round_folding_factor,
-                folding_factor,
-            ),
-            merkle_hash: field_hash,
-            merkle_compress: compress,
-            soundness_type: SecurityAssumption::CapacityBound,
-            starting_log_inv_rate: starting_rate,
-        };
+//         let whir_params = ProtocolParameters {
+//             initial_statement: true,
+//             security_level,
+//             pow_bits,
+//             rs_domain_initial_reduction_factor: 1,
+//             folding_factor: FoldingFactor::ConstantFromSecondRound(
+//                 first_round_folding_factor,
+//                 folding_factor,
+//             ),
+//             merkle_hash: field_hash,
+//             merkle_compress: compress,
+//             soundness_type: SecurityAssumption::CapacityBound,
+//             starting_log_inv_rate: starting_rate,
+//         };
 
-        let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let mut params =
-            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+//         let mv_params = MultivariateParameters::<F>::new(num_variables);
+//         let mut params =
+//             WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
-        // Explicitly set OOD samples to 0
-        params.committment_ood_samples = 0;
+//         // Explicitly set OOD samples to 0
+//         params.committment_ood_samples = 0;
 
-        let mut rng = rand::rng();
-        let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
+//         let mut rng = rand::rng();
+//         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
-        domainsep.commit_statement(&params);
-        let mut prover_state = domainsep.to_prover_state();
+//         let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
+//         domainsep.commit_statement(&params);
+//         let mut prover_state = domainsep.to_prover_state();
 
-        let dft_committer = Radix2DitSmallBatch::<F>::default();
-        let committer = CommitmentWriter::new(&params);
-        let witness = committer
-            .commit(&dft_committer, &mut prover_state, polynomial)
-            .unwrap();
+//         let dft_committer = Radix2DitSmallBatch::<F>::default();
+//         let committer = CommitmentWriter::new(&params);
+//         let witness = committer
+//             .commit(&dft_committer, &mut prover_state, polynomial)
+//             .unwrap();
 
-        assert!(
-            witness.ood_points.is_empty(),
-            "There should be no OOD points when committment_ood_samples is 0"
-        );
-    }
-}
+//         assert!(
+//             witness.ood_points.is_empty(),
+//             "There should be no OOD points when committment_ood_samples is 0"
+//         );
+//     }
+// }

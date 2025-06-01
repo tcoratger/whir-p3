@@ -1,10 +1,11 @@
 use clap::Parser;
 use p3_baby_bear::BabyBear;
 use p3_blake3::Blake3;
+use p3_challenger::{HashChallenger, SerializingChallenger32};
 use p3_dft::Radix2DitSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
-use p3_keccak::KeccakF;
+use p3_keccak::{Keccak256Hash, KeccakF};
 use p3_koala_bear::KoalaBear;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -26,15 +27,18 @@ use whir_p3::{
     },
 };
 
-type F = Goldilocks;
-type EF = BinomialExtensionField<F, 2>;
-type _F = BabyBear;
-type _EF = BinomialExtensionField<_F, 5>;
+type _F = Goldilocks;
+type _EF = BinomialExtensionField<F, 2>;
+type F = BabyBear;
+type EF = BinomialExtensionField<F, 5>;
 type __F = KoalaBear;
 type __EF = BinomialExtensionField<__F, 4>;
 type ByteHash = Blake3;
 type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+
+type ByteHash1 = Keccak256Hash;
+type Challenger = SerializingChallenger32<F, HashChallenger<u8, ByteHash1, 32>>;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -65,132 +69,150 @@ struct Args {
 }
 
 fn main() {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
+    // let env_filter = EnvFilter::builder()
+    //     .with_default_directive(LevelFilter::INFO.into())
+    //     .from_env_lossy();
 
-    Registry::default()
-        .with(env_filter)
-        .with(ForestLayer::default())
-        .init();
+    // Registry::default()
+    //     .with(env_filter)
+    //     .with(ForestLayer::default())
+    //     .init();
 
-    let mut args = Args::parse();
+    // let mut args = Args::parse();
 
-    if args.pow_bits.is_none() {
-        args.pow_bits = Some(default_max_pow(args.num_variables, args.rate));
-    }
+    // if args.pow_bits.is_none() {
+    //     args.pow_bits = Some(default_max_pow(args.num_variables, args.rate));
+    // }
 
-    // Runs as a PCS
-    let security_level = args.security_level;
-    let pow_bits = args.pow_bits.unwrap();
-    let num_variables = args.num_variables;
-    let starting_rate = args.rate;
-    let folding_factor = FoldingFactor::Constant(args.folding_factor);
-    let soundness_type = args.soundness_type;
-    let num_evaluations = args.num_evaluations;
+    // // Runs as a PCS
+    // let security_level = args.security_level;
+    // let pow_bits = args.pow_bits.unwrap();
+    // let num_variables = args.num_variables;
+    // let starting_rate = args.rate;
+    // let folding_factor = FoldingFactor::Constant(args.folding_factor);
+    // let soundness_type = args.soundness_type;
+    // let num_evaluations = args.num_evaluations;
 
-    if num_evaluations == 0 {
-        println!("Warning: running as PCS but no evaluations specified.");
-    }
+    // if num_evaluations == 0 {
+    //     println!("Warning: running as PCS but no evaluations specified.");
+    // }
 
-    // Create hash and compression functions for the Merkle tree
-    let byte_hash = ByteHash {};
-    let merkle_hash = FieldHash::new(byte_hash);
-    let merkle_compress = MyCompress::new(byte_hash);
-    let rs_domain_initial_reduction_factor = args.rs_domain_initial_reduction_factor;
+    // // Create hash and compression functions for the Merkle tree
+    // let byte_hash = ByteHash {};
+    // let merkle_hash = FieldHash::new(byte_hash);
+    // let merkle_compress = MyCompress::new(byte_hash);
+    // let rs_domain_initial_reduction_factor = args.rs_domain_initial_reduction_factor;
 
-    let num_coeffs = 1 << num_variables;
+    // let num_coeffs = 1 << num_variables;
 
-    let mv_params = MultivariateParameters::<EF>::new(num_variables);
+    // let mv_params = MultivariateParameters::<EF>::new(num_variables);
 
-    // Construct WHIR protocol parameters
-    let whir_params = ProtocolParameters::<_, _> {
-        initial_statement: true,
-        security_level,
-        pow_bits,
-        folding_factor,
-        merkle_hash,
-        merkle_compress,
-        soundness_type,
-        starting_log_inv_rate: starting_rate,
-        rs_domain_initial_reduction_factor,
-    };
+    // // Construct WHIR protocol parameters
+    // let whir_params = ProtocolParameters::<_, _> {
+    //     initial_statement: true,
+    //     security_level,
+    //     pow_bits,
+    //     folding_factor,
+    //     merkle_hash,
+    //     merkle_compress,
+    //     soundness_type,
+    //     starting_log_inv_rate: starting_rate,
+    //     rs_domain_initial_reduction_factor,
+    // };
 
-    let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
+    // let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW>::new(mv_params, whir_params);
 
-    dbg!(&params);
+    // dbg!(&params);
 
-    let mut rng = StdRng::seed_from_u64(0);
-    let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
+    // let mut rng = StdRng::seed_from_u64(0);
+    // let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
 
-    // Sample `num_points` random multilinear points in the Boolean hypercube
-    let points: Vec<_> = (0..num_evaluations)
-        .map(|_| MultilinearPoint((0..num_variables).map(|i| EF::from_u64(i as u64)).collect()))
-        .collect();
+    // // Sample `num_points` random multilinear points in the Boolean hypercube
+    // let points: Vec<_> = (0..num_evaluations)
+    //     .map(|_| MultilinearPoint((0..num_variables).map(|i| EF::from_u64(i as u64)).collect()))
+    //     .collect();
 
-    // Construct a new statement with the correct number of variables
-    let mut statement = Statement::<EF>::new(num_variables);
+    // // Construct a new statement with the correct number of variables
+    // let mut statement = Statement::<EF>::new(num_variables);
 
-    // Add constraints for each sampled point (equality constraints)
-    for point in &points {
-        let eval = polynomial.evaluate_at_extension(point);
-        let weights = Weights::evaluation(point.clone());
-        statement.add_constraint(weights, eval);
-    }
+    // // Add constraints for each sampled point (equality constraints)
+    // for point in &points {
+    //     let eval = polynomial.evaluate_at_extension(point);
+    //     let weights = Weights::evaluation(point.clone());
+    //     statement.add_constraint(weights, eval);
+    // }
 
-    // Define the Fiat-Shamir domain separator pattern for committing and proving
-    let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
-    domainsep.commit_statement(&params);
-    domainsep.add_whir_proof(&params);
+    // // Define the Fiat-Shamir domain separator pattern for committing and proving
+    // let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
+    // domainsep.commit_statement(&params);
+    // domainsep.add_whir_proof(&params);
 
-    println!("=========================================");
-    println!("Whir (PCS) 🌪️");
-    if !params.check_pow_bits() {
-        println!("WARN: more PoW bits required than what specified.");
-    }
+    // println!("=========================================");
+    // println!("Whir (PCS) 🌪️");
+    // if !params.check_pow_bits() {
+    //     println!("WARN: more PoW bits required than what specified.");
+    // }
 
-    // Initialize the Merlin transcript from the IOPattern
-    let mut prover_state = domainsep.to_prover_state();
+    // // Initialize the Merlin transcript from the IOPattern
+    // let mut prover_state = domainsep.to_prover_state();
 
-    // Commit to the polynomial and produce a witness
-    let committer = CommitmentWriter::new(&params);
+    // // Commit to the polynomial and produce a witness
+    // let committer = CommitmentWriter::new(&params);
 
-    let dft_committer = Radix2DitSmallBatch::<F>::default();
+    // let dft_committer = Radix2DitSmallBatch::<F>::default();
 
-    let witness = committer
-        .commit(&dft_committer, &mut prover_state, polynomial)
-        .unwrap();
+    // let mut challenger = Challenger::from_hasher(vec![], ByteHash1 {});
 
-    // Generate a proof using the prover
-    let prover = Prover(&params);
+    // let witness = committer
+    //     .commit(
+    //         &dft_committer,
+    //         &mut challenger,
+    //         &mut prover_state,
+    //         polynomial,
+    //     )
+    //     .unwrap();
 
-    let dft_prover = Radix2DitSmallBatch::<F>::default();
+    // // Generate a proof using the prover
+    // let prover = Prover(&params);
 
-    // Generate a STARK proof for the given statement and witness
-    prover
-        .prove(&dft_prover, &mut prover_state, statement.clone(), witness)
-        .unwrap();
+    // let dft_prover = Radix2DitSmallBatch::<F>::default();
 
-    // Create a commitment reader
-    let commitment_reader = CommitmentReader::new(&params);
+    // // Generate a STARK proof for the given statement and witness
+    // prover
+    //     .prove(
+    //         &dft_prover,
+    //         &mut challenger,
+    //         &mut prover_state,
+    //         statement.clone(),
+    //         witness,
+    //     )
+    //     .unwrap();
 
-    // Create a verifier with matching parameters
-    let verifier = Verifier::new(&params);
+    // // Create a commitment reader
+    // let commitment_reader = CommitmentReader::new(&params);
 
-    let narg_string = prover_state.narg_string().to_vec();
-    let proof_size = narg_string.len();
+    // // Create a verifier with matching parameters
+    // let verifier = Verifier::new(&params);
 
-    // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    let mut verifier_state = domainsep.to_verifier_state(&narg_string);
+    // let narg_string = prover_state.narg_string().to_vec();
+    // let proof_size = narg_string.len();
 
-    // Parse the commitment
-    let parsed_commitment = commitment_reader
-        .parse_commitment::<32>(&mut verifier_state)
-        .unwrap();
+    // // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
+    // let mut verifier_state = domainsep.to_verifier_state(&narg_string);
 
-    verifier
-        .verify(&mut verifier_state, &parsed_commitment, &statement)
-        .unwrap();
+    // // Parse the commitment
+    // let parsed_commitment = commitment_reader
+    //     .parse_commitment::<_, 32>(&mut challenger, &mut verifier_state)
+    //     .unwrap();
 
-    println!("Proof size: {:.1} KiB", proof_size as f64 / 1024.0);
+    // verifier
+    //     .verify(
+    //         &mut challenger,
+    //         &mut verifier_state,
+    //         &parsed_commitment,
+    //         &statement,
+    //     )
+    //     .unwrap();
+
+    // println!("Proof size: {:.1} KiB", proof_size as f64 / 1024.0);
 }

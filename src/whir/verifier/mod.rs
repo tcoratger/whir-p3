@@ -1,5 +1,6 @@
 use std::{fmt::Debug, ops::Deref};
 
+use p3_challenger::{CanSample, FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::Dimensions;
@@ -9,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use super::{
+    ByteHash, Challenger,
     committer::reader::ParsedCommitment,
     parameters::RoundConfig,
     prover::{Leafs, Proof},
@@ -52,8 +54,9 @@ where
 
     #[instrument(skip_all)]
     #[allow(clippy::too_many_lines)]
-    pub fn verify<const DIGEST_ELEMS: usize>(
+    pub fn verify<Challenger, const DIGEST_ELEMS: usize>(
         &self,
+        challenger: &mut Challenger,
         verifier_state: &mut VerifierState<'_, EF, F>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
         statement: &Statement<EF>,
@@ -62,6 +65,7 @@ where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Challenger: FieldChallenger<F> + GrindingChallenger,
     {
         // During the rounds we collect constraints, combination randomness, folding randomness
         // and we update the claimed sum of constraint evaluation.
@@ -110,6 +114,7 @@ where
 
             // Receive commitment to the folded polynomial (likely encoded at higher expansion)
             let new_commitment = ParsedCommitment::<_, Hash<F, u8, DIGEST_ELEMS>>::parse(
+                challenger,
                 verifier_state,
                 round_params.num_variables,
                 round_params.ood_samples,

@@ -1,5 +1,6 @@
-use std::ops::Deref;
+use std::{fmt::Debug, ops::Deref};
 
+use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
@@ -137,9 +138,10 @@ where
     /// # Errors
     /// Returns an error if the witness or statement are invalid, or if a round fails.
     #[instrument(skip_all)]
-    pub fn prove<D, const DIGEST_ELEMS: usize>(
+    pub fn prove<D, Challenger, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
+        challenger: &mut Challenger,
         prover_state: &mut ProverState<EF, F>,
         statement: Statement<EF>,
         witness: Witness<EF, F, DIGEST_ELEMS>,
@@ -149,6 +151,7 @@ where
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
+        Challenger: FieldChallenger<F> + GrindingChallenger + Debug,
     {
         // Validate parameters
         assert!(
@@ -164,7 +167,7 @@ where
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
-            self.round(round, dft, prover_state, &mut round_state)?;
+            self.round(round, dft, challenger, prover_state, &mut round_state)?;
         }
 
         // Reverse the vector of verifier challenges (used as evaluation point)
@@ -189,10 +192,11 @@ where
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = round_state.evaluations.num_variables()))]
     #[allow(clippy::too_many_lines)]
-    fn round<D, const DIGEST_ELEMS: usize>(
+    fn round<D, Challenger, const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
         dft: &D,
+        challenger: &mut Challenger,
         prover_state: &mut ProverState<EF, F>,
         round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
     ) -> ProofResult<()>
@@ -201,6 +205,7 @@ where
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
         [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         D: TwoAdicSubgroupDft<F>,
+        Challenger: FieldChallenger<F> + GrindingChallenger + Debug,
     {
         // - If a sumcheck already exists, use its evaluations
         // - Otherwise, fold the evaluations from the previous round
@@ -271,7 +276,8 @@ where
         prover_state.add_digest(root)?;
 
         // Handle OOD (Out-Of-Domain) samples
-        let (ood_points, ood_answers) = sample_ood_points(
+        let (ood_points, ood_answers, ood_points_p3, ood_answers_p3) = sample_ood_points(
+            challenger,
             prover_state,
             round_params.ood_samples,
             num_variables,

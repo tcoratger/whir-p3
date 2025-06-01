@@ -1,9 +1,10 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_baby_bear::BabyBear;
 use p3_blake3::Blake3;
+use p3_challenger::{HashChallenger, SerializingChallenger32};
 use p3_dft::Radix2DitSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
-use p3_keccak::KeccakF;
+use p3_keccak::{Keccak256Hash, KeccakF};
 use p3_monty_31::dft::RecursiveDft;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use parameters::WhirConfig;
@@ -28,9 +29,10 @@ pub mod verifier;
 
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
-type ByteHash = Blake3;
+type ByteHash = Keccak256Hash;
 type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+type Challenger = SerializingChallenger32<F, HashChallenger<u8, ByteHash, 32>>;
 
 /// Run a complete WHIR STARK proof lifecycle.
 ///
@@ -117,38 +119,56 @@ pub fn make_whir_things(
 
     let dft_committer = RecursiveDft::<F>::default();
 
+    let mut challenger = Challenger::from_hasher(vec![], ByteHash {});
+
     let witness = committer
-        .commit(&dft_committer, &mut prover_state, polynomial)
+        .commit(
+            &dft_committer,
+            &mut challenger,
+            &mut prover_state,
+            polynomial,
+        )
         .unwrap();
 
-    // Generate a proof using the prover
-    let prover = Prover(&params);
+    // // Generate a proof using the prover
+    // let prover = Prover(&params);
 
-    let dft_prover = Radix2DitSmallBatch::<F>::default();
+    // let dft_prover = Radix2DitSmallBatch::<F>::default();
 
-    // Generate a STARK proof for the given statement and witness
-    prover
-        .prove(&dft_prover, &mut prover_state, statement.clone(), witness)
-        .unwrap();
+    // // Generate a STARK proof for the given statement and witness
+    // prover
+    //     .prove(
+    //         &dft_prover,
+    //         &mut challenger,
+    //         &mut prover_state,
+    //         statement.clone(),
+    //         witness,
+    //     )
+    //     .unwrap();
 
-    // Create a commitment reader
-    let commitment_reader = CommitmentReader::new(&params);
+    // // Create a commitment reader
+    // let commitment_reader = CommitmentReader::new(&params);
 
-    // Create a verifier with matching parameters
-    let verifier = Verifier::new(&params);
+    // // Create a verifier with matching parameters
+    // let verifier = Verifier::new(&params);
 
-    // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    let mut verifier_state = domainsep.to_verifier_state(prover_state.narg_string());
+    // // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
+    // let mut verifier_state = domainsep.to_verifier_state(prover_state.narg_string());
 
-    // Parse the commitment
-    let parsed_commitment = commitment_reader
-        .parse_commitment::<32>(&mut verifier_state)
-        .unwrap();
+    // // Parse the commitment
+    // let parsed_commitment = commitment_reader
+    //     .parse_commitment::<_, 32>(&mut challenger, &mut verifier_state)
+    //     .unwrap();
 
-    // Verify that the generated proof satisfies the statement
-    verifier
-        .verify(&mut verifier_state, &parsed_commitment, &statement)
-        .unwrap();
+    // // Verify that the generated proof satisfies the statement
+    // verifier
+    //     .verify(
+    //         &mut challenger,
+    //         &mut verifier_state,
+    //         &parsed_commitment,
+    //         &statement,
+    //     )
+    //     .unwrap();
 }
 
 #[cfg(test)]

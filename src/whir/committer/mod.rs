@@ -29,4 +29,8 @@ pub struct Witness<EF: ExtensionField<F>, F: Field, const DIGEST_ELEMS: usize> {
     pub ood_points: Vec<EF>,
     /// The corresponding polynomial evaluations at the OOD challenge points.
     pub ood_answers: Vec<EF>,
+    /// Out-of-domain challenge points used for polynomial verification (Plonky3).
+    pub ood_points_p3: Vec<EF>,
+    /// The corresponding polynomial evaluations at the OOD challenge points (Plonky3).
+    pub ood_answers_p3: Vec<EF>,
 }

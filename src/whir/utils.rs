@@ -1,5 +1,8 @@
+use std::fmt::Debug;
+
 use bytemuck::zeroed_vec;
 use itertools::Itertools;
+use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
 use tracing::instrument;
 
@@ -58,23 +61,38 @@ where
 ///
 /// This should be used on the prover side.
 #[instrument(skip_all)]
-pub fn sample_ood_points<F, EF, E>(
+pub fn sample_ood_points<F, EF, E, Challenger>(
+    challenger: &mut Challenger,
     prover_state: &mut ProverState<EF, F>,
     num_samples: usize,
     num_variables: usize,
     evaluate_fn: E,
-) -> ProofResult<(Vec<EF>, Vec<EF>)>
+) -> ProofResult<(Vec<EF>, Vec<EF>, Vec<EF>, Vec<EF>)>
 where
     F: PrimeField64 + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     E: Fn(&MultilinearPoint<EF>) -> EF,
+    Challenger: FieldChallenger<F> + GrindingChallenger + Debug,
 {
     let mut ood_points = EF::zero_vec(num_samples);
     let mut ood_answers = Vec::with_capacity(num_samples);
 
+    let mut ood_points_p3 = EF::zero_vec(num_samples);
+    let mut ood_answers_p3 = Vec::with_capacity(num_samples);
+
+    println!(
+        "prover state dans sample_ood_points: {:?}",
+        prover_state.narg_string()
+    );
+
     if num_samples > 0 {
         // Generate OOD points from ProverState randomness
         prover_state.fill_challenge_scalars(&mut ood_points)?;
+
+        println!(
+            "prover state dans sample_ood_points: {:?}",
+            prover_state.narg_string()
+        );
 
         // Evaluate the function at each OOD point
         ood_answers.extend(ood_points.iter().map(|ood_point| {
@@ -86,7 +104,36 @@ where
 
         // Commit the answers to the narg_string
         prover_state.add_scalars(&ood_answers)?;
+
+        println!(
+            "prover state dans sample_ood_points: {:?}",
+            prover_state.narg_string()
+        );
+
+        println!("challenger: {:?}", challenger);
+
+        // Construct OOD points from the challenger randomness
+        ood_points_p3 = (0..num_samples)
+            .map(|_| challenger.sample_algebra_element())
+            .collect();
+
+        println!("challenger: {:?}", challenger);
+
+        // Evaluate the function at each OOD point
+        ood_answers_p3.extend(ood_points_p3.iter().map(|ood_point| {
+            evaluate_fn(&MultilinearPoint::expand_from_univariate(
+                *ood_point,
+                num_variables,
+            ))
+        }));
+
+        // Commit the answers to the challenger
+        for &ood_answer in &ood_answers {
+            challenger.observe_algebra_element(ood_answer);
+        }
+
+        println!("challenger: {:?}", challenger);
     }
 
-    Ok((ood_points, ood_answers))
+    Ok((ood_points, ood_answers, ood_points_p3, ood_answers_p3))
 }
