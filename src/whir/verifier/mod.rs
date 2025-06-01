@@ -1,7 +1,7 @@
 use std::{fmt::Debug, ops::Deref};
 
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, Packable, PrimeField64, TwoAdicField};
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, Permutation, PseudoCompressionFunction};
@@ -102,14 +102,23 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F>,
-        parsed_commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
+        verifier_state: &mut VerifierState<
+            '_,
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
+        parsed_commitment: &ParsedCommitment<EF, Hash<F, FiatShamirU, DIGEST_ELEMS>>,
         statement: &Statement<EF>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
-        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        H: CryptographicHasher<F, [FiatShamirU; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[FiatShamirU; DIGEST_ELEMS], 2> + Sync,
+        [FiatShamirU; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        FiatShamirU: Eq + Packable,
     {
         // During the rounds we collect constraints, combination randomness, folding randomness
         // and we update the claimed sum of constraint evaluation.
@@ -157,7 +166,7 @@ where
             let round_params = &self.round_parameters[round_index];
 
             // Receive commitment to the folded polynomial (likely encoded at higher expansion)
-            let new_commitment = ParsedCommitment::<_, Hash<F, u8, DIGEST_ELEMS>>::parse(
+            let new_commitment = ParsedCommitment::<_, Hash<F, FiatShamirU, DIGEST_ELEMS>>::parse(
                 verifier_state,
                 round_params.num_variables,
                 round_params.ood_samples,
@@ -269,7 +278,15 @@ where
     /// A vector of randomness values used to weight each constraint.
     pub fn combine_constraints(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F>,
+        verifier_state: &mut VerifierState<
+            '_,
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
         claimed_sum: &mut EF,
         constraints: &[Constraint<EF>],
     ) -> ProofResult<Vec<EF>> {
@@ -304,7 +321,15 @@ where
     /// Returns `ProofError::InvalidProof` if the PoW response is invalid.
     pub fn verify_proof_of_work(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F>,
+        verifier_state: &mut VerifierState<
+            '_,
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
         bits: f64,
     ) -> ProofResult<()> {
         if bits > 0. {
@@ -339,16 +364,25 @@ where
     /// or the prover’s data does not match the commitment.
     pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F>,
+        verifier_state: &mut VerifierState<
+            '_,
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
         params: &RoundConfig<EF>,
-        commitment: &ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>,
+        commitment: &ParsedCommitment<EF, Hash<F, FiatShamirU, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
         leafs_base_field: bool,
     ) -> ProofResult<Vec<Constraint<EF>>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
-        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        H: CryptographicHasher<F, [FiatShamirU; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[FiatShamirU; DIGEST_ELEMS], 2> + Sync,
+        [FiatShamirU; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        FiatShamirU: Eq + Packable,
     {
         let stir_challenges_indexes = get_challenge_stir_queries(
             params.domain_size,
@@ -417,16 +451,25 @@ where
     /// Returns `ProofError::InvalidProof` if any Merkle proof fails verification.
     pub fn verify_merkle_proof<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F>,
-        root: &Hash<F, u8, DIGEST_ELEMS>,
+        verifier_state: &mut VerifierState<
+            '_,
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
+        root: &Hash<F, FiatShamirU, DIGEST_ELEMS>,
         indices: &[usize],
         dimensions: &[Dimensions],
         leafs_base_field: bool,
     ) -> ProofResult<Vec<Vec<EF>>>
     where
-        H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,
-        [u8; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        H: CryptographicHasher<F, [FiatShamirU; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[FiatShamirU; DIGEST_ELEMS], 2> + Sync,
+        [FiatShamirU; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        FiatShamirU: Eq + Packable,
     {
         // Create a Merkle MMCS instance
         let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
@@ -440,7 +483,7 @@ where
             let answers = verifier_state.hint::<Leafs<F>>()?;
 
             // Read the Merkle proofs for each queried index from the Fiat-Shamir transcript.
-            let merkle_proof = verifier_state.hint::<Proof<u8, DIGEST_ELEMS>>()?;
+            let merkle_proof = verifier_state.hint::<Proof<FiatShamirU, DIGEST_ELEMS>>()?;
 
             // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
@@ -467,7 +510,7 @@ where
             let answers = verifier_state.hint::<Leafs<EF>>()?;
 
             // Read the Merkle proofs.
-            let merkle_proof = verifier_state.hint::<Proof<u8, DIGEST_ELEMS>>()?;
+            let merkle_proof = verifier_state.hint::<Proof<FiatShamirU, DIGEST_ELEMS>>()?;
 
             // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
