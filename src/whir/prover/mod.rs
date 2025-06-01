@@ -105,7 +105,7 @@ where
     /// - Panics if OOD data is non-empty despite `initial_statement = false`
     fn validate_witness<const DIGEST_ELEMS: usize>(
         &self,
-        witness: &Witness<EF, F, DIGEST_ELEMS>,
+        witness: &Witness<EF, F, u8, DIGEST_ELEMS>,
     ) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
         if !self.initial_statement {
@@ -142,7 +142,7 @@ where
         dft: &D,
         prover_state: &mut ProverState<EF, F>,
         statement: Statement<EF>,
-        witness: Witness<EF, F, DIGEST_ELEMS>,
+        witness: Witness<EF, F, u8, DIGEST_ELEMS>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
@@ -194,7 +194,7 @@ where
         round_index: usize,
         dft: &D,
         prover_state: &mut ProverState<EF, F>,
-        round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
+        round_state: &mut RoundState<EF, F, u8, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
@@ -418,7 +418,7 @@ where
         &self,
         round_index: usize,
         prover_state: &mut ProverState<EF, F>,
-        round_state: &mut RoundState<EF, F, DIGEST_ELEMS>,
+        round_state: &mut RoundState<EF, F, u8, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
         folded_evaluations: &EvaluationsList<EF>,
         dft: &D,
@@ -524,7 +524,7 @@ where
         &self,
         round_index: usize,
         prover_state: &mut ProverState<EF, F>,
-        round_state: &RoundState<EF, F, DIGEST_ELEMS>,
+        round_state: &RoundState<EF, F, u8, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig<EF>,
         ood_points: Vec<EF>,
