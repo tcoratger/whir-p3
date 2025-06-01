@@ -7,7 +7,7 @@ use super::radix2::Radix2EvaluationDomain;
 /// Generally tries to build a radix-2 domain and falls back to a mixed-radix
 /// domain if the radix-2 multiplicative subgroup is too small.
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
-pub enum GeneralEvaluationDomain<F: Field + TwoAdicField> {
+pub enum GeneralEvaluationDomain<F> {
     /// Radix-2 domain
     Radix2(Radix2EvaluationDomain<F>),
 }
