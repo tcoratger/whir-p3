@@ -13,7 +13,7 @@ use super::Witness;
 use crate::{
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::{coeffs::CoefficientList, evals::EvaluationsList},
-    whir::{parameters::WhirConfig, utils::sample_ood_points},
+    whir::{committer::DenseMatrix, parameters::WhirConfig, utils::sample_ood_points},
 };
 
 /// Responsible for committing polynomials using a Merkle-based scheme.
@@ -56,7 +56,7 @@ where
         dft: &D,
         prover_state: &mut ProverState<EF, F>,
         polynomial: EvaluationsList<F>,
-    ) -> ProofResult<Witness<EF, F, u8, DIGEST_ELEMS>>
+    ) -> ProofResult<Witness<EF, F, u8, DenseMatrix<F>, DIGEST_ELEMS>>
     where
         H: CryptographicHasher<F, [u8; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[u8; DIGEST_ELEMS], 2> + Sync,

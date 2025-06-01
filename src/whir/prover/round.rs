@@ -1,5 +1,7 @@
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_matrix::dense::DenseMatrix;
+use p3_merkle_tree::MerkleTree;
 use tracing::{info_span, instrument};
 
 use super::{Leafs, Proof, Prover};
@@ -9,7 +11,7 @@ use crate::{
     poly::{coeffs::CoefficientStorage, evals::EvaluationStorage, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
-        committer::{CommitmentMerkleTree, RoundMerkleTree, Witness},
+        committer::{RoundMerkleTree, Witness},
         statement::{Statement, weights::Weights},
     },
 };
@@ -25,7 +27,7 @@ use crate::{
 /// The `RoundState` evolves with each round and captures all intermediate data required
 /// to continue proving or to verify challenges from the verifier.
 #[derive(Debug)]
-pub(crate) struct RoundState<EF, F, W, const DIGEST_ELEMS: usize>
+pub(crate) struct RoundState<EF, F, W, M, const DIGEST_ELEMS: usize>
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
@@ -52,7 +54,7 @@ where
 
     /// Merkle commitment prover data for the **base field** polynomial from the first round.
     /// This is used to open values at queried locations.
-    pub(crate) commitment_merkle_prover_data: CommitmentMerkleTree<F, W, DIGEST_ELEMS>,
+    pub(crate) commitment_merkle_prover_data: MerkleTree<F, W, M, DIGEST_ELEMS>,
 
     /// Merkle commitment prover data for the **extension field** polynomials (folded rounds).
     /// Present only after the first round.
@@ -80,7 +82,7 @@ where
     pub(crate) statement: Statement<EF>,
 }
 
-impl<EF, F, W, const DIGEST_ELEMS: usize> RoundState<EF, F, W, DIGEST_ELEMS>
+impl<EF, F, W, const DIGEST_ELEMS: usize> RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -109,7 +111,7 @@ where
         prover: &Prover<'_, EF, F, H, C, PS>,
         prover_state: &mut ProverState<EF, F>,
         mut statement: Statement<EF>,
-        witness: Witness<EF, F, W, DIGEST_ELEMS>,
+        witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         dft: &D,
     ) -> ProofResult<Self>
     where
@@ -275,7 +277,7 @@ mod tests {
     ) -> (
         DomainSeparator<EF4, F>,
         ProverState<EF4, F>,
-        Witness<EF4, F, u8, DIGEST_ELEMS>,
+        Witness<EF4, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.
         let mut domsep = DomainSeparator::new("🌪️", KeccakF);
