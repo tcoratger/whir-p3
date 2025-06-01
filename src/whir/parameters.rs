@@ -37,8 +37,8 @@ pub struct WhirConfig<
     FiatShamirU,
     const FIAT_SHAMIR_WIDTH: usize,
 > where
-    F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
+    F: Field,
+    EF: ExtensionField<F>,
 {
     pub mv_parameters: MultivariateParameters<EF>,
     pub soundness_type: SecurityAssumption,
