@@ -59,11 +59,8 @@ pub struct Verifier<
     >,
 )
 where
-    F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    FiatShamirU: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>;
+    F: Field,
+    EF: ExtensionField<F>;
 
 impl<
     'a,
@@ -567,11 +564,8 @@ impl<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, const FIAT_SH
         FIAT_SHAMIR_WIDTH,
     >
 where
-    F: Field + TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    FiatShamirU: Unit + Default + Copy,
-    FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
+    F: Field,
+    EF: ExtensionField<F>,
 {
     type Target =
         WhirConfig<EF, F, H, C, PS, FiatShamirPerm, FiatShamirHash, FiatShamirU, FIAT_SHAMIR_WIDTH>;
