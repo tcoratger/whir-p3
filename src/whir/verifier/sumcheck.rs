@@ -58,7 +58,15 @@ where
     /// - A `MultilinearPoint` of folding randomness values in reverse order.
     pub(crate) fn verify_sumcheck_rounds(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F>,
+        verifier_state: &mut VerifierState<
+            '_,
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
         claimed_sum: &mut EF,
         rounds: usize,
         pow_bits: f64,

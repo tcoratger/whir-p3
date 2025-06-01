@@ -62,14 +62,32 @@ where
     /// - The prover's claimed answers at those points.
     ///
     /// This is used to verify consistency of polynomial commitments in WHIR.
-    pub fn parse<EF, const DIGEST_ELEMS: usize>(
-        verifier_state: &mut VerifierState<'_, EF, F>,
+    pub fn parse<
+        EF,
+        FiatShamirPerm,
+        FiatShamirHash,
+        FiatShamirU,
+        const FIAT_SHAMIR_WIDTH: usize,
+        const DIGEST_ELEMS: usize,
+    >(
+        verifier_state: &mut VerifierState<
+            '_,
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
         num_variables: usize,
         ood_samples: usize,
-    ) -> ProofResult<ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>>
+    ) -> ProofResult<ParsedCommitment<EF, Hash<F, FiatShamirU, DIGEST_ELEMS>>>
     where
         F: TwoAdicField + PrimeField64,
         EF: ExtensionField<F> + TwoAdicField,
+        FiatShamirU: Unit + Default + Copy,
+        FiatShamirPerm: Permutation<[FiatShamirU; FIAT_SHAMIR_WIDTH]>,
+        FiatShamirHash: DuplexSpongeInterface<FiatShamirPerm, FiatShamirU, FIAT_SHAMIR_WIDTH>,
     {
         // Read the Merkle root hash committed by the prover.
         let root = verifier_state.read_digest()?;
@@ -207,9 +225,17 @@ where
     /// expected for verifying the committed polynomial.
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F>,
-    ) -> ProofResult<ParsedCommitment<EF, Hash<F, u8, DIGEST_ELEMS>>> {
-        ParsedCommitment::<_, Hash<F, u8, DIGEST_ELEMS>>::parse(
+        verifier_state: &mut VerifierState<
+            '_,
+            EF,
+            F,
+            FiatShamirPerm,
+            FiatShamirHash,
+            FiatShamirU,
+            FIAT_SHAMIR_WIDTH,
+        >,
+    ) -> ProofResult<ParsedCommitment<EF, Hash<F, FiatShamirU, DIGEST_ELEMS>>> {
+        ParsedCommitment::<_, Hash<F, FiatShamirU, DIGEST_ELEMS>>::parse(
             verifier_state,
             self.mv_parameters.num_variables,
             self.committment_ood_samples,

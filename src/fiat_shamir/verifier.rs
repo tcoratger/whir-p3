@@ -5,11 +5,10 @@ use p3_symmetric::{Hash, Permutation};
 use serde::Deserialize;
 
 use super::{
-    DefaultHash, DefaultPerm, UnitToBytes,
+    UnitToBytes,
     domain_separator::DomainSeparator,
     duplex_sponge::interface::DuplexSpongeInterface,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
-    keccak::KECCAK_WIDTH_BYTES,
     pow::traits::PowStrategy,
     sho::HashStateWithInstructions,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
@@ -23,15 +22,8 @@ use crate::fiat_shamir::duplex_sponge::interface::Unit;
 /// de-serialize elements from the NARG string and make them available to the zero-knowledge
 /// verifier.
 #[derive(Debug)]
-pub struct VerifierState<
-    'a,
-    EF,
-    F,
-    Perm = DefaultPerm,
-    H = DefaultHash,
-    U = u8,
-    const WIDTH: usize = KECCAK_WIDTH_BYTES,
-> where
+pub struct VerifierState<'a, EF, F, Perm, H, U, const WIDTH: usize>
+where
     U: Unit,
     Perm: Permutation<[U; WIDTH]>,
     H: DuplexSpongeInterface<Perm, U, WIDTH>,
@@ -336,6 +328,7 @@ mod tests {
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
+    use crate::fiat_shamir::{DefaultHash, DefaultPerm};
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
@@ -393,7 +386,7 @@ mod tests {
     fn test_new_verifier_state_constructs_correctly() {
         let ds = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         let transcript = b"abc";
-        let vs = VerifierState::<F, F>::new(&ds, transcript, KeccakF);
+        let vs = VerifierState::<F, F, _, DefaultHash, _, 200>::new(&ds, transcript, KeccakF);
         assert_eq!(vs.narg_string, b"abc");
     }
 
@@ -401,7 +394,7 @@ mod tests {
     fn test_fill_next_units_reads_and_absorbs() {
         let mut ds = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("x", KeccakF);
         ds.absorb(3, "input");
-        let mut vs = VerifierState::<F, F, _, DummySponge>::new(&ds, b"abc", KeccakF);
+        let mut vs = VerifierState::<F, F, _, DummySponge, u8, 200>::new(&ds, b"abc", KeccakF);
         let mut buf = [0u8; 3];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_ok());
@@ -413,7 +406,7 @@ mod tests {
     fn test_fill_next_units_with_insufficient_data_errors() {
         let mut ds = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("x", KeccakF);
         ds.absorb(4, "fail");
-        let mut vs = VerifierState::<F, F, _, DummySponge>::new(&ds, b"xy", KeccakF);
+        let mut vs = VerifierState::<F, F, _, DummySponge, u8, 200>::new(&ds, b"xy", KeccakF);
         let mut buf = [0u8; 4];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_err());
@@ -423,7 +416,7 @@ mod tests {
     fn test_unit_transcript_fill_challenge_bytes() {
         let mut ds = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("x", KeccakF);
         ds.squeeze(4, "c");
-        let mut vs = VerifierState::<F, F, _, DummySponge>::new(&ds, b"abcd", KeccakF);
+        let mut vs = VerifierState::<F, F, _, DummySponge, u8, 200>::new(&ds, b"abcd", KeccakF);
         let mut out = [0u8; 4];
         assert!(vs.fill_challenge_units(&mut out).is_ok());
         assert_eq!(out, [0, 1, 2, 3]);
@@ -433,7 +426,7 @@ mod tests {
     fn test_fill_next_units_impl() {
         let mut ds = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("x", KeccakF);
         ds.absorb(3, "byte");
-        let mut vs = VerifierState::<F, F, _, DummySponge>::new(&ds, b"xyz", KeccakF);
+        let mut vs = VerifierState::<F, F, _, DummySponge, u8, 200>::new(&ds, b"xyz", KeccakF);
         let mut out = [0u8; 3];
         assert!(vs.fill_next_units(&mut out).is_ok());
         assert_eq!(out, *b"xyz");
