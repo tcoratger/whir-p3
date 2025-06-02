@@ -117,8 +117,8 @@ mod tests {
         let p = &[F::from_u64(1000), F::from_u64(2000)];
         let eq = &[EF4::from_u64(500), EF4::from_u64(1500)];
         let (c0, c2) = sumcheck_quadratic((p, eq));
-        assert_eq!(c0, EF4::from_u64(500000)); // 1000 * 500  
-        assert_eq!(c2, EF4::from_u64(1000000)); // 1000 * 1000  
+        assert_eq!(c0, EF4::from_u64(500_000)); // 1000 * 500  
+        assert_eq!(c2, EF4::from_u64(1_000_000)); // 1000 * 1000  
     }
 
     #[test]
