@@ -89,22 +89,6 @@ impl<F> CoefficientList<F>
 where
     F: Field,
 {
-    /// Evaluates the polynomial at an arbitrary point in `F^n`.
-    ///
-    /// This generalizes evaluation beyond `(0,1)^n`, allowing fractional or arbitrary field
-    /// elements.
-    ///
-    /// Uses multivariate Horner's method via `eval_multivariate()`, which recursively reduces
-    /// the evaluation.
-    ///
-    /// Ensures that:
-    /// - `point` has the same number of variables as the polynomial (`n`).
-    #[must_use]
-    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
-        assert_eq!(self.num_variables, point.num_variables());
-        eval_multivariate(&self.coeffs, &point.0)
-    }
-
     /// Interprets self as a univariate polynomial (with coefficients of X^i in order of ascending
     /// i) and evaluates it at each point in `points`. We return the vector of evaluations.
     ///
@@ -164,7 +148,7 @@ where
     ///
     /// Note that we only support the case where F is a prime field.
     #[instrument(skip_all, fields(size = point.num_variables()))]
-    pub fn evaluate_at_extension<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
+    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables, point.num_variables());
         eval_extension_par(&self.coeffs, &point.0)
     }
@@ -639,7 +623,7 @@ mod tests {
 
         let x = EF4::from_u64(2); // Evaluation at x = 2 in extension field
         let expected_value = EF4::from_u64(3) + EF4::from_u64(7) * x; // f(2) = 3 + 7 * 2
-        let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x]));
+        let eval_result = coeff_list.evaluate(&MultilinearPoint(vec![x]));
 
         assert_eq!(eval_result, expected_value);
     }
@@ -661,7 +645,7 @@ mod tests {
             + EF4::from_u64(5) * x1
             + EF4::from_u64(3) * x0
             + EF4::from_u64(7) * x0 * x1;
-        let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x0, x1]));
+        let eval_result = coeff_list.evaluate(&MultilinearPoint(vec![x0, x1]));
 
         assert_eq!(eval_result, expected_value);
     }
@@ -695,7 +679,7 @@ mod tests {
             + EF4::from_u64(7) * x0 * x1
             + EF4::from_u64(8) * x0 * x1 * x2;
 
-        let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x0, x1, x2]));
+        let eval_result = coeff_list.evaluate(&MultilinearPoint(vec![x0, x1, x2]));
 
         assert_eq!(eval_result, expected_value);
     }
@@ -707,7 +691,7 @@ mod tests {
 
         let x0 = EF4::from_u64(5);
         let x1 = EF4::from_u64(7);
-        let eval_result = coeff_list.evaluate_at_extension(&MultilinearPoint(vec![x0, x1]));
+        let eval_result = coeff_list.evaluate(&MultilinearPoint(vec![x0, x1]));
 
         assert_eq!(eval_result, EF4::ZERO);
     }
@@ -953,7 +937,7 @@ mod tests {
             let full_point = MultilinearPoint(vec![x0, r1]);
             let folded_point = MultilinearPoint(vec![x0]);
 
-            let expected = poly.evaluate_at_extension(&full_point);
+            let expected = poly.evaluate(&full_point);
             let actual = folded.evaluate(&folded_point);
             assert_eq!(expected, actual);
         }
@@ -978,7 +962,7 @@ mod tests {
             let full_point = MultilinearPoint(vec![x0, r1, r2]);
             let folded_point = MultilinearPoint(vec![x0]);
 
-            let expected = poly.evaluate_at_extension(&full_point);
+            let expected = poly.evaluate(&full_point);
             let actual = folded.evaluate(&folded_point);
             assert_eq!(expected, actual);
         }
@@ -1004,7 +988,7 @@ mod tests {
             let full_point = MultilinearPoint(vec![x0, zero]);
             let folded_point = MultilinearPoint(vec![x0]);
 
-            let expected = poly.evaluate_at_extension(&full_point);
+            let expected = poly.evaluate(&full_point);
             let actual = folded.evaluate(&folded_point);
             assert_eq!(expected, actual);
         }

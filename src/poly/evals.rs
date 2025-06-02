@@ -935,7 +935,7 @@ mod tests {
             let folded_point = MultilinearPoint(vec![x0]);
 
             // Evaluate original poly at (x₀, 5)
-            let expected = poly.evaluate_at_extension(&full_point);
+            let expected = poly.evaluate(&full_point);
 
             // Evaluate folded poly at x₀
             let actual = folded.evaluate(&folded_point);
