@@ -121,7 +121,7 @@ where
             prover_state,
             self.committment_ood_samples,
             self.mv_parameters.num_variables,
-            |point| pol_coeffs.evaluate_at_extension(point),
+            |point| pol_coeffs.evaluate(point),
         )?;
 
         // Return the witness containing the polynomial, Merkle tree, and OOD results.

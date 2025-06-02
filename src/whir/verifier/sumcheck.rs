@@ -405,7 +405,7 @@ mod tests {
                 })
                 .collect();
             let ml_point = MultilinearPoint(bool_point.clone());
-            let expected_val = coeffs.evaluate_at_extension(&ml_point);
+            let expected_val = coeffs.evaluate(&ml_point);
             statement.add_constraint(Weights::evaluation(ml_point), expected_val);
         }
 
