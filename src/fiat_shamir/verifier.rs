@@ -71,20 +71,20 @@ where
     /// let domsep = DomainSeparator::<DefaultHash>::new("📝").absorb(1, "inhale 🫁").squeeze(32, "exhale 🎏");
     /// // A silly NARG string for the example.
     /// let narg_string = &[0x42];
-    /// let mut verifier_state = domsep.to_verifier_state::<H>(narg_string);
+    /// let mut verifier_state = domsep.to_verifier_state::<H,32>(narg_string);
     /// assert_eq!(verifier_state.next_units().unwrap(), [0x42]);
     /// let challenge = verifier_state.challenge_units::<32>();
     /// assert!(challenge.is_ok());
     /// assert_ne!(challenge.unwrap(), [0; 32]);
     /// ```
     #[must_use]
-    pub fn new(
+    pub fn new<const IV_SIZE: usize>(
         domain_separator: &DomainSeparator<EF, F, Perm, U, WIDTH>,
         narg_string: &'a [u8],
         perm: Perm,
     ) -> Self {
         Self {
-            hash_state: HashStateWithInstructions::new(domain_separator, perm),
+            hash_state: HashStateWithInstructions::new::<_, _, IV_SIZE>(domain_separator, perm),
             narg_string,
             _field: PhantomData,
             _extension_field: PhantomData,
@@ -385,7 +385,7 @@ mod tests {
     fn test_new_verifier_state_constructs_correctly() {
         let ds = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("test", KeccakF);
         let transcript = b"abc";
-        let vs = VerifierState::<F, F, _, DefaultHash, _, 200>::new(&ds, transcript, KeccakF);
+        let vs = VerifierState::<F, F, _, DefaultHash, _, 200>::new::<32>(&ds, transcript, KeccakF);
         assert_eq!(vs.narg_string, b"abc");
     }
 
@@ -393,7 +393,8 @@ mod tests {
     fn test_fill_next_units_reads_and_absorbs() {
         let mut ds = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("x", KeccakF);
         ds.absorb(3, "input");
-        let mut vs = VerifierState::<F, F, _, DummySponge, u8, 200>::new(&ds, b"abc", KeccakF);
+        let mut vs =
+            VerifierState::<F, F, _, DummySponge, u8, 200>::new::<32>(&ds, b"abc", KeccakF);
         let mut buf = [0u8; 3];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_ok());
@@ -405,7 +406,7 @@ mod tests {
     fn test_fill_next_units_with_insufficient_data_errors() {
         let mut ds = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("x", KeccakF);
         ds.absorb(4, "fail");
-        let mut vs = VerifierState::<F, F, _, DummySponge, u8, 200>::new(&ds, b"xy", KeccakF);
+        let mut vs = VerifierState::<F, F, _, DummySponge, u8, 200>::new::<32>(&ds, b"xy", KeccakF);
         let mut buf = [0u8; 4];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_err());
@@ -415,7 +416,8 @@ mod tests {
     fn test_unit_transcript_fill_challenge_bytes() {
         let mut ds = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("x", KeccakF);
         ds.squeeze(4, "c");
-        let mut vs = VerifierState::<F, F, _, DummySponge, u8, 200>::new(&ds, b"abcd", KeccakF);
+        let mut vs =
+            VerifierState::<F, F, _, DummySponge, u8, 200>::new::<32>(&ds, b"abcd", KeccakF);
         let mut out = [0u8; 4];
         assert!(vs.fill_challenge_units(&mut out).is_ok());
         assert_eq!(out, [0, 1, 2, 3]);
@@ -425,7 +427,8 @@ mod tests {
     fn test_fill_next_units_impl() {
         let mut ds = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new("x", KeccakF);
         ds.absorb(3, "byte");
-        let mut vs = VerifierState::<F, F, _, DummySponge, u8, 200>::new(&ds, b"xyz", KeccakF);
+        let mut vs =
+            VerifierState::<F, F, _, DummySponge, u8, 200>::new::<32>(&ds, b"xyz", KeccakF);
         let mut out = [0u8; 3];
         assert!(vs.fill_next_units(&mut out).is_ok());
         assert_eq!(out, *b"xyz");
@@ -455,7 +458,7 @@ mod tests {
         domsep.add_scalars(values.len(), "scalars");
 
         // Step 4: Create a verifier from the domain separator, loaded with the raw bytes
-        let mut verifier = domsep.to_verifier_state::<H>(&raw_bytes);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(&raw_bytes);
 
         // Step 5: Allocate output buffer and deserialize scalars from transcript
         let mut out = [F::ZERO; 2];
@@ -514,7 +517,7 @@ mod tests {
         domsep.add_scalars(values.len(), "ext-scalars");
 
         // Step 5: Construct a verifier state from the domain separator and raw byte input
-        let mut verifier = domsep.to_verifier_state::<H>(&raw_bytes);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(&raw_bytes);
 
         // Step 6: Allocate an output array and deserialize into it from the verifier
         let mut out = [EF4::ZERO; 2];
@@ -530,7 +533,7 @@ mod tests {
         let mut domsep: DomainSeparator<F, F, DefaultPerm, u8, 200> =
             DomainSeparator::new("chal", KeccakF);
         domsep.challenge_scalars(1, "tag");
-        let mut prover = domsep.to_verifier_state::<H>(&[]);
+        let mut prover = domsep.to_verifier_state::<H, 32>(&[]);
 
         // Sample a single scalar
         let mut out = [F::ZERO; 1];
@@ -545,7 +548,7 @@ mod tests {
         let mut domsep: DomainSeparator<F, F, DefaultPerm, u8, 200> =
             DomainSeparator::new("chal2", KeccakF);
         domsep.challenge_scalars(1, "tag");
-        let mut prover = domsep.to_verifier_state::<H>(&[]);
+        let mut prover = domsep.to_verifier_state::<H, 32>(&[]);
 
         let mut out = [F::ZERO; 1];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -558,7 +561,7 @@ mod tests {
         let mut domsep: DomainSeparator<F, F, DefaultPerm, u8, 200> =
             DomainSeparator::new("chal", KeccakF);
         domsep.challenge_scalars(10, "tag");
-        let mut prover = domsep.to_verifier_state::<H>(&[]);
+        let mut prover = domsep.to_verifier_state::<H, 32>(&[]);
 
         let mut out = [F::ZERO; 10];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -585,7 +588,7 @@ mod tests {
         let mut domsep: DomainSeparator<EF4, F, DefaultPerm, u8, 200> =
             DomainSeparator::new("chal", KeccakF);
         domsep.challenge_scalars(1, "tag");
-        let mut prover = domsep.to_verifier_state::<H>(&[]);
+        let mut prover = domsep.to_verifier_state::<H, 32>(&[]);
 
         let mut out = [EF4::ZERO; 1];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -609,7 +612,7 @@ mod tests {
         let mut domsep: DomainSeparator<EF4, F, DefaultPerm, u8, 200> =
             DomainSeparator::new("chal", KeccakF);
         domsep.challenge_scalars(5, "tag");
-        let mut prover = domsep.to_verifier_state::<H>(&[]);
+        let mut prover = domsep.to_verifier_state::<H, 32>(&[]);
 
         let mut out = [EF4::ZERO; 5];
         prover.fill_challenge_scalars(&mut out).unwrap();
@@ -686,7 +689,7 @@ mod tests {
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 222, 0, 0, 0];
 
-        let mut prover = domsep.to_verifier_state::<H>(&[]);
+        let mut prover = domsep.to_verifier_state::<H, 32>(&[]);
         let actual = prover.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -695,7 +698,7 @@ mod tests {
         );
 
         // Determinism: same input, same transcript = same output
-        let mut prover2 = domsep.to_verifier_state::<H>(&[]);
+        let mut prover2 = domsep.to_verifier_state::<H, 32>(&[]);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -717,7 +720,7 @@ mod tests {
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0];
 
-        let mut prover = domsep.to_verifier_state::<H>(&[]);
+        let mut prover = domsep.to_verifier_state::<H, 32>(&[]);
         let actual = prover.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -726,7 +729,7 @@ mod tests {
         );
 
         // Determinism: same input, same transcript = same output
-        let mut prover2 = domsep.to_verifier_state::<H>(&[]);
+        let mut prover2 = domsep.to_verifier_state::<H, 32>(&[]);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -752,7 +755,7 @@ mod tests {
         ];
 
         // Serialize the values through the transcript
-        let mut prover = domsep.to_verifier_state::<H>(&[]);
+        let mut prover = domsep.to_verifier_state::<H, 32>(&[]);
         let actual = prover.public_scalars(&values).unwrap();
 
         // Check that the actual bytes match expected ones
@@ -762,7 +765,7 @@ mod tests {
         );
 
         // Check determinism: same input = same output
-        let mut prover2 = domsep.to_verifier_state::<H>(&[]);
+        let mut prover2 = domsep.to_verifier_state::<H, 32>(&[]);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -788,7 +791,7 @@ mod tests {
         ];
 
         // Serialize the values through the transcript
-        let mut prover = domsep.to_verifier_state::<H>(&[]);
+        let mut prover = domsep.to_verifier_state::<H, 32>(&[]);
         let actual = prover.public_scalars(&values).unwrap();
 
         // Check that the actual bytes match expected ones
@@ -798,7 +801,7 @@ mod tests {
         );
 
         // Check determinism: same input = same output
-        let mut prover2 = domsep.to_verifier_state::<H>(&[]);
+        let mut prover2 = domsep.to_verifier_state::<H, 32>(&[]);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -815,14 +818,14 @@ mod tests {
             DomainSeparator::new("mixed", KeccakF);
         domsep.add_scalars(values.len(), "mix");
 
-        let mut prover = domsep.to_verifier_state::<H>(&[]);
+        let mut prover = domsep.to_verifier_state::<H, 32>(&[]);
         let actual = prover.public_scalars(&values).unwrap();
 
         let expected = vec![0, 0, 0, 0, 1, 0, 0, 0, 64, 226, 1, 0, 67, 104, 120, 0];
 
         assert_eq!(actual, expected, "Mixed values should serialize correctly");
 
-        let mut prover2 = domsep.to_verifier_state::<H>(&[]);
+        let mut prover2 = domsep.to_verifier_state::<H, 32>(&[]);
         assert_eq!(
             actual,
             prover2.public_scalars(&values).unwrap(),
@@ -837,14 +840,14 @@ mod tests {
             DomainSeparator::new("valid", KeccakF);
         domsep.hint("hint");
 
-        let mut prover = domsep.to_prover_state::<H>();
+        let mut prover = domsep.to_prover_state::<H, 32>();
 
         let hint = b"abc123";
         prover.hint_bytes(hint).unwrap();
 
         let narg = prover.narg_string();
 
-        let mut verifier = domsep.to_verifier_state::<H>(narg);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(narg);
         let result = verifier.hint_bytes().unwrap();
         assert_eq!(result, hint);
     }
@@ -856,14 +859,14 @@ mod tests {
             DomainSeparator::new("empty", KeccakF);
         domsep.hint("hint");
 
-        let mut prover = domsep.to_prover_state::<H>();
+        let mut prover = domsep.to_prover_state::<H, 32>();
 
         let hint = b"";
         prover.hint_bytes(hint).unwrap();
 
         let narg = prover.narg_string();
 
-        let mut verifier = domsep.to_verifier_state::<H>(narg);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(narg);
         let result = verifier.hint_bytes().unwrap();
         assert_eq!(result, b"");
     }
@@ -878,7 +881,7 @@ mod tests {
         let mut narg = vec![6, 0, 0, 0]; // length prefix for 6
         narg.extend_from_slice(b"abc123");
 
-        let mut verifier = domsep.to_verifier_state::<H>(&narg);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(&narg);
 
         assert!(verifier.hint_bytes().is_err());
     }
@@ -893,7 +896,7 @@ mod tests {
         // Provide only 3 bytes, which is not enough for a u32 length
         let narg = &[1, 2, 3]; // less than 4 bytes
 
-        let mut verifier = domsep.to_verifier_state::<H>(narg);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(narg);
 
         let err = verifier.hint_bytes().unwrap_err();
         assert!(
@@ -912,7 +915,7 @@ mod tests {
         // Prefix says "5 bytes", but we only supply 2
         let narg = &[5, 0, 0, 0, b'a', b'b'];
 
-        let mut verifier = domsep.to_verifier_state::<H>(narg);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(narg);
 
         let err = verifier.hint_bytes().unwrap_err();
         assert!(
@@ -933,7 +936,7 @@ mod tests {
         domsep.hint("extension-field-hint");
 
         // Construct the prover state from the domain separator
-        let mut prover = domsep.to_prover_state::<H>();
+        let mut prover = domsep.to_prover_state::<H, 32>();
 
         // Define a single base field element to be used as a hint
         let elem = F::from_u64(42);
@@ -951,7 +954,7 @@ mod tests {
         let narg = prover.narg_string();
 
         // Create a verifier state using the same domain separator and prover-generated NARG string
-        let mut verifier = domsep.to_verifier_state::<H>(narg);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(narg);
 
         // Read and deserialize the base field hint on the verifier side
         let hint = verifier.hint::<F>().unwrap();
@@ -977,7 +980,7 @@ mod tests {
         domsep.hint("vec-extension");
 
         // Create prover from the domain separator
-        let mut prover = domsep.to_prover_state::<H>();
+        let mut prover = domsep.to_prover_state::<H, 32>();
 
         // Base field vector to hint
         let elems = vec![
@@ -1005,7 +1008,7 @@ mod tests {
         let narg = prover.narg_string();
 
         // Create verifier using the same domain separator
-        let mut verifier = domsep.to_verifier_state::<H>(narg);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(narg);
 
         // Read and check base field vector hint
         let hint = verifier.hint::<Vec<F>>().unwrap();
@@ -1027,7 +1030,7 @@ mod tests {
         domsep.hint("nested-extension");
 
         // Build prover state
-        let mut prover = domsep.to_prover_state::<H>();
+        let mut prover = domsep.to_prover_state::<H, 32>();
 
         // Nested base field vector
         let elems = vec![
@@ -1052,7 +1055,7 @@ mod tests {
         let narg = prover.narg_string();
 
         // Build verifier
-        let mut verifier = domsep.to_verifier_state::<H>(narg);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(narg);
 
         // Check nested base field round-trip
         let hint = verifier.hint::<Vec<Vec<F>>>().unwrap();
@@ -1075,7 +1078,7 @@ mod tests {
         domsep.hint("digest");
 
         // Build prover
-        let mut prover = domsep.to_prover_state::<H>();
+        let mut prover = domsep.to_prover_state::<H, 32>();
 
         // Nested digest array hint
         let elems: Vec<Vec<[u8; DIGEST_ELEMS]>> = vec![
@@ -1091,7 +1094,7 @@ mod tests {
         let narg = prover.narg_string();
 
         // Build verifier
-        let mut verifier = domsep.to_verifier_state::<H>(narg);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(narg);
 
         // Deserialize and verify match
         let hint = verifier.hint::<Vec<Vec<[u8; DIGEST_ELEMS]>>>().unwrap();
@@ -1116,14 +1119,14 @@ mod tests {
         domsep.add_scalars(NUM_SCALARS, "public-scalars");
 
         // Create prover and absorb public scalars
-        let mut prover = domsep.to_prover_state::<H>();
+        let mut prover = domsep.to_prover_state::<H, 32>();
         prover.add_scalars(&random_scalars).unwrap();
 
         // Extract transcript (narg string)
         let narg = prover.narg_string();
 
         // Create verifier
-        let mut verifier = domsep.to_verifier_state::<H>(narg);
+        let mut verifier = domsep.to_verifier_state::<H, 32>(narg);
 
         // Read back absorbed scalars
         let mut verifier_scalars = [EF4::ZERO; NUM_SCALARS];

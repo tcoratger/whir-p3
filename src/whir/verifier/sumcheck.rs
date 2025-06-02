@@ -289,7 +289,7 @@ mod tests {
         }
 
         // Convert domain separator into prover state object
-        let mut prover_state = domsep.to_prover_state::<FiatShamirHash>();
+        let mut prover_state = domsep.to_prover_state::<FiatShamirHash, 32>();
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let _ = prover
@@ -303,7 +303,7 @@ mod tests {
             .unwrap();
 
         // Reconstruct verifier state to simulate the rounds
-        let mut verifier_state = domsep.to_verifier_state::<H>(prover_state.narg_string());
+        let mut verifier_state = domsep.to_verifier_state::<H, 32>(prover_state.narg_string());
 
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
@@ -334,7 +334,7 @@ mod tests {
         }
 
         // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+        let mut verifier_state = domsep.to_verifier_state::<_, 32>(prover_state.narg_string());
 
         // Setup the WHIR verifier
         let whir_config = default_whir_config(n_vars);
@@ -445,7 +445,7 @@ mod tests {
         }
 
         // Convert to prover state
-        let mut prover_state = domsep.to_prover_state::<FiatShamirHash>();
+        let mut prover_state = domsep.to_prover_state::<FiatShamirHash, 32>();
 
         // -------------------------------------------------------------
         // Run prover-side folding
@@ -463,7 +463,7 @@ mod tests {
         // -------------------------------------------------------------
         // Manually extract expected sumcheck rounds by replaying transcript
         // -------------------------------------------------------------
-        let mut verifier_state = domsep.to_verifier_state::<H>(prover_state.narg_string());
+        let mut verifier_state = domsep.to_verifier_state::<H, 32>(prover_state.narg_string());
         let mut expected = Vec::new();
 
         // First skipped round (wide DFT LDE)
@@ -502,7 +502,7 @@ mod tests {
         // -------------------------------------------------------------
         // Use verify_sumcheck_rounds with skip enabled
         // -------------------------------------------------------------
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string());
+        let mut verifier_state = domsep.to_verifier_state::<_, 32>(prover_state.narg_string());
         let randomness = verifier
             .verify_sumcheck_rounds(&mut verifier_state, &mut expected_sum, NUM_VARS, 0.0, true)
             .unwrap();

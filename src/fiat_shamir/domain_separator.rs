@@ -206,24 +206,24 @@ where
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
     #[must_use]
-    pub fn to_prover_state<H>(&self) -> ProverState<EF, F, Perm, H, U, WIDTH>
+    pub fn to_prover_state<H, const IV_SIZE: usize>(&self) -> ProverState<EF, F, Perm, H, U, WIDTH>
     where
         H: DuplexSpongeInterface<Perm, U, WIDTH>,
     {
-        ProverState::new(self, self.perm.clone())
+        ProverState::new::<IV_SIZE>(self, self.perm.clone())
     }
 
     /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript
     /// (bytes).
     #[must_use]
-    pub fn to_verifier_state<'a, H>(
+    pub fn to_verifier_state<'a, H, const IV_SIZE: usize>(
         &self,
         transcript: &'a [u8],
     ) -> VerifierState<'a, EF, F, Perm, H, U, WIDTH>
     where
         H: DuplexSpongeInterface<Perm, U, WIDTH>,
     {
-        VerifierState::new(self, transcript, self.perm.clone())
+        VerifierState::new::<IV_SIZE>(self, transcript, self.perm.clone())
     }
 
     pub fn add_ood(&mut self, num_samples: usize) {

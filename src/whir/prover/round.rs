@@ -307,7 +307,7 @@ mod tests {
         domsep.add_whir_proof(params);
 
         // Convert the domain separator into a mutable prover-side transcript.
-        let mut prover_state = domsep.to_prover_state();
+        let mut prover_state = domsep.to_prover_state::<_, 32>();
 
         // Create a committer using the protocol configuration (Merkle parameters, hashers, etc.).
         let committer = CommitmentWriter::new(params);
