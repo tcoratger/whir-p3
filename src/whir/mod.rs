@@ -127,7 +127,7 @@ pub fn make_whir_things(
     domainsep.add_whir_proof(&params);
 
     // Initialize the Merlin transcript from the IOPattern
-    let mut prover_state = domainsep.to_prover_state();
+    let mut prover_state = domainsep.to_prover_state::<_, 32>();
 
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
@@ -155,7 +155,7 @@ pub fn make_whir_things(
     let verifier = Verifier::new(&params);
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    let mut verifier_state = domainsep.to_verifier_state(prover_state.narg_string());
+    let mut verifier_state = domainsep.to_verifier_state::<_, 32>(prover_state.narg_string());
 
     // Parse the commitment
     let parsed_commitment = commitment_reader

@@ -226,7 +226,7 @@ mod tests {
             DomainSeparator::new("🌪️", KeccakF);
         domainsep.commit_statement(&params);
         domainsep.add_whir_proof(&params);
-        let mut prover_state = domainsep.to_prover_state();
+        let mut prover_state = domainsep.to_prover_state::<_, 32>();
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(&params);
@@ -316,7 +316,7 @@ mod tests {
         let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
         domainsep.commit_statement(&params);
 
-        let mut prover_state = domainsep.to_prover_state();
+        let mut prover_state = domainsep.to_prover_state::<_, 32>();
 
         let dft_committer = Radix2DitSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
@@ -375,7 +375,7 @@ mod tests {
 
         let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
         domainsep.commit_statement(&params);
-        let mut prover_state = domainsep.to_prover_state();
+        let mut prover_state = domainsep.to_prover_state::<_, 32>();
 
         let dft_committer = Radix2DitSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
