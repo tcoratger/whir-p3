@@ -42,7 +42,9 @@ where
     U: Unit + Default + Copy,
     C: Permutation<[U; WIDTH]>,
 {
-    fn new(permutation: C, iv: [u8; 32]) -> Self {
+    fn new<const IV_SIZE: usize>(permutation: C, iv: [u8; IV_SIZE]) -> Self {
+        // We need to validate the IV size
+        assert!(RATE + IV_SIZE <= WIDTH, "IV size is too large");
         let mut state = [U::default(); WIDTH];
         for (i, &b) in iv.iter().enumerate() {
             state[RATE + i] = U::from_u8(b);
@@ -202,5 +204,17 @@ mod tests {
 
         // Squeeze position advanced by 1
         assert_eq!(sponge.squeeze_pos, 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_new_sponge_panics_on_too_large_iv() {
+        const TOO_LARGE_IV_SIZE: usize = KECCAK_WIDTH_BYTES - KECCAK_RATE_BYTES + 1;
+        let oversized_iv = [0u8; TOO_LARGE_IV_SIZE];
+        let _sponge =
+            DuplexSponge::<u8, DummyPermutation, KECCAK_WIDTH_BYTES, KECCAK_RATE_BYTES>::new(
+                DummyPermutation,
+                oversized_iv,
+            );
     }
 }

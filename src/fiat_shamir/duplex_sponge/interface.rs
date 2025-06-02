@@ -15,7 +15,7 @@ where
     C: Permutation<[U; WIDTH]>,
 {
     /// Initializes a new sponge, setting up the state.
-    fn new(permutation: C, iv: [u8; 32]) -> Self;
+    fn new<const IV_SIZE: usize>(permutation: C, iv: [u8; IV_SIZE]) -> Self;
 
     /// Absorbs new elements in the sponge.
     fn absorb_unchecked(&mut self, input: &[U]) -> &mut Self;
