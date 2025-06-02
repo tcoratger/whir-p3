@@ -17,12 +17,14 @@ pub struct WhirDensePolynomial<F: Field> {
 
 impl<F: Field> WhirDensePolynomial<F> {
     /// Constructs a new polynomial from a list of coefficients.
-    pub(crate) fn from_coefficients_slice(coeffs: &[F]) -> Self {
+    #[must_use]
+    pub fn from_coefficients_slice(coeffs: &[F]) -> Self {
         Self::from_coefficients_vec(coeffs.to_vec())
     }
 
     /// Constructs a new polynomial from a list of coefficients.
-    pub(crate) const fn from_coefficients_vec(coeffs: Vec<F>) -> Self {
+    #[must_use]
+    pub const fn from_coefficients_vec(coeffs: Vec<F>) -> Self {
         Self { coeffs }
     }
 
