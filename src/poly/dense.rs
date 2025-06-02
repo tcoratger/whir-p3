@@ -265,7 +265,7 @@ mod tests {
         let non_zero_poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![F::ONE, F::ZERO]);
         assert!(zero_poly.is_zero());
         assert_eq!(&non_zero_poly * &zero_poly, zero_poly.clone());
-        assert_eq!(&zero_poly * &non_zero_poly, zero_poly.clone());
+        assert_eq!(&zero_poly * &non_zero_poly, zero_poly);
         assert_eq!(&zero_poly * &zero_poly, zero_poly.clone());
     }
 
@@ -283,9 +283,9 @@ mod tests {
         let zero_poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![]);
         let non_zero_poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![F::ONE, F::ZERO]);
         assert!(zero_poly.is_zero());
-        assert_eq!(&non_zero_poly + &zero_poly, non_zero_poly.clone());
-        assert_eq!(&zero_poly + &non_zero_poly, non_zero_poly.clone());
-        assert_eq!(&zero_poly + &zero_poly, zero_poly.clone());
+        assert_eq!(&non_zero_poly + &zero_poly, non_zero_poly);
+        assert_eq!(&zero_poly + &non_zero_poly, non_zero_poly);
+        assert_eq!(&zero_poly + &zero_poly, zero_poly);
     }
 
     #[test]
@@ -293,7 +293,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let degree = 5;
         let pol = WhirDensePolynomial::random(&mut rng, 5);
-        let points = (0..degree + 1)
+        let points = (0..=degree)
             .map(|_| {
                 let point = rng.random::<F>();
                 (point, pol.evaluate(point))
