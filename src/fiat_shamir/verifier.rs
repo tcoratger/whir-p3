@@ -83,9 +83,8 @@ where
         narg_string: &'a [u8],
         perm: Perm,
     ) -> Self {
-        let hash_state = HashStateWithInstructions::new(domain_separator, perm);
         Self {
-            hash_state,
+            hash_state: HashStateWithInstructions::new(domain_separator, perm),
             narg_string,
             _field: PhantomData,
             _extension_field: PhantomData,
