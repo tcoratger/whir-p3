@@ -90,4 +90,61 @@ mod tests {
         assert_eq!(c0, expected_c0);
         assert_eq!(c2, expected_c2);
     }
+
+    #[test]
+    fn test_sumcheck_quadratic_zero_values() {
+        // Test zero-value case
+        let p = &[F::ZERO, F::ZERO];
+        let eq = &[EF4::ZERO, EF4::ZERO];
+        let (c0, c2) = sumcheck_quadratic((p, eq));
+        assert_eq!(c0, EF4::ZERO);
+        assert_eq!(c2, EF4::ZERO);
+    }
+
+    #[test]
+    fn test_sumcheck_quadratic_one_values() {
+        // Test unit value case
+        let p = &[F::ONE, F::ONE];
+        let eq = &[EF4::ONE, EF4::ONE];
+        let (c0, c2) = sumcheck_quadratic((p, eq));
+        assert_eq!(c0, EF4::ONE);
+        assert_eq!(c2, EF4::ZERO); // (1-1) * (1-1) = 0  
+    }
+
+    #[test]
+    fn test_sumcheck_quadratic_large_values() {
+        // Test large values
+        let p = &[F::from_u64(1000), F::from_u64(2000)];
+        let eq = &[EF4::from_u64(500), EF4::from_u64(1500)];
+        let (c0, c2) = sumcheck_quadratic((p, eq));
+        assert_eq!(c0, EF4::from_u64(500_000)); // 1000 * 500  
+        assert_eq!(c2, EF4::from_u64(1_000_000)); // 1000 * 1000  
+    }
+
+    #[test]
+    fn test_sumcheck_quadratic_mixed_field_types() {
+        // Test : base field is zero but extension field is non-zero
+        let p = &[F::ZERO, F::from_u64(5)];
+        let eq = &[EF4::from_u64(3), EF4::from_u64(7)];
+        let (c0, c2) = sumcheck_quadratic((p, eq));
+        assert_eq!(c0, EF4::ZERO); // 0 * 3 = 0  
+        assert_eq!(c2, EF4::from_u64(20)); // 5 * 4 = 20  
+    }
+
+    #[test]
+    fn test_sumcheck_quadratic_linearity() {
+        // Test linearity property：f(a+b) = f(a) + f(b)
+        let p1 = &[F::from_u64(1), F::from_u64(2)];
+        let p2 = &[F::from_u64(3), F::from_u64(4)];
+        let eq = &[EF4::from_u64(5), EF4::from_u64(6)];
+
+        let (c0_1, c2_1) = sumcheck_quadratic((p1, eq));
+        let (c0_2, c2_2) = sumcheck_quadratic((p2, eq));
+
+        let p_sum = &[p1[0] + p2[0], p1[1] + p2[1]];
+        let (c0_sum, c2_sum) = sumcheck_quadratic((p_sum, eq));
+
+        assert_eq!(c0_sum, c0_1 + c0_2);
+        assert_eq!(c2_sum, c2_1 + c2_2);
+    }
 }

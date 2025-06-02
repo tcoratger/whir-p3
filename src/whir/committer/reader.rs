@@ -57,6 +57,7 @@ where
     /// # Returns
     ///
     /// A [`ParsedCommitment`] containing:
+    /// - Number of variables in the committed multilinear polynomial
     /// - The Merkle root of the committed table,
     /// - The OOD challenge points,
     /// - The prover's claimed answers at those points.
