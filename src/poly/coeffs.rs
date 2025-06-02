@@ -118,7 +118,7 @@ where
         let univariate = WhirDensePolynomial::from_coefficients_slice(&self.coeffs);
         points
             .iter()
-            .map(|point| univariate.evaluate(point))
+            .map(|point| univariate.evaluate(*point))
             .collect()
     }
 
