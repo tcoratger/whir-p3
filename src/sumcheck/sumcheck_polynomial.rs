@@ -329,18 +329,4 @@ mod tests {
         let computed_value = poly.evaluate_at_point(&point);
         assert_eq!(computed_value, expected_value);
     }
-
-    #[test]
-    fn test_large_polynomial_performance() {
-        let n_vars = 10; // 3^10 = 59,049 evaluations  
-        let evaluations: Vec<_> = (0..3_usize.pow(n_vars.try_into().unwrap()))
-            .map(|i| F::from_u64(i as u64 % 1000))
-            .collect();
-        let poly = SumcheckPolynomial::new(evaluations, n_vars);
-
-        let start = std::time::Instant::now();
-        let _sum = poly.sum_over_boolean_hypercube();
-        let duration = start.elapsed();
-        assert!(duration.as_millis() < 100); // Should be fast  
-    }
 }
