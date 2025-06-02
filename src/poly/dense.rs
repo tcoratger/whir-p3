@@ -157,6 +157,7 @@ impl<F: Field> MulAssign<&Self> for WhirDensePolynomial<F> {
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use proptest::prelude::*;
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
     use super::*;
@@ -310,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lagrange_interpolation_dulicated_point() {
+    fn test_lagrange_interpolation_duplicated_point() {
         let points = vec![
             (F::from_u64(1), F::from_u64(2)),
             (F::from_u64(1), F::from_u64(3)), // Duplicate x, different y
@@ -324,5 +325,56 @@ mod tests {
             (F::from_u64(2), F::from_u64(3)), // Duplicate x, same y
         ];
         assert!(WhirDensePolynomial::<F>::lagrange_interpolation(&points).is_none());
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_lagrange_interpolation(degree in 1usize..10) {
+            // Initialize a deterministic RNG with a fixed seed for reproducibility.
+            let mut rng = StdRng::seed_from_u64(0);
+
+            // STEP 1: Generate a random polynomial `pol` of the selected degree.
+            //
+            // This produces random coefficients c₀, c₁, ..., c_degree, forming:
+            //     pol(x) = c₀ + c₁·x + c₂·x² + ... + c_degree·x^degree
+            let pol = WhirDensePolynomial::<F>::random(&mut rng, degree);
+
+            // STEP 2: Prepare a set of (x, y) pairs such that:
+            //     - x values are unique (no duplicates)
+            //     - y = pol(x) is the correct evaluation at that point.
+            //
+            // We will collect `degree + 1` points, enough to fully determine the polynomial.
+            let mut points = vec![];
+            let mut used_x = std::collections::HashSet::new();
+
+            while points.len() <= degree {
+                // Randomly generate an x value.
+                let x: F = rng.random();
+
+                // Only keep it if we haven't used this x before.
+                if used_x.insert(x) {
+                    // Evaluate the polynomial at x.
+                    let y = pol.evaluate(x);
+
+                    // Store the (x, y) pair.
+                    points.push((x, y));
+                }
+            }
+
+            // STEP 3: Run Lagrange interpolation on the collected points.
+            //
+            // This reconstructs a new polynomial `interpolated` that satisfies:
+            //     interpolated(x_i) = y_i  for all provided (x_i, y_i).
+            let interpolated = WhirDensePolynomial::lagrange_interpolation(&points).unwrap();
+
+            // STEP 4: Assert that the interpolated polynomial matches the original.
+            //
+            // This checks that:
+            //     interpolated.coeffs == pol.coeffs
+            //
+            // If the Lagrange interpolation is correct, the reconstructed polynomial
+            // should be exactly the same as the randomly generated one.
+            prop_assert_eq!(interpolated, pol);
+        }
     }
 }
