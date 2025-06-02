@@ -65,8 +65,9 @@ impl<F: Field> WhirDensePolynomial<F> {
     /// of degree at most n-1.
     ///
     /// Returns `None` if there exists i < j such that x_i == x_j
-    pub fn lagrange_interpolation<S: Field>(values: &[(S, F)]) -> Option<Self>
+    pub fn lagrange_interpolation<S>(values: &[(S, F)]) -> Option<Self>
     where
+        S: Field,
         F: ExtensionField<S>,
     {
         let n = values.len();
