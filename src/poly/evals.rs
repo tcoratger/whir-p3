@@ -9,6 +9,7 @@ use super::{
     coeffs::CoefficientList, lagrange_iterator::LagrangePolynomialIterator,
     multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel,
 };
+use crate::utils::eval_eq;
 
 /// A wrapper enum that holds evaluation data for a multilinear polynomial,
 /// either over the base field `F` or an extension field `EF`.
@@ -95,6 +96,25 @@ where
         Self {
             evals,
             num_variables: len.ilog2() as usize,
+        }
+    }
+
+    /// Given `evals` = (α_1, ..., α_n), returns a multilinear polynomial P in n variables,
+    /// defined on the boolean hypercube by: ∀ (x_1, ..., x_n) ∈ {0, 1}^n,
+    /// P(x_1, ..., x_n) = Π_{i=1}^{n} (x_i.α_i + (1 - x_i).(1 - α_i))
+    /// (often denoted as P(x) = eq(x, evals))
+    pub fn eval_eq(eval: &[F]) -> Self {
+        // Alloc memory without initializing it to zero.
+        // This is safe because we overwrite it inside `eval_eq`.
+        let mut out: Vec<F> = Vec::with_capacity(1 << eval.len());
+        #[allow(clippy::uninit_vec)]
+        unsafe {
+            out.set_len(1 << eval.len());
+        }
+        eval_eq::<_, _, false>(eval, &mut out, F::ONE);
+        Self {
+            evals: out,
+            num_variables: eval.len(),
         }
     }
 
@@ -943,5 +963,17 @@ mod tests {
             // Ensure the results agree
             assert_eq!(expected, actual);
         }
+    }
+
+    #[test]
+    fn test_eval_eq() {
+        let c0 = F::from_u64(11);
+        let c1 = F::from_u64(22);
+        let evals = [c0, c1];
+        let poly = EvaluationsList::eval_eq(&evals);
+        assert_eq!(poly.evals()[0], (F::ONE - c0) * (F::ONE - c1));
+        assert_eq!(poly.evals()[1], (F::ONE - c0) * c1);
+        assert_eq!(poly.evals()[2], c0 * (F::ONE - c1));
+        assert_eq!(poly.evals()[3], c0 * c1);
     }
 }
