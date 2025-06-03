@@ -5,10 +5,7 @@ use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 use tracing::instrument;
 
-use super::{
-    coeffs::CoefficientList, lagrange_iterator::LagrangePolynomialIterator,
-    multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel,
-};
+use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
 use crate::utils::eval_eq;
 
 /// A wrapper enum that holds evaluation data for a multilinear polynomial,
@@ -118,34 +115,6 @@ where
         }
     }
 
-    /// Evaluates the polynomial at a given multilinear point.
-    ///
-    /// - If `point` belongs to the binary hypercube `{0,1}^n`, we directly return the precomputed
-    ///   evaluation.
-    /// - Otherwise, we **reconstruct** the evaluation using Lagrange interpolation.
-    ///
-    /// Mathematical definition:
-    /// Given evaluations `f(x)` stored in `evals`, we compute:
-    ///
-    /// ```ignore
-    /// f(p) = Σ_{x ∈ {0,1}^n} eq(x, p) * f(x)
-    /// ```
-    ///
-    /// where `eq(x, p)` is the Lagrange basis polynomial.
-    #[instrument(skip_all, level = "info")]
-    #[must_use]
-    pub fn evaluate(&self, point: &MultilinearPoint<F>) -> F {
-        if let Some(binary_index) = point.to_hypercube() {
-            return self.evals[binary_index.0];
-        }
-
-        self.evals
-            .iter()
-            .zip(LagrangePolynomialIterator::from(point))
-            .map(|(eval, (_, lag))| *eval * lag)
-            .sum()
-    }
-
     /// Returns an immutable reference to the evaluations vector.
     #[must_use]
     pub fn evals(&self) -> &[F] {
@@ -181,7 +150,7 @@ where
     ///   = ∏_{i=1}^{n} (1 - p_i + 2 p_i x_i)`.
     /// - Uses fast multilinear interpolation for efficiency.
     #[must_use]
-    pub fn evaluate_at_extension<EF>(&self, point: &MultilinearPoint<EF>) -> EF
+    pub fn evaluate<EF>(&self, point: &MultilinearPoint<EF>) -> EF
     where
         EF: ExtensionField<F>,
     {
@@ -345,7 +314,10 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::poly::{coeffs::CoefficientList, hypercube::BinaryHypercube};
+    use crate::poly::{
+        coeffs::CoefficientList, hypercube::BinaryHypercube,
+        lagrange_iterator::LagrangePolynomialIterator,
+    };
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
@@ -480,9 +452,7 @@ mod tests {
 
         for i in BinaryHypercube::new(2) {
             assert_eq!(
-                eval_list.evaluate_at_extension(
-                    &MultilinearPoint::<F>::from_binary_hypercube_point(i, 2)
-                ),
+                eval_list.evaluate(&MultilinearPoint::<F>::from_binary_hypercube_point(i, 2)),
                 evals[i.0]
             );
         }
@@ -499,7 +469,7 @@ mod tests {
 
         let point = MultilinearPoint(vec![F::from_u64(2), F::from_u64(3)]);
 
-        let result = evals.evaluate_at_extension(&point);
+        let result = evals.evaluate(&point);
 
         // Expected result using `eval_multilinear`
         let expected = eval_multilinear(evals.evals(), &point.0);
@@ -686,8 +656,8 @@ mod tests {
             ]);
 
             // Evaluate using both base and extension representations
-            let eval_f = poly_f.evaluate_at_extension(&point_ef);
-            let eval_ef = poly_ef.evaluate_at_extension(&point_ef);
+            let eval_f = poly_f.evaluate(&point_ef);
+            let eval_ef = poly_ef.evaluate(&point_ef);
 
             prop_assert_eq!(eval_f, eval_ef);
         }
@@ -867,8 +837,8 @@ mod tests {
             + EF4::from(c6) * x0 * x1
             + EF4::from(c7) * x0 * x1 * x2;
 
-        // Evaluate via `evaluate_at_extension` method
-        let result = evals.evaluate_at_extension(&point);
+        // Evaluate via `evaluate` method
+        let result = evals.evaluate(&point);
 
         // Verify that result matches manual computation
         assert_eq!(result, expected);
