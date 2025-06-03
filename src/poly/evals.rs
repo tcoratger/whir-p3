@@ -1027,4 +1027,85 @@ mod tests {
             prop_assert_eq!(out, expected);
         }
     }
+
+    #[test]
+    fn test_scale_empty() {
+        let list = EvaluationsList::<F> {
+            evals: vec![],
+            num_variables: 0,
+        };
+
+        let factor = EF4::from_u64(3);
+        let result = list.scale(factor);
+
+        assert_eq!(result.evals, vec![]);
+        assert_eq!(result.num_variables, 0);
+    }
+
+    #[test]
+    fn test_scale_by_zero() {
+        let list = EvaluationsList::<F> {
+            evals: vec![F::from_u64(1), F::from_u64(2), F::from_u64(3)],
+            num_variables: 2,
+        };
+
+        let result = list.scale(EF4::ZERO);
+
+        assert_eq!(result.evals.len(), 3);
+        for val in result.evals {
+            assert_eq!(val, EF4::ZERO);
+        }
+        assert_eq!(result.num_variables, 2);
+    }
+
+    #[test]
+    fn test_scale_by_one() {
+        let list = EvaluationsList::<F> {
+            evals: vec![F::from_u64(10), F::from_u64(20), F::from_u64(30)],
+            num_variables: 1,
+        };
+
+        let result = list.scale(EF4::ONE);
+
+        assert_eq!(result.evals.len(), 3);
+        for (i, val) in result.evals.iter().enumerate() {
+            assert_eq!(*val, EF4::from(list.evals[i]));
+        }
+        assert_eq!(result.num_variables, 1);
+    }
+
+    #[test]
+    fn test_scale_by_nontrivial_scalar() {
+        let list = EvaluationsList::<F> {
+            evals: vec![F::from_u64(2), F::from_u64(5), F::from_u64(7)],
+            num_variables: 2,
+        };
+
+        let factor = EF4::from_u64(9);
+        let result = list.scale(factor);
+
+        assert_eq!(result.evals.len(), 3);
+        for (i, val) in result.evals.iter().enumerate() {
+            assert_eq!(*val, EF4::from(list.evals[i]) * factor);
+        }
+        assert_eq!(result.num_variables, 2);
+    }
+
+    #[test]
+    fn test_scale_preserves_length_and_variables() {
+        let list = EvaluationsList::<F> {
+            evals: vec![
+                F::from_u64(0),
+                F::from_u64(1),
+                F::from_u64(2),
+                F::from_u64(3),
+            ],
+            num_variables: 2,
+        };
+
+        let result = list.scale(EF4::from_u64(7));
+
+        assert_eq!(result.evals.len(), 4);
+        assert_eq!(result.num_variables, 2);
+    }
 }
