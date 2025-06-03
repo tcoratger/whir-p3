@@ -328,7 +328,7 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{PrimeCharacteristicRing, PrimeField64, extension::BinomialExtensionField};
     use proptest::prelude::*;
 
     use super::*;
@@ -975,5 +975,43 @@ mod tests {
         assert_eq!(poly.evals()[1], (F::ONE - c0) * c1);
         assert_eq!(poly.evals()[2], c0 * (F::ONE - c1));
         assert_eq!(poly.evals()[3], c0 * c1);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_eval_eq_matches_naive_for_eval_list(
+            // number of variables (keep small to avoid blowup)
+            n in 1usize..5,
+             // always at least 5 elements
+            evals_raw in prop::collection::vec(0u64..F::ORDER_U64, 5),
+        ) {
+            use crate::utils::eval_eq;
+
+            // Slice out exactly n elements, guaranteed present
+            let evals: Vec<F> = evals_raw[..n].iter().map(|&x| F::from_u64(x)).collect();
+
+            // Allocate output buffer of size 2^n
+            let mut out = vec![F::ZERO; 1 << n];
+
+            // Run eval_eq with scalar = 1
+            eval_eq::<F, F, false>(&evals, &mut out, F::ONE);
+
+            // Naively compute expected values for each binary assignment
+            let mut expected = vec![F::ZERO; 1 << n];
+            for (i, e) in expected.iter_mut().enumerate().take(1 << n) {
+                let mut weight = F::ONE;
+                for (j, &val) in evals.iter().enumerate() {
+                    let bit = (i >> (n - 1 - j)) & 1;
+                    if bit == 1 {
+                        weight *= val;
+                    } else {
+                        weight *= F::ONE - val;
+                    }
+                }
+                *e = weight;
+            }
+
+            prop_assert_eq!(out, expected);
+        }
     }
 }
