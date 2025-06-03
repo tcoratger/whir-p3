@@ -28,6 +28,7 @@ impl<F: Field> WhirDensePolynomial<F> {
         Self { coeffs }
     }
 
+    /// Removes trailing zero coefficients from the polynomial's coefficient vector.
     fn truncate_leading_zeros(&mut self) {
         while self.coeffs.last().is_some_and(Field::is_zero) {
             self.coeffs.pop();
@@ -56,6 +57,8 @@ impl<F: Field> WhirDensePolynomial<F> {
             .rfold(EF::ZERO, move |result, coeff| result * point + *coeff)
     }
 
+    /// Constructs a new polynomial from a list of coefficients
+    ///  which are random elements mapped by closed interval [0, degree]
     pub fn random<R: rand::Rng>(rng: &mut R, degree: usize) -> Self
     where
         StandardUniform: Distribution<F>,
@@ -113,6 +116,20 @@ impl<F: Field> WhirDensePolynomial<F> {
 impl<F: Field> Add for &WhirDensePolynomial<F> {
     type Output = WhirDensePolynomial<F>;
 
+    // Adds two dense polynomials and returns the resulting polynomial.
+    ///
+    /// This function computes the sum of `self` and `other` by adding their
+    /// coefficients term by term. If the polynomials have different lengths,
+    /// the coefficients of the longer polynomial that do not have a corresponding
+    /// term in the shorter polynomial are left unchanged in the result.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The polynomial to add to `self`.
+    ///
+    /// # Returns
+    ///
+    /// A new `WhirDensePolynomial<F>` representing the sum of the two input polynomials.
     fn add(self, other: Self) -> WhirDensePolynomial<F> {
         let (big, small) = if self.coeffs.len() >= other.coeffs.len() {
             (self, other)
@@ -136,6 +153,21 @@ impl<F: Field> AddAssign<&Self> for WhirDensePolynomial<F> {
 impl<F: Field> Mul for &WhirDensePolynomial<F> {
     type Output = WhirDensePolynomial<F>;
 
+    /// Multiplies two dense polynomials and returns the resulting polynomial.
+    ///
+    /// This function computes the product of `self` and `other` using the standard
+    /// schoolbook (naive) polynomial multiplication algorithm. If either polynomial
+    /// is zero, the result is the zero polynomial. The resulting polynomial's
+    /// coefficients are computed by summing the products of all pairs of coefficients
+    /// whose degrees add up to the same value.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The polynomial to multiply with `self`.
+    ///
+    /// # Returns
+    ///
+    /// A new `WhirDensePolynomial<F>` representing the product of the two input polynomials.
     fn mul(self, other: Self) -> WhirDensePolynomial<F> {
         if self.is_zero() || other.is_zero() {
             return WhirDensePolynomial::default();
