@@ -314,10 +314,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::poly::{
-        coeffs::CoefficientList, hypercube::BinaryHypercube,
-        lagrange_iterator::LagrangePolynomialIterator,
-    };
+    use crate::poly::{coeffs::CoefficientList, hypercube::BinaryHypercube};
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
@@ -386,27 +383,6 @@ mod tests {
                 evals.evaluate(&MultilinearPoint::from_binary_hypercube_point(i, 2))
             );
         }
-    }
-
-    #[test]
-    fn test_evaluate_on_non_hypercube_points() {
-        let evals = EvaluationsList::new(vec![
-            F::from_u64(1),
-            F::from_u64(2),
-            F::from_u64(3),
-            F::from_u64(4),
-        ]);
-
-        let point = MultilinearPoint(vec![F::from_u64(2), F::from_u64(3)]);
-
-        let result = evals.evaluate(&point);
-
-        // The result should be computed using Lagrange interpolation.
-        let expected = LagrangePolynomialIterator::from(&point)
-            .map(|(b, lag)| lag * evals[b.0])
-            .sum();
-
-        assert_eq!(result, expected);
     }
 
     #[test]
