@@ -240,6 +240,19 @@ where
         }
     }
 
+    /// Multiply the polynomial by a scalar factor.
+    #[must_use]
+    pub fn scale<EF: ExtensionField<F>>(&self, factor: EF) -> EvaluationsList<EF> {
+        #[cfg(not(feature = "parallel"))]
+        let evals = self.evals.iter().map(|&e| factor * e).collect();
+        #[cfg(feature = "parallel")]
+        let evals = self.evals.par_iter().map(|&e| factor * e).collect();
+        EvaluationsList {
+            evals,
+            num_variables: self.num_variables(),
+        }
+    }
+
     /// Convert from a list of evaluations to a list of
     /// multilinear coefficients.
     #[must_use]
