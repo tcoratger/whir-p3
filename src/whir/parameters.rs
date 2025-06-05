@@ -279,6 +279,13 @@ where
         }
     }
 
+    /// Returns the log2 size of the largest FFT
+    /// (At commitment we perform 2^folding_factor FFT of size 2^max_fft_size)
+    pub const fn max_fft_size(&self) -> usize {
+        self.mv_parameters.num_variables + self.starting_log_inv_rate
+            - self.folding_factor.at_round(0)
+    }
+
     pub fn check_pow_bits(&self) -> bool {
         let max_bits = self.max_pow_bits as f64;
 

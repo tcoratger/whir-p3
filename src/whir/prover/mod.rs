@@ -287,7 +287,7 @@ where
             prover_state,
             round_params.ood_samples,
             num_variables,
-            |point| folded_evaluations.evaluate(point),
+            |point| info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point)),
         )?;
 
         // STIR Queries
