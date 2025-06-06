@@ -1505,7 +1505,7 @@ mod tests {
 
         // Convert the domain separator to a prover state
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         let folding_factor = 1; // Minimum folding factor
         let pow_bits = 0.; // No grinding
@@ -1530,8 +1530,7 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Reconstruct verifier state to manually validate the sumcheck round
-        let mut verifier_state =
-            domsep.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
 
         // Read the sumcheck polynomial evaluations: h(0), h(1), h(2)
         let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars().unwrap();
@@ -1597,7 +1596,7 @@ mod tests {
 
         // Convert the domain separator to a prover state
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         let result = prover
             .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
@@ -1613,8 +1612,7 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Reconstruct verifier state for round-by-round checks
-        let mut verifier_state =
-            domsep.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
 
         // Initialize claimed sum with the expected initial value from constraints (before any folding)
         let mut current_sum = expected_initial_sum;
@@ -1739,7 +1737,7 @@ mod tests {
 
         // Convert the domain separator to a prover state
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         let result = prover
             .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
@@ -1755,8 +1753,7 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Initialize the verifier state for checking round-by-round
-        let mut verifier_state =
-            domsep.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
 
         // Initialize the sum to be verified round-by-round
         let mut current_sum = expected_initial_sum;
@@ -1827,7 +1824,7 @@ mod tests {
 
         // No domain separator logic needed since we don't fold
         let domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("test");
-        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger);
+        let mut prover_state = domsep.to_prover_state(challenger);
 
         let result = prover
             .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
@@ -2076,7 +2073,7 @@ mod tests {
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
         // Convert domain separator into prover state object
-        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let result = prover
@@ -2093,8 +2090,7 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Reconstruct verifier state to simulate the rounds
-        let mut verifier_state =
-            domsep.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
 
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
@@ -2291,9 +2287,9 @@ mod tests {
 
             // Convert into prover states
             let challenger_base = MyChallenger::new(vec![], Keccak256Hash);
-            let mut state_base = domsep_base.to_prover_state::<_, 32>(challenger_base);
+            let mut state_base = domsep_base.to_prover_state(challenger_base);
             let challenger_ext = MyChallenger::new(vec![], Keccak256Hash);
-            let mut state_ext = domsep_ext.to_prover_state::<_, 32>(challenger_ext);
+            let mut state_ext = domsep_ext.to_prover_state(challenger_ext);
 
             // Run sumcheck with zero grinding (no challenge_pow)
             let final_point_base = prover_base
@@ -2478,7 +2474,7 @@ mod tests {
 
         // Convert domain separator into prover state object
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         // Run sumcheck with k = 2 skipped rounds and 1 regular round
         let result = prover
@@ -2501,8 +2497,7 @@ mod tests {
         // -------------------------------------------------------------
         // Replay verifier's side using same Fiat-Shamir transcript
         // -------------------------------------------------------------
-        let mut verifier_state =
-            domsep.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
         let mut current_sum = expected_sum;
 
         // Get the 8 evaluations of the skipping polynomial h₀(X)

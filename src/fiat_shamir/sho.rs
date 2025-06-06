@@ -32,10 +32,7 @@ where
     /// Initialise a stateful hash object,
     /// setting up the state of the sponge function and parsing the tag string.
     #[must_use]
-    pub fn new<EF, F, const IV_SIZE: usize>(
-        domain_separator: &DomainSeparator<EF, F, U>,
-        mut challenger: H,
-    ) -> Self
+    pub fn new<EF, F>(domain_separator: &DomainSeparator<EF, F, U>, mut challenger: H) -> Self
     where
         EF: ExtensionField<F> + TwoAdicField,
         F: Field + TwoAdicField + PrimeField64,
@@ -169,8 +166,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test");
         domsep.absorb(2, "x");
         let challenger = DummyChallenger::default();
-        let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let mut state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         assert_eq!(state.stack.len(), 1);
 
@@ -185,8 +181,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test");
         domsep.absorb(2, "x");
         let challenger = DummyChallenger::default();
-        let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let mut state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         let result = state.absorb(&[1, 2, 3]);
         assert!(result.is_err());
@@ -197,8 +192,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test");
         domsep.squeeze(3, "y");
         let challenger = DummyChallenger::default();
-        let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let mut state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         let mut out = [0u8; 3];
         let result = state.squeeze(&mut out);
@@ -211,8 +205,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test");
         domsep.squeeze(4, "z");
         let challenger = DummyChallenger::default();
-        let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let mut state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         let mut out = [0u8; 2];
         let result = state.squeeze(&mut out);
@@ -226,8 +219,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test");
         domsep.absorb(5, "a");
         let challenger = DummyChallenger::default();
-        let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let mut state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         let res1 = state.absorb(&[1, 2]);
         assert!(res1.is_ok());
@@ -243,8 +235,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test");
         domsep.squeeze(5, "z");
         let challenger = DummyChallenger::default();
-        let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let mut state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         let mut out1 = [0u8; 2];
         assert!(state.squeeze(&mut out1).is_ok());
@@ -260,8 +251,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test");
         domsep.absorb(3, "in");
         let challenger = DummyChallenger::default();
-        let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let mut state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         let mut out = [0u8; 1];
         let result = state.squeeze(&mut out);
@@ -274,8 +264,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test");
         domsep.absorb(2, "x");
         let challenger = DummyChallenger::default();
-        let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let mut state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         assert!(state.absorb(&[10, 20]).is_ok());
         assert!(state.absorb(&[30]).is_err()); // no ops left
@@ -287,8 +276,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("from");
         domsep.absorb(1, "in");
         let challenger = DummyChallenger::default();
-        let state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         assert_eq!(state.stack.len(), 1);
         assert_eq!(state.stack.front(), Some(&Op::Absorb(1)));
@@ -302,11 +290,9 @@ mod tests {
         ds2.absorb(1, "x");
 
         let challenger1 = DummyChallenger::default();
-        let tag1 =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&ds1, challenger1);
+        let tag1 = HashStateWithInstructions::<DummyChallenger, _>::new(&ds1, challenger1);
         let challenger2 = DummyChallenger::default();
-        let tag2 =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&ds2, challenger2);
+        let tag2 = HashStateWithInstructions::<DummyChallenger, _>::new(&ds2, challenger2);
 
         assert_eq!(&*tag1.ds.observed.borrow(), &*tag2.ds.observed.borrow());
     }
@@ -316,8 +302,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test");
         domsep.hint("hint");
         let challenger = DummyChallenger::default();
-        let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let mut state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         assert_eq!(state.stack.len(), 1);
         let result = state.hint();
@@ -330,8 +315,7 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test");
         domsep.absorb(1, "x");
         let challenger = DummyChallenger::default();
-        let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let mut state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         let result = state.hint(); // Should expect Op::Hint, but see Op::Absorb
         assert!(result.is_err());
@@ -342,8 +326,7 @@ mod tests {
     fn test_hint_on_empty_stack_errors() {
         let domsep = DomainSeparator::<F, F, u8>::new("test");
         let challenger = DummyChallenger::default();
-        let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new::<_, _, 32>(&domsep, challenger);
+        let mut state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         let result = state.hint(); // Stack is empty
         assert!(result.is_err());

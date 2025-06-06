@@ -204,7 +204,7 @@ mod tests {
         domainsep.add_whir_proof(&params);
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domainsep.to_prover_state::<_, 32>(challenger);
+        let mut prover_state = domainsep.to_prover_state(challenger);
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(&params);
@@ -288,7 +288,7 @@ mod tests {
         domainsep.commit_statement(&params);
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domainsep.to_prover_state::<_, 32>(challenger);
+        let mut prover_state = domainsep.to_prover_state(challenger);
 
         let dft_committer = Radix2DitSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
@@ -342,7 +342,7 @@ mod tests {
         domainsep.commit_statement(&params);
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domainsep.to_prover_state::<_, 32>(challenger);
+        let mut prover_state = domainsep.to_prover_state(challenger);
 
         let dft_committer = Radix2DitSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);

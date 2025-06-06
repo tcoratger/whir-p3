@@ -296,7 +296,7 @@ mod tests {
         let challenger = H::new(vec![], Keccak256Hash);
 
         // Convert the domain separator into a mutable prover-side transcript.
-        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger);
+        let mut prover_state = domsep.to_prover_state(challenger);
 
         // Create a committer using the protocol configuration (Merkle parameters, hashers, etc.).
         let committer = CommitmentWriter::new(params);
