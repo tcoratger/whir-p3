@@ -94,7 +94,6 @@ where
     pub fn squeeze(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         match self.stack.pop_front() {
             Some(Op::Squeeze(length)) if output.len() <= length => {
-                // self.ds.squeeze_unchecked(output);
                 for out in output.iter_mut() {
                     *out = self.ds.sample();
                 }
