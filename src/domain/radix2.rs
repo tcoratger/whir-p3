@@ -180,7 +180,7 @@ mod tests {
     fn test_maximum_domain() {
         let max_size = 1 << F::TWO_ADICITY;
         let domain = Radix2EvaluationDomain::<F>::new(max_size).unwrap();
-        assert_eq!(domain.size(), (max_size as u64).try_into().unwrap());
+        assert_eq!(domain.size(), max_size);
         assert_eq!(domain.log_size_of_group, F::TWO_ADICITY as u32);
     }
 

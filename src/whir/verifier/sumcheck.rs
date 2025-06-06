@@ -1,11 +1,11 @@
+use p3_challenger::{CanObserve, CanSample};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
-use p3_symmetric::Permutation;
 
 use crate::{
     fiat_shamir::{
-        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
+        duplex_sponge::interface::Unit,
         errors::{ProofError, ProofResult},
         pow::traits::PowStrategy,
         verifier::VerifierState,
@@ -18,15 +18,14 @@ use crate::{
 /// The full vector of folding randomness values, in reverse round order.
 type SumcheckRandomness<F> = MultilinearPoint<F>;
 
-impl<EF, F, H, C, PS, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>
-    Verifier<'_, EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>
+impl<EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize>
+    Verifier<'_, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
     W: Unit + Default + Copy,
-    Perm: Permutation<[W; PERM_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
+    Challenger: CanObserve<W> + CanSample<W>,
 {
     /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
     /// and computes the corresponding `MultilinearPoint` folding randomness in reverse order.
@@ -58,7 +57,7 @@ where
     /// - A `MultilinearPoint` of folding randomness values in reverse order.
     pub(crate) fn verify_sumcheck_rounds(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
         claimed_sum: &mut EF,
         rounds: usize,
         pow_bits: f64,
@@ -142,22 +141,23 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_challenger::HashChallenger;
     use p3_dft::NaiveDft;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_interpolation::interpolate_subgroup;
-    use p3_keccak::KeccakF;
+    use p3_keccak::Keccak256Hash;
     use p3_matrix::dense::RowMajorMatrix;
 
     use super::*;
     use crate::{
-        fiat_shamir::{DefaultHash, DefaultPerm, domain_separator::DomainSeparator},
+        fiat_shamir::domain_separator::DomainSeparator,
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
         poly::{coeffs::CoefficientList, evals::EvaluationStorage, multilinear::MultilinearPoint},
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
-            Blake3PoW, ByteHash, FiatShamirHash, FieldHash, MyCompress, Perm, W,
+            Blake3PoW, ByteHash, FieldHash, MyCompress, W,
             parameters::WhirConfig,
             statement::{Statement, weights::Weights},
         },
@@ -165,12 +165,12 @@ mod tests {
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
-    type H = DefaultHash;
+    type H = HashChallenger<u8, Keccak256Hash, 32>;
 
     /// Constructs a default WHIR configuration for testing
     fn default_whir_config(
         num_variables: usize,
-    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, Perm, FiatShamirHash, W, 200> {
+    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W, 200> {
         // Create hash and compression functions for the Merkle tree
         let byte_hash = ByteHash {};
         let merkle_hash = FieldHash::new(byte_hash);
@@ -193,7 +193,7 @@ mod tests {
         };
 
         // Combine protocol and polynomial parameters into a single config
-        WhirConfig::<EF4, F, FieldHash, MyCompress, Blake3PoW, Perm, FiatShamirHash, W, 200>::new(
+        WhirConfig::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W, 200>::new(
             mv_params,
             whir_params,
         )
@@ -275,8 +275,7 @@ mod tests {
         assert_eq!(prover.sum, expected_initial_sum);
 
         // Set up domain separator
-        let mut domsep: DomainSeparator<EF4, F, DefaultPerm, u8, 200> =
-            DomainSeparator::new("tag", KeccakF);
+        let mut domsep: DomainSeparator<EF4, F, u8, 200> = DomainSeparator::new("tag");
 
         let folding_factor = 3;
         let pow_bits = 1.;
@@ -288,12 +287,14 @@ mod tests {
             domsep.challenge_pow("pow_queries");
         }
 
+        let challenger = H::new(vec![], Keccak256Hash);
+
         // Convert domain separator into prover state object
-        let mut prover_state = domsep.to_prover_state::<FiatShamirHash, 32>();
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let _ = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, _, 200>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, 200>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -303,7 +304,8 @@ mod tests {
             .unwrap();
 
         // Reconstruct verifier state to simulate the rounds
-        let mut verifier_state = domsep.to_verifier_state::<H, 32>(prover_state.narg_string());
+        let mut verifier_state =
+            domsep.to_verifier_state::<H, 32>(prover_state.narg_string(), challenger.clone());
 
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
@@ -334,21 +336,13 @@ mod tests {
         }
 
         // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-        let mut verifier_state = domsep.to_verifier_state::<_, 32>(prover_state.narg_string());
+        let mut verifier_state =
+            domsep.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
 
         // Setup the WHIR verifier
         let whir_config = default_whir_config(n_vars);
-        let verifier = Verifier::<
-            EF4,
-            F,
-            FieldHash,
-            MyCompress,
-            Blake3PoW,
-            Perm,
-            FiatShamirHash,
-            W,
-            200,
-        >::new(&whir_config);
+        let verifier =
+            Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W, 200>::new(&whir_config);
 
         let randomness = verifier
             .verify_sumcheck_rounds(
@@ -434,8 +428,7 @@ mod tests {
         // - 1 skipped round: 2^k_skip + 1 values
         // - remaining rounds: 3 values each
         // -------------------------------------------------------------
-        let mut domsep: DomainSeparator<EF4, F, DefaultPerm, u8, 200> =
-            DomainSeparator::new("test", KeccakF);
+        let mut domsep: DomainSeparator<EF4, F, u8, 200> = DomainSeparator::new("test");
         domsep.add_scalars(1 << (K_SKIP + 1), "skip");
         domsep.challenge_scalars(1, "skip");
 
@@ -444,14 +437,16 @@ mod tests {
             domsep.challenge_scalars(1, "round");
         }
 
+        let challenger = H::new(vec![], Keccak256Hash);
+
         // Convert to prover state
-        let mut prover_state = domsep.to_prover_state::<FiatShamirHash, 32>();
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
 
         // -------------------------------------------------------------
         // Run prover-side folding
         // -------------------------------------------------------------
         let _ = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, _, 200>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, 200>(
                 &mut prover_state,
                 NUM_VARS,
                 0.0,
@@ -463,7 +458,8 @@ mod tests {
         // -------------------------------------------------------------
         // Manually extract expected sumcheck rounds by replaying transcript
         // -------------------------------------------------------------
-        let mut verifier_state = domsep.to_verifier_state::<H, 32>(prover_state.narg_string());
+        let mut verifier_state =
+            domsep.to_verifier_state::<H, 32>(prover_state.narg_string(), challenger.clone());
         let mut expected = Vec::new();
 
         // First skipped round (wide DFT LDE)
@@ -487,22 +483,14 @@ mod tests {
 
         // Setup the WHIR verifier
         let whir_config = default_whir_config(NUM_VARS);
-        let verifier = Verifier::<
-            EF4,
-            F,
-            FieldHash,
-            MyCompress,
-            Blake3PoW,
-            Perm,
-            FiatShamirHash,
-            W,
-            200,
-        >::new(&whir_config);
+        let verifier =
+            Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W, 200>::new(&whir_config);
 
         // -------------------------------------------------------------
         // Use verify_sumcheck_rounds with skip enabled
         // -------------------------------------------------------------
-        let mut verifier_state = domsep.to_verifier_state::<_, 32>(prover_state.narg_string());
+        let mut verifier_state =
+            domsep.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
         let randomness = verifier
             .verify_sumcheck_rounds(&mut verifier_state, &mut expected_sum, NUM_VARS, 0.0, true)
             .unwrap();
