@@ -40,11 +40,6 @@ where
         EF: ExtensionField<F> + TwoAdicField,
         F: Field + TwoAdicField + PrimeField64,
     {
-        // let mut ds = H::new(perm.clone(), [0u8; IV_SIZE]);
-        // let stack = domain_separator.finalize();
-        // let tag: [U; IV_SIZE] = Self::generate_tag(&domain_separator.as_units(), &mut ds);
-        // Self::unchecked_load_with_stack(tag, stack, perm)
-
         let stack = domain_separator.finalize();
         let iop_units = domain_separator.as_units();
         for &u in &iop_units {
@@ -128,26 +123,6 @@ where
             }
         }
     }
-
-    // fn generate_tag<const IV_SIZE: usize>(iop_bytes: &[U], ds: &mut H) -> [U; IV_SIZE] {
-    //     ds.absorb_unchecked(iop_bytes);
-    //     let mut tag = [U::default(); IV_SIZE];
-    //     ds.squeeze_unchecked(&mut tag);
-    //     tag
-    // }
-
-    // fn unchecked_load_with_stack<const IV_SIZE: usize>(
-    //     tag: [U; IV_SIZE],
-    //     stack: VecDeque<Op>,
-    //     perm: Perm,
-    // ) -> Self {
-    //     Self {
-    //         ds: H::new(perm, U::array_to_u8_array(&tag)),
-    //         stack,
-    //         _perm: PhantomData,
-    //         _unit: PhantomData,
-    //     }
-    // }
 
     /// Send or receive a hint from the proof stream.
     pub fn hint(&mut self) -> Result<(), DomainSeparatorMismatch> {
