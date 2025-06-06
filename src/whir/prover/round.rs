@@ -108,8 +108,8 @@ where
     /// This function should be called once at the beginning of the proof, before entering the
     /// main WHIR folding loop.
     #[instrument(skip_all)]
-    pub(crate) fn initialize_first_round_state<H, C, PS, D, Challenger>(
-        prover: &Prover<'_, EF, F, H, C, PS, Challenger, W>,
+    pub(crate) fn initialize_first_round_state<MyChallenger, C, PS, D, Challenger>(
+        prover: &Prover<'_, EF, F, MyChallenger, C, PS, Challenger, W>,
         prover_state: &mut ProverState<EF, F, Challenger, W>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
@@ -224,7 +224,7 @@ mod tests {
     type ByteHash = Blake3;
     type FieldHash = SerializingHasher<ByteHash>;
     type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-    type H = HashChallenger<u8, Keccak256Hash, 32>;
+    type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
     const DIGEST_ELEMS: usize = 32;
 
@@ -243,7 +243,7 @@ mod tests {
         initial_statement: bool,
         folding_factor: usize,
         pow_bits: usize,
-    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W> {
+    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W> {
         // Construct the multivariate parameter set with `num_variables` variables,
         // determining the size of the evaluation domain.
         let mv_params = MultivariateParameters::<EF4>::new(num_variables);
@@ -277,11 +277,11 @@ mod tests {
     /// This is used as a boilerplate step before running the first WHIR round.
     #[allow(clippy::type_complexity)]
     fn setup_domain_and_commitment(
-        params: &WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W>,
+        params: &WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>,
         poly: EvaluationsList<F>,
     ) -> (
         DomainSeparator<EF4, F, u8>,
-        ProverState<EF4, F, H, W>,
+        ProverState<EF4, F, MyChallenger, W>,
         Witness<EF4, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.
@@ -293,7 +293,7 @@ mod tests {
         // Reserve transcript space for WHIR proof messages.
         domsep.add_whir_proof(params);
 
-        let challenger = H::new(vec![], Keccak256Hash);
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
         // Convert the domain separator into a mutable prover-side transcript.
         let mut prover_state = domsep.to_prover_state(challenger);

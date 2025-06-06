@@ -18,7 +18,8 @@ use crate::{
 /// The full vector of folding randomness values, in reverse round order.
 type SumcheckRandomness<F> = MultilinearPoint<F>;
 
-impl<EF, F, H, C, PS, Challenger, W> Verifier<'_, EF, F, H, C, PS, Challenger, W>
+impl<EF, F, MyChallenger, C, PS, Challenger, W>
+    Verifier<'_, EF, F, MyChallenger, C, PS, Challenger, W>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -164,12 +165,12 @@ mod tests {
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
-    type H = HashChallenger<u8, Keccak256Hash, 32>;
+    type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
     /// Constructs a default WHIR configuration for testing
     fn default_whir_config(
         num_variables: usize,
-    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W> {
+    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W> {
         // Create hash and compression functions for the Merkle tree
         let byte_hash = ByteHash {};
         let merkle_hash = FieldHash::new(byte_hash);
@@ -192,7 +193,10 @@ mod tests {
         };
 
         // Combine protocol and polynomial parameters into a single config
-        WhirConfig::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W>::new(mv_params, whir_params)
+        WhirConfig::<EF4, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(
+            mv_params,
+            whir_params,
+        )
     }
 
     #[test]
@@ -283,7 +287,7 @@ mod tests {
             domsep.challenge_pow("pow_queries");
         }
 
-        let challenger = H::new(vec![], Keccak256Hash);
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
         // Convert domain separator into prover state object
         let mut prover_state = domsep.to_prover_state(challenger.clone());
@@ -336,8 +340,9 @@ mod tests {
 
         // Setup the WHIR verifier
         let whir_config = default_whir_config(n_vars);
-        let verifier =
-            Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W>::new(&whir_config);
+        let verifier = Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(
+            &whir_config,
+        );
 
         let randomness = verifier
             .verify_sumcheck_rounds(
@@ -432,7 +437,7 @@ mod tests {
             domsep.challenge_scalars(1, "round");
         }
 
-        let challenger = H::new(vec![], Keccak256Hash);
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
         // Convert to prover state
         let mut prover_state = domsep.to_prover_state(challenger.clone());
@@ -478,8 +483,9 @@ mod tests {
 
         // Setup the WHIR verifier
         let whir_config = default_whir_config(NUM_VARS);
-        let verifier =
-            Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W>::new(&whir_config);
+        let verifier = Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(
+            &whir_config,
+        );
 
         // -------------------------------------------------------------
         // Use verify_sumcheck_rounds with skip enabled
