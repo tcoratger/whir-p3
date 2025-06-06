@@ -133,29 +133,6 @@ where
     }
 }
 
-// impl<H, Perm, U, const WIDTH: usize> Drop for HashStateWithInstructions<H, Perm, U, WIDTH>
-// where
-//     U: Unit,
-//     Perm: Permutation<[U; WIDTH]>,
-//     H: DuplexSpongeInterface<Perm, U, WIDTH>,
-// {
-//     /// Destroy the sponge state.
-//     fn drop(&mut self) {
-//         // it's a bit violent to panic here,
-//         // because any other issue in the protocol transcript causing `Safe` to get out of scope
-//         // (like another panic) will pollute the traceback.
-//         // debug_assert!(self.stack.is_empty());
-//         if !self.stack.is_empty() {
-//             eprintln!(
-//                 "HashStateWithInstructions dropped with unfinished operations:\n{:?}",
-//                 self.stack
-//             );
-//         }
-//         // XXX. is the compiler going to optimize this out?
-//         self.ds.zeroize();
-//     }
-// }
-
 #[cfg(test)]
 #[allow(clippy::bool_assert_comparison)]
 mod tests {
