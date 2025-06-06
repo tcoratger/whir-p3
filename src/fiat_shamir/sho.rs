@@ -42,9 +42,7 @@ where
     {
         let stack = domain_separator.finalize();
         let iop_units = domain_separator.as_units();
-        for &u in &iop_units {
-            challenger.observe(u);
-        }
+        challenger.observe_slice(&iop_units);
 
         Self {
             ds: challenger,

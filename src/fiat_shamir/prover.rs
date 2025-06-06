@@ -72,8 +72,6 @@ where
         let hash_state =
             HashStateWithInstructions::new::<_, _, IV_SIZE>(domain_separator, challenger.clone());
 
-        // let mut ds = H::new(perm, [0u8; IV_SIZE]);
-        // ds.absorb_unchecked(&domain_separator.as_units());
         challenger.observe_slice(&domain_separator.as_units());
 
         Self {
