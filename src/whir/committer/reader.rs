@@ -271,7 +271,7 @@ mod tests {
 
         // Create the prover state from the transcript.
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = ds.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
         let witness = committer
@@ -279,8 +279,7 @@ mod tests {
             .unwrap();
 
         // Simulate verifier state using transcript view of prover’s nonce string.
-        let mut verifier_state =
-            ds.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
 
         // Create a commitment reader and parse the commitment from verifier state.
         let reader = CommitmentReader::new(&params);
@@ -312,7 +311,7 @@ mod tests {
 
         // Generate the prover state from the transcript.
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = ds.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial to obtain the witness.
         let witness = committer
@@ -320,8 +319,7 @@ mod tests {
             .unwrap();
 
         // Initialize the verifier view of the transcript.
-        let mut verifier_state =
-            ds.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
 
         // Parse the commitment from verifier transcript.
         let reader = CommitmentReader::new(&params);
@@ -356,7 +354,7 @@ mod tests {
 
         // Create prover state from the transcript.
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = ds.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain the witness.
         let witness = committer
@@ -364,8 +362,7 @@ mod tests {
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
-        let mut verifier_state =
-            ds.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
 
         // Parse the commitment from verifier’s transcript.
         let reader = CommitmentReader::new(&params);
@@ -395,12 +392,11 @@ mod tests {
 
         // Generate prover and verifier transcript states.
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = ds.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover_state = ds.to_prover_state(challenger.clone());
         let _ = committer
             .commit(&dft, &mut prover_state, polynomial)
             .unwrap();
-        let mut verifier_state =
-            ds.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
 
         // Parse the commitment from the verifier’s state.
         let reader = CommitmentReader::new(&params);

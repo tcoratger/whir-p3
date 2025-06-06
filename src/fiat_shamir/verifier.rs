@@ -76,16 +76,13 @@ where
     /// assert_ne!(challenge.unwrap(), [0; 32]);
     /// ```
     #[must_use]
-    pub fn new<const IV_SIZE: usize>(
+    pub fn new(
         domain_separator: &DomainSeparator<EF, F, U>,
         narg_string: &'a [u8],
         challenger: H,
     ) -> Self {
         Self {
-            hash_state: HashStateWithInstructions::new::<_, _, IV_SIZE>(
-                domain_separator,
-                challenger,
-            ),
+            hash_state: HashStateWithInstructions::new(domain_separator, challenger),
             narg_string,
             _field: PhantomData,
             _extension_field: PhantomData,
@@ -374,7 +371,7 @@ mod tests {
         let ds = DomainSeparator::<F, F, u8>::new("test");
         let transcript = b"abc";
         let challenger = DummyChallenger::new();
-        let vs = VerifierState::<F, F, _, _>::new::<32>(&ds, transcript, challenger);
+        let vs = VerifierState::<F, F, _, _>::new(&ds, transcript, challenger);
         assert_eq!(vs.narg_string, b"abc");
     }
 
@@ -383,7 +380,7 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.absorb(3, "input");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new::<32>(&ds, b"abc", challenger);
+        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"abc", challenger);
         let mut buf = [0u8; 3];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_ok());
@@ -395,7 +392,7 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.absorb(4, "fail");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new::<32>(&ds, b"xy", challenger);
+        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"xy", challenger);
         let mut buf = [0u8; 4];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_err());
@@ -406,7 +403,7 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.squeeze(4, "c");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new::<32>(&ds, b"abcd", challenger);
+        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"abcd", challenger);
         let mut out = [0u8; 4];
         assert!(vs.fill_challenge_units(&mut out).is_ok());
         assert_eq!(out, [0, 1, 2, 3]);
@@ -417,7 +414,7 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.absorb(3, "byte");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new::<32>(&ds, b"xyz", challenger);
+        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"xyz", challenger);
         let mut out = [0u8; 3];
         assert!(vs.fill_next_units(&mut out).is_ok());
         assert_eq!(out, *b"xyz");
@@ -447,7 +444,7 @@ mod tests {
 
         // Step 4: Create a verifier from the domain separator, loaded with the raw bytes
         let challenger = DummyChallenger::new();
-        let mut verifier = domsep.to_verifier_state::<_, 32>(&raw_bytes, challenger);
+        let mut verifier = domsep.to_verifier_state(&raw_bytes, challenger);
 
         // Step 5: Allocate output buffer and deserialize scalars from transcript
         let mut out = [F::ZERO; 2];
@@ -506,7 +503,7 @@ mod tests {
 
         // Step 5: Construct a verifier state from the domain separator and raw byte input
         let challenger = DummyChallenger::new();
-        let mut verifier = domsep.to_verifier_state::<_, 32>(&raw_bytes, challenger);
+        let mut verifier = domsep.to_verifier_state(&raw_bytes, challenger);
 
         // Step 6: Allocate an output array and deserialize into it from the verifier
         let mut out = [EF4::ZERO; 2];
@@ -529,7 +526,7 @@ mod tests {
         let expected_bytes = [111, 0, 0, 0, 222, 0, 0, 0];
 
         let challenger = DummyChallenger::new();
-        let mut prover = domsep.to_verifier_state::<_, 32>(&[], challenger.clone());
+        let mut prover = domsep.to_verifier_state(&[], challenger.clone());
         let actual = prover.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -538,7 +535,7 @@ mod tests {
         );
 
         // Determinism: same input, same transcript = same output
-        let mut prover2 = domsep.to_verifier_state::<_, 32>(&[], challenger);
+        let mut prover2 = domsep.to_verifier_state(&[], challenger);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -560,7 +557,7 @@ mod tests {
         let expected_bytes = [111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0];
 
         let challenger = DummyChallenger::new();
-        let mut prover = domsep.to_verifier_state::<_, 32>(&[], challenger.clone());
+        let mut prover = domsep.to_verifier_state(&[], challenger.clone());
         let actual = prover.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -569,7 +566,7 @@ mod tests {
         );
 
         // Determinism: same input, same transcript = same output
-        let mut prover2 = domsep.to_verifier_state::<_, 32>(&[], challenger);
+        let mut prover2 = domsep.to_verifier_state(&[], challenger);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -595,7 +592,7 @@ mod tests {
 
         // Serialize the values through the transcript
         let challenger = DummyChallenger::new();
-        let mut prover = domsep.to_verifier_state::<_, 32>(&[], challenger);
+        let mut prover = domsep.to_verifier_state(&[], challenger);
         let actual = prover.public_scalars(&values).unwrap();
 
         // Check that the actual bytes match expected ones
@@ -606,7 +603,7 @@ mod tests {
 
         // Check determinism: same input = same output
         let challenger = DummyChallenger::new();
-        let mut prover2 = domsep.to_verifier_state::<_, 32>(&[], challenger);
+        let mut prover2 = domsep.to_verifier_state(&[], challenger);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -632,7 +629,7 @@ mod tests {
 
         // Serialize the values through the transcript
         let challenger = DummyChallenger::new();
-        let mut prover = domsep.to_verifier_state::<_, 32>(&[], challenger.clone());
+        let mut prover = domsep.to_verifier_state(&[], challenger.clone());
         let actual = prover.public_scalars(&values).unwrap();
 
         // Check that the actual bytes match expected ones
@@ -642,7 +639,7 @@ mod tests {
         );
 
         // Check determinism: same input = same output
-        let mut prover2 = domsep.to_verifier_state::<_, 32>(&[], challenger);
+        let mut prover2 = domsep.to_verifier_state(&[], challenger);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -659,14 +656,14 @@ mod tests {
         domsep.add_scalars(values.len(), "mix");
 
         let challenger = DummyChallenger::new();
-        let mut prover = domsep.to_verifier_state::<_, 32>(&[], challenger.clone());
+        let mut prover = domsep.to_verifier_state(&[], challenger.clone());
         let actual = prover.public_scalars(&values).unwrap();
 
         let expected = vec![0, 0, 0, 0, 1, 0, 0, 0, 64, 226, 1, 0, 67, 104, 120, 0];
 
         assert_eq!(actual, expected, "Mixed values should serialize correctly");
 
-        let mut prover2 = domsep.to_verifier_state::<_, 32>(&[], challenger);
+        let mut prover2 = domsep.to_verifier_state(&[], challenger);
         assert_eq!(
             actual,
             prover2.public_scalars(&values).unwrap(),
@@ -681,14 +678,14 @@ mod tests {
         domsep.hint("hint");
 
         let challenger = DummyChallenger::new();
-        let mut prover = domsep.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover = domsep.to_prover_state(challenger.clone());
 
         let hint = b"abc123";
         prover.hint_bytes(hint).unwrap();
 
         let narg = prover.narg_string();
 
-        let mut verifier = domsep.to_verifier_state::<_, 32>(narg, challenger);
+        let mut verifier = domsep.to_verifier_state(narg, challenger);
         let result = verifier.hint_bytes().unwrap();
         assert_eq!(result, hint);
     }
@@ -700,14 +697,14 @@ mod tests {
         domsep.hint("hint");
 
         let challenger = DummyChallenger::new();
-        let mut prover = domsep.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover = domsep.to_prover_state(challenger.clone());
 
         let hint = b"";
         prover.hint_bytes(hint).unwrap();
 
         let narg = prover.narg_string();
 
-        let mut verifier = domsep.to_verifier_state::<_, 32>(narg, challenger);
+        let mut verifier = domsep.to_verifier_state(narg, challenger);
         let result = verifier.hint_bytes().unwrap();
         assert_eq!(result, b"");
     }
@@ -722,7 +719,7 @@ mod tests {
         narg.extend_from_slice(b"abc123");
 
         let challenger = DummyChallenger::new();
-        let mut verifier = domsep.to_verifier_state::<_, 32>(&narg, challenger);
+        let mut verifier = domsep.to_verifier_state(&narg, challenger);
 
         assert!(verifier.hint_bytes().is_err());
     }
@@ -737,7 +734,7 @@ mod tests {
         let narg = &[1, 2, 3]; // less than 4 bytes
 
         let challenger = DummyChallenger::new();
-        let mut verifier = domsep.to_verifier_state::<_, 32>(narg, challenger);
+        let mut verifier = domsep.to_verifier_state(narg, challenger);
 
         let err = verifier.hint_bytes().unwrap_err();
         assert!(
@@ -756,7 +753,7 @@ mod tests {
         let narg = &[5, 0, 0, 0, b'a', b'b'];
 
         let challenger = DummyChallenger::new();
-        let mut verifier = domsep.to_verifier_state::<_, 32>(narg, challenger);
+        let mut verifier = domsep.to_verifier_state(narg, challenger);
 
         let err = verifier.hint_bytes().unwrap_err();
         assert!(
@@ -777,7 +774,7 @@ mod tests {
 
         // Construct the prover state from the domain separator
         let challenger = DummyChallenger::new();
-        let mut prover = domsep.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover = domsep.to_prover_state(challenger.clone());
 
         // Define a single base field element to be used as a hint
         let elem = F::from_u64(42);
@@ -795,7 +792,7 @@ mod tests {
         let narg = prover.narg_string();
 
         // Create a verifier state using the same domain separator and prover-generated NARG string
-        let mut verifier = domsep.to_verifier_state::<_, 32>(narg, challenger);
+        let mut verifier = domsep.to_verifier_state(narg, challenger);
 
         // Read and deserialize the base field hint on the verifier side
         let hint = verifier.hint::<F>().unwrap();
@@ -821,7 +818,7 @@ mod tests {
 
         // Create prover from the domain separator
         let challenger = DummyChallenger::new();
-        let mut prover = domsep.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover = domsep.to_prover_state(challenger.clone());
 
         // Base field vector to hint
         let elems = vec![
@@ -849,7 +846,7 @@ mod tests {
         let narg = prover.narg_string();
 
         // Create verifier using the same domain separator
-        let mut verifier = domsep.to_verifier_state::<_, 32>(narg, challenger);
+        let mut verifier = domsep.to_verifier_state(narg, challenger);
 
         // Read and check base field vector hint
         let hint = verifier.hint::<Vec<F>>().unwrap();
@@ -871,7 +868,7 @@ mod tests {
 
         // Build prover state
         let challenger = DummyChallenger::new();
-        let mut prover = domsep.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover = domsep.to_prover_state(challenger.clone());
 
         // Nested base field vector
         let elems = vec![
@@ -896,7 +893,7 @@ mod tests {
         let narg = prover.narg_string();
 
         // Build verifier
-        let mut verifier = domsep.to_verifier_state::<_, 32>(narg, challenger);
+        let mut verifier = domsep.to_verifier_state(narg, challenger);
 
         // Check nested base field round-trip
         let hint = verifier.hint::<Vec<Vec<F>>>().unwrap();
@@ -919,7 +916,7 @@ mod tests {
 
         // Build prover
         let challenger = DummyChallenger::new();
-        let mut prover = domsep.to_prover_state::<_, 32>(challenger.clone());
+        let mut prover = domsep.to_prover_state(challenger.clone());
 
         // Nested digest array hint
         let elems: Vec<Vec<[u8; DIGEST_ELEMS]>> = vec![
@@ -935,7 +932,7 @@ mod tests {
         let narg = prover.narg_string();
 
         // Build verifier
-        let mut verifier = domsep.to_verifier_state::<_, 32>(narg, challenger);
+        let mut verifier = domsep.to_verifier_state(narg, challenger);
 
         // Deserialize and verify match
         let hint = verifier.hint::<Vec<Vec<[u8; DIGEST_ELEMS]>>>().unwrap();
@@ -960,14 +957,14 @@ mod tests {
 
         // Create prover and absorb public scalars
         let challenge = DummyChallenger::new();
-        let mut prover = domsep.to_prover_state::<_, 32>(challenge.clone());
+        let mut prover = domsep.to_prover_state(challenge.clone());
         prover.add_scalars(&random_scalars).unwrap();
 
         // Extract transcript (narg string)
         let narg = prover.narg_string();
 
         // Create verifier
-        let mut verifier = domsep.to_verifier_state::<_, 32>(narg, challenge);
+        let mut verifier = domsep.to_verifier_state(narg, challenge);
 
         // Read back absorbed scalars
         let mut verifier_scalars = [EF4::ZERO; NUM_SCALARS];

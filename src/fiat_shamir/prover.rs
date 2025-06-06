@@ -62,15 +62,11 @@ where
     ///
     /// Seeds the internal sponge with the domain separator.
     #[must_use]
-    pub fn new<const IV_SIZE: usize>(
-        domain_separator: &DomainSeparator<EF, F, U>,
-        mut challenger: H,
-    ) -> Self
+    pub fn new(domain_separator: &DomainSeparator<EF, F, U>, mut challenger: H) -> Self
     where
         H: Clone,
     {
-        let hash_state =
-            HashStateWithInstructions::new::<_, _, IV_SIZE>(domain_separator, challenger.clone());
+        let hash_state = HashStateWithInstructions::new(domain_separator, challenger.clone());
 
         challenger.observe_slice(&domain_separator.as_units());
 
@@ -310,7 +306,7 @@ mod tests {
         domsep.absorb(4, "data");
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut pstate = domsep.to_prover_state::<_, 32>(challenger);
+        let mut pstate = domsep.to_prover_state(challenger);
 
         pstate.public_units(&[1, 2, 3, 4]).unwrap();
         assert_eq!(pstate.narg_string(), b"");
@@ -322,7 +318,7 @@ mod tests {
         domsep.absorb(3, "msg");
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut pstate = domsep.to_prover_state::<_, 32>(challenger);
+        let mut pstate = domsep.to_prover_state(challenger);
         let input = [42, 43, 44];
 
         assert!(pstate.add_units(&input).is_ok());
@@ -335,7 +331,7 @@ mod tests {
         domsep.absorb(2, "short");
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut pstate = domsep.to_prover_state::<_, 32>(challenger);
+        let mut pstate = domsep.to_prover_state(challenger);
 
         let result = pstate.add_units(&[1, 2, 3]);
         assert!(result.is_err());
@@ -347,7 +343,7 @@ mod tests {
         domsep.absorb(2, "p");
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut pstate = domsep.to_prover_state::<H, 32>(challenger);
+        let mut pstate = domsep.to_prover_state(challenger);
         let _ = pstate.public_units(&[0xaa, 0xbb]);
 
         assert_eq!(pstate.narg_string(), b"");
@@ -360,7 +356,7 @@ mod tests {
         domsep.absorb(3, "b");
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut p = domsep.to_prover_state::<H, 32>(challenger);
+        let mut p = domsep.to_prover_state(challenger);
 
         p.add_units(&[10, 11]).unwrap();
         p.add_units(&[20, 21, 22]).unwrap();
@@ -374,7 +370,7 @@ mod tests {
         domsep.absorb(5, "data");
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut p = domsep.to_prover_state::<H, 32>(challenger);
+        let mut p = domsep.to_prover_state(challenger);
 
         let msg = b"zkp42";
         p.add_units(msg).unwrap();
@@ -394,7 +390,7 @@ mod tests {
 
         // Step 3: Initialize the prover state from the domain separator
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover_state = domsep.to_prover_state(challenger);
 
         // Step 4: Create 3 F field elements
         let f0 = F::from_u64(111);
@@ -419,7 +415,7 @@ mod tests {
 
         // Step 8: Verify determinism by repeating with a new prover
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover_state2 = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover_state2 = domsep.to_prover_state(challenger);
         prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
 
         assert_eq!(
@@ -439,7 +435,7 @@ mod tests {
 
         // Step 3: Initialize the prover state from the domain separator
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover_state = domsep.to_prover_state(challenger);
 
         // Step 4: Create 3 Goldilocks field elements
         let f0 = G::from_u64(111);
@@ -464,7 +460,7 @@ mod tests {
 
         // Step 8: Verify determinism by repeating with a new prover
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover_state2 = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover_state2 = domsep.to_prover_state(challenger);
         prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
 
         assert_eq!(
@@ -483,7 +479,7 @@ mod tests {
 
         // Step 3: Initialize the prover state from the domain separator
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover_state = domsep.to_prover_state(challenger);
 
         // Step 4: Construct 3 extension field elements
         // - One large (MAX) value to ensure all 4 limbs are filled
@@ -514,7 +510,7 @@ mod tests {
 
         // Step 8: Repeat with a second prover to confirm determinism
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover_state2 = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover_state2 = domsep.to_prover_state(challenger);
         prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
 
         assert_eq!(
@@ -533,7 +529,7 @@ mod tests {
 
         // Step 3: Initialize the prover state from the domain separator
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover_state = domsep.to_prover_state(challenger);
 
         // Step 4: Construct 3 extension field elements
         // - One large (MAX) value to ensure all 4 limbs are filled
@@ -563,7 +559,7 @@ mod tests {
 
         // Step 8: Repeat with a second prover to confirm determinism
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover_state2 = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover_state2 = domsep.to_prover_state(challenger);
         prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
 
         assert_eq!(
@@ -585,7 +581,7 @@ mod tests {
         let expected_bytes = [111, 0, 0, 0, 222, 0, 0, 0];
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover = domsep.to_prover_state(challenger);
         let actual = prover.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -595,7 +591,7 @@ mod tests {
 
         // Determinism: same input, same transcript = same output
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover2 = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover2 = domsep.to_prover_state(challenger);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -617,7 +613,7 @@ mod tests {
         let expected_bytes = [111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0];
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover = domsep.to_prover_state(challenger);
         let actual = prover.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -627,7 +623,7 @@ mod tests {
 
         // Determinism: same input, same transcript = same output
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover2 = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover2 = domsep.to_prover_state(challenger);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -653,7 +649,7 @@ mod tests {
 
         // Serialize the values through the transcript
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover = domsep.to_prover_state(challenger);
         let actual = prover.public_scalars(&values).unwrap();
 
         // Check that the actual bytes match expected ones
@@ -664,7 +660,7 @@ mod tests {
 
         // Check determinism: same input = same output
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover2 = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover2 = domsep.to_prover_state(challenger);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -690,7 +686,7 @@ mod tests {
 
         // Serialize the values through the transcript
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover = domsep.to_prover_state(challenger);
         let actual = prover.public_scalars(&values).unwrap();
 
         // Check that the actual bytes match expected ones
@@ -701,7 +697,7 @@ mod tests {
 
         // Check determinism: same input = same output
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover2 = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover2 = domsep.to_prover_state(challenger);
         let actual2 = prover2.public_scalars(&values).unwrap();
 
         assert_eq!(
@@ -718,7 +714,7 @@ mod tests {
         domsep.add_scalars(values.len(), "mix");
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover = domsep.to_prover_state(challenger);
         let actual = prover.public_scalars(&values).unwrap();
 
         let expected = vec![0, 0, 0, 0, 1, 0, 0, 0, 64, 226, 1, 0, 67, 104, 120, 0];
@@ -726,7 +722,7 @@ mod tests {
         assert_eq!(actual, expected, "Mixed values should serialize correctly");
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover2 = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover2 = domsep.to_prover_state(challenger);
         assert_eq!(
             actual,
             prover2.public_scalars(&values).unwrap(),
@@ -740,7 +736,7 @@ mod tests {
         domsep.hint("proof_hint");
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover = domsep.to_prover_state(challenger);
 
         let hint = b"abc123";
         prover.hint_bytes(hint).unwrap();
@@ -761,7 +757,7 @@ mod tests {
         domsep.hint("empty");
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover = domsep.to_prover_state(challenger);
 
         prover.hint_bytes(b"").unwrap();
 
@@ -774,7 +770,7 @@ mod tests {
         let domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("no_hint");
 
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover = domsep.to_prover_state(challenger);
 
         // DomainSeparator contains no hint operation
         let result = prover.hint_bytes(b"some_hint");
@@ -791,8 +787,8 @@ mod tests {
 
         let hint = b"zkproof_hint";
         let challenger = H::new(vec![], Keccak256Hash);
-        let mut prover1 = domsep.to_prover_state::<H, 32>(challenger.clone());
-        let mut prover2 = domsep.to_prover_state::<H, 32>(challenger);
+        let mut prover1 = domsep.to_prover_state(challenger.clone());
+        let mut prover2 = domsep.to_prover_state(challenger);
 
         prover1.hint_bytes(hint).unwrap();
         prover2.hint_bytes(hint).unwrap();

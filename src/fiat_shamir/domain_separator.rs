@@ -197,20 +197,17 @@ where
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
     #[must_use]
-    pub fn to_prover_state<H, const IV_SIZE: usize>(
-        &self,
-        challenger: H,
-    ) -> ProverState<EF, F, H, U>
+    pub fn to_prover_state<H>(&self, challenger: H) -> ProverState<EF, F, H, U>
     where
         H: CanObserve<U> + CanSample<U> + Clone,
     {
-        ProverState::new::<IV_SIZE>(self, challenger)
+        ProverState::new(self, challenger)
     }
 
     /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript
     /// (bytes).
     #[must_use]
-    pub fn to_verifier_state<'a, H, const IV_SIZE: usize>(
+    pub fn to_verifier_state<'a, H>(
         &self,
         transcript: &'a [u8],
         challenger: H,
@@ -218,7 +215,7 @@ where
     where
         H: CanObserve<U> + CanSample<U> + Clone,
     {
-        VerifierState::new::<IV_SIZE>(self, transcript, challenger)
+        VerifierState::new(self, transcript, challenger)
     }
 
     pub fn add_ood(&mut self, num_samples: usize) {

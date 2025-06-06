@@ -161,7 +161,7 @@ fn main() {
     let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
     // Initialize the Merlin transcript from the IOPattern
-    let mut prover_state = domainsep.to_prover_state::<_, 32>(challenger.clone());
+    let mut prover_state = domainsep.to_prover_state(challenger.clone());
 
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
@@ -194,7 +194,7 @@ fn main() {
     let proof_size = narg_string.len();
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    let mut verifier_state = domainsep.to_verifier_state::<_, 32>(&narg_string, challenger);
+    let mut verifier_state = domainsep.to_verifier_state(&narg_string, challenger);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
