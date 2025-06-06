@@ -6,11 +6,11 @@ use p3_symmetric::Hash;
 use serde::Deserialize;
 
 use super::{
-    UnitToBytes,
     domain_separator::DomainSeparator,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
     sho::HashStateWithInstructions,
+    unit::UnitToBytes,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
 };
 use crate::fiat_shamir::unit::Unit;

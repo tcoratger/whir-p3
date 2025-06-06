@@ -4,7 +4,11 @@ use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
 use tracing::instrument;
 
 use crate::{
-    fiat_shamir::{UnitToBytes, errors::ProofResult, prover::ProverState, unit::Unit},
+    fiat_shamir::{
+        errors::ProofResult,
+        prover::ProverState,
+        unit::{Unit, UnitToBytes},
+    },
     poly::multilinear::MultilinearPoint,
 };
 
