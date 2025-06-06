@@ -1,22 +1,14 @@
 use duplex_sponge::interface::Unit;
 use errors::DomainSeparatorMismatch;
-use p3_keccak::KeccakF;
 
 pub mod domain_separator;
 pub mod duplex_sponge;
 pub mod errors;
-pub mod keccak;
 pub mod pow;
 pub mod prover;
 pub mod sho;
 pub mod utils;
 pub mod verifier;
-
-/// Default hash function used ([`keccak::Keccak`]).
-pub type DefaultHash = keccak::Keccak;
-
-/// Default permutation used ([`KeccakF`]).
-pub type DefaultPerm = KeccakF;
 
 /// Squeezing bytes from the sponge.
 ///

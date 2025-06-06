@@ -327,7 +327,6 @@ mod tests {
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
-    use crate::fiat_shamir::DefaultHash;
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
@@ -335,7 +334,6 @@ mod tests {
     type G = Goldilocks;
     type EG2 = BinomialExtensionField<G, 2>;
 
-    type H = DefaultHash;
     type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
     /// A dummy Fiat-Shamir challenger that records absorbed input and returns deterministic bytes.

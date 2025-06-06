@@ -13,10 +13,7 @@ use statement::{Statement, weights::Weights};
 use verifier::Verifier;
 
 use crate::{
-    fiat_shamir::{
-        DefaultHash, DefaultPerm, domain_separator::DomainSeparator, keccak::KECCAK_WIDTH_BYTES,
-        pow::blake3::Blake3PoW,
-    },
+    fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },
@@ -35,11 +32,9 @@ type EF = BinomialExtensionField<F, 4>;
 type ByteHash = Blake3;
 type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-type Perm = DefaultPerm;
-type FiatShamirHash = DefaultHash;
 type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 type W = u8;
-const PERM_WIDTH: usize = KECCAK_WIDTH_BYTES;
+const PERM_WIDTH: usize = 200;
 
 /// Run a complete WHIR proof lifecycle.
 ///
