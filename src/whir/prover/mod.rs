@@ -36,29 +36,27 @@ pub type Proof<W, const DIGEST_ELEMS: usize> = Vec<Vec<[W; DIGEST_ELEMS]>>;
 pub type Leafs<F> = Vec<Vec<F>>;
 
 #[derive(Debug)]
-pub struct Prover<'a, EF, F, H, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize>(
+pub struct Prover<'a, EF, F, H, C, PowStrategy, Challenger, W>(
     /// Reference to the protocol configuration shared across prover components.
-    pub &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>,
+    pub &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize> Deref
-    for Prover<'_, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
+impl<EF, F, H, C, PS, Challenger, W> Deref for Prover<'_, EF, F, H, C, PS, Challenger, W>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, PS, Challenger, W, PERM_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PS, Challenger, W>;
 
     fn deref(&self) -> &Self::Target {
         self.0
     }
 }
 
-impl<EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize>
-    Prover<'_, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
+impl<EF, F, H, C, PS, Challenger, W> Prover<'_, EF, F, H, C, PS, Challenger, W>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -148,7 +146,7 @@ where
     pub fn prove<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
-        prover_state: &mut ProverState<EF, F, Challenger, W, PERM_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Challenger, W>,
         statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
@@ -202,7 +200,7 @@ where
         &self,
         round_index: usize,
         dft: &D,
-        prover_state: &mut ProverState<EF, F, Challenger, W, PERM_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Challenger, W>,
         round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
@@ -393,14 +391,13 @@ where
                 )
             };
 
-        let folding_randomness = sumcheck_prover
-            .compute_sumcheck_polynomials::<PS, _, _, _, PERM_WIDTH>(
-                prover_state,
-                folding_factor_next,
-                round_params.folding_pow_bits,
-                None,
-                dft,
-            )?;
+        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS, _, _, _>(
+            prover_state,
+            folding_factor_next,
+            round_params.folding_pow_bits,
+            None,
+            dft,
+        )?;
 
         let start_idx = self.folding_factor.total_number(round_index);
         let dst_randomness =
@@ -428,7 +425,7 @@ where
     fn final_round<D, const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<EF, F, Challenger, W, PERM_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Challenger, W>,
         round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         folded_coefficients: &CoefficientList<EF>,
         folded_evaluations: &EvaluationsList<EF>,
@@ -508,7 +505,7 @@ where
                         EF::ONE,
                     )
                 })
-                .compute_sumcheck_polynomials::<PS, _, _, _, PERM_WIDTH>(
+                .compute_sumcheck_polynomials::<PS, _, _, _>(
                     prover_state,
                     self.final_sumcheck_rounds,
                     self.final_folding_pow_bits,
@@ -535,7 +532,7 @@ where
     fn compute_stir_queries<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<EF, F, Challenger, W, PERM_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Challenger, W>,
         round_state: &RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig<EF>,

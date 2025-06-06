@@ -122,11 +122,10 @@ fn main() {
         rs_domain_initial_reduction_factor,
     };
 
-    let params =
-        WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W, PERM_WIDTH>::new(
-            mv_params,
-            whir_params,
-        );
+    let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(
+        mv_params,
+        whir_params,
+    );
 
     dbg!(&params);
 

@@ -26,7 +26,7 @@ pub struct RoundConfig<F> {
 }
 
 #[derive(Debug, Clone)]
-pub struct WhirConfig<EF, F, MyChallenger, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize>
+pub struct WhirConfig<EF, F, MyChallenger, C, PowStrategy, Challenger, W>
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -70,8 +70,8 @@ where
     pub _unit: PhantomData<W>,
 }
 
-impl<EF, F, MyChallenger, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize>
-    WhirConfig<EF, F, MyChallenger, C, PowStrategy, Challenger, W, PERM_WIDTH>
+impl<EF, F, MyChallenger, C, PowStrategy, Challenger, W>
+    WhirConfig<EF, F, MyChallenger, C, PowStrategy, Challenger, W>
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
@@ -468,7 +468,6 @@ mod tests {
             (),
             MyChallenger,
             W,
-            200,
         >::new(mv_params, params);
 
         assert_eq!(config.security_level, 100);
@@ -489,7 +488,6 @@ mod tests {
             (),
             MyChallenger,
             W,
-            200,
         >::new(mv_params, params);
 
         assert_eq!(config.n_rounds(), config.round_parameters.len());
@@ -500,7 +498,7 @@ mod tests {
         let field_size_bits = 64;
         let soundness = SecurityAssumption::CapacityBound;
 
-        let pow_bits = WhirConfig::<F, F, u8, u8, (), MyChallenger, W, 200>::folding_pow_bits(
+        let pow_bits = WhirConfig::<F, F, u8, u8, (), MyChallenger, W>::folding_pow_bits(
             100, // Security level
             soundness,
             field_size_bits,
@@ -524,7 +522,6 @@ mod tests {
             (),
             MyChallenger,
             W,
-            200,
         >::new(mv_params, params);
 
         // Set all values within limits
@@ -579,7 +576,6 @@ mod tests {
             (),
             MyChallenger,
             W,
-            200,
         >::new(mv_params, params);
 
         config.max_pow_bits = 20;
@@ -605,7 +601,6 @@ mod tests {
             (),
             MyChallenger,
             W,
-            200,
         >::new(mv_params, params);
 
         config.max_pow_bits = 20;
@@ -631,7 +626,6 @@ mod tests {
             (),
             MyChallenger,
             W,
-            200,
         >::new(mv_params, params);
 
         config.max_pow_bits = 20;
@@ -671,7 +665,6 @@ mod tests {
             (),
             MyChallenger,
             W,
-            200,
         >::new(mv_params, params);
 
         config.max_pow_bits = 20;
@@ -711,7 +704,6 @@ mod tests {
             (),
             MyChallenger,
             W,
-            200,
         >::new(mv_params, params);
 
         config.max_pow_bits = 20;
@@ -750,7 +742,6 @@ mod tests {
             (),
             MyChallenger,
             W,
-            200,
         >::new(mv_params, params);
 
         config.max_pow_bits = 20;

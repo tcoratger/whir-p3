@@ -60,8 +60,8 @@ where
     /// - The prover's claimed answers at those points.
     ///
     /// This is used to verify consistency of polynomial commitments in WHIR.
-    pub fn parse<EF, Challenger, W, const PERM_WIDTH: usize, const DIGEST_ELEMS: usize>(
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
+    pub fn parse<EF, Challenger, W, const DIGEST_ELEMS: usize>(
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
         num_variables: usize,
         ood_samples: usize,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>>
@@ -119,19 +119,18 @@ where
 /// The `CommitmentReader` wraps the WHIR configuration and provides a convenient
 /// method to extract a `ParsedCommitment` by reading values from the Fiat-Shamir transcript.
 #[derive(Debug)]
-pub struct CommitmentReader<'a, EF, F, H, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize>(
+pub struct CommitmentReader<'a, EF, F, H, C, PowStrategy, Challenger, W>(
     /// Reference to the verifier’s configuration object.
     ///
     /// This contains all parameters needed to parse the commitment,
     /// including how many out-of-domain samples are expected.
-    &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>,
+    &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize>
-    CommitmentReader<'a, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
+impl<'a, EF, F, H, C, PS, Challenger, W> CommitmentReader<'a, EF, F, H, C, PS, Challenger, W>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -141,7 +140,7 @@ where
     /// Create a new commitment reader from a WHIR configuration.
     ///
     /// This allows the verifier to parse a commitment from the Fiat-Shamir transcript.
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS, Challenger, W, PERM_WIDTH>) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS, Challenger, W>) -> Self {
         Self(params)
     }
 
@@ -151,7 +150,7 @@ where
     /// expected for verifying the committed polynomial.
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>> {
         ParsedCommitment::<_, Hash<F, W, DIGEST_ELEMS>>::parse(
             verifier_state,
@@ -161,13 +160,13 @@ where
     }
 }
 
-impl<EF, F, H, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize> Deref
-    for CommitmentReader<'_, EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>
+impl<EF, F, H, C, PowStrategy, Challenger, W> Deref
+    for CommitmentReader<'_, EF, F, H, C, PowStrategy, Challenger, W>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PowStrategy, Challenger, W>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -209,7 +208,7 @@ mod tests {
         num_variables: usize,
         ood_samples: usize,
     ) -> (
-        WhirConfig<BabyBear, BabyBear, FieldHash, MyCompress, Blake3PoW, MyChallenger, W, 200>,
+        WhirConfig<BabyBear, BabyBear, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>,
         rand::rngs::ThreadRng,
     ) {
         // Initialize the underlying byte-level hash function (e.g., Keccak256).
@@ -243,7 +242,6 @@ mod tests {
             Blake3PoW,
             MyChallenger,
             W,
-            200,
         >::new(MultivariateParameters::new(num_variables), whir_params);
 
         // Set the number of OOD samples for commitment testing.

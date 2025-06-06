@@ -34,16 +34,15 @@ pub mod sumcheck;
 /// This type provides a lightweight, ergonomic interface to verification methods
 /// by wrapping a reference to the `WhirConfig`.
 #[derive(Debug)]
-pub struct Verifier<'a, EF, F, H, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize>(
+pub struct Verifier<'a, EF, F, H, C, PowStrategy, Challenger, W>(
     /// Reference to the verifier’s configuration containing all round parameters.
-    pub(crate) &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>,
+    pub(crate) &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize>
-    Verifier<'a, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
+impl<'a, EF, F, H, C, PS, Challenger, W> Verifier<'a, EF, F, H, C, PS, Challenger, W>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -51,7 +50,7 @@ where
     W: Unit + Default + Copy,
     Challenger: CanObserve<W> + CanSample<W>,
 {
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS, Challenger, W, PERM_WIDTH>) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS, Challenger, W>) -> Self {
         Self(params)
     }
 
@@ -59,7 +58,7 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         statement: &Statement<EF>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
@@ -227,7 +226,7 @@ where
     /// A vector of randomness values used to weight each constraint.
     pub fn combine_constraints(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
         claimed_sum: &mut EF,
         constraints: &[Constraint<EF>],
     ) -> ProofResult<Vec<EF>> {
@@ -262,7 +261,7 @@ where
     /// Returns `ProofError::InvalidProof` if the PoW response is invalid.
     pub fn verify_proof_of_work(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
         bits: f64,
     ) -> ProofResult<()> {
         if bits > 0. {
@@ -297,7 +296,7 @@ where
     /// or the prover’s data does not match the commitment.
     pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
         params: &RoundConfig<EF>,
         commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
@@ -376,7 +375,7 @@ where
     /// Returns `ProofError::InvalidProof` if any Merkle proof fails verification.
     pub fn verify_merkle_proof<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
         root: &Hash<F, W, DIGEST_ELEMS>,
         indices: &[usize],
         dimensions: &[Dimensions],
@@ -509,13 +508,12 @@ where
     }
 }
 
-impl<EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize> Deref
-    for Verifier<'_, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
+impl<EF, F, H, C, PS, Challenger, W> Deref for Verifier<'_, EF, F, H, C, PS, Challenger, W>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, PS, Challenger, W, PERM_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PS, Challenger, W>;
 
     fn deref(&self) -> &Self::Target {
         self.0

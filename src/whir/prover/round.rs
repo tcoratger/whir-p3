@@ -111,9 +111,9 @@ where
     /// This function should be called once at the beginning of the proof, before entering the
     /// main WHIR folding loop.
     #[instrument(skip_all)]
-    pub(crate) fn initialize_first_round_state<H, C, PS, D, Challenger, const PERM_WIDTH: usize>(
-        prover: &Prover<'_, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>,
-        prover_state: &mut ProverState<EF, F, Challenger, W, PERM_WIDTH>,
+    pub(crate) fn initialize_first_round_state<H, C, PS, D, Challenger>(
+        prover: &Prover<'_, EF, F, H, C, PS, Challenger, W>,
+        prover_state: &mut ProverState<EF, F, Challenger, W>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         dft: &D,
@@ -154,14 +154,13 @@ where
             );
 
             // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck
-                .compute_sumcheck_polynomials::<PS, _, _, _, PERM_WIDTH>(
-                    prover_state,
-                    prover.folding_factor.at_round(0),
-                    prover.starting_folding_pow_bits,
-                    None,
-                    dft,
-                )?;
+            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS, _, _, _>(
+                prover_state,
+                prover.folding_factor.at_round(0),
+                prover.starting_folding_pow_bits,
+                None,
+                dft,
+            )?;
 
             sumcheck_prover = Some(sumcheck);
             folding_randomness
@@ -247,7 +246,7 @@ mod tests {
         initial_statement: bool,
         folding_factor: usize,
         pow_bits: usize,
-    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W, 200> {
+    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W> {
         // Construct the multivariate parameter set with `num_variables` variables,
         // determining the size of the evaluation domain.
         let mv_params = MultivariateParameters::<EF4>::new(num_variables);
@@ -281,11 +280,11 @@ mod tests {
     /// This is used as a boilerplate step before running the first WHIR round.
     #[allow(clippy::type_complexity)]
     fn setup_domain_and_commitment(
-        params: &WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W, 200>,
+        params: &WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W>,
         poly: EvaluationsList<F>,
     ) -> (
-        DomainSeparator<EF4, F, u8, 200>,
-        ProverState<EF4, F, H, W, 200>,
+        DomainSeparator<EF4, F, u8>,
+        ProverState<EF4, F, H, W>,
         Witness<EF4, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.
