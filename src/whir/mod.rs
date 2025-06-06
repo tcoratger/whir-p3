@@ -87,7 +87,7 @@ pub fn make_whir_things(
     // Define a polynomial with all coefficients set to 1
     let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]).to_evaluations();
 
-    // Sample `num_points` random multilinear points in the Boolean hypercube
+    // Sample `num_points` multilinear points
     let points: Vec<_> = (0..num_points)
         .map(|_| MultilinearPoint((0..num_variables).map(|i| EF::from_u64(i as u64)).collect()))
         .collect();
