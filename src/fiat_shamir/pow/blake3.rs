@@ -202,13 +202,15 @@ impl Blake3PoW {
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_keccak::KeccakF;
+    use p3_challenger::HashChallenger;
+    use p3_keccak::Keccak256Hash;
 
     use super::*;
-    use crate::fiat_shamir::{DefaultHash, DefaultPerm, domain_separator::DomainSeparator};
+    use crate::fiat_shamir::{DefaultHash, domain_separator::DomainSeparator};
 
     type F = BabyBear;
     type H = DefaultHash;
+    type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
     fn sample_challenges() -> Vec<[u8; 32]> {
         vec![
@@ -224,18 +226,18 @@ mod tests {
     fn test_pow_blake3() {
         const BITS: f64 = 10.0;
 
-        let mut domain_separator = DomainSeparator::<F, F, DefaultPerm, u8, 200>::new(
-            "the proof of work lottery 🎰",
-            KeccakF,
-        );
+        let mut domain_separator =
+            DomainSeparator::<F, F, u8, 200>::new("the proof of work lottery 🎰");
         domain_separator.absorb(1, "something");
         domain_separator.challenge_pow("rolling dices");
 
-        let mut prover = domain_separator.to_prover_state::<H, 32>();
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut prover = domain_separator.to_prover_state::<_, 32>(challenger.clone());
         prover.add_units(b"\0").expect("Invalid DomainSeparator");
         prover.challenge_pow::<Blake3PoW>(BITS).unwrap();
 
-        let mut verifier = domain_separator.to_verifier_state::<H, 32>(prover.narg_string());
+        let mut verifier =
+            domain_separator.to_verifier_state::<_, 32>(prover.narg_string(), challenger);
         let byte = verifier.next_units::<1>().unwrap();
         assert_eq!(&byte, b"\0");
         verifier.challenge_pow::<Blake3PoW>(BITS).unwrap();

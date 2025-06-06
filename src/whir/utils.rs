@@ -1,14 +1,11 @@
 use itertools::Itertools;
+use p3_challenger::{CanObserve, CanSample};
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
-use p3_symmetric::Permutation;
 use tracing::instrument;
 
 use crate::{
     fiat_shamir::{
-        UnitToBytes,
-        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
-        errors::ProofResult,
-        prover::ProverState,
+        UnitToBytes, duplex_sponge::interface::Unit, errors::ProofResult, prover::ProverState,
     },
     poly::multilinear::MultilinearPoint,
 };
@@ -67,8 +64,8 @@ where
 ///
 /// This should be used on the prover side.
 #[instrument(skip_all)]
-pub fn sample_ood_points<F, EF, E, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>(
-    prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
+pub fn sample_ood_points<F, EF, E, Challenger, W, const PERM_WIDTH: usize>(
+    prover_state: &mut ProverState<EF, F, Challenger, W, PERM_WIDTH>,
     num_samples: usize,
     num_variables: usize,
     evaluate_fn: E,
@@ -78,8 +75,7 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     E: Fn(&MultilinearPoint<EF>) -> EF,
     W: Unit + Default + Copy,
-    Perm: Permutation<[W; PERM_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
+    Challenger: CanObserve<W> + CanSample<W>,
 {
     let mut ood_points = EF::zero_vec(num_samples);
     let mut ood_answers = Vec::with_capacity(num_samples);

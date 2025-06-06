@@ -1,10 +1,11 @@
 use clap::Parser;
 use p3_baby_bear::BabyBear;
 use p3_blake3::Blake3;
+use p3_challenger::HashChallenger;
 use p3_dft::Radix2DitSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
-use p3_keccak::KeccakF;
+use p3_keccak::Keccak256Hash;
 use p3_koala_bear::KoalaBear;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -41,6 +42,7 @@ type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 type Perm = DefaultPerm;
 type FiatShamirHash = DefaultHash;
 type W = u8;
+type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 const PERM_WIDTH: usize = KECCAK_WIDTH_BYTES;
 
 #[derive(Parser, Debug)]
@@ -123,17 +125,11 @@ fn main() {
         rs_domain_initial_reduction_factor,
     };
 
-    let params = WhirConfig::<
-        EF,
-        F,
-        FieldHash,
-        MyCompress,
-        Blake3PoW,
-        Perm,
-        FiatShamirHash,
-        W,
-        PERM_WIDTH,
-    >::new(mv_params, whir_params);
+    let params =
+        WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W, PERM_WIDTH>::new(
+            mv_params,
+            whir_params,
+        );
 
     dbg!(&params);
 
@@ -156,7 +152,7 @@ fn main() {
     }
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
-    let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
+    let mut domainsep = DomainSeparator::new("🌪️");
     domainsep.commit_statement(&params);
     domainsep.add_whir_proof(&params);
 
@@ -166,8 +162,10 @@ fn main() {
         println!("WARN: more PoW bits required than what specified.");
     }
 
+    let challenger = MyChallenger::new(vec![], Keccak256Hash);
+
     // Initialize the Merlin transcript from the IOPattern
-    let mut prover_state = domainsep.to_prover_state::<_, 32>();
+    let mut prover_state = domainsep.to_prover_state::<_, 32>(challenger.clone());
 
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
@@ -198,7 +196,7 @@ fn main() {
     let proof_size = narg_string.len();
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    let mut verifier_state = domainsep.to_verifier_state::<_, 32>(&narg_string);
+    let mut verifier_state = domainsep.to_verifier_state::<_, 32>(&narg_string, challenger);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader

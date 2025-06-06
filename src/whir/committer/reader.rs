@@ -1,14 +1,11 @@
 use std::ops::Deref;
 
+use p3_challenger::{CanObserve, CanSample};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
-use p3_symmetric::{Hash, Permutation};
+use p3_symmetric::Hash;
 
 use crate::{
-    fiat_shamir::{
-        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
-        errors::ProofResult,
-        verifier::VerifierState,
-    },
+    fiat_shamir::{duplex_sponge::interface::Unit, errors::ProofResult, verifier::VerifierState},
     whir::{
         parameters::WhirConfig,
         statement::{constraint::Constraint, weights::Weights},
@@ -63,8 +60,8 @@ where
     /// - The prover's claimed answers at those points.
     ///
     /// This is used to verify consistency of polynomial commitments in WHIR.
-    pub fn parse<EF, Perm, FiatShamirHash, W, const PERM_WIDTH: usize, const DIGEST_ELEMS: usize>(
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
+    pub fn parse<EF, Challenger, W, const PERM_WIDTH: usize, const DIGEST_ELEMS: usize>(
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
         num_variables: usize,
         ood_samples: usize,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>>
@@ -72,8 +69,7 @@ where
         F: TwoAdicField + PrimeField64,
         EF: ExtensionField<F> + TwoAdicField,
         W: Unit + Default + Copy,
-        Perm: Permutation<[W; PERM_WIDTH]>,
-        FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
+        Challenger: CanObserve<W> + CanSample<W>,
     {
         // Read the Merkle root hash committed by the prover.
         let root = verifier_state.read_digest()?;
@@ -123,43 +119,29 @@ where
 /// The `CommitmentReader` wraps the WHIR configuration and provides a convenient
 /// method to extract a `ParsedCommitment` by reading values from the Fiat-Shamir transcript.
 #[derive(Debug)]
-pub struct CommitmentReader<
-    'a,
-    EF,
-    F,
-    H,
-    C,
-    PowStrategy,
-    Perm,
-    FiatShamirHash,
-    W,
-    const PERM_WIDTH: usize,
->(
+pub struct CommitmentReader<'a, EF, F, H, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize>(
     /// Reference to the verifier’s configuration object.
     ///
     /// This contains all parameters needed to parse the commitment,
     /// including how many out-of-domain samples are expected.
-    &'a WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>,
+    &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>
-    CommitmentReader<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>
+impl<'a, EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize>
+    CommitmentReader<'a, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     W: Unit + Default + Copy,
-    Perm: Permutation<[W; PERM_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
+    Challenger: CanObserve<W> + CanSample<W>,
 {
     /// Create a new commitment reader from a WHIR configuration.
     ///
     /// This allows the verifier to parse a commitment from the Fiat-Shamir transcript.
-    pub const fn new(
-        params: &'a WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>,
-    ) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS, Challenger, W, PERM_WIDTH>) -> Self {
         Self(params)
     }
 
@@ -169,7 +151,7 @@ where
     /// expected for verifying the committed polynomial.
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>> {
         ParsedCommitment::<_, Hash<F, W, DIGEST_ELEMS>>::parse(
             verifier_state,
@@ -179,13 +161,13 @@ where
     }
 }
 
-impl<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, const PERM_WIDTH: usize> Deref
-    for CommitmentReader<'_, EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>
+impl<EF, F, H, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize> Deref
+    for CommitmentReader<'_, EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -195,9 +177,10 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_challenger::HashChallenger;
     use p3_dft::Radix2DitSmallBatch;
     use p3_field::PrimeCharacteristicRing;
-    use p3_keccak::{Keccak256Hash, KeccakF};
+    use p3_keccak::Keccak256Hash;
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
     use rand::Rng;
 
@@ -208,13 +191,14 @@ mod tests {
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
         poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-        whir::{DomainSeparator, FiatShamirHash, Perm, W, committer::writer::CommitmentWriter},
+        whir::{DomainSeparator, W, committer::writer::CommitmentWriter},
     };
 
     type F = BabyBear;
     type ByteHash = Keccak256Hash;
     type FieldHash = SerializingHasher<ByteHash>;
     type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+    type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
     /// Constructs a WHIR configuration and RNG for test purposes.
     ///
@@ -225,17 +209,7 @@ mod tests {
         num_variables: usize,
         ood_samples: usize,
     ) -> (
-        WhirConfig<
-            BabyBear,
-            BabyBear,
-            FieldHash,
-            MyCompress,
-            Blake3PoW,
-            Perm,
-            FiatShamirHash,
-            W,
-            200,
-        >,
+        WhirConfig<BabyBear, BabyBear, FieldHash, MyCompress, Blake3PoW, MyChallenger, W, 200>,
         rand::rngs::ThreadRng,
     ) {
         // Initialize the underlying byte-level hash function (e.g., Keccak256).
@@ -267,8 +241,7 @@ mod tests {
             FieldHash,
             MyCompress,
             Blake3PoW,
-            Perm,
-            FiatShamirHash,
+            MyChallenger,
             W,
             200,
         >::new(MultivariateParameters::new(num_variables), whir_params);
@@ -295,11 +268,12 @@ mod tests {
         let dft = Radix2DitSmallBatch::default();
 
         // Set up Fiat-Shamir transcript and commit the protocol parameters.
-        let mut ds = DomainSeparator::new("test", KeccakF);
+        let mut ds = DomainSeparator::new("test");
         ds.commit_statement(&params);
 
         // Create the prover state from the transcript.
-        let mut prover_state = ds.to_prover_state::<_, 32>();
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut prover_state = ds.to_prover_state::<_, 32>(challenger.clone());
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
         let witness = committer
@@ -307,7 +281,8 @@ mod tests {
             .unwrap();
 
         // Simulate verifier state using transcript view of prover’s nonce string.
-        let mut verifier_state = ds.to_verifier_state::<_, 32>(prover_state.narg_string());
+        let mut verifier_state =
+            ds.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
 
         // Create a commitment reader and parse the commitment from verifier state.
         let reader = CommitmentReader::new(&params);
@@ -334,11 +309,12 @@ mod tests {
         let dft = Radix2DitSmallBatch::default();
 
         // Begin the transcript and commit to the statement parameters.
-        let mut ds = DomainSeparator::new("test", KeccakF);
+        let mut ds = DomainSeparator::new("test");
         ds.commit_statement(&params);
 
         // Generate the prover state from the transcript.
-        let mut prover_state = ds.to_prover_state::<_, 32>();
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut prover_state = ds.to_prover_state::<_, 32>(challenger.clone());
 
         // Commit the polynomial to obtain the witness.
         let witness = committer
@@ -346,7 +322,8 @@ mod tests {
             .unwrap();
 
         // Initialize the verifier view of the transcript.
-        let mut verifier_state = ds.to_verifier_state::<_, 32>(prover_state.narg_string());
+        let mut verifier_state =
+            ds.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
 
         // Parse the commitment from verifier transcript.
         let reader = CommitmentReader::new(&params);
@@ -376,11 +353,12 @@ mod tests {
         let dft = Radix2DitSmallBatch::default();
 
         // Start a new transcript and commit to the public parameters.
-        let mut ds = DomainSeparator::new("test", KeccakF);
+        let mut ds = DomainSeparator::new("test");
         ds.commit_statement(&params);
 
         // Create prover state from the transcript.
-        let mut prover_state = ds.to_prover_state::<_, 32>();
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut prover_state = ds.to_prover_state::<_, 32>(challenger.clone());
 
         // Commit the polynomial and obtain the witness.
         let witness = committer
@@ -388,7 +366,8 @@ mod tests {
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
-        let mut verifier_state = ds.to_verifier_state::<_, 32>(prover_state.narg_string());
+        let mut verifier_state =
+            ds.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
 
         // Parse the commitment from verifier’s transcript.
         let reader = CommitmentReader::new(&params);
@@ -413,15 +392,17 @@ mod tests {
         let dft = Radix2DitSmallBatch::default();
 
         // Set up Fiat-Shamir transcript and commit to the public parameters.
-        let mut ds = DomainSeparator::new("oods_constraints_test", KeccakF);
+        let mut ds = DomainSeparator::new("oods_constraints_test");
         ds.commit_statement(&params);
 
         // Generate prover and verifier transcript states.
-        let mut prover_state = ds.to_prover_state::<_, 32>();
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut prover_state = ds.to_prover_state::<_, 32>(challenger.clone());
         let _ = committer
             .commit(&dft, &mut prover_state, polynomial)
             .unwrap();
-        let mut verifier_state = ds.to_verifier_state::<_, 32>(prover_state.narg_string());
+        let mut verifier_state =
+            ds.to_verifier_state::<_, 32>(prover_state.narg_string(), challenger);
 
         // Parse the commitment from the verifier’s state.
         let reader = CommitmentReader::new(&params);

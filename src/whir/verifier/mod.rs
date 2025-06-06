@@ -1,10 +1,11 @@
 use std::{fmt::Debug, ops::Deref};
 
+use p3_challenger::{CanObserve, CanSample};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, Packable, PrimeField64, TwoAdicField};
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CryptographicHasher, Hash, Permutation, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -17,7 +18,7 @@ use super::{
 };
 use crate::{
     fiat_shamir::{
-        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
+        duplex_sponge::interface::Unit,
         errors::{ProofError, ProofResult},
         pow::traits::PowStrategy,
         verifier::VerifierState,
@@ -33,27 +34,24 @@ pub mod sumcheck;
 /// This type provides a lightweight, ergonomic interface to verification methods
 /// by wrapping a reference to the `WhirConfig`.
 #[derive(Debug)]
-pub struct Verifier<'a, EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>(
+pub struct Verifier<'a, EF, F, H, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize>(
     /// Reference to the verifier’s configuration containing all round parameters.
-    pub(crate) &'a WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>,
+    pub(crate) &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>
-    Verifier<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>
+impl<'a, EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize>
+    Verifier<'a, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
     W: Unit + Default + Copy,
-    Perm: Permutation<[W; PERM_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
+    Challenger: CanObserve<W> + CanSample<W>,
 {
-    pub const fn new(
-        params: &'a WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>,
-    ) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS, Challenger, W, PERM_WIDTH>) -> Self {
         Self(params)
     }
 
@@ -61,7 +59,7 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         statement: &Statement<EF>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
@@ -229,7 +227,7 @@ where
     /// A vector of randomness values used to weight each constraint.
     pub fn combine_constraints(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
         claimed_sum: &mut EF,
         constraints: &[Constraint<EF>],
     ) -> ProofResult<Vec<EF>> {
@@ -264,7 +262,7 @@ where
     /// Returns `ProofError::InvalidProof` if the PoW response is invalid.
     pub fn verify_proof_of_work(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
         bits: f64,
     ) -> ProofResult<()> {
         if bits > 0. {
@@ -299,7 +297,7 @@ where
     /// or the prover’s data does not match the commitment.
     pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
         params: &RoundConfig<EF>,
         commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
@@ -378,7 +376,7 @@ where
     /// Returns `ProofError::InvalidProof` if any Merkle proof fails verification.
     pub fn verify_merkle_proof<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
         root: &Hash<F, W, DIGEST_ELEMS>,
         indices: &[usize],
         dimensions: &[Dimensions],
@@ -511,13 +509,13 @@ where
     }
 }
 
-impl<EF, F, H, C, PS, Perm, FiatShamirHash, W, const PERM_WIDTH: usize> Deref
-    for Verifier<'_, EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>
+impl<EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize> Deref
+    for Verifier<'_, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PS, Challenger, W, PERM_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0

@@ -1,21 +1,18 @@
 use std::ops::Deref;
 
+use p3_challenger::{CanObserve, CanSample};
 use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, Packable, PrimeField64, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CryptographicHasher, Permutation, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
-    fiat_shamir::{
-        duplex_sponge::interface::{DuplexSpongeInterface, Unit},
-        errors::ProofResult,
-        prover::ProverState,
-    },
+    fiat_shamir::{duplex_sponge::interface::Unit, errors::ProofResult, prover::ProverState},
     poly::{coeffs::CoefficientList, evals::EvaluationsList},
     whir::{committer::DenseMatrix, parameters::WhirConfig, utils::sample_ood_points},
 };
@@ -27,38 +24,24 @@ use crate::{
 ///
 /// It provides a commitment that can be used for proof generation and verification.
 #[derive(Debug)]
-pub struct CommitmentWriter<
-    'a,
-    EF,
-    F,
-    H,
-    C,
-    PowStrategy,
-    Perm,
-    FiatShamirHash,
-    W,
-    const PERM_WIDTH: usize,
->(
+pub struct CommitmentWriter<'a, EF, F, H, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize>(
     /// Reference to the WHIR protocol configuration.
-    &'a WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>,
+    &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, const PERM_WIDTH: usize>
-    CommitmentWriter<'a, EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>
+impl<'a, EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize>
+    CommitmentWriter<'a, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     W: Unit + Default + Copy,
-    Perm: Permutation<[W; PERM_WIDTH]>,
-    FiatShamirHash: DuplexSpongeInterface<Perm, W, PERM_WIDTH>,
+    Challenger: CanObserve<W> + CanSample<W>,
 {
     /// Create a new writer that borrows the WHIR protocol configuration.
-    pub const fn new(
-        params: &'a WhirConfig<EF, F, H, C, PS, Perm, FiatShamirHash, W, PERM_WIDTH>,
-    ) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS, Challenger, W, PERM_WIDTH>) -> Self {
         Self(params)
     }
 
@@ -75,7 +58,7 @@ where
     pub fn commit<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
-        prover_state: &mut ProverState<EF, F, Perm, FiatShamirHash, W, PERM_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Challenger, W, PERM_WIDTH>,
         polynomial: EvaluationsList<F>,
     ) -> ProofResult<Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>>
     where
@@ -135,13 +118,13 @@ where
     }
 }
 
-impl<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, const PERM_WIDTH: usize> Deref
-    for CommitmentWriter<'_, EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>
+impl<EF, F, H, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize> Deref
+    for CommitmentWriter<'_, EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, PowStrategy, Perm, FiatShamirHash, W, PERM_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -151,25 +134,27 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_challenger::HashChallenger;
     use p3_dft::Radix2DitSmallBatch;
-    use p3_keccak::{Keccak256Hash, KeccakF};
+    use p3_keccak::Keccak256Hash;
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
     use rand::Rng;
 
     use super::*;
     use crate::{
-        fiat_shamir::{DefaultPerm, domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+        fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
         poly::multilinear::MultilinearPoint,
-        whir::{FiatShamirHash, Perm, W},
+        whir::W,
     };
 
     type F = BabyBear;
     type ByteHash = Keccak256Hash;
     type FieldHash = SerializingHasher<ByteHash>;
     type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+    type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
     #[test]
     fn test_basic_commitment() {
@@ -205,28 +190,23 @@ mod tests {
 
         // Define multivariate parameters for the polynomial.
         let mv_params = MultivariateParameters::new(num_variables);
-        let params = WhirConfig::<
-            F,
-            F,
-            FieldHash,
-            MyCompress,
-            Blake3PoW,
-            Perm,
-            FiatShamirHash,
-            W,
-            200,
-        >::new(mv_params, whir_params);
+        let params =
+            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W, 200>::new(
+                mv_params,
+                whir_params,
+            );
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let mut domainsep: DomainSeparator<F, F, DefaultPerm, u8, 200> =
-            DomainSeparator::new("🌪️", KeccakF);
+        let mut domainsep: DomainSeparator<F, F, u8, 200> = DomainSeparator::new("🌪️");
         domainsep.commit_statement(&params);
         domainsep.add_whir_proof(&params);
-        let mut prover_state = domainsep.to_prover_state::<_, 32>();
+
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut prover_state = domainsep.to_prover_state::<_, 32>(challenger);
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(&params);
@@ -298,25 +278,20 @@ mod tests {
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let params = WhirConfig::<
-            F,
-            F,
-            FieldHash,
-            MyCompress,
-            Blake3PoW,
-            Perm,
-            FiatShamirHash,
-            W,
-            200,
-        >::new(mv_params, whir_params);
+        let params =
+            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W, 200>::new(
+                mv_params,
+                whir_params,
+            );
 
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
 
-        let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
+        let mut domainsep = DomainSeparator::new("🌪️");
         domainsep.commit_statement(&params);
 
-        let mut prover_state = domainsep.to_prover_state::<_, 32>();
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut prover_state = domainsep.to_prover_state::<_, 32>(challenger);
 
         let dft_committer = Radix2DitSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
@@ -355,17 +330,11 @@ mod tests {
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let mut params = WhirConfig::<
-            F,
-            F,
-            FieldHash,
-            MyCompress,
-            Blake3PoW,
-            Perm,
-            FiatShamirHash,
-            W,
-            200,
-        >::new(mv_params, whir_params);
+        let mut params =
+            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W, 200>::new(
+                mv_params,
+                whir_params,
+            );
 
         // Explicitly set OOD samples to 0
         params.committment_ood_samples = 0;
@@ -373,9 +342,11 @@ mod tests {
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
+        let mut domainsep = DomainSeparator::new("🌪️");
         domainsep.commit_statement(&params);
-        let mut prover_state = domainsep.to_prover_state::<_, 32>();
+
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut prover_state = domainsep.to_prover_state::<_, 32>(challenger);
 
         let dft_committer = Radix2DitSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
