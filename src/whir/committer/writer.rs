@@ -24,16 +24,15 @@ use crate::{
 ///
 /// It provides a commitment that can be used for proof generation and verification.
 #[derive(Debug)]
-pub struct CommitmentWriter<'a, EF, F, H, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize>(
+pub struct CommitmentWriter<'a, EF, F, H, C, PowStrategy, Challenger, W>(
     /// Reference to the WHIR protocol configuration.
-    &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>,
+    &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize>
-    CommitmentWriter<'a, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
+impl<'a, EF, F, H, C, PS, Challenger, W> CommitmentWriter<'a, EF, F, H, C, PS, Challenger, W>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -41,7 +40,7 @@ where
     Challenger: CanObserve<W> + CanSample<W>,
 {
     /// Create a new writer that borrows the WHIR protocol configuration.
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS, Challenger, W, PERM_WIDTH>) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS, Challenger, W>) -> Self {
         Self(params)
     }
 
@@ -58,7 +57,7 @@ where
     pub fn commit<D, const DIGEST_ELEMS: usize>(
         &self,
         dft: &D,
-        prover_state: &mut ProverState<EF, F, Challenger, W, PERM_WIDTH>,
+        prover_state: &mut ProverState<EF, F, Challenger, W>,
         polynomial: EvaluationsList<F>,
     ) -> ProofResult<Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>>
     where
@@ -118,13 +117,13 @@ where
     }
 }
 
-impl<EF, F, H, C, PowStrategy, Challenger, W, const PERM_WIDTH: usize> Deref
-    for CommitmentWriter<'_, EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>
+impl<EF, F, H, C, PowStrategy, Challenger, W> Deref
+    for CommitmentWriter<'_, EF, F, H, C, PowStrategy, Challenger, W>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, PowStrategy, Challenger, W, PERM_WIDTH>;
+    type Target = WhirConfig<EF, F, H, C, PowStrategy, Challenger, W>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -190,18 +189,17 @@ mod tests {
 
         // Define multivariate parameters for the polynomial.
         let mv_params = MultivariateParameters::new(num_variables);
-        let params =
-            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W, 200>::new(
-                mv_params,
-                whir_params,
-            );
+        let params = WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(
+            mv_params,
+            whir_params,
+        );
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let mut domainsep: DomainSeparator<F, F, u8, 200> = DomainSeparator::new("🌪️");
+        let mut domainsep: DomainSeparator<F, F, u8> = DomainSeparator::new("🌪️");
         domainsep.commit_statement(&params);
         domainsep.add_whir_proof(&params);
 
@@ -278,11 +276,10 @@ mod tests {
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let params =
-            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W, 200>::new(
-                mv_params,
-                whir_params,
-            );
+        let params = WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(
+            mv_params,
+            whir_params,
+        );
 
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
@@ -330,11 +327,10 @@ mod tests {
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
-        let mut params =
-            WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W, 200>::new(
-                mv_params,
-                whir_params,
-            );
+        let mut params = WhirConfig::<F, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(
+            mv_params,
+            whir_params,
+        );
 
         // Explicitly set OOD samples to 0
         params.committment_ood_samples = 0;

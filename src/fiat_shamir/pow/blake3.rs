@@ -225,8 +225,7 @@ mod tests {
     fn test_pow_blake3() {
         const BITS: f64 = 10.0;
 
-        let mut domain_separator =
-            DomainSeparator::<F, F, u8, 200>::new("the proof of work lottery 🎰");
+        let mut domain_separator = DomainSeparator::<F, F, u8>::new("the proof of work lottery 🎰");
         domain_separator.absorb(1, "something");
         domain_separator.challenge_pow("rolling dices");
 

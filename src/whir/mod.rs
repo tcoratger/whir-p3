@@ -80,11 +80,10 @@ pub fn make_whir_things(
     };
 
     // Combine protocol and polynomial parameters into a single config
-    let params =
-        WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W, PERM_WIDTH>::new(
-            mv_params,
-            whir_params,
-        );
+    let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(
+        mv_params,
+        whir_params,
+    );
 
     // Define a polynomial with all coefficients set to 1
     let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]).to_evaluations();

@@ -18,8 +18,7 @@ use crate::{
 /// The full vector of folding randomness values, in reverse round order.
 type SumcheckRandomness<F> = MultilinearPoint<F>;
 
-impl<EF, F, H, C, PS, Challenger, W, const PERM_WIDTH: usize>
-    Verifier<'_, EF, F, H, C, PS, Challenger, W, PERM_WIDTH>
+impl<EF, F, H, C, PS, Challenger, W> Verifier<'_, EF, F, H, C, PS, Challenger, W>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -57,7 +56,7 @@ where
     /// - A `MultilinearPoint` of folding randomness values in reverse order.
     pub(crate) fn verify_sumcheck_rounds(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, PERM_WIDTH>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
         claimed_sum: &mut EF,
         rounds: usize,
         pow_bits: f64,
@@ -170,7 +169,7 @@ mod tests {
     /// Constructs a default WHIR configuration for testing
     fn default_whir_config(
         num_variables: usize,
-    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W, 200> {
+    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W> {
         // Create hash and compression functions for the Merkle tree
         let byte_hash = ByteHash {};
         let merkle_hash = FieldHash::new(byte_hash);
@@ -193,10 +192,7 @@ mod tests {
         };
 
         // Combine protocol and polynomial parameters into a single config
-        WhirConfig::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W, 200>::new(
-            mv_params,
-            whir_params,
-        )
+        WhirConfig::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W>::new(mv_params, whir_params)
     }
 
     #[test]
@@ -275,7 +271,7 @@ mod tests {
         assert_eq!(prover.sum, expected_initial_sum);
 
         // Set up domain separator
-        let mut domsep: DomainSeparator<EF4, F, u8, 200> = DomainSeparator::new("tag");
+        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("tag");
 
         let folding_factor = 3;
         let pow_bits = 1.;
@@ -294,7 +290,7 @@ mod tests {
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let _ = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, 200>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -342,7 +338,7 @@ mod tests {
         // Setup the WHIR verifier
         let whir_config = default_whir_config(n_vars);
         let verifier =
-            Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W, 200>::new(&whir_config);
+            Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W>::new(&whir_config);
 
         let randomness = verifier
             .verify_sumcheck_rounds(
@@ -428,7 +424,7 @@ mod tests {
         // - 1 skipped round: 2^k_skip + 1 values
         // - remaining rounds: 3 values each
         // -------------------------------------------------------------
-        let mut domsep: DomainSeparator<EF4, F, u8, 200> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test");
         domsep.add_scalars(1 << (K_SKIP + 1), "skip");
         domsep.challenge_scalars(1, "skip");
 
@@ -446,7 +442,7 @@ mod tests {
         // Run prover-side folding
         // -------------------------------------------------------------
         let _ = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _, 200>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
                 &mut prover_state,
                 NUM_VARS,
                 0.0,
@@ -484,7 +480,7 @@ mod tests {
         // Setup the WHIR verifier
         let whir_config = default_whir_config(NUM_VARS);
         let verifier =
-            Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W, 200>::new(&whir_config);
+            Verifier::<EF4, F, FieldHash, MyCompress, Blake3PoW, H, W>::new(&whir_config);
 
         // -------------------------------------------------------------
         // Use verify_sumcheck_rounds with skip enabled
