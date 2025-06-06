@@ -181,8 +181,6 @@ mod tests {
         assert!(result.is_ok());
 
         assert_eq!(state.stack.len(), 0);
-        // let inner = state.ds.absorbed.borrow();
-        // assert_eq!(&*inner, &[1, 2]);
     }
 
     #[test]
@@ -245,8 +243,6 @@ mod tests {
         let res2 = state.absorb(&[3, 4, 5]);
         assert!(res2.is_ok());
         assert!(state.stack.is_empty());
-
-        // assert_eq!(&*state.ds.absorbed.borrow(), &[1, 2, 3, 4, 5]);
     }
 
     #[test]
@@ -265,7 +261,6 @@ mod tests {
         let mut out2 = [0u8; 3];
         assert!(state.squeeze(&mut out2).is_ok());
         assert!(state.stack.is_empty());
-        // assert_eq!(&*state.ds.squeezed.borrow(), &[0, 1, 0, 1, 2]);
     }
 
     #[test]
@@ -371,46 +366,4 @@ mod tests {
         let result = state.hint(); // Stack is empty
         assert!(result.is_err());
     }
-
-    // #[test]
-    // fn test_hash_state_drop_clears_state() {
-    //     // Setup dummy sponge that shares Rc tracking vectors
-    //     let absorbed = Rc::new(RefCell::new(vec![1, 2, 3]));
-    //     let squeezed = Rc::new(RefCell::new(vec![4, 5, 6]));
-
-    //     let sponge = DummySponge {
-    //         absorbed: Rc::clone(&absorbed),
-    //         squeezed: Rc::clone(&squeezed),
-    //     };
-
-    //     let mut domsep = DomainSeparator::<F, F, u8, 200>::new("drop-test");
-    //     domsep.absorb(1, "x");
-
-    //     {
-    //         let mut state = HashStateWithInstructions {
-    //             ds: sponge,
-    //             stack: VecDeque::from(vec![Op::Absorb(1)]),
-    //             _perm: PhantomData,
-    //             _unit: PhantomData,
-    //         };
-
-    //         // Assert non-empty before drop
-    //         assert!(
-    //             !absorbed.borrow().is_empty(),
-    //             "Absorbed unexpectedly empty before drop"
-    //         );
-    //         assert!(
-    //             !squeezed.borrow().is_empty(),
-    //             "Squeezed unexpectedly empty before drop"
-    //         );
-
-    //         // Do something to consume the stack
-    //         assert!(state.absorb(&[42]).is_ok());
-    //         assert!(state.stack.is_empty());
-    //     } // ← state dropped here
-
-    //     // After drop, DummySponge should be cleared
-    //     assert!(absorbed.borrow().is_empty(), "Absorbed data not cleared");
-    //     assert!(squeezed.borrow().is_empty(), "Squeezed data not cleared");
-    // }
 }
