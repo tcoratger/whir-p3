@@ -37,7 +37,7 @@ where
     U: Unit,
     Challenger: CanObserve<U> + CanSample<U>,
 {
-    /// The duplex sponge that is used to generate the random coins.
+    /// The internal challenger.
     pub(crate) challenger: Challenger,
     /// The public coins for the protocol
     pub(crate) hash_state: HashStateWithInstructions<Challenger, U>,

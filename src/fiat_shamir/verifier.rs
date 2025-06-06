@@ -22,17 +22,17 @@ use crate::fiat_shamir::unit::Unit;
 /// de-serialize elements from the NARG string and make them available to the zero-knowledge
 /// verifier.
 #[derive(Debug)]
-pub struct VerifierState<'a, EF, F, H, U>
+pub struct VerifierState<'a, EF, F, Challenger, U>
 where
     U: Unit,
-    H: CanObserve<U> + CanSample<U>,
+    Challenger: CanObserve<U> + CanSample<U>,
 {
     /// Internal sponge transcript that tracks the domain separator state and absorbs values.
     ///
     /// This manages the full Fiat-Shamir interaction logic, such as absorbing inputs and
     /// squeezing challenges. It also stores the domain separator instructions to enforce
     /// consistency between prover and verifier.
-    pub(crate) hash_state: HashStateWithInstructions<H, U>,
+    pub(crate) hash_state: HashStateWithInstructions<Challenger, U>,
 
     /// The "NARG" string: raw serialized input provided by the prover.
     ///
@@ -52,10 +52,10 @@ where
     _extension_field: PhantomData<EF>,
 }
 
-impl<'a, EF, F, H, U> VerifierState<'a, EF, F, H, U>
+impl<'a, EF, F, Challenger, U> VerifierState<'a, EF, F, Challenger, U>
 where
     U: Unit + Default + Copy,
-    H: CanObserve<U> + CanSample<U>,
+    Challenger: CanObserve<U> + CanSample<U>,
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
@@ -79,7 +79,7 @@ where
     pub fn new(
         domain_separator: &DomainSeparator<EF, F, U>,
         narg_string: &'a [u8],
-        challenger: H,
+        challenger: Challenger,
     ) -> Self {
         Self {
             hash_state: HashStateWithInstructions::new(domain_separator, challenger),
@@ -298,10 +298,10 @@ where
     }
 }
 
-impl<EF, F, H, U> UnitToBytes<U> for VerifierState<'_, EF, F, H, U>
+impl<EF, F, Challenger, U> UnitToBytes<U> for VerifierState<'_, EF, F, Challenger, U>
 where
     U: Unit + Default + Copy,
-    H: CanObserve<U> + CanSample<U>,
+    Challenger: CanObserve<U> + CanSample<U>,
     EF: ExtensionField<F>,
     F: Field,
 {

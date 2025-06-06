@@ -11,28 +11,31 @@ use crate::fiat_shamir::unit::Unit;
 
 /// A stateful hash object that interfaces with duplex interfaces.
 #[derive(Clone, Debug)]
-pub struct HashStateWithInstructions<H, U>
+pub struct HashStateWithInstructions<Challenger, U>
 where
     U: Unit,
-    H: CanObserve<U> + CanSample<U>,
+    Challenger: CanObserve<U> + CanSample<U>,
 {
-    /// The internal duplex sponge used for absorbing and squeezing data.
-    pub(crate) ds: H,
+    /// The internal challenger.
+    pub(crate) challenger: Challenger,
     /// A stack of expected sponge operations.
     stack: VecDeque<Op>,
     /// Marker for the unit type `U`.
     _unit: PhantomData<U>,
 }
 
-impl<H, U> HashStateWithInstructions<H, U>
+impl<Challenger, U> HashStateWithInstructions<Challenger, U>
 where
     U: Unit + Default + Copy,
-    H: CanObserve<U> + CanSample<U>,
+    Challenger: CanObserve<U> + CanSample<U>,
 {
     /// Initialise a stateful hash object,
     /// setting up the state of the sponge function and parsing the tag string.
     #[must_use]
-    pub fn new<EF, F>(domain_separator: &DomainSeparator<EF, F, U>, mut challenger: H) -> Self
+    pub fn new<EF, F>(
+        domain_separator: &DomainSeparator<EF, F, U>,
+        mut challenger: Challenger,
+    ) -> Self
     where
         EF: ExtensionField<F> + TwoAdicField,
         F: Field + TwoAdicField + PrimeField64,
@@ -42,7 +45,7 @@ where
         challenger.observe_slice(&iop_units);
 
         Self {
-            ds: challenger,
+            challenger,
             stack,
             _unit: PhantomData,
         }
@@ -58,7 +61,7 @@ where
                 if length > input.len() {
                     self.stack.push_front(Op::Absorb(length - input.len()));
                 }
-                self.ds.observe_slice(input);
+                self.challenger.observe_slice(input);
                 Ok(())
             }
             None => {
@@ -90,7 +93,7 @@ where
         match self.stack.pop_front() {
             Some(Op::Squeeze(length)) if output.len() <= length => {
                 for out in output.iter_mut() {
-                    *out = self.ds.sample();
+                    *out = self.challenger.sample();
                 }
                 if length != output.len() {
                     self.stack.push_front(Op::Squeeze(length - output.len()));
@@ -294,7 +297,10 @@ mod tests {
         let challenger2 = DummyChallenger::default();
         let tag2 = HashStateWithInstructions::<DummyChallenger, _>::new(&ds2, challenger2);
 
-        assert_eq!(&*tag1.ds.observed.borrow(), &*tag2.ds.observed.borrow());
+        assert_eq!(
+            &*tag1.challenger.observed.borrow(),
+            &*tag2.challenger.observed.borrow()
+        );
     }
 
     #[test]
