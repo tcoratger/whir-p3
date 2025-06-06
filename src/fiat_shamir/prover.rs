@@ -47,8 +47,6 @@ where
     _field: PhantomData<F>,
     /// Marker for the extension field.
     _extension_field: PhantomData<EF>,
-    /// Marker for the unit type `U`.
-    _unit: PhantomData<U>,
 }
 
 impl<EF, F, H, U> ProverState<EF, F, H, U>
@@ -76,7 +74,6 @@ where
             narg_string: Vec::new(),
             _field: PhantomData,
             _extension_field: PhantomData,
-            _unit: PhantomData,
         }
     }
 
