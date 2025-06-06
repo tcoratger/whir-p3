@@ -14,10 +14,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing_forest::{ForestLayer, util::LevelFilter};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::{
-    fiat_shamir::{
-        DefaultHash, DefaultPerm, domain_separator::DomainSeparator, keccak::KECCAK_WIDTH_BYTES,
-        pow::blake3::Blake3PoW,
-    },
+    fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, default_max_pow,
         errors::SecurityAssumption,
@@ -41,11 +38,9 @@ type __EF = BinomialExtensionField<__F, 4>;
 type ByteHash = Blake3;
 type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-type Perm = DefaultPerm;
-type FiatShamirHash = DefaultHash;
 type W = u8;
 type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
-const PERM_WIDTH: usize = KECCAK_WIDTH_BYTES;
+const PERM_WIDTH: usize = 200;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

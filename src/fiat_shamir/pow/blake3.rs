@@ -206,10 +206,9 @@ mod tests {
     use p3_keccak::Keccak256Hash;
 
     use super::*;
-    use crate::fiat_shamir::{DefaultHash, domain_separator::DomainSeparator};
+    use crate::fiat_shamir::domain_separator::DomainSeparator;
 
     type F = BabyBear;
-    type H = DefaultHash;
     type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
     fn sample_challenges() -> Vec<[u8; 32]> {
