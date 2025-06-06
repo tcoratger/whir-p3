@@ -13,7 +13,7 @@ use super::{
     sho::HashStateWithInstructions,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
 };
-use crate::fiat_shamir::duplex_sponge::interface::Unit;
+use crate::fiat_shamir::unit::Unit;
 
 /// [`VerifierState`] is the verifier state.
 ///

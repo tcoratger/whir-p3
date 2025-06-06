@@ -7,7 +7,7 @@ use super::{
     domain_separator::{DomainSeparator, Op},
     errors::DomainSeparatorMismatch,
 };
-use crate::fiat_shamir::duplex_sponge::interface::Unit;
+use crate::fiat_shamir::unit::Unit;
 
 /// A stateful hash object that interfaces with duplex interfaces.
 #[derive(Clone, Debug)]

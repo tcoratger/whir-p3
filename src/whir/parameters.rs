@@ -5,7 +5,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
     domain::Domain,
-    fiat_shamir::duplex_sponge::interface::Unit,
+    fiat_shamir::unit::Unit,
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },

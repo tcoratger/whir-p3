@@ -13,10 +13,7 @@ use tracing::{info_span, instrument};
 
 use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
-    fiat_shamir::{
-        duplex_sponge::interface::Unit, errors::ProofResult, pow::traits::PowStrategy,
-        prover::ProverState,
-    },
+    fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState, unit::Unit},
     poly::{
         coeffs::{CoefficientList, CoefficientStorage},
         evals::{EvaluationStorage, EvaluationsList},

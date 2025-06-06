@@ -8,10 +8,7 @@ use tracing::{info_span, instrument};
 use super::{Leafs, Proof, Prover};
 use crate::{
     domain::Domain,
-    fiat_shamir::{
-        duplex_sponge::interface::Unit, errors::ProofResult, pow::traits::PowStrategy,
-        prover::ProverState,
-    },
+    fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState, unit::Unit},
     poly::{coeffs::CoefficientStorage, evals::EvaluationStorage, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{

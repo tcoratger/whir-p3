@@ -5,7 +5,7 @@ use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
 use super::{errors::DomainSeparatorMismatch, utils::bytes_uniform_modp};
 use crate::{
-    fiat_shamir::{duplex_sponge::interface::Unit, prover::ProverState, verifier::VerifierState},
+    fiat_shamir::{prover::ProverState, unit::Unit, verifier::VerifierState},
     whir::parameters::WhirConfig,
 };
 

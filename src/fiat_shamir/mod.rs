@@ -1,12 +1,12 @@
-use duplex_sponge::interface::Unit;
 use errors::DomainSeparatorMismatch;
+use unit::Unit;
 
 pub mod domain_separator;
-pub mod duplex_sponge;
 pub mod errors;
 pub mod pow;
 pub mod prover;
 pub mod sho;
+pub mod unit;
 pub mod utils;
 pub mod verifier;
 

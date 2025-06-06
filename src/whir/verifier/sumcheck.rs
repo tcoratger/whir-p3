@@ -5,9 +5,9 @@ use p3_matrix::dense::RowMajorMatrix;
 
 use crate::{
     fiat_shamir::{
-        duplex_sponge::interface::Unit,
         errors::{ProofError, ProofResult},
         pow::traits::PowStrategy,
+        unit::Unit,
         verifier::VerifierState,
     },
     poly::multilinear::MultilinearPoint,

@@ -5,7 +5,7 @@ use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_symmetric::Hash;
 
 use crate::{
-    fiat_shamir::{duplex_sponge::interface::Unit, errors::ProofResult, verifier::VerifierState},
+    fiat_shamir::{errors::ProofResult, unit::Unit, verifier::VerifierState},
     whir::{
         parameters::WhirConfig,
         statement::{constraint::Constraint, weights::Weights},

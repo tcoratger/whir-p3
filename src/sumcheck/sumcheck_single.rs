@@ -9,10 +9,7 @@ use tracing::{debug_span, instrument};
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
-    fiat_shamir::{
-        duplex_sponge::interface::Unit, errors::ProofResult, pow::traits::PowStrategy,
-        prover::ProverState,
-    },
+    fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState, unit::Unit},
     poly::{
         coeffs::CoefficientList,
         evals::{EvaluationStorage, EvaluationsList},

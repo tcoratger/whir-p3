@@ -12,7 +12,7 @@ use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
-    fiat_shamir::{duplex_sponge::interface::Unit, errors::ProofResult, prover::ProverState},
+    fiat_shamir::{errors::ProofResult, prover::ProverState, unit::Unit},
     poly::{coeffs::CoefficientList, evals::EvaluationsList},
     whir::{committer::DenseMatrix, parameters::WhirConfig, utils::sample_ood_points},
 };
