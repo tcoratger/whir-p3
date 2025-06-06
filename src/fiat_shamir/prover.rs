@@ -32,15 +32,15 @@ use crate::fiat_shamir::unit::Unit;
 /// the zero-knowledge property. [`ProverState`] does not implement [`Clone`] or [`Copy`] to prevent
 /// accidental leaks.
 #[derive(Debug)]
-pub struct ProverState<EF, F, H, U>
+pub struct ProverState<EF, F, Challenger, U>
 where
     U: Unit,
-    H: CanObserve<U> + CanSample<U>,
+    Challenger: CanObserve<U> + CanSample<U>,
 {
     /// The duplex sponge that is used to generate the random coins.
-    pub(crate) ds: H,
+    pub(crate) challenger: Challenger,
     /// The public coins for the protocol
-    pub(crate) hash_state: HashStateWithInstructions<H, U>,
+    pub(crate) hash_state: HashStateWithInstructions<Challenger, U>,
     /// The encoded data.
     pub(crate) narg_string: Vec<u8>,
     /// Marker for the field.
@@ -49,10 +49,10 @@ where
     _extension_field: PhantomData<EF>,
 }
 
-impl<EF, F, H, U> ProverState<EF, F, H, U>
+impl<EF, F, Challenger, U> ProverState<EF, F, Challenger, U>
 where
     U: Unit + Default + Copy,
-    H: CanObserve<U> + CanSample<U>,
+    Challenger: CanObserve<U> + CanSample<U>,
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
@@ -60,16 +60,16 @@ where
     ///
     /// Seeds the internal sponge with the domain separator.
     #[must_use]
-    pub fn new(domain_separator: &DomainSeparator<EF, F, U>, mut challenger: H) -> Self
+    pub fn new(domain_separator: &DomainSeparator<EF, F, U>, mut challenger: Challenger) -> Self
     where
-        H: Clone,
+        Challenger: Clone,
     {
         let hash_state = HashStateWithInstructions::new(domain_separator, challenger.clone());
 
         challenger.observe_slice(&domain_separator.as_units());
 
         Self {
-            ds: challenger,
+            challenger,
             hash_state,
             narg_string: Vec::new(),
             _field: PhantomData,
@@ -83,7 +83,7 @@ where
     pub fn add_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.absorb(input)?;
         U::write(input, &mut self.narg_string).unwrap();
-        self.ds.observe_slice(input);
+        self.challenger.observe_slice(input);
         Ok(())
     }
 
