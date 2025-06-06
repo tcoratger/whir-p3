@@ -1,9 +1,11 @@
+use std::time::Instant;
+
 use clap::Parser;
 use p3_baby_bear::BabyBear;
 use p3_blake3::Blake3;
 use p3_challenger::HashChallenger;
 use p3_dft::Radix2DitSmallBatch;
-use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_field::extension::BinomialExtensionField;
 use p3_goldilocks::Goldilocks;
 use p3_keccak::Keccak256Hash;
 use p3_koala_bear::KoalaBear;
@@ -138,7 +140,7 @@ fn main() {
 
     // Sample `num_points` random multilinear points in the Boolean hypercube
     let points: Vec<_> = (0..num_evaluations)
-        .map(|_| MultilinearPoint((0..num_variables).map(|i| EF::from_u64(i as u64)).collect()))
+        .map(|_| MultilinearPoint::rand(&mut rng, num_variables))
         .collect();
 
     // Construct a new statement with the correct number of variables
@@ -170,21 +172,23 @@ fn main() {
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
 
-    let dft_committer = Radix2DitSmallBatch::<F>::default();
+    let dft = Radix2DitSmallBatch::<F>::new(1 << params.max_fft_size());
 
+    let time = Instant::now();
     let witness = committer
-        .commit(&dft_committer, &mut prover_state, polynomial)
+        .commit(&dft, &mut prover_state, polynomial)
         .unwrap();
+    let commit_time = time.elapsed();
 
     // Generate a proof using the prover
     let prover = Prover(&params);
 
-    let dft_prover = Radix2DitSmallBatch::<F>::default();
-
-    // Generate a STARK proof for the given statement and witness
+    // Generate a proof for the given statement and witness
+    let time = Instant::now();
     prover
-        .prove(&dft_prover, &mut prover_state, statement.clone(), witness)
+        .prove(&dft, &mut prover_state, statement.clone(), witness)
         .unwrap();
+    let opening_time = time.elapsed();
 
     // Create a commitment reader
     let commitment_reader = CommitmentReader::new(&params);
@@ -203,9 +207,14 @@ fn main() {
         .parse_commitment::<32>(&mut verifier_state)
         .unwrap();
 
+    let verif_time = Instant::now();
     verifier
         .verify(&mut verifier_state, &parsed_commitment, &statement)
         .unwrap();
+    let verify_time = verif_time.elapsed();
 
+    println!("\nCommitment time: {} ms", commit_time.as_millis());
+    println!("Opening time: {} ms", opening_time.as_millis());
     println!("Proof size: {:.1} KiB", proof_size as f64 / 1024.0);
+    println!("Verification time: {} μs", verify_time.as_micros());
 }

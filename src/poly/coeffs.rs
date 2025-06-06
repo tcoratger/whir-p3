@@ -147,7 +147,7 @@ where
     /// which the polynomial `self` is defined.
     ///
     /// Note that we only support the case where F is a prime field.
-    #[instrument(skip_all, fields(size = point.num_variables()))]
+    #[instrument(skip_all, fields(size = point.num_variables()), level = "debug")]
     pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables, point.num_variables());
         eval_extension_par(&self.coeffs, &point.0)
