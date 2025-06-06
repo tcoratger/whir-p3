@@ -40,7 +40,6 @@ type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 type W = u8;
 type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
-const PERM_WIDTH: usize = 200;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

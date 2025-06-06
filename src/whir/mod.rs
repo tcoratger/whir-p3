@@ -34,7 +34,6 @@ type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 type W = u8;
-const PERM_WIDTH: usize = 200;
 
 /// Run a complete WHIR proof lifecycle.
 ///
