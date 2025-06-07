@@ -428,23 +428,36 @@ fn packed_eq_poly<F: Field, EF: ExtensionField<F>>(
     EF::ExtensionPacking::from_ext_slice(&buffer)
 }
 
-pub fn parallel_copy<A: Copy + Send + Sync>(src: &[A], dst: &mut [A]) {
+pub fn parallel_clone<A: Clone + Send + Sync>(src: &[A], dst: &mut [A]) {
     #[cfg(feature = "parallel")]
     if src.len() < 1 << 15 {
         // sequential copy
-        dst.copy_from_slice(src);
+        dst.clone_from_slice(src);
     } else {
         assert_eq!(src.len(), dst.len());
         let chunk_size = src.len() / rayon::current_num_threads().max(1);
         dst.par_chunks_mut(chunk_size)
             .zip(src.par_chunks(chunk_size))
             .for_each(|(d, s)| {
-                d.copy_from_slice(s);
+                d.clone_from_slice(s);
             });
     }
 
     #[cfg(not(feature = "parallel"))]
-    dst.copy_from_slice(src);
+    dst.clone_from_slice(src);
+}
+
+/// Returns a vector of uninitialized elements of type `A` with the specified length.
+/// # Safety
+/// Entries should be overwritten before use.
+#[must_use]
+pub unsafe fn uninitialized_vec<A>(len: usize) -> Vec<A> {
+    #[allow(clippy::uninit_vec)]
+    unsafe {
+        let mut vec = Vec::with_capacity(len);
+        vec.set_len(len);
+        vec
+    }
 }
 
 #[cfg(test)]
@@ -459,7 +472,7 @@ mod tests {
     type EF4 = BinomialExtensionField<F, 4>;
 
     #[test]
-    fn test_parallel_copy() {
+    fn test_parallel_clone() {
         let src = (0..(1 << 25) + 7).map(F::from_u64).collect::<Vec<_>>();
         let mut dst_seq = F::zero_vec(src.len());
         let time = std::time::Instant::now();
@@ -467,7 +480,7 @@ mod tests {
         println!("Sequential copy took: {:?}", time.elapsed());
         let mut dst_parallel = F::zero_vec(src.len());
         let time = std::time::Instant::now();
-        parallel_copy(&src, &mut dst_parallel);
+        parallel_clone(&src, &mut dst_parallel);
         println!("Parallel copy took: {:?}", time.elapsed());
         assert_eq!(dst_seq, dst_parallel);
     }

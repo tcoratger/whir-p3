@@ -20,7 +20,7 @@ use crate::{
         multilinear::MultilinearPoint,
     },
     sumcheck::sumcheck_single::SumcheckSingle,
-    utils::parallel_copy,
+    utils::parallel_clone,
     whir::{
         parameters::RoundConfig,
         statement::weights::Weights,
@@ -215,7 +215,7 @@ where
                 EvaluationStorage::Base(_) => {
                     panic!("After a first round, the evaluations must be in the extension field")
                 }
-                EvaluationStorage::Extension(f) => f.clone(),
+                EvaluationStorage::Extension(f) => f.parallel_clone(),
             }
         } else {
             round_state
@@ -253,7 +253,7 @@ where
         let folded_matrix = info_span!("fold matrix").in_scope(|| {
             let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
                 let mut coeffs = EF::zero_vec(new_domain.size());
-                parallel_copy(
+                parallel_clone(
                     folded_coefficients.coeffs(),
                     &mut coeffs[..folded_evaluations.num_evals()],
                 );
@@ -385,7 +385,7 @@ where
                 }
 
                 SumcheckSingle::from_extension_evals(
-                    folded_evaluations.clone(),
+                    folded_evaluations.parallel_clone(),
                     &statement,
                     combination_randomness[1],
                 )
@@ -500,7 +500,7 @@ where
                 .clone()
                 .unwrap_or_else(|| {
                     SumcheckSingle::from_extension_evals(
-                        folded_evaluations.clone(),
+                        folded_evaluations.parallel_clone(),
                         &round_state.statement,
                         EF::ONE,
                     )

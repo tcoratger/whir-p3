@@ -145,7 +145,7 @@ where
 
             // Create the sumcheck prover
             let mut sumcheck = SumcheckSingle::from_base_evals(
-                witness.pol_evals.clone(),
+                witness.pol_evals.parallel_clone(), // TODO I think we could avoid cloning here
                 &statement,
                 combination_randomness_gen,
             );

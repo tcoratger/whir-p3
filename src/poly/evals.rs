@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use tracing::instrument;
 
 use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
-use crate::utils::eval_eq;
+use crate::utils::{eval_eq, parallel_clone, uninitialized_vec};
 
 /// A wrapper enum that holds evaluation data for a multilinear polynomial,
 /// either over the base field `F` or an extension field `EF`.
@@ -209,6 +209,17 @@ where
         }
     }
 
+    #[must_use]
+    #[instrument(skip_all)]
+    pub fn parallel_clone(&self) -> Self {
+        let mut evals = unsafe { uninitialized_vec(self.evals.len()) };
+        parallel_clone(&self.evals, &mut evals);
+        Self {
+            evals,
+            num_variables: self.num_variables,
+        }
+    }
+
     /// Multiply the polynomial by a scalar factor.
     #[must_use]
     pub fn scale<EF: ExtensionField<F>>(&self, factor: EF) -> EvaluationsList<EF> {
@@ -225,6 +236,7 @@ where
     /// Convert from a list of evaluations to a list of
     /// multilinear coefficients.
     #[must_use]
+    #[instrument(skip_all)]
     pub fn to_coefficients<B: Field>(self) -> CoefficientList<F>
     where
         F: ExtensionField<B>,
@@ -309,15 +321,32 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, PrimeField64, extension::BinomialExtensionField};
     use proptest::prelude::*;
+    use rand::{Rng, SeedableRng, rngs::StdRng};
 
     use super::*;
     use crate::poly::{coeffs::CoefficientList, hypercube::BinaryHypercube};
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
+
+    #[test]
+    fn test_parallel_clone() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let evals =
+            EvaluationsList::<F>::new((0..1 << 25).map(|_| F::from_u64(rng.random())).collect());
+        let time = Instant::now();
+        let seq_clone = evals.clone();
+        println!("Sequential clone took: {:?}", time.elapsed());
+        let time = Instant::now();
+        let par_clone = evals.parallel_clone();
+        println!("Parallel clone took: {:?}", time.elapsed());
+        assert_eq!(seq_clone, par_clone);
+    }
 
     #[test]
     fn test_new_evaluations_list() {
