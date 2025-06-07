@@ -14,7 +14,7 @@ use super::Witness;
 use crate::{
     fiat_shamir::{errors::ProofResult, prover::ProverState, unit::Unit},
     poly::{coeffs::CoefficientList, evals::EvaluationsList},
-    utils::parallel_copy,
+    utils::parallel_clone,
     whir::{committer::DenseMatrix, parameters::WhirConfig, utils::sample_ood_points},
 };
 
@@ -69,7 +69,7 @@ where
         W: Eq + Packable,
     {
         // convert evaluations -> coefficients form
-        let pol_coeffs: CoefficientList<F> = polynomial.clone().to_coefficients();
+        let pol_coeffs: CoefficientList<F> = polynomial.parallel_clone().to_coefficients();
 
         // Compute expansion factor based on the domain size and polynomial length.
         let initial_size = polynomial.num_evals();
@@ -78,7 +78,7 @@ where
         // Pad coefficients with zeros to match the domain size
         let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
             let mut coeffs = F::zero_vec(expanded_size);
-            parallel_copy(pol_coeffs.coeffs(), &mut coeffs[..initial_size]);
+            parallel_clone(pol_coeffs.coeffs(), &mut coeffs[..initial_size]);
             coeffs
         });
 

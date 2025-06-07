@@ -2,7 +2,9 @@ use p3_field::{ExtensionField, Field};
 use tracing::instrument;
 use weights::Weights;
 
-use crate::{poly::evals::EvaluationsList, whir::statement::constraint::Constraint};
+use crate::{
+    poly::evals::EvaluationsList, utils::uninitialized_vec, whir::statement::constraint::Constraint,
+};
 
 pub mod constraint;
 pub mod weights;
@@ -146,11 +148,7 @@ impl<F: Field> Statement<F> {
         // Alloc memory without initializing it to zero.
         // This is safe because there is at least one constraint (otherwise it would return early),
         // and the first iteration of the loop will overwrite the entire vector.
-        let mut evaluations_vec: Vec<F> = Vec::with_capacity(1 << self.num_variables);
-        #[allow(clippy::uninit_vec)]
-        unsafe {
-            evaluations_vec.set_len(1 << self.num_variables);
-        }
+        let evaluations_vec = unsafe { uninitialized_vec::<F>(1 << self.num_variables) };
         let mut combined_evals = EvaluationsList::new(evaluations_vec);
         let (combined_sum, _) = self.constraints.iter().enumerate().fold(
             (F::ZERO, F::ONE),
