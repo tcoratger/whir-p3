@@ -14,6 +14,7 @@ use super::Witness;
 use crate::{
     fiat_shamir::{errors::ProofResult, prover::ProverState, unit::Unit},
     poly::{coeffs::CoefficientList, evals::EvaluationsList},
+    utils::parallel_copy,
     whir::{committer::DenseMatrix, parameters::WhirConfig, utils::sample_ood_points},
 };
 
@@ -77,7 +78,7 @@ where
         // Pad coefficients with zeros to match the domain size
         let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
             let mut coeffs = F::zero_vec(expanded_size);
-            coeffs[..initial_size].copy_from_slice(pol_coeffs.coeffs());
+            parallel_copy(pol_coeffs.coeffs(), &mut coeffs[..initial_size]);
             coeffs
         });
 

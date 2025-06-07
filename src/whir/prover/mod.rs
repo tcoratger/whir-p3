@@ -20,6 +20,7 @@ use crate::{
         multilinear::MultilinearPoint,
     },
     sumcheck::sumcheck_single::SumcheckSingle,
+    utils::parallel_copy,
     whir::{
         parameters::RoundConfig,
         statement::weights::Weights,
@@ -252,8 +253,10 @@ where
         let folded_matrix = info_span!("fold matrix").in_scope(|| {
             let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
                 let mut coeffs = EF::zero_vec(new_domain.size());
-                coeffs[..folded_evaluations.num_evals()]
-                    .copy_from_slice(folded_coefficients.coeffs());
+                parallel_copy(
+                    folded_coefficients.coeffs(),
+                    &mut coeffs[..folded_evaluations.num_evals()],
+                );
                 coeffs
             });
             // Do DFT on only interleaved polys to be folded.
