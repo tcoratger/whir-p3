@@ -499,22 +499,65 @@ mod tests {
         assert_eq!(output, expected_output);
     }
 
-    /// Helper to compute expected equality polynomial evaluations naively.
+    /// Compute the multilinear equality polynomial over the boolean hypercube.
+    ///
+    /// Given an evaluation point `z ∈ 𝔽ⁿ` and a scalar `α ∈ 𝔽`, this function returns the vector of
+    /// evaluations of the equality polynomial `eq(x, z)` over all boolean inputs `x ∈ {0,1}ⁿ`,
+    /// scaled by the scalar.
+    ///
+    /// The equality polynomial is defined as:
+    ///
+    /// \begin{equation}
+    /// \mathrm{eq}(x, z) = \prod_{i=0}^{n-1} \left( x_i z_i + (1 - x_i)(1 - z_i) \right)
+    /// \end{equation}
+    ///
+    /// This function evaluates:
+    ///
+    /// \begin{equation}
+    /// α \cdot \mathrm{eq}(x, z)
+    /// \end{equation}
+    ///
+    /// for all `x ∈ {0,1}ⁿ`, and returns a vector of size `2ⁿ` containing these values in lexicographic order.
+    ///
+    /// # Arguments
+    /// - `eval`: The vector `z ∈ 𝔽ⁿ`, representing the evaluation point.
+    /// - `scalar`: The scalar `α ∈ 𝔽` to scale the result by.
+    ///
+    /// # Returns
+    /// A vector `v` of length `2ⁿ`, where `v[i] = α ⋅ eq(xᵢ, z)`, and `xᵢ` is the binary vector corresponding
+    /// to the `i`-th index in lex order (i.e., big-endian bit decomposition of `i`).
     fn naive_eq(eval: &[EF4], scalar: EF4) -> Vec<EF4> {
+        // Number of boolean variables `n` = length of evaluation point
         let n = eval.len();
+
+        // Allocate result vector of size 2^n, initialized to zero
         let mut result = vec![EF4::ZERO; 1 << n];
+
+        // Iterate over each binary input `x ∈ {0,1}ⁿ`, indexed by `i`
         for (i, out) in result.iter_mut().enumerate() {
-            let mut weight = scalar;
-            for (j, e) in eval.iter().enumerate() {
-                let bit = (i >> (n - 1 - j)) & 1;
-                if bit == 1 {
-                    weight *= *e;
-                } else {
-                    weight *= EF4::ONE - *e;
-                }
-            }
-            *out = weight;
+            // Convert index `i` to a binary vector `x ∈ {0,1}ⁿ` in big-endian order
+            let x: Vec<EF4> = (0..n)
+                .map(|j| {
+                    let bit = (i >> (n - 1 - j)) & 1;
+                    if bit == 1 { EF4::ONE } else { EF4::ZERO }
+                })
+                .collect();
+
+            // Compute the equality polynomial:
+            // eq(x, z) = ∏_{i=0}^{n-1} (xᵢ ⋅ zᵢ + (1 - xᵢ)(1 - zᵢ))
+            let eq = x
+                .iter()
+                .zip(eval.iter())
+                .map(|(xi, zi)| {
+                    // Each term: xᵢ zᵢ + (1 - xᵢ)(1 - zᵢ)
+                    *xi * *zi + (EF4::ONE - *xi) * (EF4::ONE - *zi)
+                })
+                .product::<EF4>(); // Take product over all coordinates
+
+            // Store the scaled result: α ⋅ eq(x, z)
+            *out = scalar * eq;
         }
+
         result
     }
 
