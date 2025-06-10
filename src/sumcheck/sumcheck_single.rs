@@ -180,32 +180,47 @@ where
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(evaluations.len(), points.len());
 
-        let n = points[0].0.len();
-        let num_coeffs = 1 << n;
-        let num_chunks = rayon::current_num_threads().max(1);
-        #[allow(clippy::manual_div_ceil)]
-        let chunk_size = (num_coeffs + num_chunks - 1) / num_chunks;
+        #[cfg(feature = "parallel")]
+        {
+            let n = points[0].0.len();
+            let num_coeffs = 1 << n;
+            let num_chunks = rayon::current_num_threads().max(1);
+            #[allow(clippy::manual_div_ceil)]
+            let chunk_size = (num_coeffs + num_chunks - 1) / num_chunks;
 
-        // Parallel update of weight buffer
-        self.weights
-            .evals_mut()
-            .par_chunks_mut(chunk_size)
-            .enumerate()
-            .for_each(|(chunk_idx, chunk)| {
-                let start_index = chunk_idx * chunk_size;
+            // Parallel update of weight buffer
+            self.weights
+                .evals_mut()
+                .par_chunks_mut(chunk_size)
+                .enumerate()
+                .for_each(|(chunk_idx, chunk)| {
+                    let start_index = chunk_idx * chunk_size;
 
-                for (point, &rand) in points.iter().zip(combination_randomness.iter()) {
-                    // Apply equality polynomial to this chunk of the hypercube
-                    eval_eq_chunked(&point.0, chunk, rand, start_index);
-                }
-            });
+                    for (point, &rand) in points.iter().zip(combination_randomness.iter()) {
+                        // Apply equality polynomial to this chunk of the hypercube
+                        eval_eq_chunked(&point.0, chunk, rand, start_index);
+                    }
+                });
 
-        // Accumulate the linear combination sum (cheap, kept sequential)
-        self.sum += combination_randomness
-            .iter()
-            .zip(evaluations.iter())
-            .map(|(&rand, &eval)| rand * eval)
-            .sum::<EF>();
+            // Accumulate the linear combination sum (cheap, kept sequential)
+            self.sum += combination_randomness
+                .iter()
+                .zip(evaluations.iter())
+                .map(|(&rand, &eval)| rand * eval)
+                .sum::<EF>();
+        }
+
+        #[cfg(not(feature = "parallel"))]
+        {
+            // Accumulate the sum while applying all constraints simultaneously
+            points
+                .iter()
+                .zip(combination_randomness.iter().zip(evaluations.iter()))
+                .for_each(|(point, (&rand, &eval))| {
+                    crate::utils::eval_eq::<F, EF, true>(&point.0, self.weights.evals_mut(), rand);
+                    self.sum += rand * eval;
+                });
+        }
     }
 
     /// Computes the sumcheck polynomial `h(X)`, a quadratic polynomial resulting from the folding step.
