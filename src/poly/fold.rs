@@ -314,4 +314,20 @@ mod tests {
 
         assert_eq!(result, expected);
     }
+
+    #[test]
+    #[should_panic(expected = "Invalid number of answers")]
+    fn test_invalid_answers_length() {
+        let answers = vec![F::from_u64(1); 7]; // 7 != 2^3  
+        let folding_randomness = vec![F::from_u64(3); 3];
+        compute_fold(&answers, &folding_randomness, F::ONE, F::ONE, 3);
+    }
+
+    #[test]
+    fn test_compute_fold_zero_factor() {
+        let answers = vec![F::from_u64(42)];
+        let folding_randomness = vec![];
+        let result = compute_fold(&answers, &folding_randomness, F::ONE, F::ONE, 0);
+        assert_eq!(result, F::from_u64(42));
+    }
 }
