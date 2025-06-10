@@ -630,7 +630,9 @@ where
     // Base case: all variables consumed → we’re at a leaf node of the recursion tree
     // Every point in the current chunk gets incremented by the scalar α
     if eval.is_empty() {
-        out.iter_mut().for_each(|v| *v += scalar);
+        for v in out.iter_mut() {
+            *v += scalar;
+        }
         return;
     }
 
