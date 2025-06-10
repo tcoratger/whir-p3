@@ -16,7 +16,6 @@ use crate::{
         multilinear::MultilinearPoint,
     },
     sumcheck::utils::sumcheck_quadratic,
-    utils::eval_eq_chunked,
     whir::statement::Statement,
 };
 
@@ -198,7 +197,7 @@ where
 
                     for (point, &rand) in points.iter().zip(combination_randomness.iter()) {
                         // Apply equality polynomial to this chunk of the hypercube
-                        eval_eq_chunked(&point.0, chunk, rand, start_index);
+                        crate::utils::eval_eq_chunked(&point.0, chunk, rand, start_index);
                     }
                 });
 
