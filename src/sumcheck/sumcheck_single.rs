@@ -188,20 +188,21 @@ where
             let chunk_size = (num_coeffs + num_chunks - 1) / num_chunks;
 
             // Parallel update of weight buffer
-            self.weights
-                .evals_mut()
-                .par_chunks_mut(chunk_size)
-                .enumerate()
-                .for_each(|(chunk_idx, chunk)| {
-                    let start_index = chunk_idx * chunk_size;
-
-                    for (point, &rand) in points.iter().zip(combination_randomness.iter()) {
-                        // Apply equality polynomial to this chunk of the hypercube
-                        crate::utils::eval_eq_chunked(&point.0, chunk, rand, start_index);
-                    }
+            points
+                .iter()
+                .zip(combination_randomness.iter())
+                .for_each(|(point, &rand)| {
+                    self.weights
+                        .evals_mut()
+                        .par_chunks_mut(chunk_size)
+                        .enumerate()
+                        .for_each(|(chunk_idx, chunk)| {
+                            let start_index = chunk_idx * chunk_size;
+                            crate::utils::eval_eq_chunked(&point.0, chunk, rand, start_index);
+                        });
                 });
 
-            // Accumulate the linear combination sum (cheap, kept sequential)
+            // Accumulate the weighted sum (cheap, done sequentially)
             self.sum += combination_randomness
                 .iter()
                 .zip(evaluations.iter())
