@@ -574,6 +574,134 @@ pub fn parallel_clone<A: Clone + Send + Sync>(src: &[A], dst: &mut [A]) {
     dst.clone_from_slice(src);
 }
 
+/// Recursively computes a chunk of the scaled multilinear equality polynomial over the Boolean hypercube.
+///
+/// Given an evaluation point $z ∈ 𝔽^n$ and a scalar multiplier $α ∈ 𝔽$, this function computes the values:
+///
+/// \begin{equation}
+/// [α ⋅ eq(x, z)]_{x ∈ \{0,1\}^n}
+/// \end{equation}
+///
+/// for all Boolean inputs $x$ within a **specific chunk** of the full hypercube, defined by `start_index` and `out.len()`.
+///
+/// The multilinear equality polynomial is defined as:
+///
+/// \begin{equation}
+/// eq(x, z) = \prod_{i=0}^{n-1} \left(x_i z_i + (1 - x_i)(1 - z_i)\right)
+/// \end{equation}
+///
+/// This recursive function updates a sub-slice `out` of a larger buffer with the correct scaled evaluations.
+///
+/// # Arguments
+/// - `eval`: The evaluation point $z = (z_0, z_1, \dots, z_{n-1}) ∈ 𝔽^n$
+/// - `out`: The mutable slice of the result buffer, containing a contiguous chunk of the Boolean hypercube
+/// - `scalar`: The scalar multiplier $α ∈ 𝔽$
+/// - `start_index`: The global starting index of `out` within the full $2^n$-sized hypercube
+///
+/// # Behavior
+/// For a given chunk of the output buffer, this function computes:
+///
+/// \begin{equation}
+/// out[i] += α ⋅ eq(x, z)
+/// \end{equation}
+///
+/// where $x$ is the Boolean vector corresponding to index $i + \text{start_index}$ in lexicographic order.
+///
+/// # Recursive structure
+/// - At each level of recursion, the function considers one variable $z_i$
+/// - It determines whether the current chunk lies entirely in the $x_i = 0$ subcube, $x_i = 1$ subcube, or spans both
+/// - It updates the `scalar` for each branch accordingly:
+///
+///   \begin{align}
+///   s_1 &= α ⋅ z_i (for x_i = 1) \\
+///   s_0 &= α ⋅ (1 - z_i) = α - s_1 (for x_i = 0 )
+///   \end{align}
+///
+/// - It then recurses on the appropriate part(s) of `out`
+pub(crate) fn eval_eq_chunked<F>(eval: &[F], out: &mut [F], scalar: F, start_index: usize)
+where
+    F: Field,
+{
+    // Early exit: Nothing to process if the output chunk is empty
+    if out.is_empty() {
+        return;
+    }
+
+    // Base case: all variables consumed → we’re at a leaf node of the recursion tree
+    // Every point in the current chunk gets incremented by the scalar α
+    if eval.is_empty() {
+        for v in out.iter_mut() {
+            *v += scalar;
+        }
+        return;
+    }
+
+    // --- Recursive step begins here ---
+
+    // Split the input: extract current variable z_0 and the tail z_1..z_{n-1}
+    let (&z_i, tail) = eval.split_first().unwrap();
+
+    // The number of remaining variables after removing z_i
+    let remaining_vars = tail.len();
+
+    // The midpoint divides the current cube into two equal parts:
+    //   - Lower half: x_i = 0 (indices 0..half)
+    //   - Upper half: x_i = 1 (indices half..2^remaining_vars)
+    let half = 1 << remaining_vars;
+
+    // Compute branch scalars:
+    //   - s1: contribution from x_i = 1
+    //   - s0: contribution from x_i = 0
+    //
+    // These correspond to:
+    //   s1 = α ⋅ z_i
+    //   s0 = α ⋅ (1 - z_i) = α - s1
+    let s1 = scalar * z_i;
+    let s0 = scalar - s1;
+
+    // Decide whether the current chunk falls entirely in one half or spans both halves
+
+    if start_index + out.len() <= half {
+        // Case 1: Entire chunk lies in the lower half (x_i = 0)
+        // We recurse only into the s0 (x_i = 0) branch
+        eval_eq_chunked(tail, out, s0, start_index);
+    } else if start_index >= half {
+        // Case 2: Entire chunk lies in the upper half (x_i = 1)
+        // We recurse only into the s1 (x_i = 1) branch
+        // We subtract `half` to make the index relative to the upper subcube
+        eval_eq_chunked(tail, out, s1, start_index - half);
+    } else {
+        // Case 3: The chunk spans both subcubes
+        // We split it at the midpoint and recurse into both branches
+
+        // Number of elements in the lower half of the chunk
+        let mid_point = half - start_index;
+
+        // Split `out` into chunks for the x_i = 0 and x_i = 1 subcubes
+        let (low_chunk, high_chunk) = out.split_at_mut(mid_point);
+
+        // Optional parallelism for deep recursion trees
+        #[cfg(feature = "parallel")]
+        {
+            const PARALLEL_THRESHOLD: usize = 10;
+
+            if remaining_vars > PARALLEL_THRESHOLD {
+                rayon::join(
+                    || eval_eq_chunked(tail, low_chunk, s0, start_index),
+                    || eval_eq_chunked(tail, high_chunk, s1, 0),
+                );
+                return;
+            }
+        }
+
+        // Sequential fallback: recurse on both branches
+        // x_i = 0 part
+        eval_eq_chunked(tail, low_chunk, s0, start_index);
+        // x_i = 1 part (new subproblem starts at 0)
+        eval_eq_chunked(tail, high_chunk, s1, 0);
+    }
+}
+
 /// Returns a vector of uninitialized elements of type `A` with the specified length.
 /// # Safety
 /// Entries should be overwritten before use.
@@ -840,6 +968,41 @@ mod tests {
                     "Mismatch at x = ({x0:?}, {x1:?}, {x2:?}), z = ({z_0:?}, {z_1:?}, {z_2:?})"
                 );
             }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_chunked_eval_eq_matches_monolithic(
+            n in 1usize..6, // number of variables
+            evals in prop::collection::vec(0u64..F::ORDER_U64, 1..6),
+            scalar_val in 0u64..F::ORDER_U64,
+            num_chunks in 1usize..8, // how many chunks to split into
+        ) {
+            // Truncate evals to size `n` and convert to EF4
+            let evals: Vec<EF4> = evals.into_iter().take(n).map(EF4::from_u64).collect();
+            let scalar = EF4::from_u64(scalar_val);
+
+            let size = 1 << evals.len();
+
+            // Compute baseline result using monolithic `eval_eq`
+            let mut expected = vec![EF4::ZERO; size];
+            eval_eq::<F, EF4, false>(&evals, &mut expected, scalar);
+
+            // Compute using chunked version
+            let mut chunked = vec![EF4::ZERO; size];
+            let chunk_size = size.div_ceil(num_chunks);
+
+            for i in 0..num_chunks {
+                let start = i * chunk_size;
+                if start >= size {
+                    break;
+                }
+                let end = (start + chunk_size).min(size);
+                eval_eq_chunked::<EF4>(&evals, &mut chunked[start..end], scalar, start);
+            }
+
+            prop_assert_eq!(chunked, expected);
         }
     }
 }
