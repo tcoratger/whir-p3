@@ -192,7 +192,7 @@ impl ConcatMatsMeta {
                 let range_iter = self.ranges[idx].clone().into_par_iter();
 
                 #[cfg(not(feature = "parallel"))]
-                let range_iter = self.ranges[idx].clone().into_iter();
+                let range_iter = self.ranges[idx].clone();
 
                 // Compute the constraint weights for each cell in the matrix.
                 //
