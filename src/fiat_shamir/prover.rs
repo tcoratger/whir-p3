@@ -298,15 +298,23 @@ mod tests {
     type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
     #[test]
-    fn test_prover_state_public_units_does_not_affect_narg() {
-        let mut domsep = DomainSeparator::<F, F, u8>::new("test");
-        domsep.absorb(4, "data");
+    fn test_public_units_does_not_affect_narg() {
+        // Test with different data sizes to ensure robustness
+        let test_cases = [
+            (2, "small", vec![0xaa, 0xbb]),
+            (4, "medium", vec![1, 2, 3, 4]),
+        ];
 
-        let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut pstate = domsep.to_prover_state(challenger);
+        for (size, label, data) in test_cases {
+            let mut domsep = DomainSeparator::<F, F, u8>::new("test");
+            domsep.absorb(size, label);
 
-        pstate.public_units(&[1, 2, 3, 4]).unwrap();
-        assert_eq!(pstate.narg_string(), b"");
+            let challenger = MyChallenger::new(vec![], Keccak256Hash);
+            let mut pstate = domsep.to_prover_state(challenger);
+
+            pstate.public_units(&data).unwrap();
+            assert_eq!(pstate.narg_string(), b"", "Failed for case: {label}");
+        }
     }
 
     #[test]
@@ -332,18 +340,6 @@ mod tests {
 
         let result = pstate.add_units(&[1, 2, 3]);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_public_units_does_not_update_transcript() {
-        let mut domsep = DomainSeparator::<F, F, u8>::new("test");
-        domsep.absorb(2, "p");
-
-        let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut pstate = domsep.to_prover_state(challenger);
-        let _ = pstate.public_units(&[0xaa, 0xbb]);
-
-        assert_eq!(pstate.narg_string(), b"");
     }
 
     #[test]
@@ -794,6 +790,57 @@ mod tests {
             prover1.narg_string(),
             prover2.narg_string(),
             "Encoding should be deterministic"
+        );
+    }
+
+    #[test]
+    fn test_hint_multiple_sequential() {
+        let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("multi_hint");
+        domsep.hint("hint1");
+        domsep.hint("hint2");
+        domsep.hint("hint3");
+
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut prover = domsep.to_prover_state(challenger);
+
+        let hint1 = F::from_u64(111);
+        let hint2 = F::from_u64(222);
+        let hint3 = F::from_u64(333);
+
+        prover.hint(&hint1).unwrap();
+        prover.hint(&hint2).unwrap();
+        prover.hint(&hint3).unwrap();
+
+        let transcript = prover.narg_string();
+        assert!(
+            transcript.len() > 12,
+            "Should contain multiple encoded hints"
+        );
+    }
+
+    #[test]
+    fn test_challenge_pow() {
+        use crate::fiat_shamir::pow::blake3::Blake3PoW;
+
+        let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("pow_test");
+        domsep.challenge_pow("challenge");
+
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut prover = domsep.to_prover_state(challenger);
+
+        let result = prover.challenge_pow::<Blake3PoW>(8.0);
+        assert!(result.is_ok(), "Low difficulty PoW should succeed");
+
+        assert_eq!(
+            prover.narg_string().len(),
+            8,
+            "Nonce should be 8 bytes in transcript"
+        );
+
+        let transcript = prover.narg_string();
+        assert!(
+            !transcript.iter().all(|&b| b == 0),
+            "Nonce should not be all zeros"
         );
     }
 }
