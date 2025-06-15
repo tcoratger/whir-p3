@@ -313,7 +313,7 @@ mod tests {
             let mut pstate = domsep.to_prover_state(challenger);
 
             pstate.public_units(&data).unwrap();
-            assert_eq!(pstate.narg_string(), b"", "Failed for case: {}", label);
+            assert_eq!(pstate.narg_string(), b"", "Failed for case: {label}");
         }
     }
 
