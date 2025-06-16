@@ -23,7 +23,7 @@ use crate::{
         unit::Unit,
         verifier::VerifierState,
     },
-    poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{Statement, parameters::WhirConfig},
 };
 
@@ -155,7 +155,7 @@ where
         // In the final round we receive the full polynomial instead of a commitment.
         let mut final_coefficients = EF::zero_vec(1 << self.final_sumcheck_rounds);
         verifier_state.fill_next_scalars(&mut final_coefficients)?;
-        let final_coefficients = CoefficientList::new(final_coefficients);
+        let final_coefficients = EvaluationsList::new(final_coefficients);
 
         // Verify in-domain challenges on the previous commitment.
         let stir_constraints = self.verify_stir_challenges(
@@ -333,7 +333,7 @@ where
         // Compute STIR Constraints
         let folds: Vec<_> = answers
             .into_iter()
-            .map(|answers| CoefficientList::new(answers).evaluate(folding_randomness))
+            .map(|answers| EvaluationsList::new(answers).evaluate(folding_randomness))
             .collect();
 
         let stir_constraints = stir_challenges_indexes

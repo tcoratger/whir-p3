@@ -2,7 +2,6 @@ use std::ops::Deref;
 
 use p3_challenger::{CanObserve, CanSample};
 use p3_commit::Mmcs;
-use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, Packable, PrimeField64, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -12,9 +11,10 @@ use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
+    dft::EvalsDft,
     fiat_shamir::{errors::ProofResult, prover::ProverState, unit::Unit},
-    poly::{coeffs::CoefficientList, evals::EvaluationsList},
-    utils::parallel_clone,
+    poly::evals::EvaluationsList,
+    utils::parallel_repeat,
     whir::{committer::DenseMatrix, parameters::WhirConfig, utils::sample_ood_points},
 };
 
@@ -55,9 +55,9 @@ where
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
     #[instrument(skip_all)]
-    pub fn commit<D, const DIGEST_ELEMS: usize>(
+    pub fn commit<const DIGEST_ELEMS: usize>(
         &self,
-        dft: &D,
+        dft: &EvalsDft<F>,
         prover_state: &mut ProverState<EF, F, Challenger, W>,
         polynomial: EvaluationsList<F>,
     ) -> ProofResult<Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>>
@@ -65,28 +65,16 @@ where
         H: CryptographicHasher<F, [W; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2> + Sync,
         [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        D: TwoAdicSubgroupDft<F>,
         W: Eq + Packable,
     {
-        // convert evaluations -> coefficients form
-        let pol_coeffs: CoefficientList<F> = polynomial.parallel_clone().to_coefficients();
+        let evals_repeated = info_span!("repeating evals")
+            .in_scope(|| parallel_repeat(polynomial.evals(), 1 << self.starting_log_inv_rate));
 
-        // Compute expansion factor based on the domain size and polynomial length.
-        let initial_size = polynomial.num_evals();
-        let expanded_size = self.starting_domain.backing_domain.size();
-
-        // Pad coefficients with zeros to match the domain size
-        let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
-            let mut coeffs = F::zero_vec(expanded_size);
-            parallel_clone(pol_coeffs.coeffs(), &mut coeffs[..initial_size]);
-            coeffs
-        });
-
-        // Perform DFT on the padded coefficient matrix
+        // Perform DFT on the padded evaluations matrix
         let width = 1 << self.folding_factor.at_round(0);
-        let folded_matrix =
-            info_span!("dft", height = coeffs.len() / width, width).in_scope(|| {
-                dft.dft_batch(RowMajorMatrix::new(coeffs, width))
+        let folded_matrix = info_span!("dft", height = evals_repeated.len() / width, width)
+            .in_scope(|| {
+                dft.dft_batch_by_evals(RowMajorMatrix::new(evals_repeated, width))
                     .to_row_major_matrix()
             });
 
@@ -104,13 +92,12 @@ where
             prover_state,
             self.committment_ood_samples,
             self.mv_parameters.num_variables,
-            |point| info_span!("ood evaluation").in_scope(|| pol_coeffs.evaluate(point)),
+            |point| info_span!("ood evaluation").in_scope(|| polynomial.evaluate(point)),
         )?;
 
         // Return the witness containing the polynomial, Merkle tree, and OOD results.
         Ok(Witness {
-            pol_coeffs,
-            pol_evals: polynomial,
+            polynomial,
             prover_data,
             ood_points,
             ood_answers,
@@ -135,7 +122,6 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_challenger::HashChallenger;
-    use p3_dft::Radix2DitSmallBatch;
     use p3_keccak::Keccak256Hash;
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
     use rand::Rng;
@@ -209,7 +195,7 @@ mod tests {
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(&params);
-        let dft_committer = Radix2DitSmallBatch::<F>::default();
+        let dft_committer = EvalsDft::<F>::default();
         let witness = committer
             .commit(&dft_committer, &mut prover_state, polynomial.clone())
             .unwrap();
@@ -225,13 +211,6 @@ mod tests {
             witness.ood_points.len(),
             params.committment_ood_samples,
             "OOD points count should match expected samples"
-        );
-
-        // Ensure polynomial data is correctly stored
-        assert_eq!(
-            witness.pol_coeffs.coeffs().len(),
-            polynomial.num_evals(),
-            "Stored polynomial should have the correct number of coefficients"
         );
 
         // Check that OOD answers match expected evaluations
@@ -291,7 +270,7 @@ mod tests {
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover_state = domainsep.to_prover_state(challenger);
 
-        let dft_committer = Radix2DitSmallBatch::<F>::default();
+        let dft_committer = EvalsDft::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let _ = committer
             .commit(&dft_committer, &mut prover_state, polynomial)
@@ -345,7 +324,7 @@ mod tests {
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover_state = domainsep.to_prover_state(challenger);
 
-        let dft_committer = Radix2DitSmallBatch::<F>::default();
+        let dft_committer = EvalsDft::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let witness = committer
             .commit(&dft_committer, &mut prover_state, polynomial)

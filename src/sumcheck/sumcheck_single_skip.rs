@@ -1,4 +1,4 @@
-use p3_dft::TwoAdicSubgroupDft;
+use p3_dft::{NaiveDft, TwoAdicSubgroupDft};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 #[cfg(feature = "parallel")]
@@ -39,18 +39,14 @@ where
     /// # Constraints
     /// - This method requires base field evaluations (`EvaluationStorage::Base`).
     ///   It panics if the polynomial is already stored in the extension field.
-    pub fn compute_skipping_sumcheck_polynomial<DFT>(
+    pub fn compute_skipping_sumcheck_polynomial(
         &self,
-        dft: &DFT,
         k: usize,
     ) -> (
         SumcheckPolynomial<EF>,
         RowMajorMatrix<F>,
         RowMajorMatrix<EF>,
-    )
-    where
-        DFT: TwoAdicSubgroupDft<F>,
-    {
+    ) {
         // Ensure we have enough variables to perform k-fold skipping.
         assert!(
             self.num_variables() >= k,
@@ -76,6 +72,7 @@ where
                 // to both the function and weights matrices:
                 // - Each row in f_mat is extended from size 2^k to 2^{k+1} over the coset domain.
                 // - The same is done for weights_mat, but with values in the extension field EF.
+                let dft = NaiveDft;
                 let f_on_coset = dft.lde_batch(f_mat.clone(), 1).to_row_major_matrix();
                 let weights_on_coset = dft
                     .lde_algebra_batch(weights_mat.clone(), 1)
@@ -168,8 +165,7 @@ mod tests {
         // we extend the evaluation domain to a **multiplicative coset of size 4**
         // using `coset_lde_batch` (low-degree extension via DFT).
         // ----------------------------------------------------------------
-        let dft = Dft::default();
-        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(&dft, 1);
+        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(1);
 
         // ----------------------------------------------------------------
         // Sum over the Boolean hypercube {0,1}:
@@ -230,8 +226,7 @@ mod tests {
         // To evaluate this polynomial, we perform a low-degree extension
         // using DFT on a multiplicative coset of size 2^{k+1} = 8.
         // ----------------------------------------------------------------
-        let dft = Dft::default();
-        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(&dft, 2);
+        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(2);
 
         // ----------------------------------------------------------------
         // Finally, the sum over {0,1} values of X2 must also be zero
@@ -249,10 +244,9 @@ mod tests {
         let coeffs = CoefficientList::new(vec![ef1, ef2]);
         let statement = Statement::<EF4>::new(1);
         let prover = SumcheckSingle::<F, EF4>::from_extension_coeffs(coeffs, &statement, EF4::ONE);
-        let dft = Dft::default();
 
         // This should panic because the input is not in the base field
-        let _ = prover.compute_skipping_sumcheck_polynomial(&dft, 1);
+        let _ = prover.compute_skipping_sumcheck_polynomial(1);
     }
 
     #[test]
@@ -265,12 +259,11 @@ mod tests {
 
         let statement = Statement::<EF4>::new(1);
         let prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
-        let dft = Dft::default();
 
         // This should panic because:
         // - the polynomial has only 1 variable
         // - we try to skip 2 variables
-        let _ = prover.compute_skipping_sumcheck_polynomial(&dft, 2);
+        let _ = prover.compute_skipping_sumcheck_polynomial(2);
     }
 
     #[test]
@@ -377,7 +370,7 @@ mod tests {
         // ------------------------------------------------------------
         // Compute the polynomial using the function under test
         // ------------------------------------------------------------
-        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(&dft, k);
+        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(k);
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3

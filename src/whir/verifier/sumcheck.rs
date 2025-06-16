@@ -142,7 +142,6 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_challenger::HashChallenger;
-    use p3_dft::NaiveDft;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_interpolation::interpolate_subgroup;
     use p3_keccak::Keccak256Hash;
@@ -294,12 +293,11 @@ mod tests {
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let _ = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
                 None,
-                &NaiveDft,
             )
             .unwrap();
 
@@ -446,12 +444,11 @@ mod tests {
         // Run prover-side folding
         // -------------------------------------------------------------
         let _ = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
                 &mut prover_state,
                 NUM_VARS,
                 0.0,
                 Some(K_SKIP),
-                &NaiveDft,
             )
             .unwrap();
 
