@@ -197,7 +197,7 @@ impl<F: Field> Weights<F> {
             Self::Linear { weight } => weight
                 .evals()
                 .iter()
-                .zip(poly.clone().evals())
+                .zip(poly.evals())
                 .map(|(&w, &p)| w * p)
                 .sum(),
         }

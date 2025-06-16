@@ -141,15 +141,15 @@ impl ConcatMatsMeta {
     ///
     /// # Returns
     /// - A pair `(weights, sum)`:
-    ///   - `weights`: The constructed `Weights<Challenge>` used to enforce the constraint.
+    ///   - `weights`: The constructed `Weights<F>` used to enforce the constraint.
     ///   - `sum`: The expected value of `dot(ys, eq_r)` to match during verification.
-    fn constraint<Challenge: Field>(
+    fn constraint<F: Field>(
         &self,
         idx: usize,
-        query: &MlQuery<Challenge>,
-        ys: &[Challenge],
-        r: &[Challenge],
-    ) -> (Weights<Challenge>, Challenge) {
+        query: &MlQuery<F>,
+        ys: &[F],
+        r: &[F],
+    ) -> (Weights<F>, F) {
         // Determine how many bits are needed to index columns in this matrix.
         let log_width = log2_ceil_usize(self.dimensions[idx].width);
 
@@ -157,8 +157,8 @@ impl ConcatMatsMeta {
         let r = &r[..log_width];
 
         // Build the equality polynomial eq_r over the input challenge.
-        let mut eq_r = vec![Challenge::ZERO; 1 << r.len()];
-        eval_eq::<_, _, false>(r, &mut eq_r, Challenge::ONE);
+        let mut eq_r = F::zero_vec(1 << r.len());
+        eval_eq::<_, _, false>(r, &mut eq_r, F::ONE);
 
         // Compute the dot product of the selected row and eq_r.
         let sum = ys.iter().zip(&eq_r).map(|(y, e)| *y * *e).sum();
@@ -176,7 +176,7 @@ impl ConcatMatsMeta {
                     .copied()
                     .chain(
                         (log2_strict_usize(self.ranges[idx].len())..self.log_b)
-                            .map(|i| Challenge::from_bool((self.ranges[idx].start >> i) & 1 == 1)),
+                            .map(|i| F::from_bool((self.ranges[idx].start >> i) & 1 == 1)),
                     )
                     .rev() // Reverse to match multilinear encoding order
                     .collect();
@@ -185,7 +185,7 @@ impl ConcatMatsMeta {
 
             MlQuery::EqRotateRight(_, _) => {
                 // Evaluate the rotated query as a multilinear polynomial.
-                let query_evals = query.to_mle(Challenge::ONE);
+                let query_evals = query.to_mle(F::ONE);
 
                 // Choose the appropriate iterator depending on the build configuration.
                 #[cfg(feature = "parallel")]
@@ -218,7 +218,7 @@ impl ConcatMatsMeta {
                 //
                 // This ensures the result is shaped for a full multilinear polynomial domain (size = 2^log_b),
                 // while only the subrange corresponding to the matrix has non-zero entries.
-                let mut final_weights = Challenge::zero_vec(1 << self.log_b);
+                let mut final_weights = F::zero_vec(1 << self.log_b);
                 final_weights[self.ranges[idx].clone()].copy_from_slice(&weight_values);
 
                 // Return the computed weights as a full multilinear evaluation list.
@@ -321,9 +321,9 @@ impl<Val: Field> ConcatMats<Val> {
 #[cfg(test)]
 mod tests {
 
-    use itertools::{chain, cloned, rev};
+    use itertools::{chain, rev};
     use p3_baby_bear::BabyBear;
-    use p3_field::{PrimeCharacteristicRing, dot_product};
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::dense::RowMajorMatrix;
 
     use super::*;
@@ -686,46 +686,114 @@ mod tests {
 
     #[test]
     fn test_constraint_eq_rotate_right_high_dim() {
-        // Matrix: height = 4, width = 4
+        // -----------------------------------------------
+        // Matrix M: a 4×4 matrix, flattened row-wise
+        //
+        // M = [
+        //   [ 1,  2,  3,  4 ],   // row 0
+        //   [ 5,  6,  7,  8 ],   // row 1
+        //   [ 9, 10, 11, 12 ],   // row 2
+        //   [13, 14, 15, 16 ],   // row 3
+        // ]
+        //
+        // This corresponds to a function f(x0, x1, x2, x3) defined over {0,1}^4.
+        // Each row is indexed by x2, x3 and each column by x0, x1.
+        //
+        // f(0,0,0,0) = 1
+        // f(0,0,0,1) = 2
+        // f(0,0,1,0) = 3
+        // f(0,0,1,1) = 4
+        // f(0,1,0,0) = 5
+        // f(0,1,0,1) = 6
+        // f(0,1,1,0) = 7
+        // f(0,1,1,1) = 8
+        // f(1,0,0,0) = 9
+        // f(1,0,0,1) = 10
+        // ...
+        // -----------------------------------------------
         let mat = RowMajorMatrix::new(
             vec![
-                1, 2, 3, 4, // row 0
-                5, 6, 7, 8, // row 1
-                9, 10, 11, 12, // row 2
-                13, 14, 15, 16, // row 3
+                1, 2, 3, 4, // row 0: (x2,x3) = (0,0)
+                5, 6, 7, 8, // row 1: (x2,x3) = (0,1)
+                9, 10, 11, 12, // row 2: (x2,x3) = (1,0)
+                13, 14, 15, 16, // row 3: (x2,x3) = (1,1)
             ]
             .into_iter()
             .map(F::from_u8)
             .collect(),
-            4,
+            4, // width (number of columns)
         );
+
+        // Pack the matrix into a unified multilinear domain
         let concat = ConcatMats::new(vec![mat]);
         let meta = &concat.meta;
 
-        // Query: rotate z = [1, 0], rotation = 1
+        // -----------------------------------------------
+        // Query: EqRotateRight(z = [1, 0], rotation = 1)
+        //
+        // This rotates z = [1,0] right by 1 bit → becomes [0,1]
+        //
+        // The rotated z is treated as a Boolean point representing a row index.
+        // So this selects the row (0,1), i.e., row index 1.
+        // -----------------------------------------------
         let query = MlQuery::EqRotateRight(vec![F::from_u8(1), F::from_u8(0)], 1);
+
+        // ys: values associated with each row in the matrix.
+        //
+        // These are arbitrary and not derived from the matrix.
+        // For example, suppose the prover computed a polynomial g(x2,x3)
+        // and evaluated it on all 4 rows (x2,x3) ∈ {0,1}^2:
+        //
+        // g(0,0) = 21
+        // g(0,1) = 22
+        // g(1,0) = 23
+        // g(1,1) = 24
+        //
+        // So:
+        // ys = [g(0,0), g(0,1), g(1,0), g(1,1)]
+        // -----------------------------------------------
         let ys = vec![
             F::from_u8(21),
             F::from_u8(22),
             F::from_u8(23),
             F::from_u8(24),
         ];
+
+        // -----------------------------------------------
+        // r: the column selector challenge.
+        // It selects a column via the equality polynomial eq_r
+        //
+        // Since the width is 4, we need 2 bits to index a column:
+        // → x0, x1 index the column domain.
+        // -----------------------------------------------
         let r = vec![F::from_u8(2), F::from_u8(1)];
 
+        // Compute the constraint using meta (on matrix 0)
         let (weights, sum) = meta.constraint(0, &query, &ys, &r);
 
-        // eq_r = eq_{[2,1]} = list of 4 values, based on r
+        // ---------------------------------------------------------
+        // Naively compute eq_r(x) for all x ∈ {0,1}², where:
+        // eq_r(x) = ∏_i ((1 - r_i)(1 - x_i) + r_i x_i)
+        // ---------------------------------------------------------
         let eq_r = {
             let r0 = r[0];
             let r1 = r[1];
-            vec![
-                (F::ONE - r0) * (F::ONE - r1),
-                (F::ONE - r0) * r1,
-                r0 * (F::ONE - r1),
-                r0 * r1,
-            ]
+            let mut values = Vec::with_capacity(4);
+            for &x0 in &[F::ZERO, F::ONE] {
+                for &x1 in &[F::ZERO, F::ONE] {
+                    let term0 = (F::ONE - r0) * (F::ONE - x0) + r0 * x0;
+                    let term1 = (F::ONE - r1) * (F::ONE - x1) + r1 * x1;
+                    values.push(term0 * term1);
+                }
+            }
+            values
         };
-        let expected_sum = dot_product(cloned(&ys), cloned(&eq_r[..ys.len()]));
+
+        // Compute expected sum:
+        //
+        // ∑_row ys[row] * eq_r[column selected]
+        // -----------------------------------------------
+        let expected_sum = ys[0] * eq_r[0] + ys[1] * eq_r[1] + ys[2] * eq_r[2] + ys[3] * eq_r[3];
         assert_eq!(sum, expected_sum);
 
         match weights {
@@ -733,9 +801,30 @@ mod tests {
                 let full = weight.evals();
                 assert_eq!(full.len(), 1 << meta.log_b);
 
+                // Pull out the weight range corresponding to matrix 0
                 let expected_weight_range = &full[meta.ranges[0].clone()];
+
+                // mle = query.to_mle(F::ONE)
+                // This gives evaluations of query polynomial on each row (over z-variables)
+                //
+                // Since z = [1,0], rot = 1 → rotated z = [0,1]
                 let mle = query.to_mle(F::ONE);
 
+                // The final weight matrix W is constructed as:
+                //
+                // W[i][j] = mle[i] * eq_r[j]
+                //
+                // Each row corresponds to a row in the matrix
+                // Each column corresponds to a column selected by r
+                //
+                // So expected_weight_range should equal:
+                //
+                // Row 0: mle[0] * eq_r[0], ..., mle[0] * eq_r[3]
+                // Row 1: mle[1] * eq_r[0], ..., mle[1] * eq_r[3]
+                // Row 2: mle[2] * eq_r[0], ..., mle[2] * eq_r[3]
+                // Row 3: mle[3] * eq_r[0], ..., mle[3] * eq_r[3]
+                //
+                // And this is laid out row-major
                 for (row, chunk) in expected_weight_range.chunks(ys.len()).enumerate() {
                     for col in 0..ys.len() {
                         let expected = eq_r[col] * mle[row];
