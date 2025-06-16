@@ -1,6 +1,6 @@
 use p3_field::Field;
 
-use crate::utils::eval_eq;
+use crate::{poly::multilinear::MultilinearPoint, utils::eval_eq};
 
 /// A query to a multilinear polynomial over an extension field.
 ///
@@ -25,7 +25,7 @@ pub enum MlQuery<F> {
     /// ```text
     /// Eq([α_0, α_1, α_2]) → query at (α_0, α_1, α_2)
     /// ```
-    Eq(Vec<F>),
+    Eq(MultilinearPoint<F>),
 
     /// A rotated query: evaluate the polynomial at a rotated version of the point.
     ///
@@ -38,7 +38,7 @@ pub enum MlQuery<F> {
     /// ```text
     /// EqRotateRight([α_0, α_1, α_2], 1) → query at (α_2, α_0, α_1)
     /// ```
-    EqRotateRight(Vec<F>, usize),
+    EqRotateRight(MultilinearPoint<F>, usize),
 }
 
 impl<F> MlQuery<F>
@@ -144,7 +144,7 @@ mod tests {
         let z = vec![F::ONE, F::ZERO];
         let scalar = F::from_u8(3);
 
-        let mle = MlQuery::Eq(z).to_mle(scalar);
+        let mle = MlQuery::Eq(MultilinearPoint(z)).to_mle(scalar);
 
         // Manually compute:
         // eq((0,0), z) = (1 - z0)(1 - z1) = 0
@@ -165,7 +165,7 @@ mod tests {
         let z = vec![F::ONE, F::ONE, F::ZERO];
         let scalar = F::from_u8(2);
 
-        let mle = MlQuery::Eq(z.clone()).to_mle(scalar);
+        let mle = MlQuery::Eq(MultilinearPoint(z.clone())).to_mle(scalar);
         let expected = naive_eq(&z, scalar);
 
         assert_eq!(mle, expected);
@@ -181,7 +181,7 @@ mod tests {
         let mid = 1;
 
         // Compute using the actual implementation
-        let mle = MlQuery::EqRotateRight(z.clone(), mid).to_mle(scalar);
+        let mle = MlQuery::EqRotateRight(MultilinearPoint(z.clone()), mid).to_mle(scalar);
 
         // Expected behavior:
         // - First compute the equality polynomial: naive_eq(z, scalar)
@@ -198,7 +198,7 @@ mod tests {
         let z = vec![];
         let scalar = F::from_u8(7);
 
-        let mle = MlQuery::Eq(z).to_mle(scalar);
+        let mle = MlQuery::Eq(MultilinearPoint(z)).to_mle(scalar);
         let expected = vec![scalar];
 
         assert_eq!(mle, expected);
@@ -214,7 +214,7 @@ mod tests {
         let mid = 2;
 
         // Actual mle computation with rotation
-        let mle = MlQuery::EqRotateRight(z.clone(), mid).to_mle(scalar);
+        let mle = MlQuery::EqRotateRight(MultilinearPoint(z.clone()), mid).to_mle(scalar);
 
         // Expected behavior:
         // - Compute eq(x, z) for all x ∈ {0,1}⁴ → output has 2⁴ = 16 values

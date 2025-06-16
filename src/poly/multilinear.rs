@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use p3_field::Field;
 use rand::{
     Rng,
@@ -11,6 +13,14 @@ use super::hypercube::BinaryHypercubePoint;
 /// Often, `x_i` are binary. If strictly binary, `BinaryHypercubePoint` is used.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct MultilinearPoint<F>(pub Vec<F>);
+
+impl<F> Deref for MultilinearPoint<F> {
+    type Target = Vec<F>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl<F> MultilinearPoint<F>
 where
