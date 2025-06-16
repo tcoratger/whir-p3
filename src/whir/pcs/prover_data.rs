@@ -230,13 +230,41 @@ impl ConcatMatsMeta {
     }
 }
 
+/// A structure that flattens and concatenates multiple row-major matrices
+/// into a single evaluation vector compatible with multilinear operations.
+///
+/// Each input matrix is padded along the row width to the next power of two,
+/// and its rows are laid out contiguously. The metadata tracks how to recover
+/// each original matrix view from the global layout.
+///
+/// This is useful in protocols where multiple matrix domains must be unified
+/// into a single multilinear domain for evaluation or constraint application.
 #[derive(Debug)]
 pub struct ConcatMats<Val> {
+    /// A single flattened evaluation vector of all input matrices.
+    ///
+    /// Each matrix is stored row-by-row with rows padded to the next power-of-two width,
+    /// and the concatenated layout spans a total domain of size `2^log_b`.
     values: Vec<Val>,
+
+    /// Metadata describing the logical layout of the concatenated matrices.
+    ///
+    /// Includes dimension, range, and variable information for each original matrix
+    /// within the unified domain.
     meta: ConcatMatsMeta,
 }
 
 impl<Val: Field> ConcatMats<Val> {
+    /// Construct a new `ConcatMats` from a list of row-major matrices.
+    ///
+    /// Internally, this flattens and pads each matrix row to align with
+    /// power-of-two DFT-compatible widths, and lays them out contiguously in memory.
+    ///
+    /// # Parameters
+    /// - `mats`: A list of row-major matrices to concatenate.
+    ///
+    /// # Returns
+    /// - A `ConcatMats` instance containing the unified evaluation vector and metadata.
     fn new(mats: Vec<RowMajorMatrix<Val>>) -> Self {
         let meta = ConcatMatsMeta::new(&mats.iter().map(Matrix::dimensions).collect::<Vec<_>>());
         let mut values = Val::zero_vec(1 << meta.log_b);
@@ -267,6 +295,17 @@ impl<Val: Field> ConcatMats<Val> {
         Self { values, meta }
     }
 
+    /// Return a view of the original matrix at the given index.
+    ///
+    /// This reconstructs the logical matrix layout (with original width)
+    /// from the padded and concatenated evaluation vector using metadata.
+    ///
+    /// # Parameters
+    /// - `idx`: The index of the original matrix in the input list.
+    ///
+    /// # Returns
+    /// - A `HorizontallyTruncated<RowMajorMatrixView>` that presents a view
+    ///   into the padded storage but with the original width restored.
     fn mat(&self, idx: usize) -> HorizontallyTruncated<Val, RowMajorMatrixView<'_, Val>> {
         HorizontallyTruncated::new(
             RowMajorMatrixView::new(
@@ -705,6 +744,134 @@ mod tests {
                 }
             }
             Weights::Evaluation { .. } => panic!("Expected Weights::Linear"),
+        }
+    }
+
+    #[test]
+    fn test_concat_mats_new_roundtrip_matrix_extraction() {
+        let mat0 = RowMajorMatrix::new(vec![F::from_u8(1), F::from_u8(2), F::from_u8(3)], 3);
+        let mat1 = RowMajorMatrix::new(vec![F::from_u8(4), F::from_u8(5)], 2);
+
+        let concat = ConcatMats::new(vec![mat0.clone(), mat1.clone()]);
+
+        // Compare mat0 rows
+        let m0_view = concat.mat(0);
+        for i in 0..mat0.height() {
+            let expected = mat0.row_slice(i).unwrap();
+            let actual = m0_view.row_slice(i).unwrap();
+            assert_eq!(&*actual, &*expected);
+        }
+
+        // Compare mat1 rows
+        let m1_view = concat.mat(1);
+        for i in 0..mat1.height() {
+            let expected = mat1.row_slice(i).unwrap();
+            let actual = m1_view.row_slice(i).unwrap();
+            assert_eq!(&*actual, &*expected);
+        }
+    }
+
+    #[test]
+    fn test_concat_mats_single_matrix_power_of_two_width() {
+        // Create a 2x4 matrix (width is already a power of two)
+        // Row 0: [10, 11, 12, 13]
+        // Row 1: [14, 15, 16, 17]
+        let mat = RowMajorMatrix::new(
+            vec![
+                F::from_u8(10),
+                F::from_u8(11),
+                F::from_u8(12),
+                F::from_u8(13), // [10, 11, 12, 13]
+                F::from_u8(14),
+                F::from_u8(15),
+                F::from_u8(16),
+                F::from_u8(17), // [14, 15, 16, 17]
+            ],
+            4,
+        );
+
+        // Wrap in ConcatMats
+        let concat = ConcatMats::new(vec![mat.clone()]);
+
+        // Extract view of the single matrix
+        let view = concat.mat(0);
+
+        // Each row should match exactly
+        for i in 0..mat.height() {
+            let expected = mat.row_slice(i).unwrap();
+            let actual = view.row_slice(i).unwrap();
+            assert_eq!(&*actual, &*expected);
+        }
+    }
+
+    #[test]
+    fn test_concat_mats_multiple_matrices_different_heights() {
+        // Matrix 0: 1x3 → padded width = 4
+        let mat0 = RowMajorMatrix::new(vec![F::from_u8(1), F::from_u8(2), F::from_u8(3)], 3);
+
+        // Matrix 1: 3x2 → padded width = 2
+        let mat1 = RowMajorMatrix::new(
+            vec![
+                F::from_u8(4),
+                F::from_u8(5),
+                F::from_u8(6),
+                F::from_u8(7),
+                F::from_u8(8),
+                F::from_u8(9),
+            ],
+            2,
+        );
+
+        let concat = ConcatMats::new(vec![mat0.clone(), mat1.clone()]);
+
+        // Check matrix 0
+        let view0 = concat.mat(0);
+        for i in 0..mat0.height() {
+            let expected = mat0.row_slice(i).unwrap();
+            let actual = view0.row_slice(i).unwrap();
+            assert_eq!(&*actual, &*expected);
+        }
+
+        // Check matrix 1
+        let view1 = concat.mat(1);
+        for i in 0..mat1.height() {
+            let expected = mat1.row_slice(i).unwrap();
+            let actual = view1.row_slice(i).unwrap();
+            assert_eq!(&*actual, &*expected);
+        }
+    }
+
+    #[test]
+    fn test_concat_mats_matrix_with_padding_width_5() {
+        // Matrix with width = 5 → padded to 8 per row
+        let mat = RowMajorMatrix::new(
+            vec![
+                F::from_u8(1),
+                F::from_u8(2),
+                F::from_u8(3),
+                F::from_u8(4),
+                F::from_u8(5),
+                F::from_u8(6),
+                F::from_u8(7),
+                F::from_u8(8),
+                F::from_u8(9),
+                F::from_u8(10),
+            ],
+            5,
+        ); // height = 2
+
+        let concat = ConcatMats::new(vec![mat.clone()]);
+        let view = concat.mat(0);
+
+        // Even though the row is padded internally, `.mat()` view should truncate it back to width = 5
+        assert_eq!(view.width(), 5);
+        assert_eq!(view.height(), 2);
+
+        // Check row-wise equality
+        for i in 0..mat.height() {
+            let expected = mat.row_slice(i).unwrap();
+            let actual = view.row_slice(i).unwrap();
+            assert_eq!(&*actual, &*expected);
         }
     }
 }
