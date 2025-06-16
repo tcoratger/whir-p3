@@ -1,5 +1,4 @@
 use p3_challenger::{CanObserve, CanSample};
-use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
@@ -358,19 +357,17 @@ where
     /// - If `folding_factor > num_variables()`
     /// - If univariate skip is attempted with evaluations in the extension field.
     #[instrument(skip_all)]
-    pub fn compute_sumcheck_polynomials<S, DFT, Challenger, W>(
+    pub fn compute_sumcheck_polynomials<S, Challenger, W>(
         &mut self,
         prover_state: &mut ProverState<EF, F, Challenger, W>,
         folding_factor: usize,
         pow_bits: f64,
         k_skip: Option<usize>,
-        dft: &DFT,
     ) -> ProofResult<MultilinearPoint<EF>>
     where
         F: PrimeField64 + TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
         S: PowStrategy,
-        DFT: TwoAdicSubgroupDft<F>,
         W: Unit + Default + Copy,
         Challenger: CanObserve<W> + CanSample<W>,
     {
@@ -384,8 +381,7 @@ where
         if let Some(k) = k_skip {
             if k >= 2 && k <= folding_factor {
                 // Collapse the first k variables via a univariate evaluation over a multiplicative coset.
-                let (sumcheck_poly, f_mat, w_mat) =
-                    self.compute_skipping_sumcheck_polynomial(dft, k);
+                let (sumcheck_poly, f_mat, w_mat) = self.compute_skipping_sumcheck_polynomial(k);
 
                 // Send the evaluations of the univariate polynomial (length 2^k) to the verifier.
                 prover_state.add_scalars(sumcheck_poly.evaluations())?;
@@ -594,7 +590,6 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_challenger::HashChallenger;
-    use p3_dft::NaiveDft;
     use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_interpolation::interpolate_subgroup;
     use p3_keccak::Keccak256Hash;
@@ -1551,12 +1546,11 @@ mod tests {
 
         // Compute sumcheck polynomials
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
                 None,
-                &NaiveDft,
             )
             .unwrap();
 
@@ -1633,12 +1627,11 @@ mod tests {
         let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
                 None,
-                &NaiveDft,
             )
             .unwrap();
 
@@ -1774,12 +1767,11 @@ mod tests {
         let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
                 None,
-                &NaiveDft,
             )
             .unwrap();
 
@@ -1861,12 +1853,11 @@ mod tests {
         let mut prover_state = domsep.to_prover_state(challenger);
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
                 None,
-                &NaiveDft,
             )
             .unwrap();
 
@@ -2111,12 +2102,11 @@ mod tests {
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
                 None,
-                &NaiveDft,
             )
             .unwrap();
 
@@ -2327,11 +2317,11 @@ mod tests {
 
             // Run sumcheck with zero grinding (no challenge_pow)
             let final_point_base = prover_base
-                .compute_sumcheck_polynomials::<Blake3PoW,_,_,_>(&mut state_base, folding_rounds, 0.0, None, &NaiveDft)
+                .compute_sumcheck_polynomials::<Blake3PoW,_,_>(&mut state_base, folding_rounds, 0.0, None)
                 .unwrap();
 
             let final_point_ext = prover_ext
-                .compute_sumcheck_polynomials::<Blake3PoW,_,_,_>(&mut state_ext, folding_rounds, 0.0, None, &NaiveDft)
+                .compute_sumcheck_polynomials::<Blake3PoW,_,_>(&mut state_ext, folding_rounds, 0.0, None)
                 .unwrap();
 
             // Ensure roundtrip consistency
@@ -2512,12 +2502,11 @@ mod tests {
 
         // Run sumcheck with k = 2 skipped rounds and 1 regular round
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
                 Some(2), // skip 2 variables at once
-                &NaiveDft,
             )
             .unwrap();
 

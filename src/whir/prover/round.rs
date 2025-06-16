@@ -1,5 +1,4 @@
 use p3_challenger::{CanObserve, CanSample};
-use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
@@ -9,7 +8,7 @@ use super::{Leafs, Proof, Prover};
 use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState, unit::Unit},
-    poly::{coeffs::CoefficientStorage, evals::EvaluationStorage, multilinear::MultilinearPoint},
+    poly::{evals::EvaluationStorage, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{RoundMerkleTree, Witness},
@@ -48,10 +47,6 @@ where
     /// The multilinear polynomial evaluations at the start of this round.
     /// These are updated by folding the previous round’s coefficients using `folding_randomness`.
     pub(crate) evaluations: EvaluationStorage<F, EF>,
-
-    /// The multilinear polynomial evaluations at the start of this round.
-    /// These are updated by folding the previous round’s coefficients using `folding_randomness`.
-    pub(crate) coeffs: CoefficientStorage<F, EF>,
 
     /// Merkle commitment prover data for the **base field** polynomial from the first round.
     /// This is used to open values at queried locations.
@@ -108,16 +103,14 @@ where
     /// This function should be called once at the beginning of the proof, before entering the
     /// main WHIR folding loop.
     #[instrument(skip_all)]
-    pub(crate) fn initialize_first_round_state<MyChallenger, C, PS, D, Challenger>(
+    pub(crate) fn initialize_first_round_state<MyChallenger, C, PS, Challenger>(
         prover: &Prover<'_, EF, F, MyChallenger, C, PS, Challenger, W>,
         prover_state: &mut ProverState<EF, F, Challenger, W>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
-        dft: &D,
     ) -> ProofResult<Self>
     where
         PS: PowStrategy,
-        D: TwoAdicSubgroupDft<F>,
         W: Unit + Default + Copy,
         Challenger: CanObserve<W> + CanSample<W>,
     {
@@ -145,18 +138,17 @@ where
 
             // Create the sumcheck prover
             let mut sumcheck = SumcheckSingle::from_base_evals(
-                witness.pol_evals.parallel_clone(), // TODO I think we could avoid cloning here
+                witness.polynomial.parallel_clone(), // TODO I think we could avoid cloning here
                 &statement,
                 combination_randomness_gen,
             );
 
             // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS, _, _, _>(
+            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS, _, _>(
                 prover_state,
                 prover.folding_factor.at_round(0),
                 prover.starting_folding_pow_bits,
                 None,
-                dft,
             )?;
 
             sumcheck_prover = Some(sumcheck);
@@ -184,8 +176,7 @@ where
             domain: prover.starting_domain.clone(),
             sumcheck_prover,
             folding_randomness,
-            evaluations: EvaluationStorage::Base(witness.pol_evals),
-            coeffs: CoefficientStorage::Base(witness.pol_coeffs),
+            evaluations: EvaluationStorage::Base(witness.polynomial),
             merkle_prover_data: None,
             commitment_merkle_prover_data: witness.prover_data,
             commitment_merkle_proof: None,
@@ -201,13 +192,13 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_blake3::Blake3;
     use p3_challenger::HashChallenger;
-    use p3_dft::NaiveDft;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_keccak::Keccak256Hash;
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 
     use super::*;
     use crate::{
+        dft::EvalsDft,
         fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
@@ -304,7 +295,7 @@ mod tests {
         // Perform DFT-based commitment to the polynomial, producing a witness
         // which includes the Merkle tree and polynomial values.
         let witness = committer
-            .commit(&NaiveDft, &mut prover_state, poly)
+            .commit(&EvalsDft::<F>::default(), &mut prover_state, poly)
             .unwrap();
 
         // Return all initialized components needed for round state setup.
@@ -340,7 +331,6 @@ mod tests {
             &mut prover_state,
             statement,
             witness,
-            &NaiveDft,
         )
         .unwrap();
 
@@ -420,7 +410,6 @@ mod tests {
             &mut prover_state,
             statement,
             witness,
-            &NaiveDft,
         )
         .unwrap();
 
@@ -519,7 +508,6 @@ mod tests {
             &mut prover_state,
             statement,
             witness,
-            &NaiveDft,
         )
         .unwrap();
 
@@ -628,13 +616,12 @@ mod tests {
             &mut prover_state,
             statement,
             witness,
-            &NaiveDft,
         )
         .expect("RoundState initialization failed");
 
         // Unwrap the sumcheck prover and get the sampled folding randomness
         let sumcheck = state.sumcheck_prover.unwrap();
-        let sumcheck_randomness = state.folding_randomness.clone();
+        let sumcheck_randomness = &state.folding_randomness;
 
         // Ensure evaluations are in the extension field
         match sumcheck.evaluation_of_p {

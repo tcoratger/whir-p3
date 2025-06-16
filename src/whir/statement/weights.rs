@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use tracing::instrument;
 
 use crate::{
-    poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::eval_eq,
 };
 
@@ -187,7 +187,7 @@ impl<F: Field> Weights<F> {
 
     /// Evaluate the weighted sum with a polynomial in coefficient form.
     #[must_use]
-    pub fn evaluate_coeffs(&self, poly: &CoefficientList<F>) -> F {
+    pub fn evaluate_coeffs(&self, poly: &EvaluationsList<F>) -> F {
         assert_eq!(self.num_variables(), poly.num_variables());
         match self {
             Self::Evaluation { point } => poly.evaluate(point),
@@ -197,7 +197,7 @@ impl<F: Field> Weights<F> {
             Self::Linear { weight } => weight
                 .evals()
                 .iter()
-                .zip(poly.clone().to_evaluations().evals())
+                .zip(poly.clone().evals())
                 .map(|(&w, &p)| w * p)
                 .sum(),
         }

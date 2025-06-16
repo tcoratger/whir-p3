@@ -2,10 +2,8 @@ use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_baby_bear::BabyBear;
 use p3_blake3::Blake3;
 use p3_challenger::HashChallenger;
-use p3_dft::Radix2DitSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_keccak::Keccak256Hash;
-use p3_monty_31::dft::RecursiveDft;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use parameters::WhirConfig;
 use prover::Prover;
@@ -13,6 +11,7 @@ use statement::{Statement, weights::Weights};
 use verifier::Verifier;
 
 use crate::{
+    dft::EvalsDft,
     fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
@@ -124,7 +123,7 @@ pub fn make_whir_things(
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
 
-    let dft_committer = RecursiveDft::<F>::default();
+    let dft_committer = EvalsDft::<F>::default();
 
     let witness = committer
         .commit(&dft_committer, &mut prover_state, polynomial)
@@ -132,7 +131,7 @@ pub fn make_whir_things(
 
     let prover = Prover(&params);
 
-    let dft_prover = Radix2DitSmallBatch::<F>::default();
+    let dft_prover = EvalsDft::<F>::default();
 
     // Generate a proof for the given statement and witness
     prover

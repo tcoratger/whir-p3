@@ -4,7 +4,6 @@ use clap::Parser;
 use p3_baby_bear::BabyBear;
 use p3_blake3::Blake3;
 use p3_challenger::HashChallenger;
-use p3_dft::Radix2DitSmallBatch;
 use p3_field::extension::BinomialExtensionField;
 use p3_goldilocks::Goldilocks;
 use p3_keccak::Keccak256Hash;
@@ -14,6 +13,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing_forest::{ForestLayer, util::LevelFilter};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::{
+    dft::EvalsDft,
     fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, default_max_pow,
@@ -165,7 +165,7 @@ fn main() {
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
 
-    let dft = Radix2DitSmallBatch::<F>::new(1 << params.max_fft_size());
+    let dft = EvalsDft::<F>::new(1 << params.max_fft_size());
 
     let time = Instant::now();
     let witness = committer

@@ -10,56 +10,6 @@ use {
 use super::{dense::WhirDensePolynomial, evals::EvaluationsList, wavelet::Radix2WaveletKernel};
 use crate::poly::multilinear::MultilinearPoint;
 
-/// A wrapper enum that holds coefficient data for a multilinear polynomial,
-/// either over the base field `F` or an extension field `EF`.
-///
-/// This abstraction allows operating generically on both base and extension
-/// field coefficients, similar to `EvaluationStorage`.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum CoefficientStorage<F, EF> {
-    /// Coefficients over the base field `F`.
-    Base(CoefficientList<F>),
-    /// Coefficients over the extension field `EF`.
-    Extension(CoefficientList<EF>),
-}
-
-impl<F, EF> CoefficientStorage<F, EF>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    /// Returns the number of variables in the stored coefficient list.
-    ///
-    /// # Returns
-    /// - `usize`: The number of input variables of the underlying multilinear polynomial.
-    pub(crate) const fn num_variables(&self) -> usize {
-        match self {
-            Self::Base(cl) => cl.num_variables(),
-            Self::Extension(cl) => cl.num_variables(),
-        }
-    }
-
-    /// Returns the number of coefficients (`2^num_variables`).
-    pub(crate) fn num_coeffs(&self) -> usize {
-        match self {
-            Self::Base(cl) => cl.num_coeffs(),
-            Self::Extension(cl) => cl.num_coeffs(),
-        }
-    }
-
-    /// Folds the stored polynomial using the provided `folding_randomness`, returning a new
-    /// `CoefficientList<EF>` with fewer variables.
-    ///
-    /// Works generically on both base and extension field representations.
-    #[instrument(name = "fold coefficients", skip_all)]
-    pub(crate) fn fold(&self, folding_randomness: &MultilinearPoint<EF>) -> CoefficientList<EF> {
-        match self {
-            Self::Base(cl) => cl.fold(folding_randomness),
-            Self::Extension(cl) => cl.fold(folding_randomness),
-        }
-    }
-}
-
 /// Represents a multilinear polynomial in coefficient form with `num_variables` variables.
 ///
 /// The coefficients correspond to the **monomials** determined by the binary decomposition of their
@@ -995,26 +945,6 @@ mod tests {
     }
 
     #[test]
-    fn test_coefficient_storage_num_variables_and_coeffs_base() {
-        let coeffs: Vec<F> = (0..8).map(F::from_u64).collect();
-        let list = CoefficientList::new(coeffs);
-        let storage = CoefficientStorage::<F, EF4>::Base(list);
-
-        assert_eq!(storage.num_variables(), 3); // log2(8)
-        assert_eq!(storage.num_coeffs(), 8);
-    }
-
-    #[test]
-    fn test_coefficient_storage_num_variables_and_coeffs_extension() {
-        let coeffs: Vec<EF4> = (0..16).map(EF4::from_u64).collect();
-        let list = CoefficientList::new(coeffs);
-        let storage = CoefficientStorage::<F, EF4>::Extension(list);
-
-        assert_eq!(storage.num_variables(), 4); // log2(16)
-        assert_eq!(storage.num_coeffs(), 16);
-    }
-
-    #[test]
     fn test_coefficient_list_to_evaluations_list_three_variables() {
         // Define a multilinear polynomial:
         //
@@ -1077,35 +1007,6 @@ mod tests {
     }
 
     proptest! {
-        #[test]
-        fn prop_fold_equivalence_f_vs_ef(
-            coeffs in proptest::collection::vec(0u64..u64::MAX, 8),
-            r0 in 0u64..u64::MAX,
-            r1 in 0u64..u64::MAX
-        ) {
-            let coeffs_f: Vec<F> = coeffs.into_iter().map(F::from_u64).collect();
-            let coeffs_ef: Vec<EF4> = coeffs_f.clone().into_iter().map(EF4::from).collect();
-            let base = CoefficientList::new(coeffs_f);
-            let ext = CoefficientList::new(coeffs_ef);
-
-            let s_base : CoefficientStorage<F, EF4> = CoefficientStorage::Base(base);
-            let s_ext : CoefficientStorage<F, EF4> = CoefficientStorage::Extension(ext);
-
-            let folding_point = MultilinearPoint(vec![EF4::from_u64(r0), EF4::from_u64(r1)]);
-
-            let folded_base = s_base.fold(&folding_point);
-            let folded_ext = s_ext.fold(&folding_point);
-
-            prop_assert_eq!(folded_base.coeffs(), folded_ext.coeffs());
-            prop_assert_eq!(folded_base.num_variables(), folded_ext.num_variables());
-
-            for x0 in 0..4 {
-                let x0_ext = EF4::from_u64(x0);
-                let point = MultilinearPoint(vec![x0_ext]);
-                prop_assert_eq!(folded_base.evaluate(&point), folded_ext.evaluate(&point));
-            }
-        }
-
         #[test]
         fn prop_eval_coeff_roundtrip_varying_size(
             // Random power-of-two length exponent: generates sizes 2^0 to 2^10

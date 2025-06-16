@@ -335,6 +335,7 @@ mod tests {
     type EF4 = BinomialExtensionField<F, 4>;
 
     #[test]
+    #[allow(clippy::redundant_clone)]
     fn test_parallel_clone() {
         let mut rng = StdRng::seed_from_u64(0);
         let evals =

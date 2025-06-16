@@ -1,13 +1,13 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use p3_blake3::Blake3;
 use p3_challenger::HashChallenger;
-use p3_dft::Radix2DitSmallBatch;
 use p3_field::extension::BinomialExtensionField;
 use p3_goldilocks::Goldilocks;
 use p3_keccak::Keccak256Hash;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use whir_p3::{
+    dft::EvalsDft,
     fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, default_max_pow,
@@ -33,7 +33,7 @@ type W = u8;
 #[allow(clippy::type_complexity)]
 fn prepare_inputs() -> (
     WhirConfig<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, u8>,
-    Radix2DitSmallBatch<F>,
+    EvalsDft<F>,
     EvaluationsList<F>,
     Statement<EF>,
     MyChallenger,
@@ -132,7 +132,7 @@ fn prepare_inputs() -> (
     // DFT backend setup
 
     // Construct a Radix-2 FFT backend that supports small batch DFTs over `F`.
-    let dft = Radix2DitSmallBatch::<F>::new(1 << params.max_fft_size());
+    let dft = EvalsDft::<F>::new(1 << params.max_fft_size());
 
     // Return all preprocessed components needed to run commit/prove/verify benchmarks.
     (params, dft, polynomial, statement, challenger, domainsep)

@@ -574,6 +574,27 @@ pub fn parallel_clone<A: Clone + Send + Sync>(src: &[A], dst: &mut [A]) {
     dst.clone_from_slice(src);
 }
 
+pub fn parallel_repeat<A: Copy + Send + Sync>(src: &[A], n: usize) -> Vec<A> {
+    #[cfg(feature = "parallel")]
+    if src.len() * n < 1 << 15 {
+        // sequential repeat
+        src.repeat(n)
+    } else {
+        let res = unsafe { uninitialized_vec::<A>(src.len() * n) };
+        src.par_iter().enumerate().for_each(|(i, &v)| {
+            for j in 0..n {
+                unsafe {
+                    std::ptr::write(res.as_ptr().cast_mut().add(i + j * src.len()), v);
+                }
+            }
+        });
+        res
+    }
+
+    #[cfg(not(feature = "parallel"))]
+    src.repeat(n)
+}
+
 /// Recursively computes a chunk of the scaled multilinear equality polynomial over the Boolean hypercube.
 ///
 /// Given an evaluation point $z ∈ 𝔽^n$ and a scalar multiplier $α ∈ 𝔽$, this function computes the values:
@@ -729,15 +750,28 @@ mod tests {
 
     #[test]
     fn test_parallel_clone() {
-        let src = (0..(1 << 25) + 7).map(F::from_u64).collect::<Vec<_>>();
+        let src = (0..(1 << 23) + 7).map(F::from_u64).collect::<Vec<_>>();
         let mut dst_seq = F::zero_vec(src.len());
         let time = std::time::Instant::now();
         dst_seq.copy_from_slice(&src);
-        println!("Sequential copy took: {:?}", time.elapsed());
+        println!("Sequential clone took: {:?}", time.elapsed());
         let mut dst_parallel = F::zero_vec(src.len());
         let time = std::time::Instant::now();
         parallel_clone(&src, &mut dst_parallel);
-        println!("Parallel copy took: {:?}", time.elapsed());
+        println!("Parallel clone took: {:?}", time.elapsed());
+        assert_eq!(dst_seq, dst_parallel);
+    }
+
+    #[test]
+    fn test_parallel_repeat() {
+        let src = (0..(1 << 23) + 7).map(F::from_u64).collect::<Vec<_>>();
+        let n = 3;
+        let time = std::time::Instant::now();
+        let dst_seq = src.repeat(n);
+        println!("Sequential repeat took: {:?}", time.elapsed());
+        let time = std::time::Instant::now();
+        let dst_parallel = parallel_repeat(&src, n);
+        println!("Parallel repeat took: {:?}", time.elapsed());
         assert_eq!(dst_seq, dst_parallel);
     }
 

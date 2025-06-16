@@ -1,6 +1,6 @@
 use p3_field::Field;
 
-use crate::{poly::coeffs::CoefficientList, whir::Weights};
+use crate::{poly::evals::EvaluationsList, whir::Weights};
 
 /// Represents a single constraint in a polynomial statement.
 #[derive(Clone, Debug)]
@@ -26,7 +26,7 @@ pub struct Constraint<F> {
 impl<F: Field> Constraint<F> {
     /// Verify if a polynomial (in coefficient form) satisfies the constraint.
     #[must_use]
-    pub fn verify(&self, poly: &CoefficientList<F>) -> bool {
+    pub fn verify(&self, poly: &EvaluationsList<F>) -> bool {
         self.weights.evaluate_coeffs(poly) == self.sum
     }
 }
@@ -37,7 +37,10 @@ mod tests {
     use p3_field::PrimeCharacteristicRing;
 
     use super::*;
-    use crate::{poly::evals::EvaluationsList, whir::MultilinearPoint};
+    use crate::{
+        poly::{coeffs::CoefficientList, evals::EvaluationsList},
+        whir::MultilinearPoint,
+    };
 
     type F = BabyBear;
 
@@ -63,7 +66,10 @@ mod tests {
             defer_evaluation: false,
         };
 
-        assert!(constraint.verify(&coeffs), "Constraint should pass");
+        assert!(
+            constraint.verify(&coeffs.to_evaluations()),
+            "Constraint should pass"
+        );
     }
 
     #[test]
@@ -87,7 +93,7 @@ mod tests {
         };
 
         assert!(
-            !constraint.verify(&coeffs),
+            !constraint.verify(&coeffs.to_evaluations()),
             "Constraint should fail due to incorrect sum"
         );
     }
@@ -116,7 +122,10 @@ mod tests {
             defer_evaluation: false,
         };
 
-        assert!(constraint.verify(&coeffs), "Linear constraint should pass");
+        assert!(
+            constraint.verify(&coeffs.to_evaluations()),
+            "Linear constraint should pass"
+        );
     }
 
     #[test]
@@ -167,7 +176,7 @@ mod tests {
 
         // The constraint should pass since weights × evaluations == expected_sum
         assert!(
-            constraint.verify(&coeffs),
+            constraint.verify(&coeffs.to_evaluations()),
             "Linear constraint over 3-variable polynomial should pass"
         );
     }

@@ -2,7 +2,6 @@ use std::ops::Deref;
 
 use p3_challenger::{CanObserve, CanSample};
 use p3_commit::{ExtensionMmcs, Mmcs};
-use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, Packable, PrimeField64, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -13,14 +12,14 @@ use tracing::{info_span, instrument};
 
 use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
+    dft::EvalsDft,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState, unit::Unit},
     poly::{
-        coeffs::{CoefficientList, CoefficientStorage},
         evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
     sumcheck::sumcheck_single::SumcheckSingle,
-    utils::parallel_clone,
+    utils::parallel_repeat,
     whir::{
         parameters::RoundConfig,
         statement::weights::Weights,
@@ -115,7 +114,7 @@ where
         if !self.initial_statement {
             assert!(witness.ood_points.is_empty());
         }
-        witness.pol_coeffs.num_variables() == self.mv_parameters.num_variables
+        witness.polynomial.num_variables() == self.mv_parameters.num_variables
     }
 
     /// Executes the full WHIR prover protocol to produce the proof.
@@ -141,9 +140,9 @@ where
     /// # Errors
     /// Returns an error if the witness or statement are invalid, or if a round fails.
     #[instrument(skip_all)]
-    pub fn prove<D, const DIGEST_ELEMS: usize>(
+    pub fn prove<const DIGEST_ELEMS: usize>(
         &self,
-        dft: &D,
+        dft: &EvalsDft<F>,
         prover_state: &mut ProverState<EF, F, Challenger, W>,
         statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
@@ -152,7 +151,6 @@ where
         H: CryptographicHasher<F, [W; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2> + Sync,
         [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        D: TwoAdicSubgroupDft<F>,
         W: Eq + Packable,
     {
         // Validate parameters
@@ -165,7 +163,7 @@ where
 
         // Initialize the round state with inputs and initial polynomial data
         let mut round_state =
-            RoundState::initialize_first_round_state(self, prover_state, statement, witness, dft)?;
+            RoundState::initialize_first_round_state(self, prover_state, statement, witness)?;
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
@@ -194,10 +192,10 @@ where
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = round_state.evaluations.num_variables()))]
     #[allow(clippy::too_many_lines)]
-    fn round<D, const DIGEST_ELEMS: usize>(
+    fn round<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        dft: &D,
+        dft: &EvalsDft<F>,
         prover_state: &mut ProverState<EF, F, Challenger, W>,
         round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<()>
@@ -205,7 +203,6 @@ where
         H: CryptographicHasher<F, [W; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2> + Sync,
         [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        D: TwoAdicSubgroupDft<F>,
         W: Eq + Packable,
     {
         // - If a sumcheck already exists, use its evaluations
@@ -223,8 +220,6 @@ where
                 .fold(&round_state.folding_randomness)
         };
 
-        let folded_coefficients = round_state.coeffs.fold(&round_state.folding_randomness);
-
         let num_variables =
             self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
         // The number of variables at the given round should match the folded number of variables.
@@ -232,14 +227,7 @@ where
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
-            return self.final_round(
-                round_index,
-                prover_state,
-                round_state,
-                &folded_coefficients,
-                &folded_evaluations,
-                dft,
-            );
+            return self.final_round(round_index, prover_state, round_state, &folded_evaluations);
         }
 
         let round_params = &self.round_parameters[round_index];
@@ -250,23 +238,21 @@ where
         // Compute polynomial evaluations and build Merkle tree
         let domain_reduction = 1 << self.rs_reduction_factor(round_index);
         let new_domain = round_state.domain.scale(domain_reduction);
+        let inv_rate = new_domain.size() / folded_evaluations.num_evals();
         let folded_matrix = info_span!("fold matrix").in_scope(|| {
-            let coeffs = info_span!("copy_across_coeffs").in_scope(|| {
-                let mut coeffs = EF::zero_vec(new_domain.size());
-                parallel_clone(
-                    folded_coefficients.coeffs(),
-                    &mut coeffs[..folded_evaluations.num_evals()],
-                );
-                coeffs
-            });
+            let evals_repeated = info_span!("repeating evals")
+                .in_scope(|| parallel_repeat(folded_evaluations.evals(), inv_rate));
             // Do DFT on only interleaved polys to be folded.
             info_span!(
                 "dft",
-                height = coeffs.len() >> folding_factor_next,
+                height = evals_repeated.len() >> folding_factor_next,
                 width = 1 << folding_factor_next
             )
             .in_scope(|| {
-                dft.dft_algebra_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor_next))
+                dft.dft_algebra_batch_by_evals(RowMajorMatrix::new(
+                    evals_repeated,
+                    1 << folding_factor_next,
+                ))
             })
         });
 
@@ -318,7 +304,7 @@ where
 
                 for answer in &answers {
                     stir_evaluations.push(
-                        CoefficientList::new(answer.clone())
+                        EvaluationsList::new(answer.clone())
                             .evaluate(&round_state.folding_randomness),
                     );
                 }
@@ -345,7 +331,7 @@ where
 
                 for answer in &answers {
                     stir_evaluations.push(
-                        CoefficientList::new(answer.clone())
+                        EvaluationsList::new(answer.clone())
                             .evaluate(&round_state.folding_randomness),
                     );
                 }
@@ -391,12 +377,11 @@ where
                 )
             };
 
-        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS, _, _, _>(
+        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS, _, _>(
             prover_state,
             folding_factor_next,
             round_params.folding_pow_bits,
             None,
-            dft,
         )?;
 
         let start_idx = self.folding_factor.total_number(round_index);
@@ -413,7 +398,6 @@ where
         // Update round state
         round_state.domain = new_domain;
         round_state.sumcheck_prover = Some(sumcheck_prover);
-        round_state.coeffs = CoefficientStorage::Extension(folded_coefficients);
         round_state.folding_randomness = folding_randomness;
         round_state.evaluations = EvaluationStorage::Extension(folded_evaluations);
         round_state.merkle_prover_data = Some(prover_data);
@@ -422,24 +406,21 @@ where
     }
 
     #[instrument(skip_all)]
-    fn final_round<D, const DIGEST_ELEMS: usize>(
+    fn final_round<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
         prover_state: &mut ProverState<EF, F, Challenger, W>,
         round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
-        folded_coefficients: &CoefficientList<EF>,
         folded_evaluations: &EvaluationsList<EF>,
-        dft: &D,
     ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [W; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2> + Sync,
         [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        D: TwoAdicSubgroupDft<F>,
         W: Eq + Packable,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        prover_state.add_scalars(folded_coefficients.coeffs())?;
+        prover_state.add_scalars(folded_evaluations.evals())?;
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
             // The size of the original domain before folding
@@ -505,12 +486,11 @@ where
                         EF::ONE,
                     )
                 })
-                .compute_sumcheck_polynomials::<PS, _, _, _>(
+                .compute_sumcheck_polynomials::<PS, _, _>(
                     prover_state,
                     self.final_sumcheck_rounds,
                     self.final_folding_pow_bits,
                     None,
-                    dft,
                 )?;
 
             let start_idx = self.folding_factor.total_number(round_index);
