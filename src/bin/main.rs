@@ -206,8 +206,12 @@ fn main() {
         .unwrap();
     let verify_time = verif_time.elapsed();
 
-    println!("\nCommitment time: {} ms", commit_time.as_millis());
-    println!("Opening time: {} ms", opening_time.as_millis());
+    println!(
+        "\nProving time: {} ms (commit: {} ms, opening: {} ms)",
+        commit_time.as_millis() + opening_time.as_millis(),
+        commit_time.as_millis(),
+        opening_time.as_millis()
+    );
     println!("Proof size: {:.1} KiB", proof_size as f64 / 1024.0);
     println!("Verification time: {} μs", verify_time.as_micros());
 }
