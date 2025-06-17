@@ -142,6 +142,13 @@ where
         Ok(output)
     }
 
+    /// Read `N` extension scalars from the transcript.
+    pub fn next_scalars_vec(&mut self, len: usize) -> ProofResult<Vec<EF>> {
+        let mut output = EF::zero_vec(len);
+        self.fill_next_scalars(&mut output)?;
+        Ok(output)
+    }
+
     /// Perform a PoW challenge check using a derived challenge and 64-bit nonce.
     pub fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
         let challenge = self.challenge_units()?;
