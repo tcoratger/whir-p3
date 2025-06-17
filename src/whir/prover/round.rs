@@ -278,7 +278,7 @@ mod tests {
         // Create a new Fiat-Shamir domain separator.
         let mut domsep = DomainSeparator::new("🌪️", true);
 
-        // Absorb the public statement into the transcript for binding.
+        // Observe the public statement into the transcript for binding.
         domsep.commit_statement(params);
 
         // Reserve transcript space for WHIR proof messages.

@@ -46,11 +46,11 @@ where
     /// This string encodes a sequence of transcript actions such as absorptions, squeezes,
     /// and ratchets, in the format: `domain\0A32label\0S16challenge\0R...`.
     ///
-    /// It is constructed incrementally by calling methods like `absorb`, `squeeze`, etc.,
+    /// It is constructed incrementally by calling methods like `obverse`, `sample`, etc.,
     /// and is later parsed into a queue of [`Op`] instructions by `finalize()`.
     io: String,
 
-    /// Whether Fiat-Shamir operations (squeeze, absorb, hint) should be verified at runtime.
+    /// Whether Fiat-Shamir operations (observe, sample, hint) should be verified at runtime.
     verify_operations: bool,
 
     /// Phantom marker for the base field type `F`.
@@ -338,9 +338,9 @@ where
     }
 
     pub fn add_scalars(&mut self, count: usize, label: &str) {
-        // Absorb `count` scalars into the transcript using an "absorb" tag.
+        // Observe `count` scalars into the transcript.
         //
-        // The total number of bytes to absorb is calculated as:
+        // The total number of bytes to observe is calculated as:
         //
         //     count × extension_degree × NUM_BYTES
         //
@@ -352,9 +352,9 @@ where
     }
 
     pub fn challenge_scalars(&mut self, count: usize, label: &str) {
-        // Squeeze `count` scalars from the transcript using a "challenge" tag.
+        // Sample `count` scalars from the transcript using a "challenge" tag.
         //
-        // The total number of bytes to squeeze is calculated as:
+        // The total number of bytes to sample is calculated as:
         //
         //     count × extension_degree × bytes_uniform_modp(bits)
         //
@@ -421,9 +421,9 @@ mod tests {
 
     #[test]
     fn test_op_new_invalid_cases() {
-        assert!(Op::new('A', Some(0)).is_err()); // absorb with zero
+        assert!(Op::new('O', Some(0)).is_err()); // observe with zero
         assert!(Op::new('H', Some(1)).is_err()); // hint with size
-        assert!(Op::new('S', Some(0)).is_err()); // squeeze with zero
+        assert!(Op::new('S', Some(0)).is_err()); // sample with zero
         assert!(Op::new('X', Some(1)).is_err()); // invalid op char
     }
 

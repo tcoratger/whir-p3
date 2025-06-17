@@ -59,7 +59,7 @@ where
     /// Initialize a new `ProverState` from the given domain separator.
     ///
     /// Seeds the internal sponge with the domain separator.
-    /// `verify_operations` indicates whether Fiat-Shamir operations (squeeze, absorb, hint)
+    /// `verify_operations` indicates whether Fiat-Shamir operations (observe, sample, hint)
     /// should be verified at runtime.
     #[must_use]
     pub fn new(
@@ -107,7 +107,7 @@ where
         self.narg_string.as_slice()
     }
 
-    /// Absorb a sequence of extension field scalars into the prover transcript.
+    /// Observe a sequence of extension field scalars into the prover transcript.
     ///
     /// Serializes the scalars to bytes and appends them to the internal buffer.
     pub fn add_scalars(&mut self, input: &[EF]) -> ProofResult<()> {
@@ -121,7 +121,7 @@ where
         Ok(())
     }
 
-    /// Serialize public extension field scalars to bytes and absorb into sponge.
+    /// Serialize public extension field scalars to bytes and observe via the challenger.
     ///
     /// Returns the serialized byte representation.
     pub fn public_scalars(&mut self, input: &[EF]) -> ProofResult<Vec<u8>> {
@@ -144,7 +144,7 @@ where
             .flat_map(|c| c.as_canonical_u64().to_le_bytes()[..F::NUM_BYTES].to_vec())
             .collect();
 
-        // Absorb the serialized bytes into the Fiat-Shamir transcript
+        // Observe the serialized bytes into the Fiat-Shamir transcript
         self.public_units(&U::slice_from_u8_slice(&bytes))?;
 
         // Return the serialized byte representation
@@ -183,7 +183,7 @@ where
         Ok(output)
     }
 
-    /// Absorb a digest object (e.g. Merkle root) into the transcript.
+    /// Observe a digest object (e.g. Merkle root) into the transcript.
     pub fn add_digest<const DIGEST_ELEMS: usize>(
         &mut self,
         digest: Hash<F, U, DIGEST_ELEMS>,
@@ -239,7 +239,7 @@ where
         Ok(output)
     }
 
-    /// Absorb a hint message into the prover transcript.
+    /// Observe a hint message into the prover transcript.
     ///
     /// Encodes the hint as a 4-byte little-endian length prefix followed by raw bytes.
     pub fn hint_bytes(&mut self, hint: &[u8]) -> Result<(), DomainSeparatorMismatch> {
@@ -250,7 +250,7 @@ where
         Ok(())
     }
 
-    /// Serialize and absorb a structured hint into the prover transcript.
+    /// Serialize and observe a structured hint into the prover transcript.
     ///
     /// This is used to insert auxiliary (non-binding) data into the proof transcript,
     /// such as evaluations or precomputed commitments. These hints are not derived from
@@ -394,7 +394,7 @@ mod tests {
         // Step 1: Create a domain separator with the label "test"
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("test", true);
 
-        // Step 2: Add an "absorb scalars" tag for 3 scalars, with label "com"
+        // Step 2: Add an "observe scalars" tag for 3 scalars, with label "com"
         // This ensures deterministic transcript layout
         domsep.add_scalars(3, "com");
 
@@ -439,7 +439,7 @@ mod tests {
         // Step 1: Create a domain separator with the label "test"
         let mut domsep: DomainSeparator<G, G, u8> = DomainSeparator::new("test", true);
 
-        // Step 2: Add an "absorb scalars" tag for 3 scalars, with label "com"
+        // Step 2: Add an "observe scalars" tag for 3 scalars, with label "com"
         // This ensures deterministic transcript layout
         domsep.add_scalars(3, "com");
 
@@ -484,7 +484,7 @@ mod tests {
         // Step 1: Create a domain separator with the label "test"
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test", true);
 
-        // Step 2: Add absorb-scalar tag for EF4 type and 3 values
+        // Step 2: Add observe-scalar tag for EF4 type and 3 values
         domsep.add_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
@@ -534,7 +534,7 @@ mod tests {
         // Step 1: Create a domain separator with the label "test"
         let mut domsep: DomainSeparator<EG2, G, u8> = DomainSeparator::new("test", true);
 
-        // Step 2: Add absorb-scalar tag for EG2 type and 3 values
+        // Step 2: Add observe-scalar tag for EG2 type and 3 values
         domsep.add_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
@@ -583,7 +583,7 @@ mod tests {
         // Generate some random F values
         let values = [F::from_u64(111), F::from_u64(222)];
 
-        // Create a domain separator indicating we will absorb 2 public scalars
+        // Create a domain separator indicating we will observe 2 public scalars
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("field", true);
         domsep.add_scalars(2, "test");
 
@@ -615,7 +615,7 @@ mod tests {
         // Generate some random Goldilocks values
         let values = [G::from_u64(111), G::from_u64(222)];
 
-        // Create a domain separator indicating we will absorb 2 public scalars
+        // Create a domain separator indicating we will observe 2 public scalars
         let mut domsep: DomainSeparator<G, G, u8> = DomainSeparator::new("field", true);
         domsep.add_scalars(2, "test");
 

@@ -75,13 +75,13 @@ where
 
     /// Observe input elements into the transcript, advancing the expected operation stack.
     ///
-    /// This method must be called exactly when the next expected operation is `Absorb`.
-    /// If `verify_operations` is enabled, the input length must match the declared absorb length.
+    /// This method must be called exactly when the next expected operation is `Observe`.
+    /// If `verify_operations` is enabled, the input length must match the declared observe length.
     ///
     /// # Errors
     /// Returns an error if:
-    /// - the next expected operation is not `Absorb`,
-    /// - the input length exceeds the expected absorb length,
+    /// - the next expected operation is not `Observe`,
+    /// - the input length exceeds the expected observe length,
     /// - the stack is empty.
     pub fn observe(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
         if !self.verify_operations {
@@ -118,12 +118,12 @@ where
 
     /// Sample output elements from the transcript, advancing the expected operation stack.
     ///
-    /// This method must be called exactly when the next expected operation is `Squeeze`.
+    /// This method must be called exactly when the next expected operation is `Sample`.
     /// It fills the `output` slice with challenge elements derived from the current transcript state.
     ///
     /// # Errors
     /// Returns an error if:
-    /// - the next expected operation is not `Squeeze`,
+    /// - the next expected operation is not `Sample`,
     /// - the requested output length exceeds what remains,
     /// - the stack is empty.
     pub fn sample(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {

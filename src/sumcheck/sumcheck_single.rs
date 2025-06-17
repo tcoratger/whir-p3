@@ -1526,7 +1526,7 @@ mod tests {
         // Step 1: Initialize domain separator with a context label
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("test", true);
 
-        // Step 2: Register the fact that we’re about to absorb 3 field elements
+        // Step 2: Register the fact that we’re about to observe 3 field elements
         domsep.add_scalars(3, "test");
 
         // Step 3: Sample 1 challenge scalar from the transcript
@@ -1610,9 +1610,9 @@ mod tests {
         // Setup the domain separator
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("test", true);
 
-        // For each folding round, we must absorb values, sample challenge, and apply PoW
+        // For each folding round, we must observe values, sample challenge, and apply PoW
         for _ in 0..folding_factor {
-            // Absorb 3 field elements (evaluations of sumcheck polynomial)
+            // Observe 3 field elements (evaluations of sumcheck polynomial)
             domsep.add_scalars(3, "tag");
 
             // Sample 1 challenge scalar from the Fiat-Shamir transcript
@@ -1752,7 +1752,7 @@ mod tests {
 
         // Register interactions with the transcript for each round
         for _ in 0..folding_factor {
-            // Absorb 3 field values (sumcheck evaluations at X = 0, 1, 2)
+            // Observe 3 field values (sumcheck evaluations at X = 0, 1, 2)
             domsep.add_scalars(3, "tag");
 
             // Sample 1 field challenge (folding randomness)
@@ -2085,7 +2085,7 @@ mod tests {
 
         // Register expected Fiat-Shamir interactions for each round
         for _ in 0..folding_factor {
-            // Step 1: absorb 3 evaluations of the sumcheck polynomial h(X)
+            // Step 1: observe 3 evaluations of the sumcheck polynomial h(X)
             domsep.add_scalars(3, "tag");
 
             // Step 2: derive a folding challenge scalar from transcript
@@ -2484,13 +2484,13 @@ mod tests {
         // Create domain separator for Fiat-Shamir transcript simulation
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test", true);
 
-        // Step 1: absorb 3 evaluations of the sumcheck polynomial h(X)
+        // Step 1: observe 3 evaluations of the sumcheck polynomial h(X)
         domsep.add_scalars(8, "tag");
 
         // Step 2: derive a folding challenge scalar from transcript
         domsep.challenge_scalars(1, "tag");
 
-        // Step 1: absorb 3 evaluations of the sumcheck polynomial h(X)
+        // Step 1: observe 3 evaluations of the sumcheck polynomial h(X)
         domsep.add_scalars(3, "tag");
 
         // Step 2: derive a folding challenge scalar from transcript

@@ -62,7 +62,7 @@ where
     /// Creates a new [`VerifierState`] instance with the given sponge and IO Pattern.
     ///
     /// The resulting object will act as the verifier in a zero-knowledge protocol.
-    /// `verify_operations` indicates whether Fiat-Shamir operations (squeeze, absorb, hint)
+    /// `verify_operations` indicates whether Fiat-Shamir operations (observe, sample, hint)
     /// should be verified at runtime.
     ///
     /// ```ignore
@@ -96,7 +96,7 @@ where
         }
     }
 
-    /// Read `input.len()` bytes from the NARG transcript and absorb them.
+    /// Read `input.len()` bytes from the NARG transcript and observe them.
     #[inline]
     pub fn fill_next_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         U::read(&mut self.narg_string, input)?;
@@ -111,7 +111,7 @@ where
         Ok(input)
     }
 
-    /// Deserialize a list of extension scalars from the transcript and absorb them.
+    /// Deserialize a list of extension scalars from the transcript and observe them.
     pub fn fill_next_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // Size of one base field element in bytes
         let base_bytes = F::NUM_BYTES;
@@ -228,7 +228,7 @@ where
         Ok(output)
     }
 
-    /// Serialize and absorb public scalar values into the sponge, returning their byte encoding.
+    /// Serialize and observe public scalar values into the sponge, returning their byte encoding.
     pub fn public_scalars(&mut self, input: &[EF]) -> ProofResult<Vec<u8>> {
         // Build the byte vector by flattening all basis coefficients.
         //
@@ -249,7 +249,7 @@ where
             .flat_map(|coeff| coeff.as_canonical_u64().to_le_bytes()[..F::NUM_BYTES].to_vec())
             .collect();
 
-        // Absorb the serialized bytes into the Fiat-Shamir transcript sponge
+        // Observe the serialized bytes into the Fiat-Shamir transcript sponge
         self.hash_state.observe(&U::slice_from_u8_slice(&bytes))?;
 
         // Return the serialized byte representation
@@ -459,7 +459,7 @@ mod tests {
         }
 
         // Step 3: Create a domain separator that commits to absorbing 2 scalars
-        // The label "scalars" is just metadata to distinguish this absorb phase
+        // The label "scalars" is just metadata to distinguish this observe phase
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("test", true);
         domsep.add_scalars(values.len(), "scalars");
 
@@ -539,7 +539,7 @@ mod tests {
         // Generate some random F values
         let values = [F::from_u64(111), F::from_u64(222)];
 
-        // Create a domain separator indicating we will absorb 2 public scalars
+        // Create a domain separator indicating we will observe 2 public scalars
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("field", true);
         domsep.add_scalars(2, "test");
 
@@ -570,7 +570,7 @@ mod tests {
         // Generate some random Goldilocks values
         let values = [G::from_u64(111), G::from_u64(222)];
 
-        // Create a domain separator indicating we will absorb 2 public scalars
+        // Create a domain separator indicating we will observe 2 public scalars
         let mut domsep: DomainSeparator<G, G, u8> = DomainSeparator::new("field", true);
         domsep.add_scalars(2, "test");
 
@@ -976,7 +976,7 @@ mod tests {
         // Record public scalars in the transcript
         domsep.add_scalars(NUM_SCALARS, "public-scalars");
 
-        // Create prover and absorb public scalars
+        // Create prover and observe public scalars
         let challenge = DummyChallenger::new();
         let mut prover = domsep.to_prover_state(challenge.clone());
         prover.add_scalars(&random_scalars).unwrap();
