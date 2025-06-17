@@ -847,6 +847,101 @@ mod tests {
     }
 
     #[test]
+    fn test_constraint_eq_high_dim_no_rotate_simple() {
+        // -----------------------------------------------------
+        // Construct a 4×4 matrix, flattened row-wise.
+        //
+        // Matrix layout (row-major):
+        // [
+        //   [  1,  2,  3,  4 ],    // row 0
+        //   [  5,  6,  7,  8 ],    // row 1
+        //   [  9, 10, 11, 12 ],    // row 2
+        //   [ 13, 14, 15, 16 ],    // row 3
+        // ]
+        //
+        // We treat this matrix as evaluations of a 4-variable multilinear
+        // polynomial f(x_0,x_1,x_2,x_3) over {0,1}^4, where:
+        //   - (x_0,x_1) index the rows
+        //   - (x_2,x_3) index the columns
+        // -----------------------------------------------------
+        let mat_data = (1u8..=16).map(F::from_u8).collect::<Vec<_>>();
+        let mat = RowMajorMatrix::new(mat_data.clone(), 4); // width = 4
+
+        let concat = ConcatMats::new(vec![mat]);
+        let meta = &concat.meta;
+
+        // -----------------------------------------------------
+        // Define an equality constraint query over rows.
+        //
+        // z = (0, 1) selects the row with bits (x_2, x_3) = (0, 1)
+        // This corresponds to row index = 1 (second row):
+        //     [5, 6, 7, 8]
+        //
+        // Note: meta.log_b = 4 because total input dim is 4 bits.
+        // -----------------------------------------------------
+        let query = MlQuery::Eq(MultilinearPoint(vec![F::ZERO, F::ONE]));
+
+        // -----------------------------------------------------
+        // Select a random challenge r = (1, 2) ∉ {0,1}^2
+        //
+        // This will be used to build eq_r(x_0, x_1), a multilinear
+        // equality polynomial that "selects" a virtual column.
+        // -----------------------------------------------------
+        let r = vec![F::ONE, F::ZERO];
+
+        // -----------------------------------------------------
+        // Extract the corresponding row values
+        // ys = g(0,1,⋅,⋅) = [5, 6, 7, 8]
+        //
+        // These values will be dot-multiplied against eq_r(x)
+        // to produce the expected sum.
+        // -----------------------------------------------------
+        let ys = mat_data[4..8].to_vec(); // row 1
+
+        // -----------------------------------------------------
+        // Call the constraint system to compute:
+        // - weights: either Evaluation or Linear variant
+        // - sum: the weighted sum over the selected row
+        // -----------------------------------------------------
+        let (weights, sum) = meta.constraint(0, &query, &ys, &r);
+
+        // -----------------------------------------------------
+        // The index corresponds to:
+        //   - row : (0, 1) -> row index = 1
+        //   - col : (1, 0) -> column index = 2
+        //
+        // f(0,1,1,0) = 7 (from the matrix)
+        // -----------------------------------------------------
+        assert_eq!(
+            sum,
+            F::from_u64(7),
+            "Sum from constraint does not match expected"
+        );
+
+        // -----------------------------------------------------
+        // Step 8: Evaluate the full matrix at the returned point
+        //
+        // When the system returns Weights::Evaluation, it means
+        // the sum can be viewed as f(point), where f is the full
+        // multilinear extension of the matrix.
+        //
+        // We check that f(0,1,1,0) = 7
+        // -----------------------------------------------------
+        match weights {
+            Weights::Evaluation { point } => {
+                let eval_list = EvaluationsList::new(concat.values.clone());
+                let evaluation_at_point = eval_list.evaluate(&point);
+                assert_eq!(
+                    evaluation_at_point,
+                    F::from_u64(7),
+                    "Multilinear evaluation at point doesn't match expected"
+                );
+            }
+            Weights::Linear { .. } => panic!("Expected Weights::Evaluation from Eq query"),
+        }
+    }
+
+    #[test]
     fn test_constraint_eq_high_dim_no_rotate() {
         // -----------------------------------------------------
         // Construct a 4×4 matrix, flattened row-wise.
@@ -860,9 +955,9 @@ mod tests {
         // ]
         //
         // We treat this matrix as evaluations of a 4-variable multilinear
-        // polynomial f(x₀,x₁,x₂,x₃) over {0,1}⁴, where:
-        //   - (x₂,x₃) index the rows
-        //   - (x₀,x₁) index the columns
+        // polynomial f(x_0,x_1,x_2,x_3) over {0,1}^4, where:
+        //   - (x_0,x_1) index the rows
+        //   - (x_2,x_3) index the columns
         // -----------------------------------------------------
         let mat_data = (1u8..=16).map(F::from_u8).collect::<Vec<_>>();
         let mat = RowMajorMatrix::new(mat_data.clone(), 4); // width = 4
