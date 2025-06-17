@@ -50,6 +50,9 @@ where
     /// and is later parsed into a queue of [`Op`] instructions by `finalize()`.
     io: String,
 
+    /// Whether Fiat-Shamir operations (squeeze, absorb, hint) should be verified at runtime.
+    verify_operations: bool,
+
     /// Phantom marker for the base field type `F`.
     ///
     /// Ensures that field operations (e.g., `as_basis_coefficients_slice`) are
@@ -61,9 +64,6 @@ where
     /// Provides type-level tracking of the extension degree and element structure used in
     /// challenge generation and scalar absorption.
     _extension_field: PhantomData<EF>,
-
-    /// Whether Fiat-Shamir operations (squeeze, absorb, hint) should be verified at runtime.
-    verify_operations: bool,
 
     /// Phantom marker for the unit type `U`.
     _unit: PhantomData<U>,
@@ -112,7 +112,7 @@ where
         );
 
         self.io += SEP_BYTE;
-        write!(self.io, "A{count}{label}").expect("writing to String cannot fail");
+        write!(self.io, "O{count}{label}").expect("writing to String cannot fail");
     }
 
     /// Sample `count` native elements.
@@ -187,8 +187,8 @@ where
     fn simplify_stack(mut dst: VecDeque<Op>, mut stack: VecDeque<Op>) -> VecDeque<Op> {
         while let Some(next) = stack.pop_front() {
             match (dst.pop_back(), next) {
-                (Some(Op::Squeeze(a)), Op::Squeeze(b)) => dst.push_back(Op::Squeeze(a + b)),
-                (Some(Op::Absorb(a)), Op::Absorb(b)) => dst.push_back(Op::Absorb(a + b)),
+                (Some(Op::Sample(a)), Op::Sample(b)) => dst.push_back(Op::Sample(a + b)),
+                (Some(Op::Observe(a)), Op::Observe(b)) => dst.push_back(Op::Observe(a + b)),
                 (Some(prev), next) => {
                     dst.push_back(prev);
                     dst.push_back(next);
@@ -367,31 +367,43 @@ where
     }
 }
 
-/// Sponge operations.
+/// Transcript operations expected by a Fiat-Shamir-based protocol.
+///
+/// These operations define the expected sequence of prover/verifier interactions
+/// and are typically encoded into a domain separator. They allow runtime enforcement
+/// of the transcript structure during proof generation and verification.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Op {
-    /// Indicates absorption of `usize` lanes.
+    /// Indicates an observation of `usize` elements into the transcript.
     ///
-    /// In a tag, absorb is indicated with 'A'.
-    Absorb(usize),
-    /// Indicates processing of out-of-band message
-    /// from prover to verifier.
+    /// In the domain separator tag, this is encoded as `'O'`.
     ///
-    /// This is useful for e.g. adding merkle proofs to the proof.
+    /// Example: `Observe(3)` expects 3 elements to be observed at this point.
+    Observe(usize),
+
+    /// Indicates a non-binding, out-of-band hint from prover to verifier.
+    ///
+    /// Hints are not absorbed into the hash state and do not affect challenge generation,
+    /// but must still be declared for protocol completeness (e.g., Merkle proofs).
+    ///
+    /// In the domain separator tag, this is encoded as `'H'`.
     Hint,
-    /// Indicates squeezing of `usize` lanes.
+
+    /// Indicates sampling of `usize` challenge elements from the transcript.
     ///
-    /// In a tag, squeeze is indicated with 'S'.
-    Squeeze(usize),
+    /// In the domain separator tag, this is encoded as `'S'`.
+    ///
+    /// Example: `Sample(2)` expects 2 challenges to be drawn at this point.
+    Sample(usize),
 }
 
 impl Op {
     /// Create a new OP from the portion of a tag.
     fn new(id: char, count: Option<usize>) -> Result<Self, DomainSeparatorMismatch> {
         match (id, count) {
-            ('A', Some(c)) if c > 0 => Ok(Self::Absorb(c)),
+            ('O', Some(c)) if c > 0 => Ok(Self::Observe(c)),
             ('H', None | Some(0)) => Ok(Self::Hint),
-            ('S', Some(c)) if c > 0 => Ok(Self::Squeeze(c)),
+            ('S', Some(c)) if c > 0 => Ok(Self::Sample(c)),
             _ => Err("Invalid tag".into()),
         }
     }
@@ -434,20 +446,20 @@ mod tests {
         ds.observe(2, "input");
         ds.sample(1, "challenge");
         let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Absorb(2), Op::Squeeze(1)]);
+        assert_eq!(ops, vec![Op::Observe(2), Op::Sample(1)]);
     }
 
     #[test]
-    fn test_absorb_return_value_format() {
+    fn test_observe_return_value_format() {
         let mut ds = DomainSeparator::<EF4, F, u8>::new("proto", true);
         ds.observe(3, "input");
-        let expected_str = "proto\0A3input"; // initial + SEP + absorb op + label
+        let expected_str = "proto\0O3input"; // initial + SEP + observe op + label
         assert_eq!(ds.as_units(), expected_str.as_bytes());
     }
 
     #[test]
     #[should_panic]
-    fn test_absorb_zero_panics() {
+    fn test_observe_zero_panics() {
         DomainSeparator::<EF4, F, u8>::new("x", true).observe(0, "label");
     }
 
@@ -471,15 +483,15 @@ mod tests {
         ds.sample(3, "c");
         ds.sample(1, "d");
         let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Absorb(3), Op::Squeeze(4)]);
+        assert_eq!(ops, vec![Op::Observe(3), Op::Sample(4)]);
     }
 
     #[test]
     fn test_parse_domsep_multiple_ops() {
-        let tag = "main\0A1x\0A2y\0S3z\0S2w";
+        let tag = "main\0O1x\0O2y\0S3z\0S2w";
         let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string(), true);
         let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Absorb(3), Op::Squeeze(5)]);
+        assert_eq!(ops, vec![Op::Observe(3), Op::Sample(5)]);
     }
 
     #[test]
@@ -488,7 +500,7 @@ mod tests {
         ds.observe(1, "a");
         ds.sample(2, "b");
         let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Absorb(1), Op::Squeeze(2)]);
+        assert_eq!(ops, vec![Op::Observe(1), Op::Sample(2)]);
     }
 
     #[test]
@@ -504,7 +516,7 @@ mod tests {
         ds.observe(1, "🦀");
         ds.sample(1, "🎯");
         let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Absorb(1), Op::Squeeze(1)]);
+        assert_eq!(ops, vec![Op::Observe(1), Op::Sample(1)]);
     }
 
     #[test]
@@ -514,7 +526,7 @@ mod tests {
         ds.observe(12345, &label);
         ds.sample(54321, &label);
         let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Absorb(12345), Op::Squeeze(54321)]);
+        assert_eq!(ops, vec![Op::Observe(12345), Op::Sample(54321)]);
     }
 
     #[test]
@@ -528,10 +540,10 @@ mod tests {
 
     #[test]
     fn test_simplify_stack_keeps_unlike_ops() {
-        let tag = "test\0A2x\0S3y\0A1z";
+        let tag = "test\0O2x\0S3y\0O1z";
         let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string(), true);
         let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Absorb(2), Op::Squeeze(3), Op::Absorb(1)]);
+        assert_eq!(ops, vec![Op::Observe(2), Op::Sample(3), Op::Observe(1)]);
     }
 
     #[test]
@@ -585,50 +597,50 @@ mod tests {
 
     #[test]
     fn test_finalize_mixed_ops_order_preserved() {
-        let tag = "zkp\0A1a\0S1b\0A2c\0S3d\0A4e\0S1f";
+        let tag = "zkp\0O1a\0S1b\0O2c\0S3d\0O4e\0S1f";
         let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string(), true);
         let ops = ds.finalize();
         assert_eq!(
             ops,
             vec![
-                Op::Absorb(1),
-                Op::Squeeze(1),
-                Op::Absorb(2),
-                Op::Squeeze(3),
-                Op::Absorb(4),
-                Op::Squeeze(1),
+                Op::Observe(1),
+                Op::Sample(1),
+                Op::Observe(2),
+                Op::Sample(3),
+                Op::Observe(4),
+                Op::Sample(1),
             ]
         );
     }
 
     #[test]
     fn test_finalize_large_values_and_merge() {
-        let tag = "main\0A5a\0A10b\0S8c\0S2d";
+        let tag = "main\0O5a\0O10b\0S8c\0S2d";
         let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string(), true);
         let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Absorb(15), Op::Squeeze(10)]);
+        assert_eq!(ops, vec![Op::Observe(15), Op::Sample(10)]);
     }
 
     #[test]
     fn test_finalize_merge_and_breaks() {
-        let tag = "example\0A2x\0A1y\0A3z\0S4u\0S1v";
+        let tag = "example\0O2x\0O1y\0O3z\0S4u\0S1v";
         let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string(), true);
         let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Absorb(6), Op::Squeeze(5),]);
+        assert_eq!(ops, vec![Op::Observe(6), Op::Sample(5),]);
     }
 
     #[test]
     fn test_finalize_complex_merge_boundaries() {
-        let tag = "demo\0A1a\0A1b\0S2c\0S2d\0A3e\0S1f\0Hd";
+        let tag = "demo\0O1a\0O1b\0S2c\0S2d\0O3e\0S1f\0Hd";
         let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string(), true);
         let ops = ds.finalize();
         assert_eq!(
             ops,
             vec![
-                Op::Absorb(2),  // A1a + A1b
-                Op::Squeeze(4), // S2c + S2d
-                Op::Absorb(3),  // A3e
-                Op::Squeeze(1), // S1f
+                Op::Observe(2), // O1a + O1b
+                Op::Sample(4),  // S2c + S2d
+                Op::Observe(3), // A3e
+                Op::Sample(1),  // S1f
                 Op::Hint,       // Hd
             ]
         );
@@ -636,24 +648,24 @@ mod tests {
 
     #[test]
     fn test_add_scalars_babybear() {
-        // Test absorption of scalar field elements (BabyBear).
+        // Test observation of scalar field elements (BabyBear).
         // - BabyBear is a base field with extension degree = 1
         // - bits = 31 → NUM_BYTES = 4
         // - 2 scalars * 1 * 4 = 8 bytes absorbed
-        // - "A" indicates absorption in the domain separator
+        // - "O" indicates observation in the domain separator
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("babybear", true);
         domsep.add_scalars(2, "foo");
-        let expected = b"babybear\0A8foo";
+        let expected = b"babybear\0O8foo";
         assert_eq!(domsep.as_units(), expected);
     }
 
     #[test]
     fn test_challenge_scalars_babybear() {
-        // Test squeezing scalar field elements (BabyBear).
+        // Test sampling scalar field elements (BabyBear).
         // - BabyBear has extension degree = 1
         // - bits = 31 → bytes_uniform_modp(31) = 5
         // - 3 scalars * 1 * 5 = 15 bytes squeezed
-        // - "S" indicates squeezing in the domain separator
+        // - "S" indicates sampling in the domain separator
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("bb", true);
         domsep.challenge_scalars(3, "bar");
         let expected = b"bb\0S57bar";
@@ -662,13 +674,13 @@ mod tests {
 
     #[test]
     fn test_add_scalars_quartic_ext_field() {
-        // Test absorption of scalars from a quartic extension field EF4.
+        // Test observation of scalars from a quartic extension field EF4.
         // - EF4 has extension degree = 4
         // - Base field bits = 31 → NUM_BYTES = 4
-        // - 2 scalars * 4 * 4 = 32 bytes absorbed
+        // - 2 scalars * 4 * 4 = 32 bytes observed
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("ext", true);
         domsep.add_scalars(2, "a");
-        let expected = b"ext\0A32a";
+        let expected = b"ext\0O32a";
         assert_eq!(domsep.as_units(), expected);
     }
 
@@ -759,6 +771,6 @@ mod tests {
         ds.hint("meta");
         ds.sample(2, "y");
         let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Absorb(1), Op::Hint, Op::Squeeze(2)]);
+        assert_eq!(ops, vec![Op::Observe(1), Op::Hint, Op::Sample(2)]);
     }
 }

@@ -89,9 +89,9 @@ where
             return Ok(());
         }
         match self.stack.pop_front() {
-            Some(Op::Absorb(length)) if length >= input.len() => {
+            Some(Op::Observe(length)) if length >= input.len() => {
                 if length > input.len() {
-                    self.stack.push_front(Op::Absorb(length - input.len()));
+                    self.stack.push_front(Op::Observe(length - input.len()));
                 }
                 self.challenger.observe_slice(input);
                 Ok(())
@@ -100,7 +100,7 @@ where
                 self.stack.clear();
                 Err(format!(
                     "Invalid tag. Stack empty, got {:?}",
-                    Op::Absorb(input.len())
+                    Op::Observe(input.len())
                 )
                 .into())
             }
@@ -108,7 +108,7 @@ where
                 self.stack.clear();
                 Err(format!(
                     "Invalid tag. Got {:?}, expected {:?}",
-                    Op::Absorb(input.len()),
+                    Op::Observe(input.len()),
                     op
                 )
                 .into())
@@ -134,12 +134,12 @@ where
             return Ok(());
         }
         match self.stack.pop_front() {
-            Some(Op::Squeeze(length)) if output.len() <= length => {
+            Some(Op::Sample(length)) if output.len() <= length => {
                 for out in output.iter_mut() {
                     *out = self.challenger.sample();
                 }
                 if length != output.len() {
-                    self.stack.push_front(Op::Squeeze(length - output.len()));
+                    self.stack.push_front(Op::Sample(length - output.len()));
                 }
                 Ok(())
             }
@@ -147,7 +147,7 @@ where
                 self.stack.clear();
                 Err(format!(
                     "Invalid tag. Stack empty, got {:?}",
-                    Op::Squeeze(output.len())
+                    Op::Sample(output.len())
                 )
                 .into())
             }
@@ -155,7 +155,7 @@ where
                 self.stack.clear();
                 Err(format!(
                     "Invalid tag. Got {:?}, expected {:?}. The stack remaining is: {:?}",
-                    Op::Squeeze(output.len()),
+                    Op::Sample(output.len()),
                     op,
                     self.stack
                 )
@@ -264,7 +264,7 @@ mod tests {
         let result = state.sample(&mut out);
         assert!(result.is_ok());
 
-        assert_eq!(state.stack.front(), Some(&Op::Squeeze(2)));
+        assert_eq!(state.stack.front(), Some(&Op::Sample(2)));
     }
 
     #[test]
@@ -277,7 +277,7 @@ mod tests {
 
         let res1 = state.observe(&[1, 2]);
         assert!(res1.is_ok());
-        assert_eq!(state.stack.front(), Some(&Op::Absorb(3)));
+        assert_eq!(state.stack.front(), Some(&Op::Observe(3)));
 
         let res2 = state.observe(&[3, 4, 5]);
         assert!(res2.is_ok());
@@ -294,7 +294,7 @@ mod tests {
 
         let mut out1 = [0u8; 2];
         assert!(state.sample(&mut out1).is_ok());
-        assert_eq!(state.stack.front(), Some(&Op::Squeeze(3)));
+        assert_eq!(state.stack.front(), Some(&Op::Sample(3)));
 
         let mut out2 = [0u8; 3];
         assert!(state.sample(&mut out2).is_ok());
@@ -337,7 +337,7 @@ mod tests {
             ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         assert_eq!(state.stack.len(), 1);
-        assert_eq!(state.stack.front(), Some(&Op::Absorb(1)));
+        assert_eq!(state.stack.front(), Some(&Op::Observe(1)));
     }
 
     #[test]
@@ -380,7 +380,7 @@ mod tests {
         let mut state =
             ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
-        let result = state.hint(); // Should expect Op::Hint, but see Op::Absorb
+        let result = state.hint(); // Should expect Op::Hint, but see Op::Observe
         assert!(result.is_err());
         assert!(state.stack.is_empty());
     }
