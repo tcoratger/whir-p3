@@ -120,7 +120,7 @@ fn prepare_inputs() -> (
     // Fiat-Shamir setup
 
     // Create a domain separator for transcript hashing.
-    let mut domainsep = DomainSeparator::new("🌪️");
+    let mut domainsep = DomainSeparator::new("🌪️", true);
 
     // Commit protocol parameters and proof type to the domain separator.
     domainsep.commit_statement(&params);

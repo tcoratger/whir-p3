@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(prover.sum, expected_initial_sum);
 
         // Set up domain separator
-        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("tag");
+        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("tag", true);
 
         let folding_factor = 3;
         let pow_bits = 1.;
@@ -426,7 +426,7 @@ mod tests {
         // - 1 skipped round: 2^k_skip + 1 values
         // - remaining rounds: 3 values each
         // -------------------------------------------------------------
-        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test", true);
         domsep.add_scalars(1 << (K_SKIP + 1), "skip");
         domsep.challenge_scalars(1, "skip");
 

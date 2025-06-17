@@ -147,7 +147,7 @@ fn main() {
     }
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
-    let mut domainsep = DomainSeparator::new("🌪️");
+    let mut domainsep = DomainSeparator::new("🌪️", true);
     domainsep.commit_statement(&params);
     domainsep.add_whir_proof(&params);
 
