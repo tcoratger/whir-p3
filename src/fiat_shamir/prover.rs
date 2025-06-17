@@ -9,7 +9,7 @@ use super::{
     domain_separator::DomainSeparator,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
-    sho::HashStateWithInstructions,
+    sho::ChallengerWithInstructions,
     unit::UnitToBytes,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order},
 };
@@ -40,7 +40,7 @@ where
     /// The internal challenger.
     pub(crate) challenger: Challenger,
     /// The public coins for the protocol
-    pub(crate) hash_state: HashStateWithInstructions<Challenger, U>,
+    pub(crate) hash_state: ChallengerWithInstructions<Challenger, U>,
     /// The encoded data.
     pub(crate) narg_string: Vec<u8>,
     /// Marker for the field.
@@ -70,8 +70,11 @@ where
     where
         Challenger: Clone,
     {
-        let hash_state =
-            HashStateWithInstructions::new(domain_separator, challenger.clone(), verify_operations);
+        let hash_state = ChallengerWithInstructions::new(
+            domain_separator,
+            challenger.clone(),
+            verify_operations,
+        );
 
         challenger.observe_slice(&domain_separator.as_units());
 

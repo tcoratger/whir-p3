@@ -9,7 +9,7 @@ use super::{
     domain_separator::DomainSeparator,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
-    sho::HashStateWithInstructions,
+    sho::ChallengerWithInstructions,
     unit::UnitToBytes,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
 };
@@ -32,7 +32,7 @@ where
     /// This manages the full Fiat-Shamir interaction logic, such as absorbing inputs and
     /// squeezing challenges. It also stores the domain separator instructions to enforce
     /// consistency between prover and verifier.
-    pub(crate) hash_state: HashStateWithInstructions<Challenger, U>,
+    pub(crate) hash_state: ChallengerWithInstructions<Challenger, U>,
 
     /// The "NARG" string: raw serialized input provided by the prover.
     ///
@@ -85,7 +85,7 @@ where
         verify_operations: bool,
     ) -> Self {
         Self {
-            hash_state: HashStateWithInstructions::new(
+            hash_state: ChallengerWithInstructions::new(
                 domain_separator,
                 challenger,
                 verify_operations,

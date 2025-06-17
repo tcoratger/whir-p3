@@ -11,7 +11,7 @@ use crate::fiat_shamir::unit::Unit;
 
 /// A stateful hash object that interfaces with duplex interfaces.
 #[derive(Clone, Debug)]
-pub struct HashStateWithInstructions<Challenger, U>
+pub struct ChallengerWithInstructions<Challenger, U>
 where
     U: Unit,
     Challenger: CanObserve<U> + CanSample<U>,
@@ -32,7 +32,7 @@ where
     _unit: PhantomData<U>,
 }
 
-impl<Challenger, U> HashStateWithInstructions<Challenger, U>
+impl<Challenger, U> ChallengerWithInstructions<Challenger, U>
 where
     U: Unit + Default + Copy,
     Challenger: CanObserve<U> + CanSample<U>,
@@ -206,7 +206,7 @@ mod tests {
         domsep.observe(2, "x");
         let challenger = DummyChallenger::default();
         let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         assert_eq!(state.stack.len(), 1);
 
@@ -222,7 +222,7 @@ mod tests {
         domsep.observe(2, "x");
         let challenger = DummyChallenger::default();
         let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         let result = state.observe(&[1, 2, 3]);
         assert!(result.is_err());
@@ -234,7 +234,7 @@ mod tests {
         domsep.sample(3, "y");
         let challenger = DummyChallenger::default();
         let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         let mut out = [0u8; 3];
         let result = state.sample(&mut out);
@@ -248,7 +248,7 @@ mod tests {
         domsep.sample(4, "z");
         let challenger = DummyChallenger::default();
         let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         let mut out = [0u8; 2];
         let result = state.sample(&mut out);
@@ -263,7 +263,7 @@ mod tests {
         domsep.observe(5, "a");
         let challenger = DummyChallenger::default();
         let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         let res1 = state.observe(&[1, 2]);
         assert!(res1.is_ok());
@@ -280,7 +280,7 @@ mod tests {
         domsep.sample(5, "z");
         let challenger = DummyChallenger::default();
         let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         let mut out1 = [0u8; 2];
         assert!(state.sample(&mut out1).is_ok());
@@ -297,7 +297,7 @@ mod tests {
         domsep.observe(3, "in");
         let challenger = DummyChallenger::default();
         let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         let mut out = [0u8; 1];
         let result = state.sample(&mut out);
@@ -311,7 +311,7 @@ mod tests {
         domsep.observe(2, "x");
         let challenger = DummyChallenger::default();
         let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         assert!(state.observe(&[10, 20]).is_ok());
         assert!(state.observe(&[30]).is_err()); // no ops left
@@ -323,7 +323,8 @@ mod tests {
         let mut domsep = DomainSeparator::<F, F, u8>::new("from", true);
         domsep.observe(1, "in");
         let challenger = DummyChallenger::default();
-        let state = HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+        let state =
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         assert_eq!(state.stack.len(), 1);
         assert_eq!(state.stack.front(), Some(&Op::Absorb(1)));
@@ -337,9 +338,9 @@ mod tests {
         ds2.observe(1, "x");
 
         let challenger1 = DummyChallenger::default();
-        let tag1 = HashStateWithInstructions::<DummyChallenger, _>::new(&ds1, challenger1, true);
+        let tag1 = ChallengerWithInstructions::<DummyChallenger, _>::new(&ds1, challenger1, true);
         let challenger2 = DummyChallenger::default();
-        let tag2 = HashStateWithInstructions::<DummyChallenger, _>::new(&ds2, challenger2, true);
+        let tag2 = ChallengerWithInstructions::<DummyChallenger, _>::new(&ds2, challenger2, true);
 
         assert_eq!(
             &*tag1.challenger.observed.borrow(),
@@ -353,7 +354,7 @@ mod tests {
         domsep.hint("hint");
         let challenger = DummyChallenger::default();
         let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         assert_eq!(state.stack.len(), 1);
         let result = state.hint();
@@ -367,7 +368,7 @@ mod tests {
         domsep.observe(1, "x");
         let challenger = DummyChallenger::default();
         let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         let result = state.hint(); // Should expect Op::Hint, but see Op::Absorb
         assert!(result.is_err());
@@ -379,7 +380,7 @@ mod tests {
         let domsep = DomainSeparator::<F, F, u8>::new("test", true);
         let challenger = DummyChallenger::default();
         let mut state =
-            HashStateWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
+            ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger, true);
 
         let result = state.hint(); // Stack is empty
         assert!(result.is_err());
