@@ -96,8 +96,8 @@ where
         Self::from_string(session_identifier.to_string(), verify_operations)
     }
 
-    /// Absorb `count` native elements.
-    pub fn absorb(&mut self, count: usize, label: &str) {
+    /// Observe `count` native elements.
+    pub fn observe(&mut self, count: usize, label: &str) {
         assert!(count > 0, "Count must be positive.");
         assert!(
             !label.contains(SEP_BYTE),
@@ -115,8 +115,8 @@ where
         write!(self.io, "A{count}{label}").expect("writing to String cannot fail");
     }
 
-    /// Squeeze `count` native elements.
-    pub fn squeeze(&mut self, count: usize, label: &str) {
+    /// Sample `count` native elements.
+    pub fn sample(&mut self, count: usize, label: &str) {
         assert!(count > 0, "Count must be positive.");
         assert!(
             !label.contains(SEP_BYTE),
@@ -267,7 +267,7 @@ where
             let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
             self.add_digest("merkle_digest");
             self.add_ood(r.ood_samples);
-            self.squeeze(r.num_queries * domain_size_bytes, "stir_queries");
+            self.sample(r.num_queries * domain_size_bytes, "stir_queries");
             self.hint("stir_queries");
             self.hint("merkle_proof");
             self.pow(r.pow_bits);
@@ -288,7 +288,7 @@ where
 
         self.add_scalars(1 << params.final_sumcheck_rounds, "final_coeffs");
 
-        self.squeeze(domain_size_bytes * params.final_queries, "final_queries");
+        self.sample(domain_size_bytes * params.final_queries, "final_queries");
         self.hint("stir_answers");
         self.hint("merkle_proof");
         self.pow(params.final_pow_bits);
@@ -297,7 +297,7 @@ where
     }
 
     pub fn add_digest(&mut self, label: &str) {
-        self.absorb(32, label);
+        self.observe(32, label);
     }
 
     /// Performs `folding_factor` rounds of sumcheck interaction with the transcript.
@@ -333,8 +333,8 @@ where
     /// simulation extractability.
     pub fn challenge_pow(&mut self, label: &str) {
         // 16 bytes challenge and 16 bytes nonce (that will be written)
-        self.squeeze(32, label);
-        self.absorb(8, "pow-nonce");
+        self.sample(32, label);
+        self.observe(8, "pow-nonce");
     }
 
     pub fn add_scalars(&mut self, count: usize, label: &str) {
@@ -348,7 +348,7 @@ where
         // - `count` is the number of scalar values
         // - `extension_degree` is the number of limbs (e.g., 4 for quartic extensions)
         // - `NUM_BYTES` gives the byte size of one base field element
-        self.absorb(count * EF::DIMENSION * F::NUM_BYTES, label);
+        self.observe(count * EF::DIMENSION * F::NUM_BYTES, label);
     }
 
     pub fn challenge_scalars(&mut self, count: usize, label: &str) {
@@ -360,7 +360,7 @@ where
         //
         // where `bytes_uniform_modp` gives the number of bytes needed to sample uniformly
         // over the base field.
-        self.squeeze(
+        self.sample(
             count * EF::DIMENSION * bytes_uniform_modp(F::bits() as u32),
             label,
         );
@@ -431,8 +431,8 @@ mod tests {
     #[test]
     fn test_domain_separator_absorb_and_squeeze() {
         let mut ds = DomainSeparator::<EF4, F, u8>::new("proto", true);
-        ds.absorb(2, "input");
-        ds.squeeze(1, "challenge");
+        ds.observe(2, "input");
+        ds.sample(1, "challenge");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(2), Op::Squeeze(1)]);
     }
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn test_absorb_return_value_format() {
         let mut ds = DomainSeparator::<EF4, F, u8>::new("proto", true);
-        ds.absorb(3, "input");
+        ds.observe(3, "input");
         let expected_str = "proto\0A3input"; // initial + SEP + absorb op + label
         assert_eq!(ds.as_units(), expected_str.as_bytes());
     }
@@ -448,28 +448,28 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_absorb_zero_panics() {
-        DomainSeparator::<EF4, F, u8>::new("x", true).absorb(0, "label");
+        DomainSeparator::<EF4, F, u8>::new("x", true).observe(0, "label");
     }
 
     #[test]
     #[should_panic]
     fn test_label_with_separator_byte_panics() {
-        DomainSeparator::<EF4, F, u8>::new("x", true).absorb(1, "bad\0label");
+        DomainSeparator::<EF4, F, u8>::new("x", true).observe(1, "bad\0label");
     }
 
     #[test]
     #[should_panic]
     fn test_label_starts_with_digit_panics() {
-        DomainSeparator::<EF4, F, u8>::new("x", true).absorb(1, "1label");
+        DomainSeparator::<EF4, F, u8>::new("x", true).observe(1, "1label");
     }
 
     #[test]
     fn test_merge_consecutive_absorbs_and_squeezes() {
         let mut ds = DomainSeparator::<EF4, F, u8>::new("merge", true);
-        ds.absorb(1, "a");
-        ds.absorb(2, "b");
-        ds.squeeze(3, "c");
-        ds.squeeze(1, "d");
+        ds.observe(1, "a");
+        ds.observe(2, "b");
+        ds.sample(3, "c");
+        ds.sample(1, "d");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(3), Op::Squeeze(4)]);
     }
@@ -485,8 +485,8 @@ mod tests {
     #[test]
     fn test_byte_domain_separator_trait_impl() {
         let mut ds = DomainSeparator::<EF4, F, u8>::new("x", true);
-        ds.absorb(1, "a");
-        ds.squeeze(2, "b");
+        ds.observe(1, "a");
+        ds.sample(2, "b");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(1), Op::Squeeze(2)]);
     }
@@ -501,8 +501,8 @@ mod tests {
     #[test]
     fn test_unicode_labels() {
         let mut ds = DomainSeparator::<EF4, F, u8>::new("emoji", true);
-        ds.absorb(1, "🦀");
-        ds.squeeze(1, "🎯");
+        ds.observe(1, "🦀");
+        ds.sample(1, "🎯");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(1), Op::Squeeze(1)]);
     }
@@ -511,8 +511,8 @@ mod tests {
     fn test_large_counts_and_labels() {
         let label = "x".repeat(100);
         let mut ds = DomainSeparator::<EF4, F, u8>::new("big", true);
-        ds.absorb(12345, &label);
-        ds.squeeze(54321, &label);
+        ds.observe(12345, &label);
+        ds.sample(54321, &label);
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(12345), Op::Squeeze(54321)]);
     }
@@ -537,8 +537,8 @@ mod tests {
     #[test]
     fn test_round_trip_operations() {
         let mut ds1 = DomainSeparator::<EF4, F, u8>::new("foo", true);
-        ds1.absorb(2, "a");
-        ds1.squeeze(3, "b");
+        ds1.observe(2, "a");
+        ds1.sample(3, "b");
         let ops1 = ds1.finalize();
 
         let tag = String::from_utf8(ds1.as_units()).unwrap();
@@ -551,7 +551,7 @@ mod tests {
     #[test]
     fn test_squeeze_returns_correct_string() {
         let mut ds = DomainSeparator::<EF4, F, u8>::new("proto", true);
-        ds.squeeze(4, "challenge");
+        ds.sample(4, "challenge");
         let expected_str = "proto\0S4challenge";
         assert_eq!(ds.as_units(), expected_str.as_bytes());
     }
@@ -559,26 +559,26 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_squeeze_zero_count_panics() {
-        DomainSeparator::<EF4, F, u8>::new("proto", true).squeeze(0, "label");
+        DomainSeparator::<EF4, F, u8>::new("proto", true).sample(0, "label");
     }
 
     #[test]
     #[should_panic]
     fn test_squeeze_label_with_null_byte_panics() {
-        DomainSeparator::<EF4, F, u8>::new("proto", true).squeeze(2, "bad\0label");
+        DomainSeparator::<EF4, F, u8>::new("proto", true).sample(2, "bad\0label");
     }
 
     #[test]
     #[should_panic]
     fn test_squeeze_label_starts_with_digit_panics() {
-        DomainSeparator::<EF4, F, u8>::new("proto", true).squeeze(2, "1invalid");
+        DomainSeparator::<EF4, F, u8>::new("proto", true).sample(2, "1invalid");
     }
 
     #[test]
     fn test_multiple_squeeze_chaining() {
         let mut ds = DomainSeparator::<EF4, F, u8>::new("proto", true);
-        ds.squeeze(1, "first");
-        ds.squeeze(2, "second");
+        ds.sample(1, "first");
+        ds.sample(2, "second");
         let expected_str = "proto\0S1first\0S2second";
         assert_eq!(ds.as_units(), expected_str.as_bytes());
     }
@@ -755,9 +755,9 @@ mod tests {
     #[test]
     fn test_hint_combined_with_absorb_and_squeeze() {
         let mut ds = DomainSeparator::<EF4, F, u8>::new("combo", true);
-        ds.absorb(1, "x");
+        ds.observe(1, "x");
         ds.hint("meta");
-        ds.squeeze(2, "y");
+        ds.sample(2, "y");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Absorb(1), Op::Hint, Op::Squeeze(2)]);
     }

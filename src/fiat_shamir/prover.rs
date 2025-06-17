@@ -88,7 +88,7 @@ where
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
     pub fn add_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.absorb(input)?;
+        self.hash_state.observe(input)?;
         U::write(input, &mut self.narg_string).unwrap();
         self.challenger.observe_slice(input);
         Ok(())
@@ -288,7 +288,7 @@ where
     F: Field,
 {
     fn fill_challenge_units(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.squeeze(output)
+        self.hash_state.sample(output)
     }
 }
 
@@ -321,7 +321,7 @@ mod tests {
 
         for (size, label, data) in test_cases {
             let mut domsep = DomainSeparator::<F, F, u8>::new("test", true);
-            domsep.absorb(size, label);
+            domsep.observe(size, label);
 
             let challenger = MyChallenger::new(vec![], Keccak256Hash);
             let mut pstate = domsep.to_prover_state(challenger);
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn test_add_units_appends_to_narg_string() {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test", true);
-        domsep.absorb(3, "msg");
+        domsep.observe(3, "msg");
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut pstate = domsep.to_prover_state(challenger);
@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn test_add_units_too_many_elements_should_error() {
         let mut domsep = DomainSeparator::<F, F, u8>::new("test", true);
-        domsep.absorb(2, "short");
+        domsep.observe(2, "short");
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut pstate = domsep.to_prover_state(challenger);
@@ -359,8 +359,8 @@ mod tests {
     #[test]
     fn test_add_units_multiple_accumulates() {
         let mut domsep = DomainSeparator::<F, F, u8>::new("t", true);
-        domsep.absorb(2, "a");
-        domsep.absorb(3, "b");
+        domsep.observe(2, "a");
+        domsep.observe(3, "b");
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut p = domsep.to_prover_state(challenger);
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn test_narg_string_round_trip_check() {
         let mut domsep = DomainSeparator::<F, F, u8>::new("t", true);
-        domsep.absorb(5, "data");
+        domsep.observe(5, "data");
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut p = domsep.to_prover_state(challenger);

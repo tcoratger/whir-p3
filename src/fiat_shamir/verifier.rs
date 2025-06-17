@@ -68,7 +68,7 @@ where
     /// ```ignore
     /// # use spongefish::*;
     ///
-    /// let domsep = DomainSeparator::<DefaultHash>::new("📝").absorb(1, "inhale 🫁").squeeze(32, "exhale 🎏");
+    /// let domsep = DomainSeparator::<DefaultHash>::new("📝").observe(1, "inhale 🫁").sample(32, "exhale 🎏");
     /// // A silly NARG string for the example.
     /// let narg_string = &[0x42];
     /// let mut verifier_state = domsep.to_verifier_state::<H,32>(narg_string);
@@ -100,7 +100,7 @@ where
     #[inline]
     pub fn fill_next_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         U::read(&mut self.narg_string, input)?;
-        self.hash_state.absorb(input)?;
+        self.hash_state.observe(input)?;
         Ok(())
     }
 
@@ -250,7 +250,7 @@ where
             .collect();
 
         // Absorb the serialized bytes into the Fiat-Shamir transcript sponge
-        self.hash_state.absorb(&U::slice_from_u8_slice(&bytes))?;
+        self.hash_state.observe(&U::slice_from_u8_slice(&bytes))?;
 
         // Return the serialized byte representation
         Ok(bytes)
@@ -328,7 +328,7 @@ where
 {
     #[inline]
     fn fill_challenge_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.squeeze(input)
+        self.hash_state.sample(input)
     }
 }
 
@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn test_fill_next_units_reads_and_absorbs() {
         let mut ds = DomainSeparator::<F, F, u8>::new("x", true);
-        ds.absorb(3, "input");
+        ds.observe(3, "input");
         let challenger = DummyChallenger::new();
         let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"abc", challenger, true);
         let mut buf = [0u8; 3];
@@ -411,7 +411,7 @@ mod tests {
     #[test]
     fn test_fill_next_units_with_insufficient_data_errors() {
         let mut ds = DomainSeparator::<F, F, u8>::new("x", true);
-        ds.absorb(4, "fail");
+        ds.observe(4, "fail");
         let challenger = DummyChallenger::new();
         let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"xy", challenger, true);
         let mut buf = [0u8; 4];
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn test_unit_transcript_fill_challenge_bytes() {
         let mut ds = DomainSeparator::<F, F, u8>::new("x", true);
-        ds.squeeze(4, "c");
+        ds.sample(4, "c");
         let challenger = DummyChallenger::new();
         let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"abcd", challenger, true);
         let mut out = [0u8; 4];
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn test_fill_next_units_impl() {
         let mut ds = DomainSeparator::<F, F, u8>::new("x", true);
-        ds.absorb(3, "byte");
+        ds.observe(3, "byte");
         let challenger = DummyChallenger::new();
         let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"xyz", challenger, true);
         let mut out = [0u8; 3];

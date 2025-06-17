@@ -227,7 +227,7 @@ mod tests {
 
         let mut domain_separator =
             DomainSeparator::<F, F, u8>::new("the proof of work lottery 🎰", true);
-        domain_separator.absorb(1, "something");
+        domain_separator.observe(1, "something");
         domain_separator.challenge_pow("rolling dices");
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
