@@ -9,26 +9,36 @@ use super::{
 };
 use crate::fiat_shamir::unit::Unit;
 
-/// A stateful hash object that interfaces with duplex interfaces.
+/// A stateful transcript wrapper enforcing a predetermined Fiat-Shamir protocol.
+///
+/// Typically constructed from a `DomainSeparator`, which defines the expected operation sequence.
 #[derive(Clone, Debug)]
 pub struct ChallengerWithInstructions<Challenger, U>
 where
     U: Unit,
     Challenger: CanObserve<U> + CanSample<U>,
 {
-    /// The internal challenger.
+    /// The internal Fiat-Shamir challenger.
+    ///
+    /// This object handles actual transcript updates and challenge generation.
     pub(crate) challenger: Challenger,
-    /// A stack of expected sponge operations.
+
+    /// A queue of expected transcript operations, derived from the domain separator.
+    ///
+    /// If `verify_operations` is enabled, this stack is consumed as the transcript
+    /// proceeds and each operation is validated against the declared pattern.
     stack: VecDeque<Op>,
-    /// At the beginning of the protocol, the list of Fiat-Shamir operations
-    /// (absorb, squeeze, hint) must be declared, in order to build the Domain Separator.
-    /// This ensures that even a slightly different protocol will start with a different
-    /// random state (to avoid replay attacks).
-    /// When `verify_operations` is set to true, these operations are verified at runtime.
-    /// This is, in theory, redondant, as long as the domain separator is built correctly.
-    /// To make the development of a new PIOP easier, we can disable this check.
+
+    /// Whether to enforce strict matching of declared vs. actual operations.
+    ///
+    /// This is redundant if the domain separator is faithfully generated,
+    /// but useful during development or testing to catch protocol mismatches early.
     verify_operations: bool,
-    /// Marker for the unit type `U`.
+
+    /// Phantom marker for the transcript element type `U`.
+    ///
+    /// This type parameter ensures the challenger operates over the correct unit type
+    /// (e.g., bytes, scalars), even though no `U` values are stored directly.
     _unit: PhantomData<U>,
 }
 
