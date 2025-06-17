@@ -222,9 +222,16 @@ where
         Ok(())
     }
 
-    /// Sample N extension field elements as Fiat-Shamir challenges.
-    pub fn challenge_scalars<const N: usize>(&mut self) -> ProofResult<[EF; N]> {
+    /// Sample an array of `N` extension field elements as Fiat-Shamir challenges.
+    pub fn challenge_scalars_array<const N: usize>(&mut self) -> ProofResult<[EF; N]> {
         let mut output = [EF::default(); N];
+        self.fill_challenge_scalars(&mut output)?;
+        Ok(output)
+    }
+
+    /// Sample a vector of `len` extension field elements as Fiat-Shamir challenges.
+    pub fn challenge_scalars_vec(&mut self, len: usize) -> ProofResult<Vec<EF>> {
+        let mut output = EF::zero_vec(len);
         self.fill_challenge_scalars(&mut output)?;
         Ok(output)
     }
