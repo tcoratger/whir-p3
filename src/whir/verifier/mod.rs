@@ -230,7 +230,7 @@ where
         claimed_sum: &mut EF,
         constraints: &[Constraint<EF>],
     ) -> ProofResult<Vec<EF>> {
-        let [combination_randomness_gen] = verifier_state.challenge_scalars()?;
+        let [combination_randomness_gen] = verifier_state.challenge_scalars_array()?;
         let combination_randomness: Vec<_> = combination_randomness_gen
             .powers()
             .take(constraints.len())

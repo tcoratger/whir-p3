@@ -134,7 +134,7 @@ where
         let folding_randomness = if prover.initial_statement {
             // If there is initial statement, then we run the sum-check for
             // this initial statement.
-            let [combination_randomness_gen] = prover_state.challenge_scalars()?;
+            let [combination_randomness_gen] = prover_state.challenge_scalars_array()?;
 
             // Create the sumcheck prover
             let mut sumcheck = SumcheckSingle::from_base_evals(

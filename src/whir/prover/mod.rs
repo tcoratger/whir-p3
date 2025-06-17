@@ -348,7 +348,7 @@ where
         }
 
         // Randomness for combination
-        let [combination_randomness_gen] = prover_state.challenge_scalars()?;
+        let [combination_randomness_gen] = prover_state.challenge_scalars_array()?;
         let combination_randomness: Vec<_> = combination_randomness_gen
             .powers()
             .take(stir_challenges.len())
