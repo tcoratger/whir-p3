@@ -45,6 +45,31 @@ impl<F> MlQuery<F>
 where
     F: Field,
 {
+    /// Returns the number of variables (`log_b`) in the multilinear query point.
+    ///
+    /// This corresponds to the dimensionality of the Boolean hypercube over which
+    /// the multilinear polynomial is evaluated.
+    ///
+    /// The value `log_b` is the length of the underlying vector `z`, regardless
+    /// of whether the query is a direct evaluation (`Eq`) or a rotated evaluation (`EqRotateRight`).
+    ///
+    /// # Example
+    /// ```text
+    /// let q = MlQuery::Eq(MultilinearPoint(vec![x0, x1, x2]));
+    /// assert_eq!(q.log_b(), 3);
+    /// ```
+    ///
+    /// For `EqRotateRight(z, r)`, the rotation does not affect `log_b`.
+    ///
+    /// # Returns
+    /// The number of variables (length of the `z` vector).
+    #[must_use]
+    pub fn log_b(&self) -> usize {
+        match self {
+            Self::Eq(z) | Self::EqRotateRight(z, _) => z.len(),
+        }
+    }
+
     /// Evaluate the multilinear equality polynomial corresponding to the query.
     ///
     /// This returns the evaluation of the multilinear equality polynomial
@@ -223,5 +248,28 @@ mod tests {
         expected.rotate_right(mid);
 
         assert_eq!(mle, expected);
+    }
+
+    #[test]
+    fn test_log_b_all_supported_lengths() {
+        for log_b in 0..=4 {
+            let point: MultilinearPoint<F> = MultilinearPoint(vec![F::from_u32(1); log_b]);
+
+            // Test regular Eq query
+            let query_eq = MlQuery::Eq(point.clone());
+            assert_eq!(
+                query_eq.log_b(),
+                log_b,
+                "Eq query with length {log_b} should return log_b = {log_b}"
+            );
+
+            // Test rotated query
+            let query_rot = MlQuery::EqRotateRight(point.clone(), 1);
+            assert_eq!(
+                query_rot.log_b(),
+                log_b,
+                "EqRotateRight query with length {log_b} should return log_b = {log_b}"
+            );
+        }
     }
 }

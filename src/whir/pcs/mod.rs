@@ -6,6 +6,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::whir::pcs::query::MlQuery;
 
+pub mod proof;
 pub mod prover_data;
 pub mod query;
 pub mod whir;

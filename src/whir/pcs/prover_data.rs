@@ -26,14 +26,14 @@ pub struct ConcatMatsMeta {
     ///
     /// This equals `ceil(log2(total_padded_size))`, where each matrix is padded
     /// to a power-of-two width per row.
-    log_b: usize,
+    pub(crate) log_b: usize,
 
     /// Original dimensions (height and unpadded width) of each matrix,
     /// in the same order they were passed in.
     ///
     /// This is used to reconstruct the layout, apply constraints, or access
     /// individual submatrices.
-    dimensions: Vec<Dimensions>,
+    pub(crate) dimensions: Vec<Dimensions>,
 
     /// Contiguous memory ranges inside the full evaluation vector that
     /// correspond to each input matrix.
@@ -41,7 +41,7 @@ pub struct ConcatMatsMeta {
     /// Each range is aligned and padded such that rows are stored with
     /// `width.next_power_of_two()` stride, ensuring compatibility with DFTs.
     /// These ranges are disjoint and span a domain of size `1 << log_b`.
-    ranges: Vec<Range<usize>>,
+    pub(crate) ranges: Vec<Range<usize>>,
 }
 
 impl ConcatMatsMeta {
@@ -60,7 +60,7 @@ impl ConcatMatsMeta {
     ///
     /// # Returns
     /// - A new `ConcatMatsMeta` instance, with computed ranges and total size metadata.
-    fn new(dims: &[Dimensions]) -> Self {
+    pub(crate) fn new(dims: &[Dimensions]) -> Self {
         // Create an indexed list of dimensions to track original input order.
         let mut indexed_dims: Vec<_> = dims.iter().enumerate().collect();
 
@@ -112,7 +112,7 @@ impl ConcatMatsMeta {
     /// # Returns
     /// - The largest `log2_ceil(width)` value among all matrices in the metadata.
     /// - Returns `0` if no matrices are present.
-    fn max_log_width(&self) -> usize {
+    pub(crate) fn max_log_width(&self) -> usize {
         self.dimensions
             .iter()
             .map(|dim| log2_ceil_usize(dim.width))
@@ -143,7 +143,7 @@ impl ConcatMatsMeta {
     /// - A pair `(weights, sum)`:
     ///   - `weights`: The constructed `Weights<F>` used to enforce the constraint.
     ///   - `sum`: The expected value of `dot(ys, eq_r)` to match during verification.
-    fn constraint<F: Field>(
+    pub(crate) fn constraint<F: Field>(
         &self,
         idx: usize,
         query: &MlQuery<F>,
@@ -255,13 +255,13 @@ pub struct ConcatMats<Val> {
     ///
     /// Each matrix is stored row-by-row with rows padded to the next power-of-two width,
     /// and the concatenated layout spans a total domain of size `2^log_b`.
-    values: Vec<Val>,
+    pub(crate) values: Vec<Val>,
 
     /// Metadata describing the logical layout of the concatenated matrices.
     ///
     /// Includes dimension, range, and variable information for each original matrix
     /// within the unified domain.
-    meta: ConcatMatsMeta,
+    pub(crate) meta: ConcatMatsMeta,
 }
 
 impl<Val: Field> ConcatMats<Val> {
@@ -275,7 +275,7 @@ impl<Val: Field> ConcatMats<Val> {
     ///
     /// # Returns
     /// - A `ConcatMats` instance containing the unified evaluation vector and metadata.
-    fn new(mats: Vec<RowMajorMatrix<Val>>) -> Self {
+    pub(crate) fn new(mats: Vec<RowMajorMatrix<Val>>) -> Self {
         let meta = ConcatMatsMeta::new(&mats.iter().map(Matrix::dimensions).collect::<Vec<_>>());
         let mut values = Val::zero_vec(1 << meta.log_b);
 
@@ -316,7 +316,10 @@ impl<Val: Field> ConcatMats<Val> {
     /// # Returns
     /// - A `HorizontallyTruncated<RowMajorMatrixView>` that presents a view
     ///   into the padded storage but with the original width restored.
-    fn mat(&self, idx: usize) -> HorizontallyTruncated<Val, RowMajorMatrixView<'_, Val>> {
+    pub(crate) fn mat(
+        &self,
+        idx: usize,
+    ) -> HorizontallyTruncated<Val, RowMajorMatrixView<'_, Val>> {
         HorizontallyTruncated::new(
             RowMajorMatrixView::new(
                 &self.values[self.meta.ranges[idx].clone()],

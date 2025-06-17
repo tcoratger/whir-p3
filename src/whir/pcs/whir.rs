@@ -1,10 +1,13 @@
-// use std::{cell::RefCell, marker::PhantomData};
+// use std::{cell::RefCell, iter::repeat_with, marker::PhantomData};
 
-// use p3_challenger::FieldChallenger;
+// use itertools::{Itertools, izip};
+// use p3_challenger::{FieldChallenger, HashChallenger};
 // use p3_commit::Mmcs;
 // use p3_dft::TwoAdicSubgroupDft;
 // use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
+// use p3_keccak::Keccak256Hash;
 // use p3_matrix::{
+//     Dimensions, Matrix,
 //     dense::{RowMajorMatrix, RowMajorMatrixView},
 //     horizontally_truncated::HorizontallyTruncated,
 // };
@@ -13,7 +16,30 @@
 // use serde::{Serialize, de::DeserializeOwned};
 // use tracing::info_span;
 
-// use crate::{fiat_shamir::errors::ProofError, parameters::ProtocolParameters, whir::pcs::MlPcs};
+// use crate::{
+//     dft::EvalsDft,
+//     fiat_shamir::{domain_separator::DomainSeparator, errors::ProofError, pow::blake3::Blake3PoW},
+//     parameters::{MultivariateParameters, ProtocolParameters},
+//     poly::{
+//         coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint,
+//         wavelet::Radix2WaveletKernel,
+//     },
+//     whir::{
+//         committer::{Witness, reader::ParsedCommitment},
+//         parameters::WhirConfig,
+//         pcs::{
+//             MlPcs,
+//             proof::WhirProof,
+//             prover_data::{ConcatMats, ConcatMatsMeta},
+//             query::MlQuery,
+//         },
+//         prover::Prover,
+//         statement::Statement,
+//         verifier::Verifier,
+//     },
+// };
+
+// type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
 // #[derive(Debug)]
 // pub struct WhirPcs<Val, Dft, Hash, Compression, const DIGEST_ELEMS: usize> {
@@ -46,8 +72,10 @@
 //     [u8; DIGEST_ELEMS]: Serialize + DeserializeOwned,
 // {
 //     type Val = Val;
+
 //     type Commitment =
 //         <MerkleTreeMmcs<Val, u8, Hash, Compression, DIGEST_ELEMS> as Mmcs<Val>>::Commitment;
+
 //     type ProverData = (
 //         ConcatMats<Val>,
 //         // TODO(whir-p3): Use reference to merkle tree in `Witness` to avoid cloning or ownership taking.
@@ -59,40 +87,62 @@
 //             >,
 //         >,
 //     );
+
 //     type Evaluations<'a> = HorizontallyTruncated<Val, RowMajorMatrixView<'a, Val>>;
+
 //     type Proof = Vec<WhirProof<Challenge>>;
+
 //     type Error = ProofError;
 
 //     fn commit(
 //         &self,
 //         evaluations: Vec<RowMajorMatrix<Self::Val>>,
 //     ) -> (Self::Commitment, Self::ProverData) {
-//         // Concat matrices into single polynomial.
+//         // Flatten the input list of evaluation matrices into a single dense matrix.
 //         let concat_mats = info_span!("concat matrices").in_scope(|| ConcatMats::new(evaluations));
 
-//         // This should generate the same codeword and commitment as in `whir_p3`.
+//         // Build the Merkle tree commitment and recover the internal tree for later proving.
 //         let (commitment, merkle_tree) = {
+//             // Recover the full evaluation vector and perform an inverse wavelet transform.
 //             let coeffs = info_span!("evals to coeffs").in_scope(|| {
+//                 // Determine the padded size of the evaluation vector.
 //                 let size = 1 << (concat_mats.meta.log_b + self.whir.starting_log_inv_rate);
+
+//                 // Copy the flattened evaluation values.
 //                 let mut evals = Vec::with_capacity(size);
 //                 evals.extend(&concat_mats.values);
+
+//                 // Apply the inverse wavelet transform to obtain polynomial coefficients.
 //                 let mut coeffs =
 //                     Radix2WaveletKernel::default().inverse_wavelet_transform_algebra(evals);
+
+//                 // Pad with zeros to the required power-of-two size (if needed).
 //                 coeffs.resize(size, Val::ZERO);
 //                 coeffs
 //             });
+
+//             // Fold the coefficient vector into a matrix by grouping columns for FFT.
 //             let folded_codeword = info_span!("compute folded codeword").in_scope(|| {
+//                 // The width of the folded matrix is determined by the folding factor at round 0.
 //                 let width = 1 << self.whir.folding_factor.at_round(0);
+
+//                 // Reshape the coefficient vector into a row-major matrix.
 //                 let folded_coeffs = RowMajorMatrix::new(coeffs, width);
+
+//                 // Apply the DFT to each row of the folded matrix and convert back to row-major layout.
 //                 self.dft.dft_batch(folded_coeffs).to_row_major_matrix()
 //             });
+
+//             // Commit to the folded codeword using a Merkle tree commitment scheme.
 //             let mmcs = MerkleTreeMmcs::new(
 //                 self.whir.merkle_hash.clone(),
 //                 self.whir.merkle_compress.clone(),
 //             );
-//             mmcs.commit(vec![folded_codeword])
+//             // Returns (commitment root, full Merkle tree).
+//             mmcs.commit_matrix(folded_codeword)
 //         };
 
+//         //  Return the Merkle commitment root along with the prover data.
 //         (commitment, (concat_mats, RefCell::new(Some(merkle_tree))))
 //     }
 
@@ -131,10 +181,8 @@
 //                     Hash,
 //                     Compression,
 //                     Blake3PoW,
-//                     KeccakF,
-//                     Keccak,
+//                     MyChallenger,
 //                     u8,
-//                     KECCAK_WIDTH_BYTES,
 //                 >::new(
 //                     MultivariateParameters::new(concat_mats.meta.log_b),
 //                     self.whir.clone(),
@@ -172,30 +220,33 @@
 //                         .iter()
 //                         .enumerate()
 //                         .for_each(|(idx, queries_and_evals)| {
-//                             queries_and_evals.iter().for_each(|(query, evals)| {
+//                             for (query, evals) in queries_and_evals {
 //                                 let (weights, sum) =
 //                                     concat_mats.meta.constraint(idx, query, evals, &r);
 //                                 statement.add_constraint(weights, sum);
-//                             })
+//                             }
 //                         });
 //                     statement
 //                 });
 
 //                 let mut prover_state = {
-//                     let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
+//                     let mut domainsep = DomainSeparator::new("🌪️", true);
 //                     domainsep.add_whir_proof(&config);
-//                     domainsep.to_prover_state::<_, 32>()
+//                     domainsep.to_prover_state(MyChallenger::new(vec![], Keccak256Hash))
 //                 };
 //                 info_span!("prove").in_scope(|| {
 //                     let witness = Witness {
-//                         pol_coeffs,
-//                         pol_evals,
+//                         polynomial: pol_evals,
 //                         prover_data: merkle_tree.take().unwrap(),
 //                         ood_points,
 //                         ood_answers: ood_answers.clone(),
 //                     };
+
+//                     // Construct a Radix-2 FFT backend that supports small batch DFTs over `F`.
+//                     let dft = EvalsDft::<Val>::new(1 << config.max_fft_size());
+
 //                     Prover(&config)
-//                         .prove(&self.dft, &mut prover_state, statement, witness)
+//                         .prove(&dft, &mut prover_state, statement, witness)
 //                         .unwrap()
 //                 });
 //                 WhirProof {
@@ -227,29 +278,20 @@
 //     ) -> Result<(), Self::Error> {
 //         izip!(rounds, proofs).try_for_each(|((commitment, round), proof)| {
 //             let concat_mats_meta = ConcatMatsMeta::new(
-//                 round
+//                 &round
 //                     .iter()
 //                     .map(|mat| Dimensions {
 //                         width: mat[0].1.len(),
 //                         height: 1 << mat[0].0.log_b(),
 //                     })
-//                     .collect(),
+//                     .collect_vec(),
 //             );
 
-//             let config = WhirConfig::<
-//                 Challenge,
-//                 Val,
-//                 Hash,
-//                 Compression,
-//                 Blake3PoW,
-//                 KeccakF,
-//                 Keccak,
-//                 u8,
-//                 KECCAK_WIDTH_BYTES,
-//             >::new(
-//                 MultivariateParameters::new(concat_mats_meta.log_b),
-//                 self.whir.clone(),
-//             );
+//             let config =
+//                 WhirConfig::<Challenge, Val, Hash, Compression, Blake3PoW, MyChallenger, u8>::new(
+//                     MultivariateParameters::new(concat_mats_meta.log_b),
+//                     self.whir.clone(),
+//                 );
 
 //             let ood_points = repeat_with(|| challenger.sample_algebra_element::<Challenge>())
 //                 .take(config.committment_ood_samples)
@@ -261,16 +303,17 @@
 
 //             let mut statement = Statement::new(concat_mats_meta.log_b);
 //             round.iter().enumerate().for_each(|(idx, evals)| {
-//                 evals.iter().for_each(|(query, evals)| {
+//                 for (query, evals) in evals {
 //                     let (weights, sum) = concat_mats_meta.constraint(idx, query, evals, &r);
 //                     statement.add_constraint(weights, sum);
-//                 })
+//                 }
 //             });
 
 //             let mut verifier_state = {
-//                 let mut domainsep = DomainSeparator::new("🌪️", KeccakF);
+//                 let mut domainsep = DomainSeparator::new("🌪️", true);
 //                 domainsep.add_whir_proof(&config);
-//                 domainsep.to_verifier_state::<_, 32>(&proof.narg_string)
+//                 domainsep
+//                     .to_verifier_state(&proof.narg_string, MyChallenger::new(vec![], Keccak256Hash))
 //             };
 //             Verifier::new(&config).verify(
 //                 &mut verifier_state,
