@@ -214,6 +214,13 @@ where
         Ok(output)
     }
 
+    /// Sample `N` extension scalars using Fiat-Shamir challenge randomness.
+    pub fn challenge_scalars_vec(&mut self, len: usize) -> ProofResult<Vec<EF>> {
+        let mut output = EF::zero_vec(len);
+        self.fill_challenge_scalars(&mut output)?;
+        Ok(output)
+    }
+
     /// Serialize and absorb public scalar values into the sponge, returning their byte encoding.
     pub fn public_scalars(&mut self, input: &[EF]) -> ProofResult<Vec<u8>> {
         // Build the byte vector by flattening all basis coefficients.
