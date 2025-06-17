@@ -74,7 +74,7 @@ where
             // Standard case: evaluate at z
             Self::Eq(z) => {
                 // Allocate output buffer of size 2^n
-                let mut mle = vec![F::ZERO; 1 << z.len()];
+                let mut mle = F::zero_vec(1 << z.len());
 
                 // Fill with α ⋅ eq(x, z) for all x ∈ {0,1}^n
                 eval_eq::<_, _, false>(z, &mut mle, scalar);
@@ -85,7 +85,7 @@ where
             // Rotated case: evaluate at z, then rotate output
             Self::EqRotateRight(z, mid) => {
                 // Allocate output buffer of size 2^n
-                let mut mle = vec![F::ZERO; 1 << z.len()];
+                let mut mle = F::zero_vec(1 << z.len());
 
                 // Compute α ⋅ eq(x, z)
                 eval_eq::<_, _, false>(z, &mut mle, scalar);
