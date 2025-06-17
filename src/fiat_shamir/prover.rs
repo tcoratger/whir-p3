@@ -222,6 +222,13 @@ where
         Ok(output)
     }
 
+    /// Sample N extension field elements as Fiat-Shamir challenges.
+    pub fn challenge_scalars_vec(&mut self, len: usize) -> ProofResult<Vec<EF>> {
+        let mut output = EF::zero_vec(len);
+        self.fill_challenge_scalars(&mut output)?;
+        Ok(output)
+    }
+
     /// Absorb a hint message into the prover transcript.
     ///
     /// Encodes the hint as a 4-byte little-endian length prefix followed by raw bytes.
