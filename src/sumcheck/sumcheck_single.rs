@@ -366,7 +366,7 @@ where
     ) -> ProofResult<MultilinearPoint<EF>>
     where
         F: PrimeField64 + TwoAdicField,
-        EF: ExtensionField<F> + TwoAdicField,
+        EF: TwoAdicField,
         S: PowStrategy,
         W: Unit + Default + Copy,
         Challenger: CanObserve<W> + CanSample<W>,
