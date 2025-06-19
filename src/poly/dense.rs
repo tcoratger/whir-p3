@@ -141,7 +141,9 @@ impl<F: Field> WhirDensePolynomial<F> {
 
             // Multiply all coefficients of B(x) by c_i
             let mut term_coeffs = basis_poly.coeffs.clone();
-            term_coeffs.iter_mut().for_each(|coeff| *coeff *= c_i);
+            for coeff in term_coeffs.iter_mut() {
+                *coeff *= c_i;
+            }
 
             // Convert the coefficient vector into a polynomial
             let term = Self::from_coefficients_vec(term_coeffs);
