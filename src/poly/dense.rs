@@ -1,4 +1,7 @@
-use std::ops::{Add, AddAssign, Mul, MulAssign};
+use std::{
+    collections::HashSet,
+    ops::{Add, AddAssign, Mul, MulAssign},
+};
 
 use p3_field::{ExtensionField, Field};
 use rand::distr::{Distribution, StandardUniform};
@@ -66,50 +69,145 @@ impl<F: Field> WhirDensePolynomial<F> {
         Self::from_coefficients_vec((0..=degree).map(|_| rng.random()).collect())
     }
 
-    /// Given a set of n pairs (x_i, y_i): computes the polynomial P verifying P(x_i) = y_i for all i,
-    /// of degree at most n-1.
+    // /// Given a set of n pairs (x_i, y_i): computes the polynomial P verifying P(x_i) = y_i for all i,
+    // /// of degree at most n-1.
+    // ///
+    // /// Returns `None` if there exists i < j such that x_i == x_j
+    // pub fn lagrange_interpolation<S>(values: &[(S, F)]) -> Option<Self>
+    // where
+    //     S: Field,
+    //     F: ExtensionField<S>,
+    // {
+    //     let n = values.len();
+    //     let mut result = vec![F::ZERO; n];
+
+    //     for i in 0..n {
+    //         let (x_i, y_i) = values[i];
+    //         let mut term = vec![F::ZERO; n];
+    //         let mut product = F::ONE;
+
+    //         for (j, (x_j, _)) in values.iter().enumerate().take(n) {
+    //             if i != j {
+    //                 product *= (x_i - *x_j).try_inverse()?;
+    //             }
+    //         }
+
+    //         term[0] = product * y_i;
+    //         for (j, (x_j, _)) in values.iter().enumerate().take(n) {
+    //             if i != j {
+    //                 let mut new_term = term.clone();
+    //                 for k in (1..n).rev() {
+    //                     new_term[k] = new_term[k - 1];
+    //                 }
+    //                 new_term[0] = F::ZERO;
+
+    //                 for k in 0..n {
+    //                     term[k] = term[k] * (-*x_j) + new_term[k];
+    //                 }
+    //             }
+    //         }
+
+    //         for j in 0..n {
+    //             result[j] += term[j];
+    //         }
+    //     }
+
+    //     Some(Self::from_coefficients_vec(result))
+    // }
+
+    /// Constructs the unique interpolating polynomial `P(x)` such that:
     ///
-    /// Returns `None` if there exists i < j such that x_i == x_j
+    /// \begin{equation}
+    /// P(x_i) = y_i \quad \text{for each } (x_i, y_i) \text{ in the input set}
+    /// \end{equation}
+    ///
+    /// The result is a dense univariate polynomial of degree at most `n - 1`, where `n` is the number of input points.
+    ///
+    /// # Parameters
+    ///
+    /// - `values`: A slice of `(x_i, y_i)` pairs, where each `x_i` is a field element from `S`,
+    ///   and each `y_i` is an extension field element from `F`.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(P)`: The interpolating polynomial if all `x_i` are distinct.
+    /// - `None`: If any duplicate `x_i` values exist (even with equal `y_i`).
     pub fn lagrange_interpolation<S>(values: &[(S, F)]) -> Option<Self>
     where
         S: Field,
         F: ExtensionField<S>,
     {
+        // The number of (x, y) pairs to interpolate.
         let n = values.len();
-        let mut result = vec![F::ZERO; n];
 
-        for i in 0..n {
-            let (x_i, y_i) = values[i];
-            let mut term = vec![F::ZERO; n];
-            let mut product = F::ONE;
-
-            for (j, (x_j, _)) in values.iter().enumerate().take(n) {
-                if i != j {
-                    product *= (x_i - *x_j).try_inverse()?;
-                }
-            }
-
-            term[0] = product * y_i;
-            for (j, (x_j, _)) in values.iter().enumerate().take(n) {
-                if i != j {
-                    let mut new_term = term.clone();
-                    for k in (1..n).rev() {
-                        new_term[k] = new_term[k - 1];
-                    }
-                    new_term[0] = F::ZERO;
-
-                    for k in 0..n {
-                        term[k] = term[k] * (-*x_j) + new_term[k];
-                    }
-                }
-            }
-
-            for j in 0..n {
-                result[j] += term[j];
-            }
+        // Special case: no points => return the zero polynomial.
+        if n == 0 {
+            return Some(Self::default());
         }
 
-        Some(Self::from_coefficients_vec(result))
+        // Check for duplicate x-coordinates
+        //
+        // We use a HashSet to track x_i values. If any duplicates exist, we cannot interpolate.
+        let mut unique_x = HashSet::with_capacity(n);
+        if !values.iter().all(|(x, _)| unique_x.insert(*x)) {
+            return None; // Found a duplicate x_i
+        }
+
+        // Initialize result and basis polynomials
+
+        // The result polynomial P(x) starts at zero and is updated iteratively.
+        let mut result_poly = Self::default();
+
+        // The basis polynomial B(x) starts at 1.
+        // After i steps, B(x) = (x - x_0)(x - x_1)...(x - x_{i-1})
+        let mut basis_poly = Self::from_coefficients_vec(vec![F::ONE]);
+
+        // Newton-style interpolation loop
+        for i in 0..n {
+            // Current interpolation point (x_i, y_i)
+            let (x_i, y_i) = values[i];
+
+            // Promote x_i to the extension field for evaluation
+            let x_i_ext = F::from(x_i);
+
+            // Compute current prediction: P(x_i)
+            let current_y = result_poly.evaluate(x_i_ext);
+
+            // Compute the discrepancy: how far off our polynomial is
+            let delta = y_i - current_y;
+
+            // Compute B(x_i), the value of the basis at x_i
+            let basis_eval = basis_poly.evaluate(x_i_ext);
+
+            // The scalar coefficient c_i is the correction needed:
+            // c_i = (y_i - P(x_i)) / B(x_i)
+            let c_i = delta
+                * basis_eval
+                    .try_inverse()
+                    .expect("x_i was checked to be unique");
+
+            // Form term = c_i · B(x)
+
+            // Multiply all coefficients of B(x) by c_i
+            let mut term_coeffs = basis_poly.coeffs.clone();
+            term_coeffs.iter_mut().for_each(|coeff| *coeff *= c_i);
+
+            // Convert the coefficient vector into a polynomial
+            let term = Self::from_coefficients_vec(term_coeffs);
+
+            // Add the term to the result: P(x) := P(x) + c_i · B(x)
+            result_poly += &term;
+
+            // Update B(x) := B(x) · (x - x_i)
+
+            // Monomial: (x - x_i) = -x_i + x = [-x_i, 1]
+            let monomial = Self::from_coefficients_slice(&[-x_i_ext, F::ONE]);
+
+            // Multiply current basis polynomial by the monomial
+            basis_poly = &basis_poly * &monomial;
+        }
+
+        Some(result_poly)
     }
 }
 
