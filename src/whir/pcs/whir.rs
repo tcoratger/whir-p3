@@ -99,6 +99,8 @@
 //         evaluations: Vec<RowMajorMatrix<Self::Val>>,
 //     ) -> (Self::Commitment, Self::ProverData) {
 //         // Flatten the input list of evaluation matrices into a single dense matrix.
+//         //
+//         // We concatenate matrices into a single polynomial.
 //         let concat_mats = info_span!("concat matrices").in_scope(|| ConcatMats::new(evaluations));
 
 //         // Build the Merkle tree commitment and recover the internal tree for later proving.
@@ -138,6 +140,7 @@
 //                 self.whir.merkle_hash.clone(),
 //                 self.whir.merkle_compress.clone(),
 //             );
+
 //             // Returns (commitment root, full Merkle tree).
 //             mmcs.commit_matrix(folded_codeword)
 //         };
@@ -301,6 +304,8 @@
 //                 .take(concat_mats_meta.max_log_width())
 //                 .collect_vec();
 
+//             println!("avant constraint");
+
 //             let mut statement = Statement::new(concat_mats_meta.log_b);
 //             round.iter().enumerate().for_each(|(idx, evals)| {
 //                 for (query, evals) in evals {
@@ -308,6 +313,8 @@
 //                     statement.add_constraint(weights, sum);
 //                 }
 //             });
+
+//             println!("apres constraint");
 
 //             let mut verifier_state = {
 //                 let mut domainsep = DomainSeparator::new("🌪️", true);

@@ -10,6 +10,8 @@ pub mod proof;
 pub mod prover_data;
 pub mod query;
 pub mod whir;
+#[cfg(test)]
+pub mod whir_test;
 
 /// A multilinear polynomial commitment scheme.
 ///
