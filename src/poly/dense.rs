@@ -69,52 +69,6 @@ impl<F: Field> WhirDensePolynomial<F> {
         Self::from_coefficients_vec((0..=degree).map(|_| rng.random()).collect())
     }
 
-    // /// Given a set of n pairs (x_i, y_i): computes the polynomial P verifying P(x_i) = y_i for all i,
-    // /// of degree at most n-1.
-    // ///
-    // /// Returns `None` if there exists i < j such that x_i == x_j
-    // pub fn lagrange_interpolation<S>(values: &[(S, F)]) -> Option<Self>
-    // where
-    //     S: Field,
-    //     F: ExtensionField<S>,
-    // {
-    //     let n = values.len();
-    //     let mut result = vec![F::ZERO; n];
-
-    //     for i in 0..n {
-    //         let (x_i, y_i) = values[i];
-    //         let mut term = vec![F::ZERO; n];
-    //         let mut product = F::ONE;
-
-    //         for (j, (x_j, _)) in values.iter().enumerate().take(n) {
-    //             if i != j {
-    //                 product *= (x_i - *x_j).try_inverse()?;
-    //             }
-    //         }
-
-    //         term[0] = product * y_i;
-    //         for (j, (x_j, _)) in values.iter().enumerate().take(n) {
-    //             if i != j {
-    //                 let mut new_term = term.clone();
-    //                 for k in (1..n).rev() {
-    //                     new_term[k] = new_term[k - 1];
-    //                 }
-    //                 new_term[0] = F::ZERO;
-
-    //                 for k in 0..n {
-    //                     term[k] = term[k] * (-*x_j) + new_term[k];
-    //                 }
-    //             }
-    //         }
-
-    //         for j in 0..n {
-    //             result[j] += term[j];
-    //         }
-    //     }
-
-    //     Some(Self::from_coefficients_vec(result))
-    // }
-
     /// Constructs the unique interpolating polynomial `P(x)` such that:
     ///
     /// \begin{equation}
