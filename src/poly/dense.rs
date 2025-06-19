@@ -117,18 +117,15 @@ impl<F: Field> WhirDensePolynomial<F> {
         let mut basis_poly = Self::from_coefficients_vec(vec![F::ONE]);
 
         // Newton-style interpolation loop
-        for i in 0..n {
-            // Current interpolation point (x_i, y_i)
-            let (x_i, y_i) = values[i];
-
+        for (x_i, y_i) in values.iter().take(n) {
             // Promote x_i to the extension field for evaluation
-            let x_i_ext = F::from(x_i);
+            let x_i_ext = F::from(*x_i);
 
             // Compute current prediction: P(x_i)
             let current_y = result_poly.evaluate(x_i_ext);
 
             // Compute the discrepancy: how far off our polynomial is
-            let delta = y_i - current_y;
+            let delta = *y_i - current_y;
 
             // Compute B(x_i), the value of the basis at x_i
             let basis_eval = basis_poly.evaluate(x_i_ext);
