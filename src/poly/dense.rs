@@ -141,7 +141,7 @@ impl<F: Field> WhirDensePolynomial<F> {
 
             // Multiply all coefficients of B(x) by c_i
             let mut term_coeffs = basis_poly.coeffs.clone();
-            for coeff in term_coeffs.iter_mut() {
+            for coeff in &mut term_coeffs {
                 *coeff *= c_i;
             }
 
