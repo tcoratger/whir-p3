@@ -6,12 +6,36 @@ use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use super::{errors::DomainSeparatorMismatch, utils::bytes_uniform_modp};
 use crate::{
     fiat_shamir::{prover::ProverState, unit::Unit, verifier::VerifierState},
+    sumcheck::K_SKIP_SUMCHECK,
     whir::parameters::WhirConfig,
 };
 
 /// This is the separator between operations in the IO Pattern
 /// and as such is the only forbidden character in labels.
 const SEP_BYTE: &str = "\0";
+
+/// Configuration parameters for a sumcheck phase in the protocol.
+#[derive(Debug)]
+pub struct SumcheckParams {
+    /// Total number of sumcheck rounds to perform.
+    ///
+    /// Each round corresponds to a polynomial sent by the prover and a challenge
+    /// sampled by the verifier.
+    pub rounds: usize,
+
+    /// Number of bits required for the proof-of-work challenge.
+    ///
+    /// - If `pow_bits > 0.0`, a PoW challenge is inserted after each round.
+    /// - If `pow_bits == 0.0`, PoW is disabled.
+    pub pow_bits: f64,
+
+    /// Optional number of variables to skip using the univariate skip optimization.
+    ///
+    /// - If `None`, all rounds are performed normally.
+    /// - If `Some(k)`, the first `k` variables are skipped by replacing them with a
+    ///   single low-degree extension (LDE) step, provided `k > 1`.
+    pub univariate_skip: Option<usize>,
+}
 
 /// The IO Pattern of an interactive protocol.
 ///
@@ -154,8 +178,7 @@ where
     /// Parse the givern IO Pattern into a sequence of [`Op`]'s.
     pub(crate) fn finalize(&self) -> VecDeque<Op> {
         // Guaranteed to succeed as instances are all valid domain_separators
-        Self::parse_domsep(self.io.as_bytes())
-            .expect("Internal error. Please submit issue to m@orru.net")
+        Self::parse_domsep(self.io.as_bytes()).expect("Internal error")
     }
 
     fn parse_domsep(domain_separator: &[u8]) -> Result<VecDeque<Op>, DomainSeparatorMismatch> {
@@ -252,10 +275,15 @@ where
         // TODO: Add statement
         if params.initial_statement {
             self.challenge_scalars(1, "initial_combination_randomness");
-            self.add_sumcheck(
-                params.folding_factor.at_round(0),
-                params.starting_folding_pow_bits,
-            );
+            self.add_sumcheck(&SumcheckParams {
+                rounds: params.folding_factor.at_round(0),
+                pow_bits: params.starting_folding_pow_bits,
+                univariate_skip: if params.univariate_skip {
+                    Some(K_SKIP_SUMCHECK)
+                } else {
+                    None
+                },
+            });
         } else {
             self.challenge_scalars(params.folding_factor.at_round(0), "folding_randomness");
             self.pow(params.starting_folding_pow_bits);
@@ -273,10 +301,11 @@ where
             self.pow(r.pow_bits);
             self.challenge_scalars(1, "combination_randomness");
 
-            self.add_sumcheck(
-                params.folding_factor.at_round(round + 1),
-                r.folding_pow_bits,
-            );
+            self.add_sumcheck(&SumcheckParams {
+                rounds: params.folding_factor.at_round(round + 1),
+                pow_bits: r.folding_pow_bits,
+                univariate_skip: None,
+            });
             domain_size >>= params.rs_reduction_factor(round);
         }
 
@@ -292,7 +321,11 @@ where
         self.hint("stir_answers");
         self.hint("merkle_proof");
         self.pow(params.final_pow_bits);
-        self.add_sumcheck(params.final_sumcheck_rounds, params.final_folding_pow_bits);
+        self.add_sumcheck(&SumcheckParams {
+            rounds: params.final_sumcheck_rounds,
+            pow_bits: params.final_folding_pow_bits,
+            univariate_skip: None,
+        });
         self.hint("deferred_weight_evaluations");
     }
 
@@ -300,14 +333,50 @@ where
         self.observe(32, label);
     }
 
-    /// Performs `folding_factor` rounds of sumcheck interaction with the transcript.
+    /// Append the sumcheck protocol transcript steps to the domain separator.
     ///
-    /// In each round:
-    /// - Samples 3 scalars for the sumcheck polynomial.
-    /// - Samples 1 scalar for folding randomness.
-    /// - Optionally performs a PoW challenge if `pow_bits > 0`.
-    pub fn add_sumcheck(&mut self, folding_factor: usize, pow_bits: f64) {
-        for _ in 0..folding_factor {
+    /// This method encodes one or more rounds of the sumcheck protocol, including:
+    /// - Absorbing polynomial coefficients sent by the prover.
+    /// - Sampling verifier challenges for folding randomness.
+    /// - Optionally performing a proof-of-work challenge for each round.
+    ///
+    /// If `univariate_skip` is enabled with `k > 1`, the first `k` variables are skipped
+    /// using a low-degree extension (LDE) over a coset. In this case, the transcript
+    /// includes a single LDE observation step and challenge, followed by the remaining rounds.
+    ///
+    /// # Parameters
+    /// - `rounds`: Total number of variables folded by the sumcheck protocol.
+    /// - `pow_bits`: If greater than 0.0, a proof-of-work challenge is appended after each round.
+    /// - `univariate_skip`: If `Some(k)`, applies the univariate skip optimization by skipping
+    ///   the first `k` rounds and replacing them with a single LDE + challenge step.
+    pub fn add_sumcheck(&mut self, params: &SumcheckParams) {
+        let SumcheckParams {
+            rounds,
+            pow_bits,
+            univariate_skip,
+        } = *params;
+
+        // Determine the number of rounds to skip using univariate skip optimization.
+        let k = univariate_skip.unwrap_or(0);
+
+        // If univariate skip is active and skipping more than 1 round,
+        // perform a low-degree extension (LDE) step over a coset:
+        // - Absorb 2^{k+1} scalars (the LDE evaluations of the skipped polynomial).
+        // - Sample 1 challenge for the folding randomness.
+        // - Optionally perform PoW after the LDE step.
+        if k > 1 {
+            let lde_size = 1 << (k + 1);
+            self.add_scalars(lde_size, "sumcheck_poly_skip");
+            self.challenge_scalars(1, "folding_randomness_skip");
+            self.pow(pow_bits);
+        }
+
+        // Proceed with the remaining (unskipped) sumcheck rounds.
+        // Each round:
+        // - Absorbs 3 scalars (coefficients of a degree-2 polynomial).
+        // - Samples 1 folding randomness challenge.
+        // - Optionally performs a PoW challenge.
+        for _ in k..rounds {
             self.add_scalars(3, "sumcheck_poly");
             self.challenge_scalars(1, "folding_randomness");
             self.pow(pow_bits);
@@ -772,5 +841,148 @@ mod tests {
         ds.sample(2, "y");
         let ops = ds.finalize();
         assert_eq!(ops, vec![Op::Observe(1), Op::Hint, Op::Sample(2)]);
+    }
+
+    #[test]
+    fn test_add_sumcheck_regular_two_rounds_no_pow() {
+        // Set up a new domain separator
+        let mut ds = DomainSeparator::<EF4, F, u8>::new("regular", true);
+
+        // Add a sumcheck with 2 folding rounds, no PoW, no skipping
+        ds.add_sumcheck(&SumcheckParams {
+            rounds: 2,
+            pow_bits: 0.,
+            univariate_skip: None,
+        });
+
+        // Finalize the domain separator into a sequence of transcript operations
+        let ops = ds.finalize();
+
+        // Manually construct the expected transcript: 2 rounds of
+        // - Observe 3 scalars (sumcheck_poly)
+        // - Challenge 1 scalar (folding_randomness)
+        let mut ds_expected = DomainSeparator::<EF4, F, u8>::new("regular", true);
+        ds_expected.add_scalars(3, "test");
+        ds_expected.challenge_scalars(1, "test");
+        ds_expected.add_scalars(3, "test");
+        ds_expected.challenge_scalars(1, "test");
+
+        let ops_expected = ds_expected.finalize();
+        assert_eq!(ops, ops_expected);
+    }
+
+    #[test]
+    fn test_add_sumcheck_one_round_with_pow() {
+        // One round with PoW enabled
+        let mut ds = DomainSeparator::<EF4, F, u8>::new("pow", true);
+        ds.add_sumcheck(&SumcheckParams {
+            rounds: 1,
+            pow_bits: 7.0,
+            univariate_skip: None,
+        });
+        let ops = ds.finalize();
+
+        // Expected operations:
+        // - Observe 3 scalars (sumcheck_poly)
+        // - Sample 1 scalar (folding_randomness)
+        // - PoW: Sample 32 bytes, then Observe 8 bytes (pow-nonce)
+        let mut expected = DomainSeparator::<EF4, F, u8>::new("pow", true);
+        expected.add_scalars(3, "test");
+        expected.challenge_scalars(1, "test");
+        expected.challenge_pow("test");
+
+        assert_eq!(ops, expected.finalize());
+    }
+
+    #[test]
+    fn test_add_sumcheck_skip_two_rounds_no_pow() {
+        // With univariate skip enabled and skipped_rounds = 2
+        let mut ds = DomainSeparator::<EF4, F, u8>::new("skip2", true);
+        ds.add_sumcheck(&SumcheckParams {
+            rounds: 3,
+            pow_bits: 0.,
+            univariate_skip: Some(2),
+        });
+        let ops = ds.finalize();
+
+        // Expected:
+        // - One LDE observation of 2^(2+1) = 8 scalars
+        // - One challenge for folding randomness
+        // - Then one regular round of sumcheck: (3 + 1 scalars)
+        let mut expected = DomainSeparator::<EF4, F, u8>::new("skip2", true);
+        expected.add_scalars(8, "test");
+        expected.challenge_scalars(1, "test");
+
+        expected.add_scalars(3, "test");
+        expected.challenge_scalars(1, "test");
+
+        assert_eq!(ops, expected.finalize());
+    }
+
+    #[test]
+    fn test_add_sumcheck_skip_two_rounds_with_pow() {
+        // With univariate skip and PoW active
+        let mut ds = DomainSeparator::<EF4, F, u8>::new("skip2pow", true);
+        ds.add_sumcheck(&SumcheckParams {
+            rounds: 3,
+            pow_bits: 10.,
+            univariate_skip: Some(2),
+        });
+        let ops = ds.finalize();
+
+        let mut expected = DomainSeparator::<EF4, F, u8>::new("skip2pow", true);
+        expected.add_scalars(8, "test");
+        expected.challenge_scalars(1, "test");
+        expected.challenge_pow("test");
+
+        expected.add_scalars(3, "test");
+        expected.challenge_scalars(1, "test");
+        expected.challenge_pow("test");
+
+        assert_eq!(ops, expected.finalize());
+    }
+
+    #[test]
+    fn test_add_sumcheck_skip_one_round_behaves_regular() {
+        // Skip = 1 is not enough to trigger shortcut logic
+        let mut ds = DomainSeparator::<EF4, F, u8>::new("skip1", true);
+        ds.add_sumcheck(&SumcheckParams {
+            rounds: 3,
+            pow_bits: 0.,
+            univariate_skip: None,
+        });
+        let ops = ds.finalize();
+
+        let mut expected = DomainSeparator::<EF4, F, u8>::new("skip1", true);
+
+        // Round 1
+        expected.add_scalars(3, "test");
+        expected.challenge_scalars(1, "test");
+
+        // Round 2
+        expected.add_scalars(3, "test");
+        expected.challenge_scalars(1, "test");
+
+        // Round 3
+        expected.add_scalars(3, "test");
+        expected.challenge_scalars(1, "test");
+
+        assert_eq!(ops, expected.finalize());
+    }
+
+    #[test]
+    fn test_add_sumcheck_zero_folding_factor() {
+        let mut ds = DomainSeparator::<EF4, F, u8>::new("none", true);
+        ds.add_sumcheck(&SumcheckParams {
+            rounds: 0,
+            pow_bits: 0.,
+            univariate_skip: None,
+        });
+
+        let ops = ds.finalize();
+        assert!(
+            ops.is_empty(),
+            "Expected no transcript operations for folding_factor = 0"
+        );
     }
 }

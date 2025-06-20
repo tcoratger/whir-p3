@@ -598,7 +598,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+        fiat_shamir::{
+            domain_separator::{DomainSeparator, SumcheckParams},
+            pow::blake3::Blake3PoW,
+        },
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
         utils::eval_eq,
         whir::statement::weights::Weights,
@@ -1522,22 +1525,22 @@ mod tests {
         // Instantiate the Sumcheck prover
         let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
 
+        let folding_factor = 1; // Minimum folding factor
+        let pow_bits = 0.; // No grinding
+
         // Domain separator setup
-        // Step 1: Initialize domain separator with a context label
+        // - Initialize domain separator with a context label
+        // - Add sumcheck
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("test", true);
-
-        // Step 2: Register the fact that we’re about to observe 3 field elements
-        domsep.add_scalars(3, "test");
-
-        // Step 3: Sample 1 challenge scalar from the transcript
-        domsep.challenge_scalars(1, "test");
+        domsep.add_sumcheck(&SumcheckParams {
+            rounds: folding_factor,
+            pow_bits,
+            univariate_skip: None,
+        });
 
         // Convert the domain separator to a prover state
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover_state = domsep.to_prover_state(challenger.clone());
-
-        let folding_factor = 1; // Minimum folding factor
-        let pow_bits = 0.; // No grinding
 
         // Check sum BEFORE running protocol via dot product
         let expected_sum =
@@ -1608,19 +1611,13 @@ mod tests {
         let pow_bits = 1.; // Minimal grinding
 
         // Setup the domain separator
+        // - Add sumcheck
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("test", true);
-
-        // For each folding round, we must observe values, sample challenge, and apply PoW
-        for _ in 0..folding_factor {
-            // Observe 3 field elements (evaluations of sumcheck polynomial)
-            domsep.add_scalars(3, "tag");
-
-            // Sample 1 challenge scalar from the Fiat-Shamir transcript
-            domsep.challenge_scalars(1, "tag");
-
-            // Apply optional PoW grinding to ensure randomness
-            domsep.challenge_pow("tag");
-        }
+        domsep.add_sumcheck(&SumcheckParams {
+            rounds: folding_factor,
+            pow_bits,
+            univariate_skip: None,
+        });
 
         // Convert the domain separator to a prover state
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
@@ -1748,19 +1745,13 @@ mod tests {
         let pow_bits = 2.;
 
         // Setup the domain separator
+        // - Add sumcheck (register interactions with the transcript for each round)
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("test", true);
-
-        // Register interactions with the transcript for each round
-        for _ in 0..folding_factor {
-            // Observe 3 field values (sumcheck evaluations at X = 0, 1, 2)
-            domsep.add_scalars(3, "tag");
-
-            // Sample 1 field challenge (folding randomness)
-            domsep.challenge_scalars(1, "tag");
-
-            // Apply challenge PoW (grinding) to enhance soundness
-            domsep.challenge_pow("tag");
-        }
+        domsep.add_sumcheck(&SumcheckParams {
+            rounds: folding_factor,
+            pow_bits,
+            univariate_skip: None,
+        });
 
         // Convert the domain separator to a prover state
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
@@ -1849,7 +1840,14 @@ mod tests {
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
         // No domain separator logic needed since we don't fold
-        let domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("test", true);
+        // - Add sumcheck (register interactions with the transcript for each round)
+        let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("test", true);
+        domsep.add_sumcheck(&SumcheckParams {
+            rounds: folding_factor,
+            pow_bits,
+            univariate_skip: None,
+        });
+
         let mut prover_state = domsep.to_prover_state(challenger);
 
         let result = prover
@@ -2081,19 +2079,13 @@ mod tests {
         let pow_bits = 2.;
 
         // Create domain separator for Fiat-Shamir transcript simulation
+        // - Add sumcheck (register expected Fiat-Shamir interactions for each round)
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test", true);
-
-        // Register expected Fiat-Shamir interactions for each round
-        for _ in 0..folding_factor {
-            // Step 1: observe 3 evaluations of the sumcheck polynomial h(X)
-            domsep.add_scalars(3, "tag");
-
-            // Step 2: derive a folding challenge scalar from transcript
-            domsep.challenge_scalars(1, "tag");
-
-            // Step 3: optionally apply PoW grinding (if pow_bits > 0)
-            domsep.challenge_pow("tag");
-        }
+        domsep.add_sumcheck(&SumcheckParams {
+            rounds: folding_factor,
+            pow_bits,
+            univariate_skip: None,
+        });
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
@@ -2297,17 +2289,18 @@ mod tests {
 
             // Use a single shared DomainSeparator and clone it (identical transcript!)
             let mut domsep_base: DomainSeparator<EF4, F, u8> = DomainSeparator::new("tag", true);
+            domsep_base.add_sumcheck(&SumcheckParams {
+                rounds: folding_rounds,
+                pow_bits: 0.,
+                univariate_skip: None,
+            });
+
             let mut domsep_ext:DomainSeparator<EF4, F, u8> = DomainSeparator::new("tag", true);
-
-            // Register the same interactions for each folding round
-            for _ in 0..folding_rounds {
-                domsep_base.add_scalars(3, "tag");
-                domsep_base.challenge_scalars(1, "tag");
-
-                domsep_ext.add_scalars(3, "tag");
-                domsep_ext.challenge_scalars(1, "tag");
-            }
-
+            domsep_ext.add_sumcheck(&SumcheckParams {
+                rounds: folding_rounds,
+                pow_bits: 0.,
+                univariate_skip: None,
+            });
 
             // Convert into prover states
             let challenger_base = MyChallenger::new(vec![], Keccak256Hash);
@@ -2482,19 +2475,13 @@ mod tests {
         let pow_bits = 0.;
 
         // Create domain separator for Fiat-Shamir transcript simulation
+        // - Add sumcheck
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test", true);
-
-        // Step 1: observe 3 evaluations of the sumcheck polynomial h(X)
-        domsep.add_scalars(8, "tag");
-
-        // Step 2: derive a folding challenge scalar from transcript
-        domsep.challenge_scalars(1, "tag");
-
-        // Step 1: observe 3 evaluations of the sumcheck polynomial h(X)
-        domsep.add_scalars(3, "tag");
-
-        // Step 2: derive a folding challenge scalar from transcript
-        domsep.challenge_scalars(1, "tag");
+        domsep.add_sumcheck(&SumcheckParams {
+            rounds: folding_factor,
+            pow_bits,
+            univariate_skip: Some(2),
+        });
 
         // Convert domain separator into prover state object
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
@@ -2562,5 +2549,100 @@ mod tests {
             prover.sum, current_sum,
             "Final prover sum doesn't match verifier folding result"
         );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn test_compute_sumcheck_polynomials_mixed_fields_ten_vars_skip_7() {
+        // -------------------------------------------------------------
+        // Define a multilinear polynomial in 10 variables:
+        // f(X0..X9) = sum_{i=0..1023} c_i * monomial_i(X0..X9)
+        // -------------------------------------------------------------
+        let coeffs = CoefficientList::new((0..1024).map(|i| F::from_u64(i as u64 + 1)).collect());
+
+        // Define a closure for evaluation in EF4
+        let f_extension = |point: &[EF4]| {
+            assert_eq!(point.len(), 10);
+            let mut acc = EF4::ZERO;
+            for i in 0..1024 {
+                let mut term = EF4::ONE;
+                for (b, &p) in point.iter().enumerate().take(10) {
+                    let bit = (i >> b) & 1;
+                    term *= if bit == 1 { p } else { EF4::ONE - p };
+                }
+                acc += EF4::from(F::from_u64(i as u64 + 1)) * term;
+            }
+            acc
+        };
+
+        // Construct all 2^10 = 1024 input points in {0,1}^10 and their evaluations
+        let inputs = (0..1024)
+            .map(|i| {
+                let bits: Vec<_> = (0..10)
+                    .map(|j| {
+                        if (i >> j) & 1 == 1 {
+                            EF4::ONE
+                        } else {
+                            EF4::ZERO
+                        }
+                    })
+                    .collect();
+                (MultilinearPoint(bits.clone()), f_extension(&bits))
+            })
+            .collect::<Vec<_>>();
+
+        // -------------------------------------------------------------
+        // Construct the evaluation statement with all equality constraints
+        // -------------------------------------------------------------
+        let mut statement = Statement::new(10);
+        for (pt, val) in &inputs {
+            statement.add_constraint(Weights::evaluation(pt.clone()), *val);
+        }
+
+        // Create prover from base coefficients and constraints
+        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+
+        // Ensure prover has correct internal evaluations and sum
+        match prover.evaluation_of_p {
+            EvaluationStorage::Base(ref evals_f) => {
+                let f_evals = evals_f.evals();
+                let w_evals = prover.weights.evals();
+                assert_eq!(f_evals.len(), 1024);
+                assert_eq!(f_evals.len(), w_evals.len());
+
+                for i in 0..1024 {
+                    assert_eq!(
+                        EF4::from(f_evals[i]) * w_evals[i],
+                        w_evals[i] * EF4::from(f_evals[i])
+                    );
+                }
+            }
+            EvaluationStorage::Extension(_) => panic!("Expected base field evaluation"),
+        }
+
+        // -------------------------------------------------------------
+        // Run sumcheck with 7 skipped rounds (fold over 7 vars at once)
+        // -------------------------------------------------------------
+        let folding_factor = 10;
+        let pow_bits = 0.0;
+
+        let mut domsep = DomainSeparator::new("test_sumcheck_skip_7_of_10", true);
+        domsep.add_sumcheck(&SumcheckParams {
+            rounds: folding_factor,
+            pow_bits,
+            univariate_skip: Some(7),
+        });
+
+        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut prover_state = domsep.to_prover_state(challenger);
+
+        let _ = prover
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
+                &mut prover_state,
+                folding_factor,
+                pow_bits,
+                Some(7), // Skip first 7 variables
+            )
+            .unwrap();
     }
 }
