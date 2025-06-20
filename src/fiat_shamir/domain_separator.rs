@@ -379,27 +379,30 @@ where
         }
     }
 
+    /// Optionally append a proof-of-work challenge to the domain separator.
+    ///
+    /// This function adds a transcript step that enforces a [proof-of-work (PoW)](https://en.wikipedia.org/wiki/Proof_of_work) requirement
+    /// during Fiat-Shamir transformation. If `bits` is positive, it adds:
+    ///
+    /// 1. A 32-byte challenge sampled from the transcript, labeled by `"pow-queries"`.
+    /// 2. An 8-byte observed nonce, labeled `"pow-nonce"`.
+    ///
+    /// The verifier will later check that the nonce satisfies the PoW condition relative to the challenge
+    /// and the `bits` difficulty.
+    ///
+    /// # Parameters
+    ///
+    /// - `bits`: Number of bits of PoW difficulty.
+    ///     - If `bits == 0.0`, nothing is added.
+    ///     - If `bits > 0.0`, a PoW round is added.
     pub fn pow(&mut self, bits: f64) {
-        if bits > 0. {
-            self.challenge_pow("pow_queries");
-        }
-    }
+        if bits > 0.0 {
+            // Step 1: Sample a 32-byte challenge (typically used as PoW preimage)
+            self.sample(32, "pow-queries");
 
-    /// Adds a [`PoWChallenge`] to the [`spongefish::DomainSeparator`].
-    ///
-    /// In order to squeeze a proof-of-work challenge, we extract a 32-byte challenge using
-    /// the byte interface, and then we find a 16-byte nonce that satisfies the proof-of-work.
-    /// The nonce a 64-bit integer encoded as an unsigned integer and written in big-endian and
-    /// added to the protocol transcript as the nonce for the proof-of-work.
-    ///
-    /// The number of bits used for the proof of work are **not** encoded within the
-    /// [`spongefish::DomainSeparator`]. It is up to the implementor to change the domain
-    /// separator or the label in order to reflect changes in the proof in order to preserve
-    /// simulation extractability.
-    pub fn challenge_pow(&mut self, label: &str) {
-        // 16 bytes challenge and 16 bytes nonce (that will be written)
-        self.sample(32, label);
-        self.observe(8, "pow-nonce");
+            // Step 2: Observe an 8-byte nonce in response
+            self.observe(8, "pow-nonce");
+        }
     }
 
     pub fn observe_scalars(&mut self, count: usize, label: &str) {
@@ -885,7 +888,7 @@ mod tests {
         let mut expected = DomainSeparator::<EF4, F, u8>::new("pow", true);
         expected.observe_scalars(3, "test");
         expected.sample_scalars(1, "test");
-        expected.challenge_pow("test");
+        expected.pow(7.);
 
         assert_eq!(ops, expected.finalize());
     }
@@ -929,11 +932,11 @@ mod tests {
         let mut expected = DomainSeparator::<EF4, F, u8>::new("skip2pow", true);
         expected.observe_scalars(8, "test");
         expected.sample_scalars(1, "test");
-        expected.challenge_pow("test");
+        expected.pow(10.);
 
         expected.observe_scalars(3, "test");
         expected.sample_scalars(1, "test");
-        expected.challenge_pow("test");
+        expected.pow(10.);
 
         assert_eq!(ops, expected.finalize());
     }

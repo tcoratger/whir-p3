@@ -149,7 +149,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::domain_separator::DomainSeparator,
+        fiat_shamir::domain_separator::{DomainSeparator, SumcheckParams},
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
@@ -271,18 +271,17 @@ mod tests {
             + evals_w[7] * evals_f[7];
         assert_eq!(prover.sum, expected_initial_sum);
 
-        // Set up domain separator
-        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("tag", true);
-
         let folding_factor = 3;
         let pow_bits = 1.;
 
-        // Reserve the number of interactions required
-        for _ in 0..folding_factor {
-            domsep.observe_scalars(3, "tag");
-            domsep.sample_scalars(1, "tag");
-            domsep.challenge_pow("pow_queries");
-        }
+        // Set up domain separator
+        // - Add sumcheck
+        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("tag", true);
+        domsep.add_sumcheck(&SumcheckParams {
+            rounds: folding_factor,
+            pow_bits,
+            univariate_skip: None,
+        });
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
 

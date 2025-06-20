@@ -817,7 +817,7 @@ mod tests {
         use crate::fiat_shamir::pow::blake3::Blake3PoW;
 
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("pow_test", true);
-        domsep.challenge_pow("challenge");
+        domsep.pow(8.0);
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover = domsep.to_prover_state(challenger);
