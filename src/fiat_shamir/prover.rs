@@ -182,15 +182,6 @@ where
         Ok(output)
     }
 
-    /// Observe a digest object (e.g. Merkle root) into the transcript.
-    pub fn add_digest<const DIGEST_ELEMS: usize>(
-        &mut self,
-        digest: Hash<F, U, DIGEST_ELEMS>,
-    ) -> ProofResult<()> {
-        self.observe_units(digest.as_ref())
-            .map_err(ProofError::InvalidDomainSeparator)
-    }
-
     /// Fill a mutable slice with uniformly sampled extension field elements.
     ///
     /// Each element is sampled using Fiat-Shamir from the internal sponge.

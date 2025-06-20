@@ -85,7 +85,7 @@ where
             info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
 
         // Observe Merkle root in challenger
-        prover_state.add_digest(root)?;
+        prover_state.observe_units(root.as_ref())?;
 
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) = sample_ood_points(
