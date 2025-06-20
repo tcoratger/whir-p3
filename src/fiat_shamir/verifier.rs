@@ -461,7 +461,7 @@ mod tests {
         // Step 3: Create a domain separator that commits to absorbing 2 scalars
         // The label "scalars" is just metadata to distinguish this observe phase
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("test", true);
-        domsep.add_scalars(values.len(), "scalars");
+        domsep.observe_scalars(values.len(), "scalars");
 
         // Step 4: Create a verifier from the domain separator, loaded with the raw bytes
         let challenger = DummyChallenger::new();
@@ -520,7 +520,7 @@ mod tests {
 
         // Step 4: Create a domain separator for absorbing 2 EF4 values
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("ext", true);
-        domsep.add_scalars(values.len(), "ext-scalars");
+        domsep.observe_scalars(values.len(), "ext-scalars");
 
         // Step 5: Construct a verifier state from the domain separator and raw byte input
         let challenger = DummyChallenger::new();
@@ -541,7 +541,7 @@ mod tests {
 
         // Create a domain separator indicating we will observe 2 public scalars
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("field", true);
-        domsep.add_scalars(2, "test");
+        domsep.observe_scalars(2, "test");
 
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 222, 0, 0, 0];
@@ -572,7 +572,7 @@ mod tests {
 
         // Create a domain separator indicating we will observe 2 public scalars
         let mut domsep: DomainSeparator<G, G, u8> = DomainSeparator::new("field", true);
-        domsep.add_scalars(2, "test");
+        domsep.observe_scalars(2, "test");
 
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0];
@@ -603,7 +603,7 @@ mod tests {
 
         // Create a domain separator committing to 2 public scalars
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("field", true);
-        domsep.add_scalars(2, "test");
+        domsep.observe_scalars(2, "test");
 
         // Compute expected bytes manually: serialize each coefficient of EF4
         let expected_bytes = [
@@ -640,7 +640,7 @@ mod tests {
 
         // Create a domain separator committing to 2 public scalars
         let mut domsep: DomainSeparator<EG2, G, u8> = DomainSeparator::new("field", true);
-        domsep.add_scalars(2, "test");
+        domsep.observe_scalars(2, "test");
 
         // Compute expected bytes manually: serialize each coefficient of EF4
         let expected_bytes = [
@@ -674,7 +674,7 @@ mod tests {
         let values = [F::ZERO, F::ONE, F::from_u64(123456), F::from_u64(7891011)];
 
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("mixed", true);
-        domsep.add_scalars(values.len(), "mix");
+        domsep.observe_scalars(values.len(), "mix");
 
         let challenger = DummyChallenger::new();
         let mut prover = domsep.to_verifier_state(&[], challenger.clone());
@@ -974,7 +974,7 @@ mod tests {
         let random_scalars: Vec<EF4> = (0..NUM_SCALARS).map(|_| rng.random()).collect();
 
         // Record public scalars in the transcript
-        domsep.add_scalars(NUM_SCALARS, "public-scalars");
+        domsep.observe_scalars(NUM_SCALARS, "public-scalars");
 
         // Create prover and observe public scalars
         let challenge = DummyChallenger::new();

@@ -279,7 +279,7 @@ mod tests {
 
         // Reserve the number of interactions required
         for _ in 0..folding_factor {
-            domsep.add_scalars(3, "tag");
+            domsep.observe_scalars(3, "tag");
             domsep.challenge_scalars(1, "tag");
             domsep.challenge_pow("pow_queries");
         }
@@ -425,11 +425,11 @@ mod tests {
         // - remaining rounds: 3 values each
         // -------------------------------------------------------------
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test", true);
-        domsep.add_scalars(1 << (K_SKIP + 1), "skip");
+        domsep.observe_scalars(1 << (K_SKIP + 1), "skip");
         domsep.challenge_scalars(1, "skip");
 
         for _ in 0..(NUM_VARS - K_SKIP) {
-            domsep.add_scalars(3, "round");
+            domsep.observe_scalars(3, "round");
             domsep.challenge_scalars(1, "round");
         }
 

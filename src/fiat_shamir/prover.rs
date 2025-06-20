@@ -396,7 +396,7 @@ mod tests {
 
         // Step 2: Add an "observe scalars" tag for 3 scalars, with label "com"
         // This ensures deterministic transcript layout
-        domsep.add_scalars(3, "com");
+        domsep.observe_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
@@ -441,7 +441,7 @@ mod tests {
 
         // Step 2: Add an "observe scalars" tag for 3 scalars, with label "com"
         // This ensures deterministic transcript layout
-        domsep.add_scalars(3, "com");
+        domsep.observe_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
@@ -485,7 +485,7 @@ mod tests {
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test", true);
 
         // Step 2: Add observe-scalar tag for EF4 type and 3 values
-        domsep.add_scalars(3, "com");
+        domsep.observe_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
@@ -535,7 +535,7 @@ mod tests {
         let mut domsep: DomainSeparator<EG2, G, u8> = DomainSeparator::new("test", true);
 
         // Step 2: Add observe-scalar tag for EG2 type and 3 values
-        domsep.add_scalars(3, "com");
+        domsep.observe_scalars(3, "com");
 
         // Step 3: Initialize the prover state from the domain separator
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
@@ -585,7 +585,7 @@ mod tests {
 
         // Create a domain separator indicating we will observe 2 public scalars
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("field", true);
-        domsep.add_scalars(2, "test");
+        domsep.observe_scalars(2, "test");
 
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 222, 0, 0, 0];
@@ -617,7 +617,7 @@ mod tests {
 
         // Create a domain separator indicating we will observe 2 public scalars
         let mut domsep: DomainSeparator<G, G, u8> = DomainSeparator::new("field", true);
-        domsep.add_scalars(2, "test");
+        domsep.observe_scalars(2, "test");
 
         // Create prover and serialize expected values manually
         let expected_bytes = [111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0];
@@ -649,7 +649,7 @@ mod tests {
 
         // Create a domain separator committing to 2 public scalars
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("field", true);
-        domsep.add_scalars(2, "test");
+        domsep.observe_scalars(2, "test");
 
         // Compute expected bytes manually: serialize each coefficient of EF4
         let expected_bytes = [
@@ -686,7 +686,7 @@ mod tests {
 
         // Create a domain separator committing to 2 public scalars
         let mut domsep: DomainSeparator<EG2, G, u8> = DomainSeparator::new("field", true);
-        domsep.add_scalars(2, "test");
+        domsep.observe_scalars(2, "test");
 
         // Compute expected bytes manually: serialize each coefficient of EF4
         let expected_bytes = [
@@ -721,7 +721,7 @@ mod tests {
         let values = [F::ZERO, F::ONE, F::from_u64(123456), F::from_u64(7891011)];
 
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("mixed", true);
-        domsep.add_scalars(values.len(), "mix");
+        domsep.observe_scalars(values.len(), "mix");
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover = domsep.to_prover_state(challenger);
