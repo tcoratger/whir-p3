@@ -7,7 +7,7 @@ use crate::{
     fiat_shamir::{
         errors::ProofResult,
         prover::ProverState,
-        unit::{Unit, UnitToBytes},
+        unit::{CanSampleUnits, Unit},
     },
     poly::multilinear::MultilinearPoint,
 };
@@ -37,7 +37,7 @@ pub fn get_challenge_stir_queries<T, W>(
     narg_string: &mut T,
 ) -> ProofResult<Vec<usize>>
 where
-    T: UnitToBytes<W>,
+    T: CanSampleUnits<W>,
     W: Unit + Default + Copy,
 {
     let folded_domain_size = domain_size >> folding_factor;
@@ -46,7 +46,7 @@ where
 
     // Allocate space for query bytes
     let mut queries = vec![W::default(); num_queries * domain_size_bytes];
-    narg_string.fill_challenge_units(&mut queries)?;
+    narg_string.sample_units(&mut queries)?;
 
     // Convert bytes into indices in **one efficient pass**
     Ok(queries

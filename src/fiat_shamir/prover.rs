@@ -10,7 +10,7 @@ use super::{
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
     sho::ChallengerWithInstructions,
-    unit::UnitToBytes,
+    unit::CanSampleUnits,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order},
 };
 use crate::fiat_shamir::unit::Unit;
@@ -179,7 +179,7 @@ where
     /// Used for sampling scalar field elements or general randomness.
     pub fn challenge_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut output = [U::default(); N];
-        self.fill_challenge_units(&mut output)?;
+        self.sample_units(&mut output)?;
         Ok(output)
     }
 
@@ -208,7 +208,7 @@ where
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.fill_challenge_units(&mut u_buf)?;
+            self.sample_units(&mut u_buf)?;
 
             // Reinterpret as bytes (safe because U must be 1-byte width)
             let byte_buf = U::slice_to_u8_slice(&u_buf);
@@ -283,14 +283,14 @@ where
     }
 }
 
-impl<EF, F, MyChallenger, U> UnitToBytes<U> for ProverState<EF, F, MyChallenger, U>
+impl<EF, F, MyChallenger, U> CanSampleUnits<U> for ProverState<EF, F, MyChallenger, U>
 where
     U: Unit + Default + Copy,
     MyChallenger: CanObserve<U> + CanSample<U>,
     EF: ExtensionField<F>,
     F: Field,
 {
-    fn fill_challenge_units(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+    fn sample_units(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.sample(output)
     }
 }

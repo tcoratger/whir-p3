@@ -10,7 +10,7 @@ use super::{
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
     sho::ChallengerWithInstructions,
-    unit::UnitToBytes,
+    unit::CanSampleUnits,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
 };
 use crate::fiat_shamir::unit::Unit;
@@ -179,7 +179,7 @@ where
     /// Derive a fixed-size byte array from the sponge as a Fiat-Shamir challenge.
     pub fn challenge_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut output = [U::default(); N];
-        self.fill_challenge_units(&mut output)?;
+        self.sample_units(&mut output)?;
         Ok(output)
     }
 
@@ -197,7 +197,7 @@ where
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.fill_challenge_units(&mut u_buf)?;
+            self.sample_units(&mut u_buf)?;
 
             // Reinterpret as bytes (safe because U must be u8-width)
             let byte_buf = U::slice_to_u8_slice(&u_buf);
@@ -319,7 +319,7 @@ where
     }
 }
 
-impl<EF, F, Challenger, U> UnitToBytes<U> for VerifierState<'_, EF, F, Challenger, U>
+impl<EF, F, Challenger, U> CanSampleUnits<U> for VerifierState<'_, EF, F, Challenger, U>
 where
     U: Unit + Default + Copy,
     Challenger: CanObserve<U> + CanSample<U>,
@@ -327,7 +327,7 @@ where
     F: Field,
 {
     #[inline]
-    fn fill_challenge_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+    fn sample_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         self.hash_state.sample(input)
     }
 }
@@ -426,7 +426,7 @@ mod tests {
         let challenger = DummyChallenger::new();
         let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"abcd", challenger, true);
         let mut out = [0u8; 4];
-        assert!(vs.fill_challenge_units(&mut out).is_ok());
+        assert!(vs.sample_units(&mut out).is_ok());
         assert_eq!(out, [0, 1, 2, 3]);
     }
 
