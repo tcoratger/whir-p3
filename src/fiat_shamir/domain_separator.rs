@@ -259,7 +259,7 @@ where
         Challenger: CanObserve<U> + CanSample<U>,
     {
         // TODO: Add params
-        self.add_digest::<DIGEST_ELEMS>("merkle_digest");
+        self.observe(DIGEST_ELEMS, "merkle_digest");
         if params.committment_ood_samples > 0 {
             assert!(params.initial_statement);
             self.add_ood(params.committment_ood_samples);
@@ -293,7 +293,7 @@ where
         for (round, r) in params.round_parameters.iter().enumerate() {
             let folded_domain_size = domain_size >> params.folding_factor.at_round(round);
             let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
-            self.add_digest::<DIGEST_ELEMS>("merkle_digest");
+            self.observe(DIGEST_ELEMS, "merkle_digest");
             self.add_ood(r.ood_samples);
             self.sample(r.num_queries * domain_size_bytes, "stir_queries");
             self.hint("stir_queries");
@@ -327,10 +327,6 @@ where
             univariate_skip: None,
         });
         self.hint("deferred_weight_evaluations");
-    }
-
-    pub fn add_digest<const DIGEST_ELEMS: usize>(&mut self, label: &str) {
-        self.observe(DIGEST_ELEMS, label);
     }
 
     /// Append the sumcheck protocol transcript steps to the domain separator.
