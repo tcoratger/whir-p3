@@ -81,7 +81,7 @@ where
         // If there are any OOD samples expected, read them from the transcript.
         if ood_samples > 0 {
             // Read challenge points chosen by Fiat-Shamir.
-            verifier_state.fill_challenge_scalars(&mut ood_points)?;
+            verifier_state.sample_scalars(&mut ood_points)?;
 
             // Read the prover's claimed evaluations at those points.
             verifier_state.fill_next_scalars(&mut ood_answers)?;

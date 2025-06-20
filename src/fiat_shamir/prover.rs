@@ -2,7 +2,6 @@ use std::{fmt::Debug, marker::PhantomData};
 
 use p3_challenger::{CanObserve, CanSample};
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
-use p3_symmetric::Hash;
 use serde::Serialize;
 
 use super::{
@@ -185,7 +184,7 @@ where
     /// Fill a mutable slice with uniformly sampled extension field elements.
     ///
     /// Each element is sampled using Fiat-Shamir from the internal sponge.
-    pub fn fill_challenge_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
+    pub fn sample_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // How many bytes are needed to sample a single base field element
         let base_field_size = bytes_uniform_modp(F::bits() as u32);
 
@@ -218,14 +217,14 @@ where
     /// Sample an array of `N` extension field elements as Fiat-Shamir challenges.
     pub fn challenge_scalars_array<const N: usize>(&mut self) -> ProofResult<[EF; N]> {
         let mut output = [EF::default(); N];
-        self.fill_challenge_scalars(&mut output)?;
+        self.sample_scalars(&mut output)?;
         Ok(output)
     }
 
     /// Sample a vector of `len` extension field elements as Fiat-Shamir challenges.
     pub fn challenge_scalars_vec(&mut self, len: usize) -> ProofResult<Vec<EF>> {
         let mut output = EF::zero_vec(len);
-        self.fill_challenge_scalars(&mut output)?;
+        self.sample_scalars(&mut output)?;
         Ok(output)
     }
 

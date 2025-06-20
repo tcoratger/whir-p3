@@ -183,7 +183,7 @@ where
     }
 
     /// Sample extension scalars uniformly at random using Fiat-Shamir challenge output.
-    pub fn fill_challenge_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
+    pub fn sample_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
         // How many bytes are needed to sample a single base field element
         let base_field_size = bytes_uniform_modp(F::bits() as u32);
 
@@ -216,14 +216,14 @@ where
     /// Sample an array of `N` extension scalars using Fiat-Shamir challenge randomness.
     pub fn challenge_scalars_array<const N: usize>(&mut self) -> ProofResult<[EF; N]> {
         let mut output = [EF::default(); N];
-        self.fill_challenge_scalars(&mut output)?;
+        self.sample_scalars(&mut output)?;
         Ok(output)
     }
 
     /// Sample a vector of `n` extension scalars using Fiat-Shamir challenge randomness.
     pub fn challenge_scalars_vec(&mut self, n: usize) -> ProofResult<Vec<EF>> {
         let mut output = EF::zero_vec(n);
-        self.fill_challenge_scalars(&mut output)?;
+        self.sample_scalars(&mut output)?;
         Ok(output)
     }
 

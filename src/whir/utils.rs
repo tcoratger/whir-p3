@@ -82,7 +82,7 @@ where
 
     if num_samples > 0 {
         // Generate OOD points from ProverState randomness
-        prover_state.fill_challenge_scalars(&mut ood_points)?;
+        prover_state.sample_scalars(&mut ood_points)?;
 
         // Evaluate the function at each OOD point
         ood_answers.extend(ood_points.iter().map(|ood_point| {

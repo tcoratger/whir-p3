@@ -102,7 +102,7 @@ where
             round_constraints.push((vec![], vec![]));
 
             let mut folding_randomness = EF::zero_vec(self.folding_factor.at_round(0));
-            verifier_state.fill_challenge_scalars(&mut folding_randomness)?;
+            verifier_state.sample_scalars(&mut folding_randomness)?;
             round_folding_randomness.push(MultilinearPoint(folding_randomness));
 
             // PoW
