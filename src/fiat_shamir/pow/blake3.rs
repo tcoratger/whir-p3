@@ -232,7 +232,9 @@ mod tests {
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover = domain_separator.to_prover_state(challenger.clone());
-        prover.add_units(b"\0").expect("Invalid DomainSeparator");
+        prover
+            .observe_units(b"\0")
+            .expect("Invalid DomainSeparator");
         prover.challenge_pow::<Blake3PoW>(BITS).unwrap();
 
         let mut verifier = domain_separator.to_verifier_state(prover.narg_string(), challenger);
