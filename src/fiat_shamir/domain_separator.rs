@@ -3,7 +3,7 @@ use std::{collections::VecDeque, fmt::Write, marker::PhantomData};
 use p3_challenger::{CanObserve, CanSample};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
-use super::{errors::DomainSeparatorMismatch, utils::bytes_uniform_modp};
+use super::errors::DomainSeparatorMismatch;
 use crate::{
     fiat_shamir::{prover::ProverState, unit::Unit, verifier::VerifierState},
     sumcheck::K_SKIP_SUMCHECK,
@@ -407,31 +407,12 @@ where
 
     pub fn observe_scalars(&mut self, count: usize, label: &str) {
         // Observe `count` scalars into the transcript.
-        //
-        // The total number of bytes to observe is calculated as:
-        //
-        //     count × extension_degree × NUM_BYTES
-        //
-        // where:
-        // - `count` is the number of scalar values
-        // - `extension_degree` is the number of limbs (e.g., 4 for quartic extensions)
-        // - `NUM_BYTES` gives the byte size of one base field element
-        self.observe(count * EF::DIMENSION * F::NUM_BYTES, label);
+        self.observe(U::scalar_observe_count::<F, EF>(count), label);
     }
 
     pub fn sample_scalars(&mut self, count: usize, label: &str) {
         // Sample `count` scalars from the transcript using a "challenge" tag.
-        //
-        // The total number of bytes to sample is calculated as:
-        //
-        //     count × extension_degree × bytes_uniform_modp(bits)
-        //
-        // where `bytes_uniform_modp` gives the number of bytes needed to sample uniformly
-        // over the base field.
-        self.sample(
-            count * EF::DIMENSION * bytes_uniform_modp(F::bits() as u32),
-            label,
-        );
+        self.sample(U::scalar_sample_count::<F, EF>(count), label);
     }
 }
 
@@ -801,7 +782,7 @@ mod tests {
         let pattern_str = String::from_utf8(updated_iop.as_units()).unwrap();
 
         // Check if "pow_queries" was correctly added
-        assert!(pattern_str.contains("pow_queries"));
+        assert!(pattern_str.contains("pow-queries"));
 
         // Test case where bits = 0 (should not modify anything)
         unchanged_iop.pow(0.0);

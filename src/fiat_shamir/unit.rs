@@ -1,3 +1,7 @@
+use p3_field::{ExtensionField, Field};
+
+use crate::fiat_shamir::utils::bytes_uniform_modp;
+
 /// Basic units over which a sponge operates.
 ///
 /// We require the units to have a precise size in memory, to be cloneable,
@@ -35,6 +39,16 @@ pub trait Unit: Clone + Sized + zeroize::Zeroize {
         assert_eq!(std::mem::size_of::<Self>(), 1, "Unit must be 1 byte");
         unsafe { std::slice::from_raw_parts(src.as_ptr().cast::<u8>(), src.len()) }
     }
+
+    fn scalar_observe_count<F, EF>(count: usize) -> usize
+    where
+        F: Field,
+        EF: ExtensionField<F>;
+
+    fn scalar_sample_count<F, EF>(count: usize) -> usize
+    where
+        F: Field,
+        EF: ExtensionField<F>;
 }
 
 impl Unit for u8 {
@@ -56,5 +70,39 @@ impl Unit for u8 {
 
     fn slice_from_u8_slice(src: &[u8]) -> Vec<Self> {
         src.to_vec()
+    }
+
+    fn scalar_observe_count<F, EF>(count: usize) -> usize
+    where
+        F: Field,
+        EF: ExtensionField<F>,
+    {
+        // Observe `count` scalars into the transcript.
+        //
+        // The total number of bytes to observe is calculated as:
+        //
+        //     count × extension_degree × NUM_BYTES
+        //
+        // where:
+        // - `count` is the number of scalar values
+        // - `extension_degree` is the number of limbs (e.g., 4 for quartic extensions)
+        // - `NUM_BYTES` gives the byte size of one base field element
+        count * EF::DIMENSION * F::NUM_BYTES
+    }
+
+    fn scalar_sample_count<F, EF>(count: usize) -> usize
+    where
+        F: Field,
+        EF: ExtensionField<F>,
+    {
+        // Sample `count` scalars from the transcript.
+        //
+        // The total number of bytes to sample is calculated as:
+        //
+        //     count × extension_degree × bytes_uniform_modp(bits)
+        //
+        // where `bytes_uniform_modp` gives the number of bytes needed to sample uniformly
+        // over the base field.
+        count * EF::DIMENSION * bytes_uniform_modp(F::bits() as u32)
     }
 }
