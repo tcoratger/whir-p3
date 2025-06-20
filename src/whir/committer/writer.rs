@@ -186,8 +186,8 @@ mod tests {
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
         let mut domainsep: DomainSeparator<F, F, u8> = DomainSeparator::new("🌪️", true);
-        domainsep.commit_statement(&params);
-        domainsep.add_whir_proof(&params);
+        domainsep.commit_statement::<_, _, _, _, 32>(&params);
+        domainsep.add_whir_proof::<_, _, _, _, 32>(&params);
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover_state = domainsep.to_prover_state(challenger);
@@ -265,7 +265,7 @@ mod tests {
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
 
         let mut domainsep = DomainSeparator::new("🌪️", true);
-        domainsep.commit_statement(&params);
+        domainsep.commit_statement::<_, _, _, _, 32>(&params);
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover_state = domainsep.to_prover_state(challenger);
@@ -320,7 +320,7 @@ mod tests {
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         let mut domainsep = DomainSeparator::new("🌪️", true);
-        domainsep.commit_statement(&params);
+        domainsep.commit_statement::<_, _, _, _, 32>(&params);
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover_state = domainsep.to_prover_state(challenger);

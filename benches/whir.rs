@@ -121,8 +121,8 @@ fn prepare_inputs() -> (
     let mut domainsep = DomainSeparator::new("🌪️", true);
 
     // Commit protocol parameters and proof type to the domain separator.
-    domainsep.commit_statement(&params);
-    domainsep.add_whir_proof(&params);
+    domainsep.commit_statement::<_, _, _, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, _, _, 32>(&params);
 
     // Instantiate the Fiat-Shamir challenger from an empty seed and Keccak.
     let challenger = MyChallenger::new(vec![], Keccak256Hash);

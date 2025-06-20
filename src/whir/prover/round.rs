@@ -284,10 +284,10 @@ mod tests {
         let mut domsep = DomainSeparator::new("🌪️", true);
 
         // Observe the public statement into the transcript for binding.
-        domsep.commit_statement(params);
+        domsep.commit_statement::<_, _, _, _, 32>(params);
 
         // Reserve transcript space for WHIR proof messages.
-        domsep.add_whir_proof(params);
+        domsep.add_whir_proof::<_, _, _, _, 32>(params);
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
 

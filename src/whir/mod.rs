@@ -113,8 +113,8 @@ pub fn make_whir_things(
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
     let mut domainsep = DomainSeparator::new("🌪️", true);
-    domainsep.commit_statement(&params);
-    domainsep.add_whir_proof(&params);
+    domainsep.commit_statement::<_, _, _, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, _, _, 32>(&params);
 
     let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
