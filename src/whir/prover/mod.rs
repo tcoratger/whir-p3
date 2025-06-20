@@ -428,7 +428,7 @@ where
             // The folding factor we used to fold the previous polynomial
             self.folding_factor.at_round(round_index),
             self.final_queries,
-            prover_state,
+            &mut prover_state.stateful_challenger,
         )?;
 
         // Every query requires opening these many in the previous Merkle tree
@@ -522,7 +522,7 @@ where
             round_state.domain.size(),
             self.folding_factor.at_round(round_index),
             round_params.num_queries,
-            prover_state,
+            &mut prover_state.stateful_challenger,
         )?;
 
         // Compute the generator of the folded domain, in the extension field

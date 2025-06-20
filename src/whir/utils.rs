@@ -5,9 +5,7 @@ use tracing::instrument;
 
 use crate::{
     fiat_shamir::{
-        errors::ProofResult,
-        prover::ProverState,
-        unit::{CanSampleUnits, Unit},
+        errors::ProofResult, prover::ProverState, sho::ChallengerWithInstructions, unit::Unit,
     },
     poly::multilinear::MultilinearPoint,
 };
@@ -30,14 +28,14 @@ pub const fn workload_size<T: Sized>() -> usize {
 /// - Computes the folded domain size: `folded_domain_size = domain_size / 2^folding_factor`.
 /// - Derives query indices from random transcript bytes.
 /// - Deduplicates indices while preserving order.
-pub fn get_challenge_stir_queries<T, W>(
+pub fn get_challenge_stir_queries<Challenger, W>(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
-    narg_string: &mut T,
+    stateful_challenger: &mut ChallengerWithInstructions<Challenger, W>,
 ) -> ProofResult<Vec<usize>>
 where
-    T: CanSampleUnits<W>,
+    Challenger: CanObserve<W> + CanSample<W>,
     W: Unit + Default + Copy,
 {
     let folded_domain_size = domain_size >> folding_factor;
@@ -46,7 +44,7 @@ where
 
     // Allocate space for query bytes
     let mut queries = vec![W::default(); num_queries * domain_size_bytes];
-    narg_string.sample_units(&mut queries)?;
+    stateful_challenger.sample(&mut queries)?;
 
     // Convert bytes into indices in **one efficient pass**
     Ok(queries

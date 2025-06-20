@@ -312,7 +312,7 @@ where
             params.domain_size,
             params.folding_factor,
             params.num_queries,
-            verifier_state,
+            &mut verifier_state.stateful_challenger,
         )?;
 
         let dimensions = vec![Dimensions {

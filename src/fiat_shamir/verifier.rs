@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use p3_challenger::{CanObserve, CanSample};
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
 use p3_symmetric::Hash;
 use serde::Deserialize;
 
@@ -10,7 +10,6 @@ use super::{
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
     sho::ChallengerWithInstructions,
-    unit::CanSampleUnits,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
 };
 use crate::fiat_shamir::unit::Unit;
@@ -32,7 +31,7 @@ where
     /// This manages the full Fiat-Shamir interaction logic, such as absorbing inputs and
     /// squeezing challenges. It also stores the domain separator instructions to enforce
     /// consistency between prover and verifier.
-    pub(crate) hash_state: ChallengerWithInstructions<Challenger, U>,
+    pub(crate) stateful_challenger: ChallengerWithInstructions<Challenger, U>,
 
     /// The "NARG" string: raw serialized input provided by the prover.
     ///
@@ -85,7 +84,7 @@ where
         verify_operations: bool,
     ) -> Self {
         Self {
-            hash_state: ChallengerWithInstructions::new(
+            stateful_challenger: ChallengerWithInstructions::new(
                 domain_separator,
                 challenger,
                 verify_operations,
@@ -100,7 +99,7 @@ where
     #[inline]
     pub fn fill_next_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         U::read(&mut self.narg_string, input)?;
-        self.hash_state.observe(input)?;
+        self.stateful_challenger.observe(input)?;
         Ok(())
     }
 
@@ -179,7 +178,7 @@ where
     /// Derive a fixed-size byte array from the sponge as a Fiat-Shamir challenge.
     pub fn challenge_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut output = [U::default(); N];
-        self.sample_units(&mut output)?;
+        self.stateful_challenger.sample(&mut output)?;
         Ok(output)
     }
 
@@ -197,7 +196,7 @@ where
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.sample_units(&mut u_buf)?;
+            self.stateful_challenger.sample(&mut u_buf)?;
 
             // Reinterpret as bytes (safe because U must be u8-width)
             let byte_buf = U::slice_to_u8_slice(&u_buf);
@@ -250,7 +249,8 @@ where
             .collect();
 
         // Observe the serialized bytes into the Fiat-Shamir transcript sponge
-        self.hash_state.observe(&U::slice_from_u8_slice(&bytes))?;
+        self.stateful_challenger
+            .observe(&U::slice_from_u8_slice(&bytes))?;
 
         // Return the serialized byte representation
         Ok(bytes)
@@ -258,7 +258,7 @@ where
 
     /// Read a hint from the NARG string. Returns the number of units read.
     pub fn hint_bytes(&mut self) -> Result<&'a [u8], DomainSeparatorMismatch> {
-        self.hash_state.hint()?;
+        self.stateful_challenger.hint()?;
 
         // Ensure at least 4 bytes are available for the length prefix
         if self.narg_string.len() < 4 {
@@ -319,19 +319,6 @@ where
     }
 }
 
-impl<EF, F, Challenger, U> CanSampleUnits<U> for VerifierState<'_, EF, F, Challenger, U>
-where
-    U: Unit + Default + Copy,
-    Challenger: CanObserve<U> + CanSample<U>,
-    EF: ExtensionField<F>,
-    F: Field,
-{
-    #[inline]
-    fn sample_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.sample(input)
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::unreadable_literal)]
 mod tests {
@@ -339,7 +326,9 @@ mod tests {
 
     use p3_baby_bear::BabyBear;
     use p3_challenger::HashChallenger;
-    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{
+        BasedVectorSpace, Field, PrimeCharacteristicRing, extension::BinomialExtensionField,
+    };
     use p3_goldilocks::Goldilocks;
     use p3_keccak::Keccak256Hash;
     use rand::{Rng, SeedableRng, rngs::SmallRng};
@@ -426,7 +415,7 @@ mod tests {
         let challenger = DummyChallenger::new();
         let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"abcd", challenger, true);
         let mut out = [0u8; 4];
-        assert!(vs.sample_units(&mut out).is_ok());
+        assert!(vs.stateful_challenger.sample(&mut out).is_ok());
         assert_eq!(out, [0, 1, 2, 3]);
     }
 

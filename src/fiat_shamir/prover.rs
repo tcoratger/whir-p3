@@ -1,7 +1,7 @@
 use std::{fmt::Debug, marker::PhantomData};
 
 use p3_challenger::{CanObserve, CanSample};
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
 use p3_symmetric::Hash;
 use serde::Serialize;
 
@@ -10,7 +10,6 @@ use super::{
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
     sho::ChallengerWithInstructions,
-    unit::CanSampleUnits,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order},
 };
 use crate::fiat_shamir::unit::Unit;
@@ -40,7 +39,7 @@ where
     /// The internal challenger.
     pub(crate) challenger: Challenger,
     /// The public coins for the protocol
-    pub(crate) hash_state: ChallengerWithInstructions<Challenger, U>,
+    pub(crate) stateful_challenger: ChallengerWithInstructions<Challenger, U>,
     /// The encoded data.
     pub(crate) narg_string: Vec<u8>,
     /// Marker for the field.
@@ -70,7 +69,7 @@ where
     where
         Challenger: Clone,
     {
-        let hash_state = ChallengerWithInstructions::new(
+        let stateful_challenger = ChallengerWithInstructions::new(
             domain_separator,
             challenger.clone(),
             verify_operations,
@@ -80,7 +79,7 @@ where
 
         Self {
             challenger,
-            hash_state,
+            stateful_challenger,
             narg_string: Vec::new(),
             _field: PhantomData,
             _extension_field: PhantomData,
@@ -91,7 +90,7 @@ where
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
     pub fn observe_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.observe(input)?;
+        self.stateful_challenger.observe(input)?;
         U::write(input, &mut self.narg_string).unwrap();
         self.challenger.observe_slice(input);
         Ok(())
@@ -179,7 +178,7 @@ where
     /// Used for sampling scalar field elements or general randomness.
     pub fn challenge_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut output = [U::default(); N];
-        self.sample_units(&mut output)?;
+        self.stateful_challenger.sample(&mut output)?;
         Ok(output)
     }
 
@@ -208,7 +207,7 @@ where
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.sample_units(&mut u_buf)?;
+            self.stateful_challenger.sample(&mut u_buf)?;
 
             // Reinterpret as bytes (safe because U must be 1-byte width)
             let byte_buf = U::slice_to_u8_slice(&u_buf);
@@ -243,7 +242,7 @@ where
     ///
     /// Encodes the hint as a 4-byte little-endian length prefix followed by raw bytes.
     pub fn hint_bytes(&mut self, hint: &[u8]) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.hint()?;
+        self.stateful_challenger.hint()?;
         let len = u32::try_from(hint.len()).expect("Hint size out of bounds");
         self.narg_string.extend_from_slice(&len.to_le_bytes());
         self.narg_string.extend_from_slice(hint);
@@ -280,18 +279,6 @@ where
 
         // Successfully written.
         Ok(())
-    }
-}
-
-impl<EF, F, MyChallenger, U> CanSampleUnits<U> for ProverState<EF, F, MyChallenger, U>
-where
-    U: Unit + Default + Copy,
-    MyChallenger: CanObserve<U> + CanSample<U>,
-    EF: ExtensionField<F>,
-    F: Field,
-{
-    fn sample_units(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
-        self.hash_state.sample(output)
     }
 }
 

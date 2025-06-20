@@ -1,5 +1,3 @@
-use crate::fiat_shamir::errors::DomainSeparatorMismatch;
-
 /// Basic units over which a sponge operates.
 ///
 /// We require the units to have a precise size in memory, to be cloneable,
@@ -59,21 +57,4 @@ impl Unit for u8 {
     fn slice_from_u8_slice(src: &[u8]) -> Vec<Self> {
         src.to_vec()
     }
-}
-
-/// Squeezing bytes from the sponge.
-///
-/// While this trait is trivial for byte-oriented sponges, it is non-trivial for algebraic hashes.
-/// In particular, the implementation of this trait is expected to provide different guarantees
-/// between units `u8` and $\mathbb{F}_p$ elements:
-/// - `u8` implementations are assumed to be streaming-friendly, that is:
-///   `implementor.sample_units(&mut out[..1]); implementor.sample_units(&mut
-///   out[1..]);` is expected to be equivalent to `implementor.sample_units(&mut out);`.
-/// - $\mathbb{F}_p$ implementations are expected to provide no such guarantee. In addition, we expect the implementation to return bytes that are uniformly distributed. In particular, note that the most significant bytes of a $\mod p$ element are not uniformly distributed. The number of bytes good to be used can be discovered playing with [our scripts](https://github.com/arkworks-rs/spongefish/blob/main/scripts/useful_bits_modp.py).
-pub trait CanSampleUnits<U>
-where
-    U: Unit,
-{
-    /// Fill `input` with units sampled uniformly at random.
-    fn sample_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch>;
 }
