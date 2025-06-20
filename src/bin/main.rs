@@ -109,7 +109,7 @@ fn main() {
     let mv_params = MultivariateParameters::<EF>::new(num_variables);
 
     // Construct WHIR protocol parameters
-    let whir_params = ProtocolParameters::<_, _> {
+    let whir_params = ProtocolParameters {
         initial_statement: true,
         security_level,
         pow_bits,
@@ -119,6 +119,7 @@ fn main() {
         soundness_type,
         starting_log_inv_rate: starting_rate,
         rs_domain_initial_reduction_factor,
+        univariate_skip: false,
     };
 
     let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(

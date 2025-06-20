@@ -157,7 +157,7 @@ mod tests {
 
         let compress = MyCompress::new(byte_hash);
 
-        let whir_params = ProtocolParameters::<FieldHash, MyCompress> {
+        let whir_params = ProtocolParameters {
             initial_statement: true,
             security_level,
             pow_bits,
@@ -166,12 +166,11 @@ mod tests {
                 first_round_folding_factor,
                 folding_factor,
             ),
-            // merkle_hash: Poseidon2Sponge::new(poseidon_p24),
-            // merkle_compress: Poseidon2Compression::new(poseidon_p16),
             merkle_hash: field_hash,
             merkle_compress: compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
+            univariate_skip: false,
         };
 
         // Define multivariate parameters for the polynomial.
@@ -253,6 +252,7 @@ mod tests {
             merkle_compress: compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
+            univariate_skip: false,
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);
@@ -304,6 +304,7 @@ mod tests {
             merkle_compress: compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
+            univariate_skip: false,
         };
 
         let mv_params = MultivariateParameters::<F>::new(num_variables);

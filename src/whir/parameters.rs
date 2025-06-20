@@ -64,6 +64,9 @@ where
     pub merkle_hash: MyChallenger,
     pub merkle_compress: C,
 
+    // Univariate skip optimization
+    pub univariate_skip: bool,
+
     pub _base_field: PhantomData<F>,
     pub _extension_field: PhantomData<EF>,
     pub _challenger: PhantomData<Challenger>,
@@ -257,6 +260,7 @@ where
             pow_strategy: PhantomData,
             merkle_hash: whir_parameters.merkle_hash,
             merkle_compress: whir_parameters.merkle_compress,
+            univariate_skip: whir_parameters.univariate_skip,
             _base_field: PhantomData,
             _extension_field: PhantomData,
             _challenger: PhantomData,
@@ -452,6 +456,7 @@ mod tests {
             merkle_compress: Poseidon2Compression::new(55), // Just a placeholder
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
+            univariate_skip: false,
         }
     }
 

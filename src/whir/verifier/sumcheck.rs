@@ -179,7 +179,7 @@ mod tests {
         let mv_params = MultivariateParameters::<EF4>::new(num_variables);
 
         // Construct WHIR protocol parameters
-        let whir_params = ProtocolParameters::<_, _> {
+        let whir_params = ProtocolParameters {
             initial_statement: true,
             security_level: 32,
             pow_bits: 0,
@@ -189,13 +189,11 @@ mod tests {
             merkle_compress,
             soundness_type: SecurityAssumption::UniqueDecoding,
             starting_log_inv_rate: 1,
+            univariate_skip: false,
         };
 
         // Combine protocol and polynomial parameters into a single config
-        WhirConfig::<EF4, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(
-            mv_params,
-            whir_params,
-        )
+        WhirConfig::new(mv_params, whir_params)
     }
 
     #[test]

@@ -231,18 +231,11 @@ mod tests {
             merkle_compress: compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
+            univariate_skip: false,
         };
 
         // Construct full WHIR configuration with MV polynomial shape and protocol rules.
-        let mut config = WhirConfig::<
-            BabyBear,
-            BabyBear,
-            FieldHash,
-            MyCompress,
-            Blake3PoW,
-            MyChallenger,
-            W,
-        >::new(MultivariateParameters::new(num_variables), whir_params);
+        let mut config = WhirConfig::new(MultivariateParameters::new(num_variables), whir_params);
 
         // Set the number of OOD samples for commitment testing.
         config.committment_ood_samples = ood_samples;

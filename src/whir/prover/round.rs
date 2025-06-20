@@ -9,7 +9,7 @@ use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState, unit::Unit},
     poly::{evals::EvaluationStorage, multilinear::MultilinearPoint},
-    sumcheck::sumcheck_single::SumcheckSingle,
+    sumcheck::{K_SKIP_SUMCHECK, sumcheck_single::SumcheckSingle},
     whir::{
         committer::{RoundMerkleTree, Witness},
         statement::{Statement, weights::Weights},
@@ -148,7 +148,11 @@ where
                 prover_state,
                 prover.folding_factor.at_round(0),
                 prover.starting_folding_pow_bits,
-                None,
+                if prover.univariate_skip {
+                    Some(K_SKIP_SUMCHECK)
+                } else {
+                    None
+                },
             )?;
 
             sumcheck_prover = Some(sumcheck);
@@ -251,6 +255,7 @@ mod tests {
             merkle_compress: MyCompress::new(ByteHash {}),
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
+            univariate_skip: false,
         };
 
         // Combine the multivariate and protocol parameters into a full WHIR config

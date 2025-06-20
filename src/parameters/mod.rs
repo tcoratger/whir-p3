@@ -199,6 +199,8 @@ pub struct ProtocolParameters<H, C> {
     pub merkle_hash: H,
     /// Compression method used in the Merkle tree.
     pub merkle_compress: C,
+    /// Whether the univariate skip optimization is enabled for the sumcheck protocol.
+    pub univariate_skip: bool,
 }
 
 impl<H, C> Display for ProtocolParameters<H, C> {

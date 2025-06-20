@@ -66,7 +66,7 @@ pub fn make_whir_things(
     let mv_params = MultivariateParameters::<EF>::new(num_variables);
 
     // Construct WHIR protocol parameters
-    let whir_params = ProtocolParameters::<_, _> {
+    let whir_params = ProtocolParameters {
         initial_statement: true,
         security_level: 32,
         pow_bits,
@@ -76,6 +76,7 @@ pub fn make_whir_things(
         merkle_compress,
         soundness_type,
         starting_log_inv_rate: 1,
+        univariate_skip: false,
     };
 
     // Combine protocol and polynomial parameters into a single config

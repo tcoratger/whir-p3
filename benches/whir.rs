@@ -73,7 +73,7 @@ fn prepare_inputs() -> (
     let soundness_type = SecurityAssumption::CapacityBound;
 
     // Assemble the protocol-level parameters.
-    let whir_params = ProtocolParameters::<_, _> {
+    let whir_params = ProtocolParameters {
         initial_statement: true,
         security_level,
         pow_bits,
@@ -83,13 +83,11 @@ fn prepare_inputs() -> (
         soundness_type,
         starting_log_inv_rate: starting_rate,
         rs_domain_initial_reduction_factor,
+        univariate_skip: false,
     };
 
     // Combine multivariate and protocol parameters into a unified WHIR config.
-    let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, u8>::new(
-        mv_params,
-        whir_params,
-    );
+    let params = WhirConfig::new(mv_params, whir_params);
 
     // Sample random multilinear polynomial
 
