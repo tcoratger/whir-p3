@@ -1,9 +1,8 @@
-use std::{collections::VecDeque, fmt::Write, marker::PhantomData};
+use std::{fmt::Write, marker::PhantomData};
 
 use p3_challenger::{CanObserve, CanSample};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
-use super::errors::DomainSeparatorMismatch;
 use crate::{
     fiat_shamir::{prover::ProverState, unit::Unit, verifier::VerifierState},
     sumcheck::K_SKIP_SUMCHECK,
@@ -169,47 +168,6 @@ where
     #[must_use]
     pub fn as_units(&self) -> Vec<U> {
         U::slice_from_u8_slice(self.io.as_bytes())
-    }
-
-    fn parse_domsep(domain_separator: &[u8]) -> Result<VecDeque<Op>, DomainSeparatorMismatch> {
-        let mut stack = VecDeque::new();
-
-        // skip the domain separator
-        for part in domain_separator
-            .split(|&b| b == SEP_BYTE.as_bytes()[0])
-            .skip(1)
-        {
-            let next_id = part[0] as char;
-            let next_length = part[1..]
-                .iter()
-                .take_while(|x| x.is_ascii_digit())
-                .fold(0, |acc, x| acc * 10 + (x - b'0') as usize);
-
-            // check that next_length != 0 is performed internally on Op::new
-            let next_op = Op::new(next_id, Some(next_length))?;
-            stack.push_back(next_op);
-        }
-
-        // consecutive calls are merged into one
-        match stack.pop_front() {
-            None => Ok(stack),
-            Some(x) => Ok(Self::simplify_stack(VecDeque::from([x]), stack)),
-        }
-    }
-
-    fn simplify_stack(mut dst: VecDeque<Op>, mut stack: VecDeque<Op>) -> VecDeque<Op> {
-        while let Some(next) = stack.pop_front() {
-            match (dst.pop_back(), next) {
-                (Some(Op::Sample(a)), Op::Sample(b)) => dst.push_back(Op::Sample(a + b)),
-                (Some(Op::Observe(a)), Op::Observe(b)) => dst.push_back(Op::Observe(a + b)),
-                (Some(prev), next) => {
-                    dst.push_back(prev);
-                    dst.push_back(next);
-                }
-                (None, next) => dst.push_back(next),
-            }
-        }
-        dst
     }
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
@@ -406,48 +364,6 @@ where
     }
 }
 
-/// Transcript operations expected by a Fiat-Shamir-based protocol.
-///
-/// These operations define the expected sequence of prover/verifier interactions
-/// and are typically encoded into a domain separator. They allow runtime enforcement
-/// of the transcript structure during proof generation and verification.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Op {
-    /// Indicates an observation of `usize` elements into the transcript.
-    ///
-    /// In the domain separator tag, this is encoded as `'O'`.
-    ///
-    /// Example: `Observe(3)` expects 3 elements to be observed at this point.
-    Observe(usize),
-
-    /// Indicates a non-binding, out-of-band hint from prover to verifier.
-    ///
-    /// Hints are not absorbed into the hash state and do not affect challenge generation,
-    /// but must still be declared for protocol completeness (e.g., Merkle proofs).
-    ///
-    /// In the domain separator tag, this is encoded as `'H'`.
-    Hint,
-
-    /// Indicates sampling of `usize` challenge elements from the transcript.
-    ///
-    /// In the domain separator tag, this is encoded as `'S'`.
-    ///
-    /// Example: `Sample(2)` expects 2 challenges to be drawn at this point.
-    Sample(usize),
-}
-
-impl Op {
-    /// Create a new OP from the portion of a tag.
-    fn new(id: char, count: Option<usize>) -> Result<Self, DomainSeparatorMismatch> {
-        match (id, count) {
-            ('O', Some(c)) if c > 0 => Ok(Self::Observe(c)),
-            ('H', None | Some(0)) => Ok(Self::Hint),
-            ('S', Some(c)) if c > 0 => Ok(Self::Sample(c)),
-            _ => Err("Invalid tag".into()),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
@@ -457,14 +373,6 @@ mod tests {
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
-
-    #[test]
-    fn test_op_new_invalid_cases() {
-        assert!(Op::new('O', Some(0)).is_err()); // observe with zero
-        assert!(Op::new('H', Some(1)).is_err()); // hint with size
-        assert!(Op::new('S', Some(0)).is_err()); // sample with zero
-        assert!(Op::new('X', Some(1)).is_err()); // invalid op char
-    }
 
     #[test]
     fn test_domain_separator_new_and_bytes() {
@@ -503,15 +411,6 @@ mod tests {
     #[should_panic]
     fn test_label_starts_with_digit_panics() {
         DomainSeparator::<EF4, F, u8>::new("x").observe(1, "1label");
-    }
-
-    #[test]
-    fn test_malformed_tag_parsing_fails() {
-        // Missing count
-        let broken = "proto\0Ax";
-        let ds = DomainSeparator::<EF4, F, u8>::from_string(broken.to_string());
-        let res = DomainSeparator::<EF4, F, u8>::parse_domsep(&ds.as_units());
-        assert!(res.is_err());
     }
 
     #[test]
