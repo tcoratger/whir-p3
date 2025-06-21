@@ -253,8 +253,6 @@ where
 
     /// Read a hint from the NARG string. Returns the number of units read.
     pub fn hint_bytes(&mut self) -> Result<&'a [u8], DomainSeparatorMismatch> {
-        self.stateful_challenger.hint()?;
-
         // Ensure at least 4 bytes are available for the length prefix
         if self.narg_string.len() < 4 {
             return Err("Insufficient transcript remaining for hint".into());

@@ -225,7 +225,6 @@ where
     ///
     /// Encodes the hint as a 4-byte little-endian length prefix followed by raw bytes.
     pub fn hint_bytes(&mut self, hint: &[u8]) -> Result<(), DomainSeparatorMismatch> {
-        self.stateful_challenger.hint()?;
         let len = u32::try_from(hint.len()).expect("Hint size out of bounds");
         self.narg_string.extend_from_slice(&len.to_le_bytes());
         self.narg_string.extend_from_slice(hint);

@@ -89,11 +89,6 @@ where
         }
         Ok(())
     }
-
-    /// Send or receive a hint from the proof stream.
-    pub const fn hint(&mut self) -> Result<(), DomainSeparatorMismatch> {
-        Ok(())
-    }
 }
 
 #[cfg(test)]
