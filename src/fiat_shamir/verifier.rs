@@ -160,7 +160,11 @@ where
 
     /// Derive a fixed-size byte array from the sponge as a Fiat-Shamir challenge.
     pub fn sample_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
-        Ok(self.challenger.sample_array())
+        let mut output = [U::default(); N];
+        for out in output.iter_mut() {
+            *out = self.challenger.sample();
+        }
+        Ok(output)
     }
 
     /// Sample extension scalars uniformly at random using Fiat-Shamir challenge output.
@@ -171,10 +175,15 @@ where
         // Total bytes needed for one EF element = extension degree × base field size
         let field_unit_len = EF::DIMENSION * base_field_size;
 
+        // Temporary buffer to hold bytes for each field element
+        let mut u_buf = vec![U::default(); field_unit_len];
+
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            let u_buf = self.challenger.sample_vec(field_unit_len);
+            for u in u_buf.iter_mut() {
+                *u = self.challenger.sample();
+            }
 
             // Reinterpret as bytes (safe because U must be u8-width)
             let byte_buf = U::slice_to_u8_slice(&u_buf);

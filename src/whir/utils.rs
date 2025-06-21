@@ -30,7 +30,7 @@ pub fn get_challenge_stir_queries<Challenger, W>(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
-    stateful_challenger: &mut Challenger,
+    challenger: &mut Challenger,
 ) -> ProofResult<Vec<usize>>
 where
     Challenger: CanObserve<W> + CanSample<W>,
@@ -41,7 +41,10 @@ where
     let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
     // Allocate space for query bytes
-    let queries = stateful_challenger.sample_vec(num_queries * domain_size_bytes);
+    let mut queries = vec![W::default(); num_queries * domain_size_bytes];
+    for out in queries.iter_mut() {
+        *out = challenger.sample();
+    }
 
     // Convert bytes into indices in **one efficient pass**
     Ok(queries
