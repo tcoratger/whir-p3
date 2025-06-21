@@ -44,7 +44,7 @@ where
 
     // Allocate space for query bytes
     let mut queries = vec![W::default(); num_queries * domain_size_bytes];
-    stateful_challenger.sample(&mut queries)?;
+    stateful_challenger.sample(&mut queries);
 
     // Convert bytes into indices in **one efficient pass**
     Ok(queries

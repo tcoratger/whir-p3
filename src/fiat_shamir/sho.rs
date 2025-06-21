@@ -3,10 +3,7 @@ use std::{collections::VecDeque, marker::PhantomData};
 use p3_challenger::{CanObserve, CanSample};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
-use super::{
-    domain_separator::{DomainSeparator, Op},
-    errors::DomainSeparatorMismatch,
-};
+use super::domain_separator::{DomainSeparator, Op};
 use crate::fiat_shamir::unit::Unit;
 
 /// A stateful transcript wrapper enforcing a predetermined Fiat-Shamir protocol.
@@ -68,9 +65,8 @@ where
     /// Observe input elements into the transcript, advancing the expected operation stack.
     ///
     /// This method must be called exactly when the next expected operation is `Observe`.
-    pub fn observe(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn observe(&mut self, input: &[U]) {
         self.challenger.observe_slice(input);
-        Ok(())
     }
 
     /// Sample output elements from the transcript, advancing the expected operation stack.
@@ -83,16 +79,10 @@ where
     /// - the next expected operation is not `Sample`,
     /// - the requested output length exceeds what remains,
     /// - the stack is empty.
-    pub fn sample(&mut self, output: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn sample(&mut self, output: &mut [U]) {
         for out in output.iter_mut() {
             *out = self.challenger.sample();
         }
-        Ok(())
-    }
-
-    /// Send or receive a hint from the proof stream.
-    pub const fn hint(&mut self) -> Result<(), DomainSeparatorMismatch> {
-        Ok(())
     }
 }
 
@@ -137,8 +127,7 @@ mod tests {
         let mut state = ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
 
         let mut out = [0u8; 3];
-        let result = state.sample(&mut out);
-        assert!(result.is_ok());
+        state.sample(&mut out);
         assert_eq!(out, [0, 1, 2]);
     }
 
