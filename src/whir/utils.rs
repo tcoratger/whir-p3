@@ -66,7 +66,7 @@ pub fn sample_ood_points<F, EF, E, Challenger, W>(
     num_samples: usize,
     num_variables: usize,
     evaluate_fn: E,
-) -> ProofResult<(Vec<EF>, Vec<EF>)>
+) -> (Vec<EF>, Vec<EF>)
 where
     F: PrimeField64 + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
@@ -79,7 +79,7 @@ where
 
     if num_samples > 0 {
         // Generate OOD points from ProverState randomness
-        prover_state.sample_scalars(&mut ood_points)?;
+        prover_state.sample_scalars(&mut ood_points);
 
         // Evaluate the function at each OOD point
         ood_answers.extend(ood_points.iter().map(|ood_point| {
@@ -90,8 +90,8 @@ where
         }));
 
         // Commit the answers to the narg_string
-        prover_state.add_scalars(&ood_answers)?;
+        prover_state.add_scalars(&ood_answers);
     }
 
-    Ok((ood_points, ood_answers))
+    (ood_points, ood_answers)
 }

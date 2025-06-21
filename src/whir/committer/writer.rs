@@ -85,7 +85,7 @@ where
             info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
 
         // Observe Merkle root in challenger
-        prover_state.observe_units(root.as_ref())?;
+        prover_state.observe_units(root.as_ref());
 
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) = sample_ood_points(
@@ -93,7 +93,7 @@ where
             self.committment_ood_samples,
             self.mv_parameters.num_variables,
             |point| info_span!("ood evaluation").in_scope(|| polynomial.evaluate(point)),
-        )?;
+        );
 
         // Return the witness containing the polynomial, Merkle tree, and OOD results.
         Ok(Witness {
