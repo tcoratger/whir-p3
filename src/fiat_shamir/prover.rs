@@ -82,7 +82,7 @@ where
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
     pub fn observe_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
-        self.stateful_challenger.observe(input)?;
+        self.stateful_challenger.observe(input);
         U::write(input, &mut self.narg_string).unwrap();
         self.challenger.observe_slice(input);
         Ok(())
@@ -170,7 +170,7 @@ where
     /// Used for sampling scalar field elements or general randomness.
     pub fn sample_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut output = [U::default(); N];
-        self.stateful_challenger.sample(&mut output)?;
+        self.stateful_challenger.sample(&mut output);
         Ok(output)
     }
 
@@ -190,7 +190,7 @@ where
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.stateful_challenger.sample(&mut u_buf)?;
+            self.stateful_challenger.sample(&mut u_buf);
 
             // Reinterpret as bytes (safe because U must be 1-byte width)
             let byte_buf = U::slice_to_u8_slice(&u_buf);
@@ -225,7 +225,6 @@ where
     ///
     /// Encodes the hint as a 4-byte little-endian length prefix followed by raw bytes.
     pub fn hint_bytes(&mut self, hint: &[u8]) -> Result<(), DomainSeparatorMismatch> {
-        self.stateful_challenger.hint()?;
         let len = u32::try_from(hint.len()).expect("Hint size out of bounds");
         self.narg_string.extend_from_slice(&len.to_le_bytes());
         self.narg_string.extend_from_slice(hint);

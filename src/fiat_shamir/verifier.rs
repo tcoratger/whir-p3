@@ -94,7 +94,7 @@ where
     #[inline]
     pub fn fill_next_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         U::read(&mut self.narg_string, input)?;
-        self.stateful_challenger.observe(input)?;
+        self.stateful_challenger.observe(input);
         Ok(())
     }
 
@@ -173,7 +173,7 @@ where
     /// Derive a fixed-size byte array from the sponge as a Fiat-Shamir challenge.
     pub fn sample_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
         let mut output = [U::default(); N];
-        self.stateful_challenger.sample(&mut output)?;
+        self.stateful_challenger.sample(&mut output);
         Ok(output)
     }
 
@@ -191,7 +191,7 @@ where
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.stateful_challenger.sample(&mut u_buf)?;
+            self.stateful_challenger.sample(&mut u_buf);
 
             // Reinterpret as bytes (safe because U must be u8-width)
             let byte_buf = U::slice_to_u8_slice(&u_buf);
@@ -245,7 +245,7 @@ where
 
         // Observe the serialized bytes into the Fiat-Shamir transcript sponge
         self.stateful_challenger
-            .observe(&U::slice_from_u8_slice(&bytes))?;
+            .observe(&U::slice_from_u8_slice(&bytes));
 
         // Return the serialized byte representation
         Ok(bytes)
@@ -253,8 +253,6 @@ where
 
     /// Read a hint from the NARG string. Returns the number of units read.
     pub fn hint_bytes(&mut self) -> Result<&'a [u8], DomainSeparatorMismatch> {
-        self.stateful_challenger.hint()?;
-
         // Ensure at least 4 bytes are available for the length prefix
         if self.narg_string.len() < 4 {
             return Err("Insufficient transcript remaining for hint".into());
@@ -410,7 +408,7 @@ mod tests {
         let challenger = DummyChallenger::new();
         let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"abcd", challenger);
         let mut out = [0u8; 4];
-        assert!(vs.stateful_challenger.sample(&mut out).is_ok());
+        vs.stateful_challenger.sample(&mut out);
         assert_eq!(out, [0, 1, 2, 3]);
     }
 
