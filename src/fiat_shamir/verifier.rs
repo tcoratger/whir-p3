@@ -10,7 +10,7 @@ use super::{
     pow::traits::PowStrategy,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
 };
-use crate::fiat_shamir::unit::Unit;
+use crate::fiat_shamir::{domain_separator::DomainSeparator, unit::Unit};
 
 /// [`VerifierState`] is the verifier state.
 ///
@@ -61,7 +61,14 @@ where
     /// `verify_operations` indicates whether Fiat-Shamir operations (observe, sample, hint)
     /// should be verified at runtime.
     #[must_use]
-    pub const fn new(narg_string: &'a [u8], challenger: Challenger) -> Self {
+    pub fn new(
+        domain_separator: &DomainSeparator<EF, F, U>,
+        narg_string: &'a [u8],
+        mut challenger: Challenger,
+    ) -> Self {
+        let iop_units = domain_separator.as_units();
+        challenger.observe_slice(&iop_units);
+
         Self {
             challenger,
             narg_string,
@@ -348,9 +355,10 @@ mod tests {
 
     #[test]
     fn test_new_verifier_state_constructs_correctly() {
+        let ds = DomainSeparator::<F, F, u8>::new("test");
         let transcript = b"abc";
         let challenger = DummyChallenger::new();
-        let vs = VerifierState::<F, F, _, _>::new(transcript, challenger);
+        let vs = VerifierState::<F, F, _, _>::new(&ds, transcript, challenger);
         assert_eq!(vs.narg_string, b"abc");
     }
 
@@ -359,7 +367,7 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.observe(3, "input");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new(b"abc", challenger);
+        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"abc", challenger);
         let mut buf = [0u8; 3];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_ok());
@@ -371,7 +379,7 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.observe(4, "fail");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new(b"xy", challenger);
+        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"xy", challenger);
         let mut buf = [0u8; 4];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_err());
@@ -382,7 +390,7 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.sample(4, "c");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new(b"abcd", challenger);
+        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"abcd", challenger);
         let out = vs.challenger.sample_array();
         assert_eq!(out, [0, 1, 2, 3]);
     }
@@ -392,7 +400,7 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.observe(3, "byte");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new(b"xyz", challenger);
+        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"xyz", challenger);
         let mut out = [0u8; 3];
         assert!(vs.fill_next_units(&mut out).is_ok());
         assert_eq!(out, *b"xyz");

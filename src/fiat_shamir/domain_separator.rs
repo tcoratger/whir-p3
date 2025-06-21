@@ -230,7 +230,7 @@ where
     /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript
     /// (bytes).
     #[must_use]
-    pub const fn to_verifier_state<'a, H>(
+    pub fn to_verifier_state<'a, H>(
         &self,
         transcript: &'a [u8],
         challenger: H,
@@ -238,7 +238,7 @@ where
     where
         H: CanObserve<U> + CanSample<U> + Clone,
     {
-        VerifierState::new(transcript, challenger)
+        VerifierState::new(self, transcript, challenger)
     }
 
     pub fn add_ood(&mut self, num_samples: usize) {
