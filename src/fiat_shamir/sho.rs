@@ -1,12 +1,9 @@
-use std::{collections::VecDeque, marker::PhantomData};
+use std::marker::PhantomData;
 
 use p3_challenger::{CanObserve, CanSample};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
-use super::{
-    domain_separator::{DomainSeparator, Op},
-    errors::DomainSeparatorMismatch,
-};
+use super::{domain_separator::DomainSeparator, errors::DomainSeparatorMismatch};
 use crate::fiat_shamir::unit::Unit;
 
 /// A stateful transcript wrapper enforcing a predetermined Fiat-Shamir protocol.
@@ -22,12 +19,6 @@ where
     ///
     /// This object handles actual transcript updates and challenge generation.
     pub(crate) challenger: Challenger,
-
-    /// A queue of expected transcript operations, derived from the domain separator.
-    ///
-    /// If `verify_operations` is enabled, this stack is consumed as the transcript
-    /// proceeds and each operation is validated against the declared pattern.
-    stack: VecDeque<Op>,
 
     /// Phantom marker for the transcript element type `U`.
     ///
@@ -54,13 +45,11 @@ where
         EF: ExtensionField<F> + TwoAdicField,
         F: Field + TwoAdicField + PrimeField64,
     {
-        let stack = domain_separator.finalize();
         let iop_units = domain_separator.as_units();
         challenger.observe_slice(&iop_units);
 
         Self {
             challenger,
-            stack,
             _unit: PhantomData,
         }
     }
@@ -135,17 +124,6 @@ mod tests {
         let result = state.sample(&mut out);
         assert!(result.is_ok());
         assert_eq!(out, [0, 1, 2]);
-    }
-
-    #[test]
-    fn test_from_impl_constructs_hash_state() {
-        let mut domsep = DomainSeparator::<F, F, u8>::new("from");
-        domsep.observe(1, "in");
-        let challenger = DummyChallenger::default();
-        let state = ChallengerWithInstructions::<DummyChallenger, _>::new(&domsep, challenger);
-
-        assert_eq!(state.stack.len(), 1);
-        assert_eq!(state.stack.front(), Some(&Op::Observe(1)));
     }
 
     #[test]
