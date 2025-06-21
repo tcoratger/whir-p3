@@ -424,12 +424,12 @@ mod tests {
         // - remaining rounds: 3 values each
         // -------------------------------------------------------------
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test");
-        domsep.observe_scalars(1 << (K_SKIP + 1), "skip");
-        domsep.sample_scalars(1, "skip");
+        domsep.observe(1 << (K_SKIP + 1), "skip");
+        domsep.sample(1, "skip");
 
         for _ in 0..(NUM_VARS - K_SKIP) {
-            domsep.observe_scalars(3, "round");
-            domsep.sample_scalars(1, "round");
+            domsep.observe(3, "round");
+            domsep.sample(1, "round");
         }
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);

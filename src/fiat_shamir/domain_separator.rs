@@ -195,8 +195,8 @@ where
 
     pub fn add_ood(&mut self, num_samples: usize) {
         if num_samples > 0 {
-            self.sample_scalars(num_samples, "ood_query");
-            self.observe_scalars(num_samples, "ood_ans");
+            self.sample(num_samples, "ood_query");
+            self.observe(num_samples, "ood_ans");
         }
     }
 
@@ -222,7 +222,7 @@ where
     {
         // TODO: Add statement
         if params.initial_statement {
-            self.sample_scalars(1, "initial_combination_randomness");
+            self.sample(1, "initial_combination_randomness");
             self.add_sumcheck(&SumcheckParams {
                 rounds: params.folding_factor.at_round(0),
                 pow_bits: params.starting_folding_pow_bits,
@@ -233,7 +233,7 @@ where
                 },
             });
         } else {
-            self.sample_scalars(params.folding_factor.at_round(0), "folding_randomness");
+            self.sample(params.folding_factor.at_round(0), "folding_randomness");
             self.pow(params.starting_folding_pow_bits);
         }
 
@@ -247,7 +247,7 @@ where
             self.hint("stir_queries");
             self.hint("merkle_proof");
             self.pow(r.pow_bits);
-            self.sample_scalars(1, "combination_randomness");
+            self.sample(1, "combination_randomness");
 
             self.add_sumcheck(&SumcheckParams {
                 rounds: params.folding_factor.at_round(round + 1),
@@ -263,7 +263,7 @@ where
                 .at_round(params.round_parameters.len());
         let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
-        self.observe_scalars(1 << params.final_sumcheck_rounds, "final_coeffs");
+        self.observe(1 << params.final_sumcheck_rounds, "final_coeffs");
 
         self.sample(domain_size_bytes * params.final_queries, "final_queries");
         self.hint("stir_answers");
@@ -310,8 +310,8 @@ where
         // - Optionally perform PoW after the LDE step.
         if k > 1 {
             let lde_size = 1 << (k + 1);
-            self.observe_scalars(lde_size, "sumcheck_poly_skip");
-            self.sample_scalars(1, "folding_randomness_skip");
+            self.observe(lde_size, "sumcheck_poly_skip");
+            self.sample(1, "folding_randomness_skip");
             self.pow(pow_bits);
         }
 
@@ -321,8 +321,8 @@ where
         // - Samples 1 folding randomness challenge.
         // - Optionally performs a PoW challenge.
         for _ in k..rounds {
-            self.observe_scalars(3, "sumcheck_poly");
-            self.sample_scalars(1, "folding_randomness");
+            self.observe(3, "sumcheck_poly");
+            self.sample(1, "folding_randomness");
             self.pow(pow_bits);
         }
     }
@@ -351,16 +351,6 @@ where
             // Step 2: Observe an 8-byte nonce in response
             self.observe(8, "pow-nonce");
         }
-    }
-
-    pub fn observe_scalars(&mut self, count: usize, label: &str) {
-        // Observe `count` scalars into the transcript.
-        self.observe(U::scalar_observe_count::<F, EF>(count), label);
-    }
-
-    pub fn sample_scalars(&mut self, count: usize, label: &str) {
-        // Sample `count` scalars from the transcript using a "challenge" tag.
-        self.sample(U::scalar_sample_count::<F, EF>(count), label);
     }
 }
 
@@ -470,7 +460,7 @@ mod tests {
         // - 2 scalars * 1 * 4 = 8 bytes absorbed
         // - "O" indicates observation in the domain separator
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("babybear");
-        domsep.observe_scalars(2, "foo");
+        domsep.observe(2, "foo");
         let expected = b"babybear\0O8foo";
         assert_eq!(domsep.as_units(), expected);
     }
@@ -483,7 +473,7 @@ mod tests {
         // - 3 scalars * 1 * 5 = 15 bytes squeezed
         // - "S" indicates sampling in the domain separator
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("bb");
-        domsep.sample_scalars(3, "bar");
+        domsep.sample(3, "bar");
         let expected = b"bb\0S57bar";
         assert_eq!(domsep.as_units(), expected);
     }
@@ -495,7 +485,7 @@ mod tests {
         // - Base field bits = 31 → NUM_BYTES = 4
         // - 2 scalars * 4 * 4 = 32 bytes observed
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("ext");
-        domsep.observe_scalars(2, "a");
+        domsep.observe(2, "a");
         let expected = b"ext\0O32a";
         assert_eq!(domsep.as_units(), expected);
     }
@@ -508,7 +498,7 @@ mod tests {
         // - 1 scalar * 4 * 19 = 76 bytes squeezed
         // - "S" indicates squeezing in the domain separator
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("ext2");
-        domsep.sample_scalars(1, "b");
+        domsep.sample(1, "b");
 
         let expected = b"ext2\0S76b";
         assert_eq!(domsep.as_units(), expected);
@@ -591,11 +581,11 @@ mod tests {
         // - Observe 3 scalars (sumcheck_poly)
         // - Challenge 1 scalar (folding_randomness)
         let mut ds_expected = DomainSeparator::<EF4, F, u8>::new("regular");
-        ds_expected.observe_scalars(3, "sumcheck_poly");
-        ds_expected.sample_scalars(1, "folding_randomness");
+        ds_expected.observe(3, "sumcheck_poly");
+        ds_expected.sample(1, "folding_randomness");
 
-        ds_expected.observe_scalars(3, "sumcheck_poly");
-        ds_expected.sample_scalars(1, "folding_randomness");
+        ds_expected.observe(3, "sumcheck_poly");
+        ds_expected.sample(1, "folding_randomness");
 
         let ops_expected = ds_expected.io;
         assert_eq!(ops, ops_expected);
@@ -617,8 +607,8 @@ mod tests {
         // - Sample 1 scalar (folding_randomness)
         // - PoW: Sample 32 bytes, then Observe 8 bytes (pow-nonce)
         let mut expected = DomainSeparator::<EF4, F, u8>::new("pow");
-        expected.observe_scalars(3, "sumcheck_poly");
-        expected.sample_scalars(1, "folding_randomness");
+        expected.observe(3, "sumcheck_poly");
+        expected.sample(1, "folding_randomness");
         expected.pow(7.);
 
         assert_eq!(ops, expected.io);
@@ -640,11 +630,11 @@ mod tests {
         // - One challenge for folding randomness
         // - Then one regular round of sumcheck: (3 + 1 scalars)
         let mut expected = DomainSeparator::<EF4, F, u8>::new("skip2");
-        expected.observe_scalars(8, "sumcheck_poly_skip");
-        expected.sample_scalars(1, "folding_randomness_skip");
+        expected.observe(8, "sumcheck_poly_skip");
+        expected.sample(1, "folding_randomness_skip");
 
-        expected.observe_scalars(3, "sumcheck_poly");
-        expected.sample_scalars(1, "folding_randomness");
+        expected.observe(3, "sumcheck_poly");
+        expected.sample(1, "folding_randomness");
 
         assert_eq!(ops, expected.io);
     }
@@ -661,12 +651,12 @@ mod tests {
         let ops = ds.io;
 
         let mut expected = DomainSeparator::<EF4, F, u8>::new("skip2pow");
-        expected.observe_scalars(8, "sumcheck_poly_skip");
-        expected.sample_scalars(1, "folding_randomness_skip");
+        expected.observe(8, "sumcheck_poly_skip");
+        expected.sample(1, "folding_randomness_skip");
         expected.pow(10.);
 
-        expected.observe_scalars(3, "sumcheck_poly");
-        expected.sample_scalars(1, "folding_randomness");
+        expected.observe(3, "sumcheck_poly");
+        expected.sample(1, "folding_randomness");
         expected.pow(10.);
 
         assert_eq!(ops, expected.io);
@@ -686,16 +676,16 @@ mod tests {
         let mut expected = DomainSeparator::<EF4, F, u8>::new("skip1");
 
         // Round 1
-        expected.observe_scalars(3, "sumcheck_poly");
-        expected.sample_scalars(1, "folding_randomness");
+        expected.observe(3, "sumcheck_poly");
+        expected.sample(1, "folding_randomness");
 
         // Round 2
-        expected.observe_scalars(3, "sumcheck_poly");
-        expected.sample_scalars(1, "folding_randomness");
+        expected.observe(3, "sumcheck_poly");
+        expected.sample(1, "folding_randomness");
 
         // Round 3
-        expected.observe_scalars(3, "sumcheck_poly");
-        expected.sample_scalars(1, "folding_randomness");
+        expected.observe(3, "sumcheck_poly");
+        expected.sample(1, "folding_randomness");
 
         assert_eq!(ops, expected.io);
     }
