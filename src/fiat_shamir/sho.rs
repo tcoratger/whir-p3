@@ -54,13 +54,13 @@ where
         }
     }
 
-    /// Observe input elements into the transcript, advancing the expected operation stack.
-    ///
-    /// This method must be called exactly when the next expected operation is `Observe`.
-    pub fn observe(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
-        self.challenger.observe_slice(input);
-        Ok(())
-    }
+    // /// Observe input elements into the transcript, advancing the expected operation stack.
+    // ///
+    // /// This method must be called exactly when the next expected operation is `Observe`.
+    // pub fn observe(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
+    //     self.challenger.observe_slice(input);
+    //     Ok(())
+    // }
 
     /// Sample output elements from the transcript, advancing the expected operation stack.
     ///

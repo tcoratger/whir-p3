@@ -82,7 +82,7 @@ where
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
     pub fn observe_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
-        self.stateful_challenger.observe(input)?;
+        self.challenger.observe_slice(input);
         U::write(input, &mut self.narg_string).unwrap();
         self.challenger.observe_slice(input);
         Ok(())

@@ -6,10 +6,8 @@ use p3_symmetric::Hash;
 use serde::Deserialize;
 
 use super::{
-    domain_separator::DomainSeparator,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
-    sho::ChallengerWithInstructions,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order, from_le_bytes_mod_order},
 };
 use crate::fiat_shamir::unit::Unit;
@@ -26,12 +24,8 @@ where
     U: Unit,
     Challenger: CanObserve<U> + CanSample<U>,
 {
-    /// Internal sponge transcript that tracks the domain separator state and absorbs values.
-    ///
-    /// This manages the full Fiat-Shamir interaction logic, such as absorbing inputs and
-    /// squeezing challenges. It also stores the domain separator instructions to enforce
-    /// consistency between prover and verifier.
-    pub(crate) stateful_challenger: ChallengerWithInstructions<Challenger, U>,
+    /// Challenger used to obtain challenges for Fiat-Shamir transcript.
+    pub(crate) challenger: Challenger,
 
     /// The "NARG" string: raw serialized input provided by the prover.
     ///
@@ -49,6 +43,9 @@ where
     /// Like `_field`, this is only for type-level bookkeeping. The extension field is used
     /// to deserialize and operate on scalars in high-dimensional protocols.
     _extension_field: PhantomData<EF>,
+
+    /// Marker for the unit type `U`.
+    _unit: PhantomData<U>,
 }
 
 impl<'a, EF, F, Challenger, U> VerifierState<'a, EF, F, Challenger, U>
@@ -58,35 +55,19 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     F: PrimeField64 + TwoAdicField,
 {
-    /// Creates a new [`VerifierState`] instance with the given sponge and IO Pattern.
+    /// Creates a new [`VerifierState`] instance.
     ///
     /// The resulting object will act as the verifier in a zero-knowledge protocol.
     /// `verify_operations` indicates whether Fiat-Shamir operations (observe, sample, hint)
     /// should be verified at runtime.
-    ///
-    /// ```ignore
-    /// # use spongefish::*;
-    ///
-    /// let domsep = DomainSeparator::<DefaultHash>::new("📝").observe(1, "inhale 🫁").sample(32, "exhale 🎏");
-    /// // A silly NARG string for the example.
-    /// let narg_string = &[0x42];
-    /// let mut verifier_state = domsep.to_verifier_state::<H,32>(narg_string);
-    /// assert_eq!(verifier_state.next_units().unwrap(), [0x42]);
-    /// let challenge = verifier_state.sample_units::<32>();
-    /// assert!(challenge.is_ok());
-    /// assert_ne!(challenge.unwrap(), [0; 32]);
-    /// ```
     #[must_use]
-    pub fn new(
-        domain_separator: &DomainSeparator<EF, F, U>,
-        narg_string: &'a [u8],
-        challenger: Challenger,
-    ) -> Self {
+    pub const fn new(narg_string: &'a [u8], challenger: Challenger) -> Self {
         Self {
-            stateful_challenger: ChallengerWithInstructions::new(domain_separator, challenger),
+            challenger,
             narg_string,
             _field: PhantomData,
             _extension_field: PhantomData,
+            _unit: PhantomData,
         }
     }
 
@@ -94,7 +75,7 @@ where
     #[inline]
     pub fn fill_next_units(&mut self, input: &mut [U]) -> Result<(), DomainSeparatorMismatch> {
         U::read(&mut self.narg_string, input)?;
-        self.stateful_challenger.observe(input)?;
+        self.challenger.observe_slice(input);
         Ok(())
     }
 
@@ -172,9 +153,7 @@ where
 
     /// Derive a fixed-size byte array from the sponge as a Fiat-Shamir challenge.
     pub fn sample_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
-        let mut output = [U::default(); N];
-        self.stateful_challenger.sample(&mut output)?;
-        Ok(output)
+        Ok(self.challenger.sample_array())
     }
 
     /// Sample extension scalars uniformly at random using Fiat-Shamir challenge output.
@@ -185,13 +164,10 @@ where
         // Total bytes needed for one EF element = extension degree × base field size
         let field_unit_len = EF::DIMENSION * base_field_size;
 
-        // Temporary buffer to hold bytes for each field element
-        let mut u_buf = vec![U::default(); field_unit_len];
-
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.stateful_challenger.sample(&mut u_buf)?;
+            let u_buf = self.challenger.sample_vec(field_unit_len);
 
             // Reinterpret as bytes (safe because U must be u8-width)
             let byte_buf = U::slice_to_u8_slice(&u_buf);
@@ -244,8 +220,8 @@ where
             .collect();
 
         // Observe the serialized bytes into the Fiat-Shamir transcript sponge
-        self.stateful_challenger
-            .observe(&U::slice_from_u8_slice(&bytes))?;
+        self.challenger
+            .observe_slice(&U::slice_from_u8_slice(&bytes));
 
         // Return the serialized byte representation
         Ok(bytes)
@@ -327,6 +303,7 @@ mod tests {
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
+    use crate::fiat_shamir::domain_separator::DomainSeparator;
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
@@ -371,10 +348,9 @@ mod tests {
 
     #[test]
     fn test_new_verifier_state_constructs_correctly() {
-        let ds = DomainSeparator::<F, F, u8>::new("test");
         let transcript = b"abc";
         let challenger = DummyChallenger::new();
-        let vs = VerifierState::<F, F, _, _>::new(&ds, transcript, challenger);
+        let vs = VerifierState::<F, F, _, _>::new(transcript, challenger);
         assert_eq!(vs.narg_string, b"abc");
     }
 
@@ -383,7 +359,7 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.observe(3, "input");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"abc", challenger);
+        let mut vs = VerifierState::<F, F, _, u8>::new(b"abc", challenger);
         let mut buf = [0u8; 3];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_ok());
@@ -395,7 +371,7 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.observe(4, "fail");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"xy", challenger);
+        let mut vs = VerifierState::<F, F, _, u8>::new(b"xy", challenger);
         let mut buf = [0u8; 4];
         let res = vs.fill_next_units(&mut buf);
         assert!(res.is_err());
@@ -406,9 +382,8 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.sample(4, "c");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"abcd", challenger);
-        let mut out = [0u8; 4];
-        assert!(vs.stateful_challenger.sample(&mut out).is_ok());
+        let mut vs = VerifierState::<F, F, _, u8>::new(b"abcd", challenger);
+        let out = vs.challenger.sample_array();
         assert_eq!(out, [0, 1, 2, 3]);
     }
 
@@ -417,7 +392,7 @@ mod tests {
         let mut ds = DomainSeparator::<F, F, u8>::new("x");
         ds.observe(3, "byte");
         let challenger = DummyChallenger::new();
-        let mut vs = VerifierState::<F, F, _, u8>::new(&ds, b"xyz", challenger);
+        let mut vs = VerifierState::<F, F, _, u8>::new(b"xyz", challenger);
         let mut out = [0u8; 3];
         assert!(vs.fill_next_units(&mut out).is_ok());
         assert_eq!(out, *b"xyz");
