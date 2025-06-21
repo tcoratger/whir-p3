@@ -171,12 +171,6 @@ where
         U::slice_from_u8_slice(self.io.as_bytes())
     }
 
-    /// Parse the givern IO Pattern into a sequence of [`Op`]'s.
-    pub(crate) fn finalize(&self) -> VecDeque<Op> {
-        // Guaranteed to succeed as instances are all valid domain_separators
-        Self::parse_domsep(self.io.as_bytes()).expect("Internal error")
-    }
-
     fn parse_domsep(domain_separator: &[u8]) -> Result<VecDeque<Op>, DomainSeparatorMismatch> {
         let mut stack = VecDeque::new();
 
@@ -486,15 +480,6 @@ mod tests {
     }
 
     #[test]
-    fn test_domain_separator_absorb_and_squeeze() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("proto");
-        ds.observe(2, "input");
-        ds.sample(1, "challenge");
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Observe(2), Op::Sample(1)]);
-    }
-
-    #[test]
     fn test_observe_return_value_format() {
         let mut ds = DomainSeparator::<EF4, F, u8>::new("proto");
         ds.observe(3, "input");
@@ -521,60 +506,6 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_consecutive_absorbs_and_squeezes() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("merge");
-        ds.observe(1, "a");
-        ds.observe(2, "b");
-        ds.sample(3, "c");
-        ds.sample(1, "d");
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Observe(3), Op::Sample(4)]);
-    }
-
-    #[test]
-    fn test_parse_domsep_multiple_ops() {
-        let tag = "main\0O1x\0O2y\0S3z\0S2w";
-        let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string());
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Observe(3), Op::Sample(5)]);
-    }
-
-    #[test]
-    fn test_byte_domain_separator_trait_impl() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("x");
-        ds.observe(1, "a");
-        ds.sample(2, "b");
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Observe(1), Op::Sample(2)]);
-    }
-
-    #[test]
-    fn test_empty_operations() {
-        let ds = DomainSeparator::<EF4, F, u8>::new("tag");
-        let ops = ds.finalize();
-        assert!(ops.is_empty());
-    }
-
-    #[test]
-    fn test_unicode_labels() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("emoji");
-        ds.observe(1, "🦀");
-        ds.sample(1, "🎯");
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Observe(1), Op::Sample(1)]);
-    }
-
-    #[test]
-    fn test_large_counts_and_labels() {
-        let label = "x".repeat(100);
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("big");
-        ds.observe(12345, &label);
-        ds.sample(54321, &label);
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Observe(12345), Op::Sample(54321)]);
-    }
-
-    #[test]
     fn test_malformed_tag_parsing_fails() {
         // Missing count
         let broken = "proto\0Ax";
@@ -584,23 +515,15 @@ mod tests {
     }
 
     #[test]
-    fn test_simplify_stack_keeps_unlike_ops() {
-        let tag = "test\0O2x\0S3y\0O1z";
-        let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string());
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Observe(2), Op::Sample(3), Op::Observe(1)]);
-    }
-
-    #[test]
     fn test_round_trip_operations() {
         let mut ds1 = DomainSeparator::<EF4, F, u8>::new("foo");
         ds1.observe(2, "a");
         ds1.sample(3, "b");
-        let ops1 = ds1.finalize();
+        let ops1 = ds1.clone().io;
 
         let tag = String::from_utf8(ds1.as_units()).unwrap();
         let ds2 = DomainSeparator::<EF4, F, u8>::from_string(tag);
-        let ops2 = ds2.finalize();
+        let ops2 = ds2.io;
 
         assert_eq!(ops1, ops2);
     }
@@ -638,57 +561,6 @@ mod tests {
         ds.sample(2, "second");
         let expected_str = "proto\0S1first\0S2second";
         assert_eq!(ds.as_units(), expected_str.as_bytes());
-    }
-
-    #[test]
-    fn test_finalize_mixed_ops_order_preserved() {
-        let tag = "zkp\0O1a\0S1b\0O2c\0S3d\0O4e\0S1f";
-        let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string());
-        let ops = ds.finalize();
-        assert_eq!(
-            ops,
-            vec![
-                Op::Observe(1),
-                Op::Sample(1),
-                Op::Observe(2),
-                Op::Sample(3),
-                Op::Observe(4),
-                Op::Sample(1),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_finalize_large_values_and_merge() {
-        let tag = "main\0O5a\0O10b\0S8c\0S2d";
-        let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string());
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Observe(15), Op::Sample(10)]);
-    }
-
-    #[test]
-    fn test_finalize_merge_and_breaks() {
-        let tag = "example\0O2x\0O1y\0O3z\0S4u\0S1v";
-        let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string());
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Observe(6), Op::Sample(5),]);
-    }
-
-    #[test]
-    fn test_finalize_complex_merge_boundaries() {
-        let tag = "demo\0O1a\0O1b\0S2c\0S2d\0O3e\0S1f\0Hd";
-        let ds = DomainSeparator::<EF4, F, u8>::from_string(tag.to_string());
-        let ops = ds.finalize();
-        assert_eq!(
-            ops,
-            vec![
-                Op::Observe(2), // O1a + O1b
-                Op::Sample(4),  // S2c + S2d
-                Op::Observe(3), // A3e
-                Op::Sample(1),  // S1f
-                Op::Hint,       // Hd
-            ]
-        );
     }
 
     #[test]
@@ -787,14 +659,6 @@ mod tests {
     }
 
     #[test]
-    fn test_hint_is_parsed_correctly() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("hint_test");
-        ds.hint("my_hint");
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Hint]);
-    }
-
-    #[test]
     fn test_hint_format_is_correct_in_bytes() {
         let mut ds = DomainSeparator::<EF4, F, u8>::new("proto");
         ds.hint("my_hint");
@@ -810,16 +674,6 @@ mod tests {
     }
 
     #[test]
-    fn test_hint_combined_with_absorb_and_squeeze() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("combo");
-        ds.observe(1, "x");
-        ds.hint("meta");
-        ds.sample(2, "y");
-        let ops = ds.finalize();
-        assert_eq!(ops, vec![Op::Observe(1), Op::Hint, Op::Sample(2)]);
-    }
-
-    #[test]
     fn test_add_sumcheck_regular_two_rounds_no_pow() {
         // Set up a new domain separator
         let mut ds = DomainSeparator::<EF4, F, u8>::new("regular");
@@ -832,18 +686,19 @@ mod tests {
         });
 
         // Finalize the domain separator into a sequence of transcript operations
-        let ops = ds.finalize();
+        let ops = ds.io;
 
         // Manually construct the expected transcript: 2 rounds of
         // - Observe 3 scalars (sumcheck_poly)
         // - Challenge 1 scalar (folding_randomness)
         let mut ds_expected = DomainSeparator::<EF4, F, u8>::new("regular");
-        ds_expected.observe_scalars(3, "test");
-        ds_expected.sample_scalars(1, "test");
-        ds_expected.observe_scalars(3, "test");
-        ds_expected.sample_scalars(1, "test");
+        ds_expected.observe_scalars(3, "sumcheck_poly");
+        ds_expected.sample_scalars(1, "folding_randomness");
 
-        let ops_expected = ds_expected.finalize();
+        ds_expected.observe_scalars(3, "sumcheck_poly");
+        ds_expected.sample_scalars(1, "folding_randomness");
+
+        let ops_expected = ds_expected.io;
         assert_eq!(ops, ops_expected);
     }
 
@@ -856,18 +711,18 @@ mod tests {
             pow_bits: 7.0,
             univariate_skip: None,
         });
-        let ops = ds.finalize();
+        let ops = ds.io;
 
         // Expected operations:
         // - Observe 3 scalars (sumcheck_poly)
         // - Sample 1 scalar (folding_randomness)
         // - PoW: Sample 32 bytes, then Observe 8 bytes (pow-nonce)
         let mut expected = DomainSeparator::<EF4, F, u8>::new("pow");
-        expected.observe_scalars(3, "test");
-        expected.sample_scalars(1, "test");
+        expected.observe_scalars(3, "sumcheck_poly");
+        expected.sample_scalars(1, "folding_randomness");
         expected.pow(7.);
 
-        assert_eq!(ops, expected.finalize());
+        assert_eq!(ops, expected.io);
     }
 
     #[test]
@@ -879,20 +734,20 @@ mod tests {
             pow_bits: 0.,
             univariate_skip: Some(2),
         });
-        let ops = ds.finalize();
+        let ops = ds.io;
 
         // Expected:
         // - One LDE observation of 2^(2+1) = 8 scalars
         // - One challenge for folding randomness
         // - Then one regular round of sumcheck: (3 + 1 scalars)
         let mut expected = DomainSeparator::<EF4, F, u8>::new("skip2");
-        expected.observe_scalars(8, "test");
-        expected.sample_scalars(1, "test");
+        expected.observe_scalars(8, "sumcheck_poly_skip");
+        expected.sample_scalars(1, "folding_randomness_skip");
 
-        expected.observe_scalars(3, "test");
-        expected.sample_scalars(1, "test");
+        expected.observe_scalars(3, "sumcheck_poly");
+        expected.sample_scalars(1, "folding_randomness");
 
-        assert_eq!(ops, expected.finalize());
+        assert_eq!(ops, expected.io);
     }
 
     #[test]
@@ -904,18 +759,18 @@ mod tests {
             pow_bits: 10.,
             univariate_skip: Some(2),
         });
-        let ops = ds.finalize();
+        let ops = ds.io;
 
         let mut expected = DomainSeparator::<EF4, F, u8>::new("skip2pow");
-        expected.observe_scalars(8, "test");
-        expected.sample_scalars(1, "test");
+        expected.observe_scalars(8, "sumcheck_poly_skip");
+        expected.sample_scalars(1, "folding_randomness_skip");
         expected.pow(10.);
 
-        expected.observe_scalars(3, "test");
-        expected.sample_scalars(1, "test");
+        expected.observe_scalars(3, "sumcheck_poly");
+        expected.sample_scalars(1, "folding_randomness");
         expected.pow(10.);
 
-        assert_eq!(ops, expected.finalize());
+        assert_eq!(ops, expected.io);
     }
 
     #[test]
@@ -927,38 +782,22 @@ mod tests {
             pow_bits: 0.,
             univariate_skip: None,
         });
-        let ops = ds.finalize();
+        let ops = ds.io;
 
         let mut expected = DomainSeparator::<EF4, F, u8>::new("skip1");
 
         // Round 1
-        expected.observe_scalars(3, "test");
-        expected.sample_scalars(1, "test");
+        expected.observe_scalars(3, "sumcheck_poly");
+        expected.sample_scalars(1, "folding_randomness");
 
         // Round 2
-        expected.observe_scalars(3, "test");
-        expected.sample_scalars(1, "test");
+        expected.observe_scalars(3, "sumcheck_poly");
+        expected.sample_scalars(1, "folding_randomness");
 
         // Round 3
-        expected.observe_scalars(3, "test");
-        expected.sample_scalars(1, "test");
+        expected.observe_scalars(3, "sumcheck_poly");
+        expected.sample_scalars(1, "folding_randomness");
 
-        assert_eq!(ops, expected.finalize());
-    }
-
-    #[test]
-    fn test_add_sumcheck_zero_folding_factor() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("none");
-        ds.add_sumcheck(&SumcheckParams {
-            rounds: 0,
-            pow_bits: 0.,
-            univariate_skip: None,
-        });
-
-        let ops = ds.finalize();
-        assert!(
-            ops.is_empty(),
-            "Expected no transcript operations for folding_factor = 0"
-        );
+        assert_eq!(ops, expected.io);
     }
 }
