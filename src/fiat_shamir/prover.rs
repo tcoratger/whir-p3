@@ -8,7 +8,6 @@ use super::{
     domain_separator::DomainSeparator,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
-    sho::ChallengerWithInstructions,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order},
 };
 use crate::fiat_shamir::unit::Unit;
@@ -37,14 +36,14 @@ where
 {
     /// The internal challenger.
     pub(crate) challenger: Challenger,
-    /// The public coins for the protocol
-    pub(crate) stateful_challenger: ChallengerWithInstructions<Challenger, U>,
     /// The encoded data.
     pub(crate) narg_string: Vec<u8>,
     /// Marker for the field.
     _field: PhantomData<F>,
     /// Marker for the extension field.
     _extension_field: PhantomData<EF>,
+    /// Marker for the unit `U`.
+    _unit: PhantomData<U>,
 }
 
 impl<EF, F, Challenger, U> ProverState<EF, F, Challenger, U>
@@ -64,17 +63,14 @@ where
     where
         Challenger: Clone,
     {
-        let stateful_challenger =
-            ChallengerWithInstructions::new(domain_separator, challenger.clone());
-
         challenger.observe_slice(&domain_separator.as_units());
 
         Self {
             challenger,
-            stateful_challenger,
             narg_string: Vec::new(),
             _field: PhantomData,
             _extension_field: PhantomData,
+            _unit: PhantomData,
         }
     }
 
@@ -82,9 +78,8 @@ where
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
     pub fn observe_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
-        self.stateful_challenger.observe(input);
-        U::write(input, &mut self.narg_string).unwrap();
         self.challenger.observe_slice(input);
+        U::write(input, &mut self.narg_string).unwrap();
         Ok(())
     }
 
@@ -169,9 +164,7 @@ where
     ///
     /// Used for sampling scalar field elements or general randomness.
     pub fn sample_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
-        let mut output = [U::default(); N];
-        self.stateful_challenger.sample(&mut output);
-        Ok(output)
+        Ok(self.challenger.sample_array())
     }
 
     /// Fill a mutable slice with uniformly sampled extension field elements.
@@ -184,13 +177,10 @@ where
         // Total bytes needed for one EF element = extension degree × base field size
         let field_unit_len = EF::DIMENSION * base_field_size;
 
-        // Temporary buffer to hold bytes for each field element
-        let mut u_buf = vec![U::default(); field_unit_len];
-
         // Fill each output element from fresh transcript randomness
         for o in output.iter_mut() {
             // Draw uniform bytes from the transcript
-            self.stateful_challenger.sample(&mut u_buf);
+            let u_buf = self.challenger.sample_vec(field_unit_len);
 
             // Reinterpret as bytes (safe because U must be 1-byte width)
             let byte_buf = U::slice_to_u8_slice(&u_buf);
