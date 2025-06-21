@@ -134,7 +134,7 @@ where
         let folding_randomness = if prover.initial_statement {
             // If there is initial statement, then we run the sum-check for
             // this initial statement.
-            let [combination_randomness_gen] = prover_state.challenge_scalars_array()?;
+            let [combination_randomness_gen] = prover_state.challenge_scalars_array();
 
             // Create the sumcheck prover
             let mut sumcheck = SumcheckSingle::from_base_evals(
@@ -162,7 +162,7 @@ where
             // initial rounds of the sum-check, and the verifier directly sends
             // the initial folding randomnesses.
             let mut folding_randomness = EF::zero_vec(prover.folding_factor.at_round(0));
-            prover_state.sample_scalars(&mut folding_randomness)?;
+            prover_state.sample_scalars(&mut folding_randomness);
 
             if prover.starting_folding_pow_bits > 0. {
                 prover_state.challenge_pow::<PS>(prover.starting_folding_pow_bits)?;

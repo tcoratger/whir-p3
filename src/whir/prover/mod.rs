@@ -262,7 +262,7 @@ where
             info_span!("commit matrix").in_scope(|| extension_mmcs.commit_matrix(folded_matrix));
 
         // Observe Merkle root in challenger
-        prover_state.observe_units(root.as_ref())?;
+        prover_state.observe_units(root.as_ref());
 
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) = sample_ood_points(
@@ -270,7 +270,7 @@ where
             round_params.ood_samples,
             num_variables,
             |point| info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point)),
-        )?;
+        );
 
         // STIR Queries
         let (stir_challenges, stir_challenges_indexes) = self.compute_stir_queries(
@@ -348,7 +348,7 @@ where
         }
 
         // Randomness for combination
-        let [combination_randomness_gen] = prover_state.challenge_scalars_array()?;
+        let [combination_randomness_gen] = prover_state.challenge_scalars_array();
         let combination_randomness: Vec<_> = combination_randomness_gen
             .powers()
             .take(stir_challenges.len())
@@ -420,7 +420,7 @@ where
         W: Eq + Packable,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        prover_state.add_scalars(folded_evaluations.evals())?;
+        prover_state.add_scalars(folded_evaluations.evals());
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
             // The size of the original domain before folding

@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use super::{
     domain_separator::DomainSeparator,
-    errors::{DomainSeparatorMismatch, ProofError, ProofResult},
+    errors::{ProofError, ProofResult},
     pow::traits::PowStrategy,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order},
 };
@@ -77,10 +77,9 @@ where
     /// Add a slice `[U]` to the protocol transcript.
     /// The messages are also internally encoded in the protocol transcript,
     /// and used to re-seed the prover's random number generator.
-    pub fn observe_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn observe_units(&mut self, input: &[U]) {
         self.challenger.observe_slice(input);
         U::write(input, &mut self.narg_string).unwrap();
-        Ok(())
     }
 
     /// Return the current protocol transcript.
@@ -96,21 +95,18 @@ where
     /// Observe a sequence of extension field scalars into the prover transcript.
     ///
     /// Serializes the scalars to bytes and appends them to the internal buffer.
-    pub fn add_scalars(&mut self, input: &[EF]) -> ProofResult<()> {
+    pub fn add_scalars(&mut self, input: &[EF]) {
         // Serialize the input scalars to bytes
-        let serialized = self.public_scalars(input)?;
+        let serialized = self.public_scalars(input);
 
         // Append the serialized bytes to the internal transcript byte buffer
         self.narg_string.extend(serialized);
-
-        // Return success
-        Ok(())
     }
 
     /// Serialize public extension field scalars to bytes and observe via the challenger.
     ///
     /// Returns the serialized byte representation.
-    pub fn public_scalars(&mut self, input: &[EF]) -> ProofResult<Vec<u8>> {
+    pub fn public_scalars(&mut self, input: &[EF]) -> Vec<u8> {
         // Build the byte vector by flattening all basis coefficients.
         //
         // For each extension field element:
@@ -131,21 +127,20 @@ where
             .collect();
 
         // Observe the serialized bytes into the Fiat-Shamir transcript
-        self.public_units(&U::slice_from_u8_slice(&bytes))?;
+        self.public_units(&U::slice_from_u8_slice(&bytes));
 
         // Return the serialized byte representation
-        Ok(bytes)
+        bytes
     }
 
     /// Add public messages to the protocol transcript.
     /// Messages input to this function are not added to the protocol transcript.
     /// They are however absorbed into the verifier's sponge for Fiat-Shamir, and used to re-seed
     /// the prover state.
-    pub fn public_units(&mut self, input: &[U]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn public_units(&mut self, input: &[U]) {
         let len = self.narg_string.len();
-        self.observe_units(input)?;
+        self.observe_units(input);
         self.narg_string.truncate(len);
-        Ok(())
     }
 
     /// Perform a Fiat-Shamir proof-of-work challenge and append nonce to the transcript.
@@ -156,14 +151,14 @@ where
         let nonce = S::new(U::array_to_u8_array(&challenge), bits)
             .solve()
             .ok_or(ProofError::InvalidProof)?;
-        self.observe_units(&U::slice_from_u8_slice(&nonce.to_be_bytes()))?;
+        self.observe_units(&U::slice_from_u8_slice(&nonce.to_be_bytes()));
         Ok(())
     }
 
     /// Fill a mutable slice with uniformly sampled extension field elements.
     ///
     /// Each element is sampled using Fiat-Shamir from the internal sponge.
-    pub fn sample_scalars(&mut self, output: &mut [EF]) -> ProofResult<()> {
+    pub fn sample_scalars(&mut self, output: &mut [EF]) {
         // How many bytes are needed to sample a single base field element
         let base_field_size = bytes_uniform_modp(F::bits() as u32);
 
@@ -186,32 +181,29 @@ where
             // Reconstruct the full field element using canonical basis
             *o = EF::from_basis_coefficients_iter(base_coeffs).unwrap();
         }
-
-        Ok(())
     }
 
     /// Sample an array of `N` extension field elements as Fiat-Shamir challenges.
-    pub fn challenge_scalars_array<const N: usize>(&mut self) -> ProofResult<[EF; N]> {
+    pub fn challenge_scalars_array<const N: usize>(&mut self) -> [EF; N] {
         let mut output = [EF::default(); N];
-        self.sample_scalars(&mut output)?;
-        Ok(output)
+        self.sample_scalars(&mut output);
+        output
     }
 
     /// Sample a vector of `len` extension field elements as Fiat-Shamir challenges.
-    pub fn challenge_scalars_vec(&mut self, len: usize) -> ProofResult<Vec<EF>> {
+    pub fn challenge_scalars_vec(&mut self, len: usize) -> Vec<EF> {
         let mut output = EF::zero_vec(len);
-        self.sample_scalars(&mut output)?;
-        Ok(output)
+        self.sample_scalars(&mut output);
+        output
     }
 
     /// Observe a hint message into the prover transcript.
     ///
     /// Encodes the hint as a 4-byte little-endian length prefix followed by raw bytes.
-    pub fn hint_bytes(&mut self, hint: &[u8]) -> Result<(), DomainSeparatorMismatch> {
+    pub fn hint_bytes(&mut self, hint: &[u8]) {
         let len = u32::try_from(hint.len()).expect("Hint size out of bounds");
         self.narg_string.extend_from_slice(&len.to_le_bytes());
         self.narg_string.extend_from_slice(hint);
-        Ok(())
     }
 
     /// Serialize and observe a structured hint into the prover transcript.
@@ -240,7 +232,7 @@ where
         // to the `narg_string`. This checks that:
         // - the domain separator allows a hint here,
         // - writes `[len, ...bytes]` into the transcript.
-        self.hint_bytes(&bytes)?;
+        self.hint_bytes(&bytes);
 
         // Successfully written.
         Ok(())
@@ -281,7 +273,7 @@ mod tests {
             let challenger = MyChallenger::new(vec![], Keccak256Hash);
             let mut pstate = domsep.to_prover_state(challenger);
 
-            pstate.public_units(&data).unwrap();
+            pstate.public_units(&data);
             assert_eq!(pstate.narg_string(), b"", "Failed for case: {label}");
         }
     }
@@ -295,7 +287,7 @@ mod tests {
         let mut pstate = domsep.to_prover_state(challenger);
         let input = [42, 43, 44];
 
-        assert!(pstate.observe_units(&input).is_ok());
+        pstate.observe_units(&input);
         assert_eq!(pstate.narg_string(), &input);
     }
 
@@ -308,8 +300,8 @@ mod tests {
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut p = domsep.to_prover_state(challenger);
 
-        p.observe_units(&[10, 11]).unwrap();
-        p.observe_units(&[20, 21, 22]).unwrap();
+        p.observe_units(&[10, 11]);
+        p.observe_units(&[20, 21, 22]);
 
         assert_eq!(p.narg_string(), &[10, 11, 20, 21, 22]);
     }
@@ -323,7 +315,7 @@ mod tests {
         let mut p = domsep.to_prover_state(challenger);
 
         let msg = b"zkp42";
-        p.observe_units(msg).unwrap();
+        p.observe_units(msg);
 
         let encoded = p.narg_string();
         assert_eq!(encoded, msg);
@@ -348,7 +340,7 @@ mod tests {
         let f2 = F::from_u64(333);
 
         // Step 5: Add the scalars to the transcript
-        prover_state.add_scalars(&[f0, f1, f2]).unwrap();
+        prover_state.add_scalars(&[f0, f1, f2]);
 
         // Step 6: Expected serialized bytes (little-endian u32 encoding)
         let expected_bytes = vec![
@@ -366,7 +358,7 @@ mod tests {
         // Step 8: Verify determinism by repeating with a new prover
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover_state2 = domsep.to_prover_state(challenger);
-        prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
+        prover_state2.add_scalars(&[f0, f1, f2]);
 
         assert_eq!(
             prover_state.narg_string, prover_state2.narg_string,
@@ -393,7 +385,7 @@ mod tests {
         let f2 = G::from_u64(333);
 
         // Step 5: Add the scalars to the transcript
-        prover_state.add_scalars(&[f0, f1, f2]).unwrap();
+        prover_state.add_scalars(&[f0, f1, f2]);
 
         // Step 6: Expected serialized bytes (little-endian u32 encoding)
         let expected_bytes = vec![
@@ -411,7 +403,7 @@ mod tests {
         // Step 8: Verify determinism by repeating with a new prover
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover_state2 = domsep.to_prover_state(challenger);
-        prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
+        prover_state2.add_scalars(&[f0, f1, f2]);
 
         assert_eq!(
             prover_state.narg_string, prover_state2.narg_string,
@@ -439,7 +431,7 @@ mod tests {
         let f2 = EF4::from_u64(333);
 
         // Step 5: Add the scalars to the transcript
-        prover_state.add_scalars(&[f0, f1, f2]).unwrap();
+        prover_state.add_scalars(&[f0, f1, f2]);
 
         // Step 6: Expected bytes from 3 extension field elements, each with 4 limbs
         // - 4 * 3 = 12 F limbs = 12 * 4 = 48 bytes
@@ -461,7 +453,7 @@ mod tests {
         // Step 8: Repeat with a second prover to confirm determinism
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover_state2 = domsep.to_prover_state(challenger);
-        prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
+        prover_state2.add_scalars(&[f0, f1, f2]);
 
         assert_eq!(
             prover_state.narg_string, prover_state2.narg_string,
@@ -489,7 +481,7 @@ mod tests {
         let f2 = EG2::from_u64(333);
 
         // Step 5: Add the scalars to the transcript
-        prover_state.add_scalars(&[f0, f1, f2]).unwrap();
+        prover_state.add_scalars(&[f0, f1, f2]);
 
         // Step 6: Expected bytes from 3 extension field elements, each with 8 limbs
         let expected_bytes = vec![
@@ -510,7 +502,7 @@ mod tests {
         // Step 8: Repeat with a second prover to confirm determinism
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover_state2 = domsep.to_prover_state(challenger);
-        prover_state2.add_scalars(&[f0, f1, f2]).unwrap();
+        prover_state2.add_scalars(&[f0, f1, f2]);
 
         assert_eq!(
             prover_state.narg_string, prover_state2.narg_string,
@@ -532,7 +524,7 @@ mod tests {
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover = domsep.to_prover_state(challenger);
-        let actual = prover.public_scalars(&values).unwrap();
+        let actual = prover.public_scalars(&values);
 
         assert_eq!(
             actual, expected_bytes,
@@ -542,7 +534,7 @@ mod tests {
         // Determinism: same input, same transcript = same output
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover2 = domsep.to_prover_state(challenger);
-        let actual2 = prover2.public_scalars(&values).unwrap();
+        let actual2 = prover2.public_scalars(&values);
 
         assert_eq!(
             actual, actual2,
@@ -564,7 +556,7 @@ mod tests {
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover = domsep.to_prover_state(challenger);
-        let actual = prover.public_scalars(&values).unwrap();
+        let actual = prover.public_scalars(&values);
 
         assert_eq!(
             actual, expected_bytes,
@@ -574,7 +566,7 @@ mod tests {
         // Determinism: same input, same transcript = same output
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover2 = domsep.to_prover_state(challenger);
-        let actual2 = prover2.public_scalars(&values).unwrap();
+        let actual2 = prover2.public_scalars(&values);
 
         assert_eq!(
             actual, actual2,
@@ -600,7 +592,7 @@ mod tests {
         // Serialize the values through the transcript
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover = domsep.to_prover_state(challenger);
-        let actual = prover.public_scalars(&values).unwrap();
+        let actual = prover.public_scalars(&values);
 
         // Check that the actual bytes match expected ones
         assert_eq!(
@@ -611,7 +603,7 @@ mod tests {
         // Check determinism: same input = same output
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover2 = domsep.to_prover_state(challenger);
-        let actual2 = prover2.public_scalars(&values).unwrap();
+        let actual2 = prover2.public_scalars(&values);
 
         assert_eq!(
             actual, actual2,
@@ -637,7 +629,7 @@ mod tests {
         // Serialize the values through the transcript
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover = domsep.to_prover_state(challenger);
-        let actual = prover.public_scalars(&values).unwrap();
+        let actual = prover.public_scalars(&values);
 
         // Check that the actual bytes match expected ones
         assert_eq!(
@@ -648,7 +640,7 @@ mod tests {
         // Check determinism: same input = same output
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover2 = domsep.to_prover_state(challenger);
-        let actual2 = prover2.public_scalars(&values).unwrap();
+        let actual2 = prover2.public_scalars(&values);
 
         assert_eq!(
             actual, actual2,
@@ -665,7 +657,7 @@ mod tests {
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover = domsep.to_prover_state(challenger);
-        let actual = prover.public_scalars(&values).unwrap();
+        let actual = prover.public_scalars(&values);
 
         let expected = vec![0, 0, 0, 0, 1, 0, 0, 0, 64, 226, 1, 0, 67, 104, 120, 0];
 
@@ -675,7 +667,7 @@ mod tests {
         let mut prover2 = domsep.to_prover_state(challenger);
         assert_eq!(
             actual,
-            prover2.public_scalars(&values).unwrap(),
+            prover2.public_scalars(&values),
             "Serialization must be deterministic"
         );
     }
@@ -689,7 +681,7 @@ mod tests {
         let mut prover = domsep.to_prover_state(challenger);
 
         let hint = b"abc123";
-        prover.hint_bytes(hint).unwrap();
+        prover.hint_bytes(hint);
 
         // Explanation:
         // - `hint` is "abc123", which has 6 bytes.
@@ -709,7 +701,7 @@ mod tests {
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
         let mut prover = domsep.to_prover_state(challenger);
 
-        prover.hint_bytes(b"").unwrap();
+        prover.hint_bytes(b"");
 
         // Length = 0 encoded as 4 zero bytes
         assert_eq!(prover.narg_string(), &[0, 0, 0, 0]);
@@ -725,8 +717,8 @@ mod tests {
         let mut prover1 = domsep.to_prover_state(challenger.clone());
         let mut prover2 = domsep.to_prover_state(challenger);
 
-        prover1.hint_bytes(hint).unwrap();
-        prover2.hint_bytes(hint).unwrap();
+        prover1.hint_bytes(hint);
+        prover2.hint_bytes(hint);
 
         assert_eq!(
             prover1.narg_string(),

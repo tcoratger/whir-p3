@@ -662,7 +662,7 @@ mod tests {
         let mut prover = domsep.to_prover_state(challenger.clone());
 
         let hint = b"abc123";
-        prover.hint_bytes(hint).unwrap();
+        prover.hint_bytes(hint);
 
         let narg = prover.narg_string();
 
@@ -681,7 +681,7 @@ mod tests {
         let mut prover = domsep.to_prover_state(challenger.clone());
 
         let hint = b"";
-        prover.hint_bytes(hint).unwrap();
+        prover.hint_bytes(hint);
 
         let narg = prover.narg_string();
 
@@ -924,7 +924,7 @@ mod tests {
         // Create prover and observe public scalars
         let challenge = DummyChallenger::new();
         let mut prover = domsep.to_prover_state(challenge.clone());
-        prover.add_scalars(&random_scalars).unwrap();
+        prover.add_scalars(&random_scalars);
 
         // Extract transcript (narg string)
         let narg = prover.narg_string();

@@ -384,10 +384,10 @@ where
                 let (sumcheck_poly, f_mat, w_mat) = self.compute_skipping_sumcheck_polynomial(k);
 
                 // Send the evaluations of the univariate polynomial (length 2^k) to the verifier.
-                prover_state.add_scalars(sumcheck_poly.evaluations())?;
+                prover_state.add_scalars(sumcheck_poly.evaluations());
 
                 // Receive the verifier challenge for this entire collapsed round.
-                let [folding_randomness] = prover_state.challenge_scalars_array()?;
+                let [folding_randomness] = prover_state.challenge_scalars_array();
                 res.push(folding_randomness);
 
                 // Optional proof-of-work challenge to delay prover.
@@ -422,10 +422,10 @@ where
             let sumcheck_poly = self.compute_sumcheck_polynomial();
 
             // Send polynomial evaluations to verifier.
-            prover_state.add_scalars(sumcheck_poly.evaluations())?;
+            prover_state.add_scalars(sumcheck_poly.evaluations());
 
             // Sample verifier challenge.
-            let [folding_randomness] = prover_state.challenge_scalars_array()?;
+            let [folding_randomness] = prover_state.challenge_scalars_array();
             res.push(folding_randomness);
 
             // Optional PoW grinding.
