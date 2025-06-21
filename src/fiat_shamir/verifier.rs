@@ -61,19 +61,6 @@ where
     /// The resulting object will act as the verifier in a zero-knowledge protocol.
     /// `verify_operations` indicates whether Fiat-Shamir operations (observe, sample, hint)
     /// should be verified at runtime.
-    ///
-    /// ```ignore
-    /// # use spongefish::*;
-    ///
-    /// let domsep = DomainSeparator::<DefaultHash>::new("📝").observe(1, "inhale 🫁").sample(32, "exhale 🎏");
-    /// // A silly NARG string for the example.
-    /// let narg_string = &[0x42];
-    /// let mut verifier_state = domsep.to_verifier_state::<H,32>(narg_string);
-    /// assert_eq!(verifier_state.next_units().unwrap(), [0x42]);
-    /// let challenge = verifier_state.sample_units::<32>();
-    /// assert!(challenge.is_ok());
-    /// assert_ne!(challenge.unwrap(), [0; 32]);
-    /// ```
     #[must_use]
     pub fn new(
         domain_separator: &DomainSeparator<EF, F, U>,
@@ -154,7 +141,7 @@ where
 
     /// Perform a PoW challenge check using a derived challenge and 64-bit nonce.
     pub fn challenge_pow<S: PowStrategy>(&mut self, bits: f64) -> ProofResult<()> {
-        let challenge = self.sample_units()?;
+        let challenge = self.challenger.sample_array();
         let nonce = u64::from_be_bytes(U::array_to_u8_array(&self.next_units()?));
         if S::new(U::array_to_u8_array(&challenge), bits).check(nonce) {
             Ok(())
@@ -170,14 +157,6 @@ where
         let mut digest = [U::default(); DIGEST_ELEMS];
         self.fill_next_units(&mut digest)?;
         Ok(digest.into())
-    }
-
-    /// Derive a fixed-size byte array from the sponge as a Fiat-Shamir challenge.
-    pub fn sample_units<const N: usize>(&mut self) -> Result<[U; N], DomainSeparatorMismatch> {
-        // let mut output = [U::default(); N];
-        // self.stateful_challenger.sample(&mut output);
-        // Ok(output)
-        Ok(self.challenger.sample_array())
     }
 
     /// Sample extension scalars uniformly at random using Fiat-Shamir challenge output.
