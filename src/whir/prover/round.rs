@@ -281,7 +281,7 @@ mod tests {
         Witness<EF4, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.
-        let mut domsep = DomainSeparator::new("🌪️", true);
+        let mut domsep = DomainSeparator::new("🌪️");
 
         // Observe the public statement into the transcript for binding.
         domsep.commit_statement::<_, _, _, _, 32>(params);
