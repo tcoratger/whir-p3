@@ -275,7 +275,6 @@ where
     ///
     /// # Errors
     /// - Returns `ProofError::SerializationError` if decoding fails
-    /// - Returns `DomainSeparatorMismatch` if the domain separator doesn't expect a hint
     pub fn hint<T: for<'de> Deserialize<'de>>(&mut self) -> ProofResult<T> {
         // Read the raw bytes for the next hint. This enforces that a `.hint()` op was expected,
         // and parses a 4-byte little-endian length prefix followed by the encoded payload.

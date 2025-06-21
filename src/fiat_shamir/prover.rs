@@ -221,7 +221,6 @@ where
     ///
     /// # Errors
     /// - Returns `ProofError::SerializationError` if encoding fails.
-    /// - Returns `DomainSeparatorMismatch` if no `.hint("label")` instruction was registered.
     pub fn hint<T: Serialize>(&mut self, hint: &T) -> ProofResult<()> {
         // Serialize the input object to a byte vector using bincode.
         // This encodes the object in a compact, deterministic binary format.
