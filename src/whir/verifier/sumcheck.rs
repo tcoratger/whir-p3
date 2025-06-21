@@ -276,7 +276,7 @@ mod tests {
 
         // Set up domain separator
         // - Add sumcheck
-        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("tag", true);
+        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("tag");
         domsep.add_sumcheck(&SumcheckParams {
             rounds: folding_factor,
             pow_bits,
@@ -423,7 +423,7 @@ mod tests {
         // - 1 skipped round: 2^k_skip + 1 values
         // - remaining rounds: 3 values each
         // -------------------------------------------------------------
-        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test", true);
+        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("test");
         domsep.observe_scalars(1 << (K_SKIP + 1), "skip");
         domsep.sample_scalars(1, "skip");
 
