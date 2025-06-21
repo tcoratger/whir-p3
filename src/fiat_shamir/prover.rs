@@ -8,7 +8,6 @@ use super::{
     domain_separator::DomainSeparator,
     errors::{DomainSeparatorMismatch, ProofError, ProofResult},
     pow::traits::PowStrategy,
-    sho::ChallengerWithInstructions,
     utils::{bytes_uniform_modp, from_be_bytes_mod_order},
 };
 use crate::fiat_shamir::unit::Unit;
@@ -37,14 +36,14 @@ where
 {
     /// The internal challenger.
     pub(crate) challenger: Challenger,
-    /// The public coins for the protocol
-    pub(crate) stateful_challenger: ChallengerWithInstructions<Challenger, U>,
     /// The encoded data.
     pub(crate) narg_string: Vec<u8>,
     /// Marker for the field.
     _field: PhantomData<F>,
     /// Marker for the extension field.
     _extension_field: PhantomData<EF>,
+    /// Marker for the unit `U`.
+    _unit: PhantomData<U>,
 }
 
 impl<EF, F, Challenger, U> ProverState<EF, F, Challenger, U>
@@ -64,17 +63,14 @@ where
     where
         Challenger: Clone,
     {
-        let stateful_challenger =
-            ChallengerWithInstructions::new(domain_separator, challenger.clone());
-
         challenger.observe_slice(&domain_separator.as_units());
 
         Self {
             challenger,
-            stateful_challenger,
             narg_string: Vec::new(),
             _field: PhantomData,
             _extension_field: PhantomData,
+            _unit: PhantomData,
         }
     }
 
