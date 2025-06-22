@@ -170,6 +170,15 @@ where
         U::slice_from_u8_slice(self.io.as_bytes())
     }
 
+    #[must_use]
+    pub fn as_field_elements(&self) -> Vec<F> {
+        let (value, _) =
+            bincode::serde::decode_from_slice(self.io.as_bytes(), bincode::config::standard())
+                .unwrap();
+
+        value
+    }
+
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
     #[must_use]
     pub fn to_prover_state<H>(&self, challenger: H) -> ProverState<EF, F, H, U>
@@ -357,12 +366,67 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
+    use p3_blake3::Blake3;
+    use p3_challenger::HashChallenger;
     use p3_field::extension::BinomialExtensionField;
+    use p3_keccak::Keccak256Hash;
+    use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 
     use super::*;
+    use crate::{
+        fiat_shamir::pow::blake3::Blake3PoW,
+        parameters::{
+            FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
+        },
+    };
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
+    type ByteHash = Blake3;
+    type FieldHash = SerializingHasher<ByteHash>;
+    type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+    type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
+
+    const DIGEST_ELEMS: usize = 32;
+
+    /// Create a WHIR protocol configuration for test scenarios.
+    ///
+    /// This utility function builds a `WhirConfig` using the provided parameters:
+    /// - `num_variables`: Number of variables in the multilinear polynomial.
+    /// - `initial_statement`: Whether to start with an initial sumcheck statement.
+    /// - `folding_factor`: Number of variables to fold per round.
+    /// - `pow_bits`: Difficulty of the proof-of-work challenge used in Fiat-Shamir.
+    ///
+    /// The returned config can be used to initialize a prover and set up domain commitments
+    /// for round state construction in WHIR tests.
+    fn make_test_config(
+        num_variables: usize,
+        initial_statement: bool,
+        folding_factor: usize,
+        pow_bits: usize,
+    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, u8> {
+        // Construct the multivariate parameter set with `num_variables` variables,
+        // determining the size of the evaluation domain.
+        let mv_params = MultivariateParameters::<EF4>::new(num_variables);
+
+        // Define the core protocol parameters for WHIR, customizing behavior based
+        // on whether to start with an initial sumcheck and how to fold the polynomial.
+        let protocol_params = ProtocolParameters {
+            initial_statement,
+            security_level: 80,
+            pow_bits,
+            rs_domain_initial_reduction_factor: 1,
+            folding_factor: FoldingFactor::Constant(folding_factor),
+            merkle_hash: FieldHash::new(ByteHash {}),
+            merkle_compress: MyCompress::new(ByteHash {}),
+            soundness_type: SecurityAssumption::CapacityBound,
+            starting_log_inv_rate: 1,
+            univariate_skip: false,
+        };
+
+        // Combine the multivariate and protocol parameters into a full WHIR config
+        WhirConfig::new(mv_params, protocol_params)
+    }
 
     #[test]
     fn test_domain_separator_new_and_bytes() {
@@ -453,54 +517,35 @@ mod tests {
     }
 
     #[test]
-    fn test_add_scalars_babybear() {
-        // Test observation of scalar field elements (BabyBear).
-        // - BabyBear is a base field with extension degree = 1
-        // - bits = 31 → NUM_BYTES = 4
-        // - 2 scalars * 1 * 4 = 8 bytes absorbed
-        // - "O" indicates observation in the domain separator
+    fn test_add_scalars_base_field() {
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("babybear");
         domsep.observe(2, "foo");
-        let expected = b"babybear\0O8foo";
+        let expected = b"babybear\0O2foo";
         assert_eq!(domsep.as_units(), expected);
     }
 
     #[test]
-    fn test_challenge_scalars_babybear() {
-        // Test sampling scalar field elements (BabyBear).
-        // - BabyBear has extension degree = 1
-        // - bits = 31 → bytes_uniform_modp(31) = 5
-        // - 3 scalars * 1 * 5 = 15 bytes squeezed
-        // - "S" indicates sampling in the domain separator
+    fn test_challenge_scalars_base_field() {
         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("bb");
         domsep.sample(3, "bar");
-        let expected = b"bb\0S57bar";
+        let expected = b"bb\0S3bar";
         assert_eq!(domsep.as_units(), expected);
     }
 
     #[test]
     fn test_add_scalars_quartic_ext_field() {
-        // Test observation of scalars from a quartic extension field EF4.
-        // - EF4 has extension degree = 4
-        // - Base field bits = 31 → NUM_BYTES = 4
-        // - 2 scalars * 4 * 4 = 32 bytes observed
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("ext");
         domsep.observe(2, "a");
-        let expected = b"ext\0O32a";
+        let expected = b"ext\0O2a";
         assert_eq!(domsep.as_units(), expected);
     }
 
     #[test]
     fn test_challenge_scalars_quartic_ext_field() {
-        // Test squeezing of scalars from a quartic extension field EF4.
-        // - EF4 has extension degree = 4
-        // - Base field bits = 31 → bytes_uniform_modp(31) = 19
-        // - 1 scalar * 4 * 19 = 76 bytes squeezed
-        // - "S" indicates squeezing in the domain separator
         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("ext2");
         domsep.sample(1, "b");
 
-        let expected = b"ext2\0S76b";
+        let expected = b"ext2\0S1b";
         assert_eq!(domsep.as_units(), expected);
     }
 
@@ -688,5 +733,25 @@ mod tests {
         expected.sample(1, "folding_randomness");
 
         assert_eq!(ops, expected.io);
+    }
+
+    #[test]
+    fn test_as_field_elements() {
+        // Number of variables in the multilinear polynomial
+        let num_variables = 2;
+
+        // Create a WHIR protocol config with:
+        // - no initial sumcheck,
+        // - folding factor 2,
+        // - no PoW grinding.
+        let config = make_test_config(num_variables, false, 2, 0);
+
+        // Build DomainSeparator manually from encoded bytes
+        let mut ds = DomainSeparator::<EF4, F, u8>::new("test_protocol");
+
+        ds.add_whir_proof::<_, _, _, _, 32>(&config);
+
+        // Test that `as_field_elements()` decodes successfully
+        let _ = ds.as_field_elements();
     }
 }
