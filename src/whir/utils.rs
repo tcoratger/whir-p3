@@ -61,8 +61,8 @@ where
 ///
 /// This should be used on the prover side.
 #[instrument(skip_all)]
-pub fn sample_ood_points<F, EF, E, Challenger, W>(
-    prover_state: &mut ProverState<EF, F, Challenger, W>,
+pub fn sample_ood_points<F, EF, E, Challenger, W, const DIGEST_ELEMS: usize>(
+    prover_state: &mut ProverState<EF, F, Challenger, W, DIGEST_ELEMS>,
     num_samples: usize,
     num_variables: usize,
     evaluate_fn: E,

@@ -230,11 +230,15 @@ mod tests {
         domain_separator.pow(BITS);
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover = domain_separator.to_prover_state(challenger.clone());
+        let mut prover = domain_separator.to_prover_state::<_, 32>(challenger.clone());
         prover.observe_units(b"\0");
         prover.challenge_pow::<Blake3PoW>(BITS).unwrap();
 
-        let mut verifier = domain_separator.to_verifier_state(prover.narg_string(), challenger);
+        let mut verifier = domain_separator.to_verifier_state::<_, 32>(
+            prover.narg_string(),
+            prover.proof_data.clone(),
+            challenger,
+        );
         let byte = verifier.next_units::<1>().unwrap();
         assert_eq!(&byte, b"\0");
         verifier.challenge_pow::<Blake3PoW>(BITS).unwrap();

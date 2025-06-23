@@ -146,7 +146,11 @@ pub fn make_whir_things(
     let verifier = Verifier::new(&params);
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    let mut verifier_state = domainsep.to_verifier_state(prover_state.narg_string(), challenger);
+    let mut verifier_state = domainsep.to_verifier_state(
+        prover_state.narg_string(),
+        prover_state.proof_data.clone(),
+        challenger,
+    );
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
@@ -197,6 +201,13 @@ mod tests {
                     for num_points in num_points {
                         for soundness_type in soundness_type {
                             for pow_bits in pow_bits {
+                                // dbg!(num_variable);
+                                // dbg!(folding_factor);
+                                // dbg!(num_points);
+                                // dbg!(soundness_type);
+                                // dbg!(pow_bits);
+                                // dbg!(rs_domain_initial_reduction_factor);
+
                                 make_whir_things(
                                     num_variable,
                                     folding_factor,

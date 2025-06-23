@@ -194,7 +194,8 @@ fn main() {
     let proof_size = narg_string.len();
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    let mut verifier_state = domainsep.to_verifier_state(&narg_string, challenger);
+    let mut verifier_state =
+        domainsep.to_verifier_state(&narg_string, prover_state.proof_data.clone(), challenger);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader

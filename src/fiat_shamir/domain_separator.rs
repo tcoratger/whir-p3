@@ -4,7 +4,9 @@ use p3_challenger::{CanObserve, CanSample};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
 use crate::{
-    fiat_shamir::{prover::ProverState, unit::Unit, verifier::VerifierState},
+    fiat_shamir::{
+        proof_data::ProofData, prover::ProverState, unit::Unit, verifier::VerifierState,
+    },
     sumcheck::K_SKIP_SUMCHECK,
     whir::parameters::WhirConfig,
 };
@@ -181,7 +183,10 @@ where
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
     #[must_use]
-    pub fn to_prover_state<H>(&self, challenger: H) -> ProverState<EF, F, H, U>
+    pub fn to_prover_state<H, const DIGEST_ELEMS: usize>(
+        &self,
+        challenger: H,
+    ) -> ProverState<EF, F, H, U, DIGEST_ELEMS>
     where
         H: CanObserve<U> + CanSample<U> + Clone,
     {
@@ -191,15 +196,16 @@ where
     /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript
     /// (bytes).
     #[must_use]
-    pub fn to_verifier_state<'a, H>(
+    pub fn to_verifier_state<'a, H, const DIGEST_ELEMS: usize>(
         &self,
         transcript: &'a [u8],
+        proof_data: ProofData<EF, F, U, DIGEST_ELEMS>,
         challenger: H,
-    ) -> VerifierState<'a, EF, F, H, U>
+    ) -> VerifierState<'a, EF, F, H, U, DIGEST_ELEMS>
     where
         H: CanObserve<U> + CanSample<U> + Clone,
     {
-        VerifierState::new(self, transcript, challenger)
+        VerifierState::new(self, transcript, proof_data, challenger)
     }
 
     pub fn add_ood(&mut self, num_samples: usize) {

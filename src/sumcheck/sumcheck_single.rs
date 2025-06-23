@@ -357,9 +357,9 @@ where
     /// - If `folding_factor > num_variables()`
     /// - If univariate skip is attempted with evaluations in the extension field.
     #[instrument(skip_all)]
-    pub fn compute_sumcheck_polynomials<S, Challenger, W>(
+    pub fn compute_sumcheck_polynomials<S, Challenger, W, const DIGEST_ELEMS: usize>(
         &mut self,
-        prover_state: &mut ProverState<EF, F, Challenger, W>,
+        prover_state: &mut ProverState<EF, F, Challenger, W, DIGEST_ELEMS>,
         folding_factor: usize,
         pow_bits: f64,
         k_skip: Option<usize>,
@@ -374,6 +374,9 @@ where
         // Will store the verifier's folding challenges for each round.
         let mut res = Vec::with_capacity(folding_factor);
 
+        // To store the sumcheck evaluations for each round
+        let mut sumcheck_evaluations = Vec::with_capacity(folding_factor);
+
         // Track number of rounds already skipped.
         let mut skip = 0;
 
@@ -385,6 +388,7 @@ where
 
                 // Send the evaluations of the univariate polynomial (length 2^k) to the verifier.
                 prover_state.add_scalars(sumcheck_poly.evaluations());
+                sumcheck_evaluations.push(sumcheck_poly.evaluations().to_vec());
 
                 // Receive the verifier challenge for this entire collapsed round.
                 let [folding_randomness] = prover_state.challenge_scalars_array();
@@ -423,6 +427,7 @@ where
 
             // Send polynomial evaluations to verifier.
             prover_state.add_scalars(sumcheck_poly.evaluations());
+            sumcheck_evaluations.push(sumcheck_poly.evaluations().to_vec());
 
             // Sample verifier challenge.
             let [folding_randomness] = prover_state.challenge_scalars_array();
@@ -437,6 +442,12 @@ where
             // Fold the polynomial and weight evaluations over the new challenge.
             self.compress(EF::ONE, &folding_randomness.into(), &sumcheck_poly);
         }
+
+        // Add the sumcheck evaluations to the proof data
+        prover_state
+            .proof_data
+            .sumcheck_evaluations
+            .push(sumcheck_evaluations);
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
         res.reverse();
@@ -1540,7 +1551,7 @@ mod tests {
 
         // Convert the domain separator to a prover state
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
 
         // Check sum BEFORE running protocol via dot product
         let expected_sum =
@@ -1549,7 +1560,7 @@ mod tests {
 
         // Compute sumcheck polynomials
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, 32>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -1561,7 +1572,11 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Reconstruct verifier state to manually validate the sumcheck round
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state::<_, 32>(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger,
+        );
 
         // Read the sumcheck polynomial evaluations: h(0), h(1), h(2)
         let sumcheck_poly_evals: [_; 3] = verifier_state.next_scalars_array().unwrap();
@@ -1621,10 +1636,10 @@ mod tests {
 
         // Convert the domain separator to a prover state
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, 32>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -1636,7 +1651,11 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Reconstruct verifier state for round-by-round checks
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state::<_, 32>(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger,
+        );
 
         // Initialize claimed sum with the expected initial value from constraints (before any folding)
         let mut current_sum = expected_initial_sum;
@@ -1755,10 +1774,10 @@ mod tests {
 
         // Convert the domain separator to a prover state
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, 32>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -1770,7 +1789,11 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Initialize the verifier state for checking round-by-round
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state::<_, 32>(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger,
+        );
 
         // Initialize the sum to be verified round-by-round
         let mut current_sum = expected_initial_sum;
@@ -1848,10 +1871,10 @@ mod tests {
             univariate_skip: None,
         });
 
-        let mut prover_state = domsep.to_prover_state(challenger);
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger);
 
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, 32>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -2090,11 +2113,11 @@ mod tests {
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
         // Convert domain separator into prover state object
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, 32>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -2106,7 +2129,11 @@ mod tests {
         assert_eq!(result.0.len(), folding_factor);
 
         // Reconstruct verifier state to simulate the rounds
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state::<_, 32>(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger,
+        );
 
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
@@ -2310,11 +2337,11 @@ mod tests {
 
             // Run sumcheck with zero grinding (no challenge_pow)
             let final_point_base = prover_base
-                .compute_sumcheck_polynomials::<Blake3PoW,_,_>(&mut state_base, folding_rounds, 0.0, None)
+                .compute_sumcheck_polynomials::<Blake3PoW,_,_,32>(&mut state_base, folding_rounds, 0.0, None)
                 .unwrap();
 
             let final_point_ext = prover_ext
-                .compute_sumcheck_polynomials::<Blake3PoW,_,_>(&mut state_ext, folding_rounds, 0.0, None)
+                .compute_sumcheck_polynomials::<Blake3PoW,_,_,32>(&mut state_ext, folding_rounds, 0.0, None)
                 .unwrap();
 
             // Ensure roundtrip consistency
@@ -2485,11 +2512,11 @@ mod tests {
 
         // Convert domain separator into prover state object
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
 
         // Run sumcheck with k = 2 skipped rounds and 1 regular round
         let result = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, 32>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -2507,7 +2534,11 @@ mod tests {
         // -------------------------------------------------------------
         // Replay verifier's side using same Fiat-Shamir transcript
         // -------------------------------------------------------------
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state::<_, 32>(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger,
+        );
         let mut current_sum = expected_sum;
 
         // Get the 8 evaluations of the skipping polynomial h₀(X)
@@ -2634,10 +2665,10 @@ mod tests {
         });
 
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
-        let mut prover_state = domsep.to_prover_state(challenger);
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger);
 
         let _ = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, 32>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,

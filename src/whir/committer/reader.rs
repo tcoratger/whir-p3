@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{fmt::Debug, ops::Deref};
 
 use p3_challenger::{CanObserve, CanSample};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
@@ -61,18 +61,22 @@ where
     ///
     /// This is used to verify consistency of polynomial commitments in WHIR.
     pub fn parse<EF, Challenger, W, const DIGEST_ELEMS: usize>(
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, DIGEST_ELEMS>,
         num_variables: usize,
         ood_samples: usize,
+        round_index: usize,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>>
     where
         F: TwoAdicField + PrimeField64,
         EF: ExtensionField<F> + TwoAdicField,
-        W: Unit + Default + Copy,
+        W: Unit + Default + Copy + Debug + PartialEq,
         Challenger: CanObserve<W> + CanSample<W>,
     {
         // Read the Merkle root hash committed by the prover.
         let root = verifier_state.read_digest()?;
+        let root1 = verifier_state.proof_data.round_merkle_root[round_index];
+
+        assert_eq!(*root.as_ref(), root1);
 
         // Allocate space for the OOD challenge points and answers.
         let mut ood_points = EF::zero_vec(ood_samples);
@@ -85,6 +89,10 @@ where
 
             // Read the prover's claimed evaluations at those points.
             verifier_state.fill_next_scalars(&mut ood_answers)?;
+
+            let ood_answers1 = verifier_state.proof_data.round_ood_answers[round_index].clone();
+
+            assert_eq!(ood_answers, ood_answers1);
         }
 
         // Return a structured representation of the commitment.
@@ -134,7 +142,7 @@ impl<'a, EF, F, H, C, PS, Challenger, W> CommitmentReader<'a, EF, F, H, C, PS, C
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
-    W: Unit + Default + Copy,
+    W: Unit + Default + Copy + Debug + PartialEq,
     Challenger: CanObserve<W> + CanSample<W>,
 {
     /// Create a new commitment reader from a WHIR configuration.
@@ -150,12 +158,13 @@ where
     /// expected for verifying the committed polynomial.
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, DIGEST_ELEMS>,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>> {
         ParsedCommitment::<_, Hash<F, W, DIGEST_ELEMS>>::parse(
             verifier_state,
             self.mv_parameters.num_variables,
             self.committment_ood_samples,
+            0,
         )
     }
 }
@@ -272,7 +281,11 @@ mod tests {
             .unwrap();
 
         // Simulate verifier state using transcript view of prover’s nonce string.
-        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger,
+        );
 
         // Create a commitment reader and parse the commitment from verifier state.
         let reader = CommitmentReader::new(&params);
@@ -312,7 +325,11 @@ mod tests {
             .unwrap();
 
         // Initialize the verifier view of the transcript.
-        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger,
+        );
 
         // Parse the commitment from verifier transcript.
         let reader = CommitmentReader::new(&params);
@@ -355,7 +372,11 @@ mod tests {
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
-        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger,
+        );
 
         // Parse the commitment from verifier’s transcript.
         let reader = CommitmentReader::new(&params);
@@ -389,7 +410,11 @@ mod tests {
         let _ = committer
             .commit(&dft, &mut prover_state, polynomial)
             .unwrap();
-        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger,
+        );
 
         // Parse the commitment from the verifier’s state.
         let reader = CommitmentReader::new(&params);

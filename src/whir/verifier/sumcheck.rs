@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use p3_challenger::{CanObserve, CanSample};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
@@ -24,7 +26,7 @@ where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
-    W: Unit + Default + Copy,
+    W: Unit + Default + Copy + Debug,
     Challenger: CanObserve<W> + CanSample<W>,
 {
     /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
@@ -55,10 +57,11 @@ where
     /// # Returns
     ///
     /// - A `MultilinearPoint` of folding randomness values in reverse order.
-    pub(crate) fn verify_sumcheck_rounds(
+    pub(crate) fn verify_sumcheck_rounds<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, DIGEST_ELEMS>,
         claimed_sum: &mut EF,
+        round_index: usize,
         rounds: usize,
         pow_bits: f64,
         is_univariate_skip: bool,
@@ -107,9 +110,16 @@ where
             0
         };
 
-        for _ in start_round..rounds {
+        for i in start_round..rounds {
             // Extract the 3 evaluations of the quadratic sumcheck polynomial h(X)
             let evals = verifier_state.next_scalars_array::<3>()?;
+            let evals1: [_; 3] = verifier_state.proof_data.sumcheck_evaluations[round_index][i]
+                .clone()
+                .try_into()
+                .unwrap();
+
+            assert_eq!(evals, evals1);
+
             let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
 
             // Verify claimed sum is consistent with polynomial
@@ -286,11 +296,11 @@ mod tests {
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
         // Convert domain separator into prover state object
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let _ = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, 32>(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -299,8 +309,11 @@ mod tests {
             .unwrap();
 
         // Reconstruct verifier state to simulate the rounds
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.narg_string(), challenger.clone());
+        let mut verifier_state = domsep.to_verifier_state::<_, 32>(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger.clone(),
+        );
 
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
@@ -331,7 +344,11 @@ mod tests {
         }
 
         // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state::<_, 32>(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger,
+        );
 
         // Setup the WHIR verifier
         let whir_config = default_whir_config(n_vars);
@@ -343,6 +360,7 @@ mod tests {
             .verify_sumcheck_rounds(
                 &mut verifier_state,
                 &mut expected_initial_sum,
+                0,
                 folding_factor,
                 pow_bits,
                 false,
@@ -435,13 +453,13 @@ mod tests {
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
         // Convert to prover state
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger.clone());
 
         // -------------------------------------------------------------
         // Run prover-side folding
         // -------------------------------------------------------------
         let _ = prover
-            .compute_sumcheck_polynomials::<Blake3PoW, _, _>(
+            .compute_sumcheck_polynomials::<Blake3PoW, _, _, 32>(
                 &mut prover_state,
                 NUM_VARS,
                 0.0,
@@ -452,8 +470,11 @@ mod tests {
         // -------------------------------------------------------------
         // Manually extract expected sumcheck rounds by replaying transcript
         // -------------------------------------------------------------
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.narg_string(), challenger.clone());
+        let mut verifier_state = domsep.to_verifier_state::<_, 32>(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger.clone(),
+        );
         let mut expected = Vec::new();
 
         // First skipped round (wide DFT LDE)
@@ -484,9 +505,20 @@ mod tests {
         // -------------------------------------------------------------
         // Use verify_sumcheck_rounds with skip enabled
         // -------------------------------------------------------------
-        let mut verifier_state = domsep.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = domsep.to_verifier_state::<_, 32>(
+            prover_state.narg_string(),
+            prover_state.proof_data.clone(),
+            challenger,
+        );
         let randomness = verifier
-            .verify_sumcheck_rounds(&mut verifier_state, &mut expected_sum, NUM_VARS, 0.0, true)
+            .verify_sumcheck_rounds(
+                &mut verifier_state,
+                &mut expected_sum,
+                0,
+                NUM_VARS,
+                0.0,
+                true,
+            )
             .unwrap();
 
         // Check length:

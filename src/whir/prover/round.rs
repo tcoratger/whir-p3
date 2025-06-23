@@ -105,7 +105,7 @@ where
     #[instrument(skip_all)]
     pub(crate) fn initialize_first_round_state<MyChallenger, C, PS, Challenger>(
         prover: &Prover<'_, EF, F, MyChallenger, C, PS, Challenger, W>,
-        prover_state: &mut ProverState<EF, F, Challenger, W>,
+        prover_state: &mut ProverState<EF, F, Challenger, W, DIGEST_ELEMS>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<Self>
@@ -144,16 +144,17 @@ where
             );
 
             // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<PS, _, _>(
-                prover_state,
-                prover.folding_factor.at_round(0),
-                prover.starting_folding_pow_bits,
-                if prover.univariate_skip {
-                    Some(K_SKIP_SUMCHECK)
-                } else {
-                    None
-                },
-            )?;
+            let folding_randomness = sumcheck
+                .compute_sumcheck_polynomials::<PS, _, _, DIGEST_ELEMS>(
+                    prover_state,
+                    prover.folding_factor.at_round(0),
+                    prover.starting_folding_pow_bits,
+                    if prover.univariate_skip {
+                        Some(K_SKIP_SUMCHECK)
+                    } else {
+                        None
+                    },
+                )?;
 
             sumcheck_prover = Some(sumcheck);
             folding_randomness
@@ -277,7 +278,7 @@ mod tests {
         poly: EvaluationsList<F>,
     ) -> (
         DomainSeparator<EF4, F, u8>,
-        ProverState<EF4, F, MyChallenger, W>,
+        ProverState<EF4, F, MyChallenger, W, 32>,
         Witness<EF4, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.
@@ -292,7 +293,7 @@ mod tests {
         let challenger = MyChallenger::new(vec![], Keccak256Hash);
 
         // Convert the domain separator into a mutable prover-side transcript.
-        let mut prover_state = domsep.to_prover_state(challenger);
+        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger);
 
         // Create a committer using the protocol configuration (Merkle parameters, hashers, etc.).
         let committer = CommitmentWriter::new(params);

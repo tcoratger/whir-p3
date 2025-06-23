@@ -143,7 +143,7 @@ where
     pub fn prove<const DIGEST_ELEMS: usize>(
         &self,
         dft: &EvalsDft<F>,
-        prover_state: &mut ProverState<EF, F, Challenger, W>,
+        prover_state: &mut ProverState<EF, F, Challenger, W, DIGEST_ELEMS>,
         statement: Statement<EF>,
         witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
@@ -186,6 +186,10 @@ where
             .map(|constraint| constraint.weights.compute(&constraint_eval))
             .collect();
         prover_state.hint::<Vec<EF>>(&deferred)?;
+        prover_state
+            .proof_data
+            .deferred_constraints
+            .clone_from(&deferred);
 
         Ok((constraint_eval, deferred))
     }
@@ -196,7 +200,7 @@ where
         &self,
         round_index: usize,
         dft: &EvalsDft<F>,
-        prover_state: &mut ProverState<EF, F, Challenger, W>,
+        prover_state: &mut ProverState<EF, F, Challenger, W, DIGEST_ELEMS>,
         round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
@@ -263,6 +267,10 @@ where
 
         // Observe Merkle root in challenger
         prover_state.observe_units(root.as_ref());
+        prover_state
+            .proof_data
+            .round_merkle_root
+            .push(*root.as_ref());
 
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) = sample_ood_points(
@@ -271,6 +279,11 @@ where
             num_variables,
             |point| info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point)),
         );
+
+        prover_state
+            .proof_data
+            .round_ood_answers
+            .push(ood_answers.clone());
 
         // STIR Queries
         let (stir_challenges, stir_challenges_indexes) = self.compute_stir_queries(
@@ -296,6 +309,17 @@ where
 
                 prover_state.hint(&answers)?;
                 prover_state.hint(&merkle_proof)?;
+
+                prover_state
+                    .proof_data
+                    .base_field_merkle_answers
+                    .clone_from(&answers);
+                // Ugly trick to have index compatibility when verifying
+                prover_state.proof_data.round_merkle_answers.push(vec![]);
+                prover_state
+                    .proof_data
+                    .round_merkle_proof
+                    .push(merkle_proof.clone());
 
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
@@ -323,6 +347,15 @@ where
 
                 prover_state.hint(&answers)?;
                 prover_state.hint(&merkle_proof)?;
+
+                prover_state
+                    .proof_data
+                    .round_merkle_answers
+                    .push(answers.clone());
+                prover_state
+                    .proof_data
+                    .round_merkle_proof
+                    .push(merkle_proof.clone());
 
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
@@ -377,12 +410,13 @@ where
                 )
             };
 
-        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<PS, _, _>(
-            prover_state,
-            folding_factor_next,
-            round_params.folding_pow_bits,
-            None,
-        )?;
+        let folding_randomness = sumcheck_prover
+            .compute_sumcheck_polynomials::<PS, _, _, DIGEST_ELEMS>(
+                prover_state,
+                folding_factor_next,
+                round_params.folding_pow_bits,
+                None,
+            )?;
 
         let start_idx = self.folding_factor.total_number(round_index);
         let dst_randomness =
@@ -409,7 +443,7 @@ where
     fn final_round<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<EF, F, Challenger, W>,
+        prover_state: &mut ProverState<EF, F, Challenger, W, DIGEST_ELEMS>,
         round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         folded_evaluations: &EvaluationsList<EF>,
     ) -> ProofResult<()>
@@ -421,6 +455,11 @@ where
     {
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_scalars(folded_evaluations.evals());
+        prover_state
+            .proof_data
+            .final_folded_evaluations
+            .clone_from(&folded_evaluations.evals().to_vec());
+
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
             // The size of the original domain before folding
@@ -450,6 +489,17 @@ where
                 prover_state.hint(&answers)?;
                 prover_state.hint(&merkle_proof)?;
 
+                prover_state
+                    .proof_data
+                    .base_field_merkle_answers
+                    .clone_from(&answers);
+                // Ugly trick to have index compatibility when verifying
+                prover_state.proof_data.round_merkle_answers.push(vec![]);
+                prover_state
+                    .proof_data
+                    .round_merkle_proof
+                    .push(merkle_proof.clone());
+
                 round_state.commitment_merkle_proof = Some((answers, merkle_proof));
             }
 
@@ -464,6 +514,15 @@ where
 
                 prover_state.hint(&answers)?;
                 prover_state.hint(&merkle_proof)?;
+
+                prover_state
+                    .proof_data
+                    .round_merkle_answers
+                    .push(answers.clone());
+                prover_state
+                    .proof_data
+                    .round_merkle_proof
+                    .push(merkle_proof.clone());
 
                 round_state.merkle_proofs.push((answers, merkle_proof));
             }
@@ -486,7 +545,7 @@ where
                         EF::ONE,
                     )
                 })
-                .compute_sumcheck_polynomials::<PS, _, _>(
+                .compute_sumcheck_polynomials::<PS, _, _, DIGEST_ELEMS>(
                     prover_state,
                     self.final_sumcheck_rounds,
                     self.final_folding_pow_bits,
@@ -512,7 +571,7 @@ where
     fn compute_stir_queries<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<EF, F, Challenger, W>,
+        prover_state: &mut ProverState<EF, F, Challenger, W, DIGEST_ELEMS>,
         round_state: &RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig<EF>,

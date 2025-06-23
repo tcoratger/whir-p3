@@ -47,7 +47,7 @@ where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     PS: PowStrategy,
-    W: Unit + Default + Copy,
+    W: Unit + Default + Copy + Debug,
     Challenger: CanObserve<W> + CanSample<W>,
 {
     pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS, Challenger, W>) -> Self {
@@ -58,7 +58,7 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, DIGEST_ELEMS>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         statement: &Statement<EF>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
@@ -91,6 +91,7 @@ where
             let folding_randomness = self.verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_sum,
+                0,
                 self.folding_factor.at_round(0),
                 self.starting_folding_pow_bits,
                 false,
@@ -118,6 +119,7 @@ where
                 verifier_state,
                 round_params.num_variables,
                 round_params.ood_samples,
+                round_index + 1,
             )?;
 
             // Verify in-domain challenges on the previous commitment.
@@ -126,7 +128,7 @@ where
                 round_params,
                 &prev_commitment,
                 round_folding_randomness.last().unwrap(),
-                round_index == 0,
+                round_index,
             )?;
 
             // Add out-of-domain and in-domain constraints to claimed_sum
@@ -142,6 +144,7 @@ where
             let folding_randomness = self.verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_sum,
+                round_index + 1,
                 self.folding_factor.at_round(round_index + 1),
                 round_params.folding_pow_bits,
                 false,
@@ -163,7 +166,7 @@ where
             &self.final_round_config(),
             &prev_commitment,
             round_folding_randomness.last().unwrap(),
-            self.n_rounds() == 0,
+            self.n_rounds(),
         )?;
 
         // Verify stir constraints directly on final polynomial
@@ -177,6 +180,7 @@ where
         let final_sumcheck_randomness = self.verify_sumcheck_rounds(
             verifier_state,
             &mut claimed_sum,
+            self.n_rounds() + 1,
             self.final_sumcheck_rounds,
             self.final_folding_pow_bits,
             false,
@@ -196,6 +200,9 @@ where
         // Some weight computations can be deferred and will be returned for the caller
         // to verify.
         let deferred: Vec<EF> = verifier_state.hint()?;
+        let deferred1 = verifier_state.proof_data.deferred_constraints.clone();
+        assert_eq!(deferred, deferred1);
+
         let evaluation_of_weights =
             self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
 
@@ -224,9 +231,9 @@ where
     ///
     /// # Returns
     /// A vector of randomness values used to weight each constraint.
-    pub fn combine_constraints(
+    pub fn combine_constraints<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, DIGEST_ELEMS>,
         claimed_sum: &mut EF,
         constraints: &[Constraint<EF>],
     ) -> ProofResult<Vec<EF>> {
@@ -259,9 +266,9 @@ where
     ///
     /// # Errors
     /// Returns `ProofError::InvalidProof` if the PoW response is invalid.
-    pub fn verify_proof_of_work(
+    pub fn verify_proof_of_work<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, DIGEST_ELEMS>,
         bits: f64,
     ) -> ProofResult<()> {
         if bits > 0. {
@@ -296,11 +303,11 @@ where
     /// or the prover’s data does not match the commitment.
     pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, DIGEST_ELEMS>,
         params: &RoundConfig<EF>,
         commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
-        leafs_base_field: bool,
+        round_index: usize,
     ) -> ProofResult<Vec<Constraint<EF>>>
     where
         H: CryptographicHasher<F, [W; DIGEST_ELEMS]> + Sync,
@@ -308,6 +315,8 @@ where
         [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         W: Eq + Packable,
     {
+        let leafs_base_field = round_index == 0;
+
         let stir_challenges_indexes = get_challenge_stir_queries(
             params.domain_size,
             params.folding_factor,
@@ -326,6 +335,7 @@ where
             &stir_challenges_indexes,
             &dimensions,
             leafs_base_field,
+            round_index,
         )?;
 
         self.verify_proof_of_work(verifier_state, params.pow_bits)?;
@@ -375,11 +385,12 @@ where
     /// Returns `ProofError::InvalidProof` if any Merkle proof fails verification.
     pub fn verify_merkle_proof<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
+        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W, DIGEST_ELEMS>,
         root: &Hash<F, W, DIGEST_ELEMS>,
         indices: &[usize],
         dimensions: &[Dimensions],
         leafs_base_field: bool,
+        round_index: usize,
     ) -> ProofResult<Vec<Vec<EF>>>
     where
         H: CryptographicHasher<F, [W; DIGEST_ELEMS]> + Sync,
@@ -397,9 +408,15 @@ where
         let res = if leafs_base_field {
             // Read the claimed leaf values for each queried index from the Fiat-Shamir transcript.
             let answers = verifier_state.hint::<Leafs<F>>()?;
+            let answers1 = verifier_state.proof_data.base_field_merkle_answers.clone();
+
+            assert_eq!(answers, answers1);
 
             // Read the Merkle proofs for each queried index from the Fiat-Shamir transcript.
             let merkle_proof = verifier_state.hint::<Proof<W, DIGEST_ELEMS>>()?;
+            let merkle_proof1 = verifier_state.proof_data.round_merkle_proof[round_index].clone();
+
+            assert_eq!(merkle_proof, merkle_proof1);
 
             // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
@@ -424,9 +441,15 @@ where
         } else {
             // Read the claimed extension field leaf values.
             let answers = verifier_state.hint::<Leafs<EF>>()?;
+            let answers1 = verifier_state.proof_data.round_merkle_answers[round_index].clone();
+
+            assert_eq!(answers, answers1);
 
             // Read the Merkle proofs.
             let merkle_proof = verifier_state.hint::<Proof<W, DIGEST_ELEMS>>()?;
+            let merkle_proof1 = verifier_state.proof_data.round_merkle_proof[round_index].clone();
+
+            assert_eq!(merkle_proof, merkle_proof1);
 
             // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
