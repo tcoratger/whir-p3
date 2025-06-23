@@ -168,7 +168,7 @@ where
             if prover.starting_folding_pow_bits > 0 {
                 let witness = prover_state
                     .challenger
-                    .grind(prover.starting_folding_pow_bits as usize);
+                    .grind(prover.starting_folding_pow_bits);
                 prover_state.proof_data.pow_witnesses.push(witness);
             }
             MultilinearPoint(folding_randomness)

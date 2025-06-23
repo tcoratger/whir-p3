@@ -260,7 +260,7 @@ where
     ///
     /// # Errors
     /// Returns `ProofError::InvalidProof` if the PoW response is invalid.
-    pub fn verify_proof_of_work<const DIGEST_ELEMS: usize>(
+    pub const fn verify_proof_of_work<const DIGEST_ELEMS: usize>(
         &self,
         _verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
         bits: usize,

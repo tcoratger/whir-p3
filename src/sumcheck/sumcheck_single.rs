@@ -393,7 +393,7 @@ where
 
                 // Optional proof-of-work challenge to delay prover.
                 if pow_bits > 0 {
-                    let witness = prover_state.challenger.grind(pow_bits as usize);
+                    let witness = prover_state.challenger.grind(pow_bits);
                     prover_state.proof_data.pow_witnesses.push(witness);
                 }
 

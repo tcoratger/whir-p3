@@ -366,9 +366,7 @@ where
 
         // PoW
         if round_params.pow_bits > 0 {
-            let witness = prover_state
-                .challenger
-                .grind(round_params.pow_bits as usize);
+            let witness = prover_state.challenger.grind(round_params.pow_bits);
             prover_state.proof_data.pow_witnesses.push(witness);
         }
 
@@ -514,7 +512,7 @@ where
 
         // PoW
         if self.final_pow_bits > 0 {
-            let witness = prover_state.challenger.grind(self.final_pow_bits as usize);
+            let witness = prover_state.challenger.grind(self.final_pow_bits);
             prover_state.proof_data.pow_witnesses.push(witness);
         }
 
