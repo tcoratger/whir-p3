@@ -4,12 +4,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use super::domain_separator::DomainSeparator;
 use crate::fiat_shamir::proof_data::ProofData;
 
-/// [`VerifierState`] is the verifier state.
-///
-/// Internally, it simply contains a stateful hash.
-/// Given as input an [`DomainSeparator`] and a NARG string, it allows to
-/// de-serialize elements from the NARG string and make them available to the zero-knowledge
-/// verifier.
+/// The verifier state for a Fiat-Shamir protocol.
 #[derive(Debug)]
 pub struct VerifierState<EF, F, Challenger, const DIGEST_ELEMS: usize>
 where
@@ -29,11 +24,7 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     F: TwoAdicField,
 {
-    /// Creates a new [`VerifierState`] instance with the given sponge and IO Pattern.
-    ///
-    /// The resulting object will act as the verifier in a zero-knowledge protocol.
-    /// `verify_operations` indicates whether Fiat-Shamir operations (observe, sample, hint)
-    /// should be verified at runtime.
+    /// Initialize a new verifier state.
     #[must_use]
     pub fn new(
         domain_separator: &DomainSeparator<EF, F>,
