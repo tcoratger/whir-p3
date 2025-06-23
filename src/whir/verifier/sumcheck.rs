@@ -97,7 +97,7 @@ where
             randomness.push(rand);
 
             // Optional: apply proof-of-work query
-            self.verify_proof_of_work(verifier_state, pow_bits)?;
+            self.verify_proof_of_work(verifier_state, pow_bits);
         }
 
         // Continue with the remaining sumcheck rounds (each using 3 evaluations)
@@ -136,7 +136,7 @@ where
             randomness.push(rand);
 
             // Optional PoW interaction (grinding resistance)
-            self.verify_proof_of_work(verifier_state, pow_bits)?;
+            self.verify_proof_of_work(verifier_state, pow_bits);
         }
 
         // We should reverse the order of the randomness points:

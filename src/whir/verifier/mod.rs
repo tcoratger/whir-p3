@@ -104,7 +104,7 @@ where
             round_folding_randomness.push(MultilinearPoint(folding_randomness));
 
             // PoW
-            self.verify_proof_of_work(verifier_state, self.starting_folding_pow_bits)?;
+            self.verify_proof_of_work(verifier_state, self.starting_folding_pow_bits);
         }
 
         for round_index in 0..self.n_rounds() {
@@ -261,12 +261,12 @@ where
     /// - `bits`: The number of difficulty bits required for the proof of work.
     ///
     /// # Errors
-    /// Returns `ProofError::InvalidProof` if the PoW response is invalid.
+    /// Panics if the PoW response is invalid.
     pub fn verify_proof_of_work<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
         bits: usize,
-    ) -> ProofResult<()> {
+    ) {
         if bits > 0 {
             let pow_witness = verifier_state.proof_data.pow_witnesses.remove(0);
             assert!(
@@ -274,7 +274,6 @@ where
                 "Witness does not satisfy the PoW condition"
             );
         }
-        Ok(())
     }
 
     /// Verify STIR in-domain queries and produce associated constraints.
@@ -338,7 +337,7 @@ where
             round_index,
         )?;
 
-        self.verify_proof_of_work(verifier_state, params.pow_bits)?;
+        self.verify_proof_of_work(verifier_state, params.pow_bits);
 
         // Compute STIR Constraints
         let folds: Vec<_> = answers
