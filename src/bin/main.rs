@@ -2,19 +2,20 @@ use std::time::Instant;
 
 use clap::Parser;
 use p3_baby_bear::BabyBear;
-use p3_blake3::Blake3;
-use p3_challenger::HashChallenger;
+use p3_challenger::DuplexChallenger;
 use p3_field::extension::BinomialExtensionField;
-use p3_goldilocks::Goldilocks;
-use p3_keccak::Keccak256Hash;
+use p3_goldilocks::{Goldilocks, Poseidon2Goldilocks};
 use p3_koala_bear::KoalaBear;
-use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
+use rand::{
+    Rng, SeedableRng,
+    rngs::{SmallRng, StdRng},
+};
 use tracing_forest::{ForestLayer, util::LevelFilter};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::{
     dft::EvalsDft,
-    fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+    fiat_shamir::domain_separator::DomainSeparator,
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, default_max_pow,
         errors::SecurityAssumption,
@@ -35,11 +36,11 @@ type _F = BabyBear;
 type _EF = BinomialExtensionField<_F, 5>;
 type __F = KoalaBear;
 type __EF = BinomialExtensionField<__F, 4>;
-type ByteHash = Blake3;
-type FieldHash = SerializingHasher<ByteHash>;
-type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-type W = u8;
-type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
+type Perm = Poseidon2Goldilocks<16>;
+
+type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
+type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
+type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -99,9 +100,12 @@ fn main() {
     }
 
     // Create hash and compression functions for the Merkle tree
-    let byte_hash = ByteHash {};
-    let merkle_hash = FieldHash::new(byte_hash);
-    let merkle_compress = MyCompress::new(byte_hash);
+    let mut rng = SmallRng::seed_from_u64(1);
+    let perm = Perm::new_from_rng_128(&mut rng);
+
+    let merkle_hash = MyHash::new(perm.clone());
+    let merkle_compress = MyCompress::new(perm);
+
     let rs_domain_initial_reduction_factor = args.rs_domain_initial_reduction_factor;
 
     let num_coeffs = 1 << num_variables;
@@ -122,12 +126,7 @@ fn main() {
         univariate_skip: false,
     };
 
-    let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(
-        mv_params,
-        whir_params,
-    );
-
-    dbg!(&params);
+    let params = WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
 
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
@@ -149,8 +148,8 @@ fn main() {
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
     let mut domainsep = DomainSeparator::new("🌪️");
-    domainsep.commit_statement::<_, _, _, _, 32>(&params);
-    domainsep.add_whir_proof::<_, _, _, _, 32>(&params);
+    domainsep.commit_statement::<_, _, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, _, 32>(&params);
 
     println!("=========================================");
     println!("Whir (PCS) 🌪️");
@@ -158,7 +157,8 @@ fn main() {
         println!("WARN: more PoW bits required than what specified.");
     }
 
-    let challenger = MyChallenger::new(vec![], Keccak256Hash);
+    let mut rng = SmallRng::seed_from_u64(1);
+    let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
     // Initialize the Merlin transcript from the IOPattern
     let mut prover_state = domainsep.to_prover_state(challenger.clone());
@@ -190,16 +190,13 @@ fn main() {
     // Create a verifier with matching parameters
     let verifier = Verifier::new(&params);
 
-    let narg_string = prover_state.narg_string().to_vec();
-    let proof_size = narg_string.len();
-
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
     let mut verifier_state =
-        domainsep.to_verifier_state(&narg_string, prover_state.proof_data.clone(), challenger);
+        domainsep.to_verifier_state(prover_state.proof_data.clone(), challenger);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
-        .parse_commitment::<32>(&mut verifier_state)
+        .parse_commitment::<8>(&mut verifier_state)
         .unwrap();
 
     let verif_time = Instant::now();
@@ -214,6 +211,5 @@ fn main() {
         commit_time.as_millis(),
         opening_time.as_millis()
     );
-    println!("Proof size: {:.1} KiB", proof_size as f64 / 1024.0);
     println!("Verification time: {} μs", verify_time.as_micros());
 }

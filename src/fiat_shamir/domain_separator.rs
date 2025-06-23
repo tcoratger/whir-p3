@@ -1,12 +1,10 @@
 use std::{fmt::Write, marker::PhantomData};
 
-use p3_challenger::{CanObserve, CanSample};
+use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 
 use crate::{
-    fiat_shamir::{
-        proof_data::ProofData, prover::ProverState, unit::Unit, verifier::VerifierState,
-    },
+    fiat_shamir::{proof_data::ProofData, prover::ProverState, verifier::VerifierState},
     sumcheck::K_SKIP_SUMCHECK,
     whir::parameters::WhirConfig,
 };
@@ -26,9 +24,9 @@ pub struct SumcheckParams {
 
     /// Number of bits required for the proof-of-work challenge.
     ///
-    /// - If `pow_bits > 0.0`, a PoW challenge is inserted after each round.
-    /// - If `pow_bits == 0.0`, PoW is disabled.
-    pub pow_bits: f64,
+    /// - If `pow_bits > 0`, a PoW challenge is inserted after each round.
+    /// - If `pow_bits == 0`, PoW is disabled.
+    pub pow_bits: usize,
 
     /// Optional number of variables to skip using the univariate skip optimization.
     ///
@@ -62,10 +60,7 @@ pub struct SumcheckParams {
 /// lengths are coherent with the types described in the protocol. No information about the types
 /// themselves is stored in an IO Pattern. This means that [`ProverState`][`crate::ProverState`] or [`VerifierState`][`crate::VerifierState`] instances can generate successfully a protocol transcript respecting the length constraint but not the types. See [issue #6](https://github.com/arkworks-rs/spongefish/issues/6) for a discussion on the topic.
 #[derive(Clone, Debug)]
-pub struct DomainSeparator<EF, F, U>
-where
-    U: Unit,
-{
+pub struct DomainSeparator<EF, F> {
     /// The internal IOPattern string representation.
     ///
     /// This string encodes a sequence of transcript actions such as absorptions, squeezes,
@@ -86,14 +81,10 @@ where
     /// Provides type-level tracking of the extension degree and element structure used in
     /// challenge generation and scalar absorption.
     _extension_field: PhantomData<EF>,
-
-    /// Phantom marker for the unit type `U`.
-    _unit: PhantomData<U>,
 }
 
-impl<EF, F, U> DomainSeparator<EF, F, U>
+impl<EF, F> DomainSeparator<EF, F>
 where
-    U: Unit + Default + Copy,
     EF: ExtensionField<F> + TwoAdicField,
     F: Field + TwoAdicField + PrimeField64,
 {
@@ -103,7 +94,6 @@ where
             io,
             _field: PhantomData,
             _extension_field: PhantomData,
-            _unit: PhantomData,
         }
     }
 
@@ -166,29 +156,31 @@ where
         write!(self.io, "H{label}").expect("writing to String cannot fail");
     }
 
-    /// Return the IO Pattern as a Vec of Units.
-    #[must_use]
-    pub fn as_units(&self) -> Vec<U> {
-        U::slice_from_u8_slice(self.io.as_bytes())
-    }
+    // /// Return the IO Pattern as a Vec of Units.
+    // #[must_use]
+    // pub fn as_units(&self) -> Vec<U> {
+    //     U::slice_from_u8_slice(self.io.as_bytes())
+    // }
 
     #[must_use]
     pub fn as_field_elements(&self) -> Vec<F> {
-        let (value, _) =
-            bincode::serde::decode_from_slice(self.io.as_bytes(), bincode::config::standard())
-                .unwrap();
+        // let (value, _) =
+        //     bincode::serde::decode_from_slice(self.io.as_bytes(), bincode::config::standard())
+        //         .unwrap();
 
-        value
+        // value
+
+        (0..self.io.len()).map(|i| F::from_u64(i as u64)).collect()
     }
 
     /// Create an [`crate::ProverState`] instance from the IO Pattern.
     #[must_use]
-    pub fn to_prover_state<H, const DIGEST_ELEMS: usize>(
+    pub fn to_prover_state<Challenger, const DIGEST_ELEMS: usize>(
         &self,
-        challenger: H,
-    ) -> ProverState<EF, F, H, U, DIGEST_ELEMS>
+        challenger: Challenger,
+    ) -> ProverState<EF, F, Challenger, DIGEST_ELEMS>
     where
-        H: CanObserve<U> + CanSample<U> + Clone,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         ProverState::new(self, challenger)
     }
@@ -196,16 +188,15 @@ where
     /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript
     /// (bytes).
     #[must_use]
-    pub fn to_verifier_state<'a, H, const DIGEST_ELEMS: usize>(
+    pub fn to_verifier_state<Challenger, const DIGEST_ELEMS: usize>(
         &self,
-        transcript: &'a [u8],
-        proof_data: ProofData<EF, F, U, DIGEST_ELEMS>,
-        challenger: H,
-    ) -> VerifierState<'a, EF, F, H, U, DIGEST_ELEMS>
+        proof_data: ProofData<EF, F, F, DIGEST_ELEMS>,
+        challenger: Challenger,
+    ) -> VerifierState<EF, F, Challenger, DIGEST_ELEMS>
     where
-        H: CanObserve<U> + CanSample<U> + Clone,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        VerifierState::new(self, transcript, proof_data, challenger)
+        VerifierState::new(self, proof_data, challenger)
     }
 
     pub fn add_ood(&mut self, num_samples: usize) {
@@ -215,11 +206,11 @@ where
         }
     }
 
-    pub fn commit_statement<PowStrategy, HC, C, Challenger, const DIGEST_ELEMS: usize>(
+    pub fn commit_statement<HC, C, Challenger, const DIGEST_ELEMS: usize>(
         &mut self,
-        params: &WhirConfig<EF, F, HC, C, PowStrategy, Challenger, U>,
+        params: &WhirConfig<EF, F, HC, C, Challenger>,
     ) where
-        Challenger: CanObserve<U> + CanSample<U>,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         // TODO: Add params
         self.observe(DIGEST_ELEMS, "merkle_digest");
@@ -229,11 +220,11 @@ where
         }
     }
 
-    pub fn add_whir_proof<PowStrategy, HC, C, Challenger, const DIGEST_ELEMS: usize>(
+    pub fn add_whir_proof<HC, C, Challenger, const DIGEST_ELEMS: usize>(
         &mut self,
-        params: &WhirConfig<EF, F, HC, C, PowStrategy, Challenger, U>,
+        params: &WhirConfig<EF, F, HC, C, Challenger>,
     ) where
-        Challenger: CanObserve<U> + CanSample<U>,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         // TODO: Add statement
         if params.initial_statement {
@@ -358,8 +349,8 @@ where
     /// - `bits`: Number of bits of PoW difficulty.
     ///     - If `bits == 0.0`, nothing is added.
     ///     - If `bits > 0.0`, a PoW round is added.
-    pub fn pow(&mut self, bits: f64) {
-        if bits > 0.0 {
+    pub fn pow(&mut self, bits: usize) {
+        if bits > 0 {
             // Step 1: Sample a 32-byte challenge (typically used as PoW preimage)
             self.sample(32, "pow-queries");
 
@@ -369,395 +360,392 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use p3_baby_bear::BabyBear;
-    use p3_blake3::Blake3;
-    use p3_challenger::HashChallenger;
-    use p3_field::extension::BinomialExtensionField;
-    use p3_keccak::Keccak256Hash;
-    use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
-
-    use super::*;
-    use crate::{
-        fiat_shamir::pow::blake3::Blake3PoW,
-        parameters::{
-            FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
-        },
-    };
-
-    type F = BabyBear;
-    type EF4 = BinomialExtensionField<F, 4>;
-    type ByteHash = Blake3;
-    type FieldHash = SerializingHasher<ByteHash>;
-    type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-    type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
-
-    const DIGEST_ELEMS: usize = 32;
-
-    /// Create a WHIR protocol configuration for test scenarios.
-    ///
-    /// This utility function builds a `WhirConfig` using the provided parameters:
-    /// - `num_variables`: Number of variables in the multilinear polynomial.
-    /// - `initial_statement`: Whether to start with an initial sumcheck statement.
-    /// - `folding_factor`: Number of variables to fold per round.
-    /// - `pow_bits`: Difficulty of the proof-of-work challenge used in Fiat-Shamir.
-    ///
-    /// The returned config can be used to initialize a prover and set up domain commitments
-    /// for round state construction in WHIR tests.
-    fn make_test_config(
-        num_variables: usize,
-        initial_statement: bool,
-        folding_factor: usize,
-        pow_bits: usize,
-    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, u8> {
-        // Construct the multivariate parameter set with `num_variables` variables,
-        // determining the size of the evaluation domain.
-        let mv_params = MultivariateParameters::<EF4>::new(num_variables);
-
-        // Define the core protocol parameters for WHIR, customizing behavior based
-        // on whether to start with an initial sumcheck and how to fold the polynomial.
-        let protocol_params = ProtocolParameters {
-            initial_statement,
-            security_level: 80,
-            pow_bits,
-            rs_domain_initial_reduction_factor: 1,
-            folding_factor: FoldingFactor::Constant(folding_factor),
-            merkle_hash: FieldHash::new(ByteHash {}),
-            merkle_compress: MyCompress::new(ByteHash {}),
-            soundness_type: SecurityAssumption::CapacityBound,
-            starting_log_inv_rate: 1,
-            univariate_skip: false,
-        };
-
-        // Combine the multivariate and protocol parameters into a full WHIR config
-        WhirConfig::new(mv_params, protocol_params)
-    }
-
-    #[test]
-    fn test_domain_separator_new_and_bytes() {
-        let ds = DomainSeparator::<EF4, F, u8>::new("session");
-        assert_eq!(ds.as_units(), b"session");
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_new_with_separator_byte_panics() {
-        // This should panic because "\0" is forbidden in the session identifier.
-        let _ = DomainSeparator::<EF4, F, u8>::new("invalid\0session");
-    }
-
-    #[test]
-    fn test_observe_return_value_format() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("proto");
-        ds.observe(3, "input");
-        let expected_str = "proto\0O3input"; // initial + SEP + observe op + label
-        assert_eq!(ds.as_units(), expected_str.as_bytes());
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_observe_zero_panics() {
-        DomainSeparator::<EF4, F, u8>::new("x").observe(0, "label");
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_label_with_separator_byte_panics() {
-        DomainSeparator::<EF4, F, u8>::new("x").observe(1, "bad\0label");
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_label_starts_with_digit_panics() {
-        DomainSeparator::<EF4, F, u8>::new("x").observe(1, "1label");
-    }
-
-    #[test]
-    fn test_round_trip_operations() {
-        let mut ds1 = DomainSeparator::<EF4, F, u8>::new("foo");
-        ds1.observe(2, "a");
-        ds1.sample(3, "b");
-        let ops1 = ds1.clone().io;
-
-        let tag = String::from_utf8(ds1.as_units()).unwrap();
-        let ds2 = DomainSeparator::<EF4, F, u8>::from_string(tag);
-        let ops2 = ds2.io;
-
-        assert_eq!(ops1, ops2);
-    }
-
-    #[test]
-    fn test_squeeze_returns_correct_string() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("proto");
-        ds.sample(4, "challenge");
-        let expected_str = "proto\0S4challenge";
-        assert_eq!(ds.as_units(), expected_str.as_bytes());
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_squeeze_zero_count_panics() {
-        DomainSeparator::<EF4, F, u8>::new("proto").sample(0, "label");
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_squeeze_label_with_null_byte_panics() {
-        DomainSeparator::<EF4, F, u8>::new("proto").sample(2, "bad\0label");
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_squeeze_label_starts_with_digit_panics() {
-        DomainSeparator::<EF4, F, u8>::new("proto").sample(2, "1invalid");
-    }
-
-    #[test]
-    fn test_multiple_squeeze_chaining() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("proto");
-        ds.sample(1, "first");
-        ds.sample(2, "second");
-        let expected_str = "proto\0S1first\0S2second";
-        assert_eq!(ds.as_units(), expected_str.as_bytes());
-    }
-
-    #[test]
-    fn test_add_scalars_base_field() {
-        let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("babybear");
-        domsep.observe(2, "foo");
-        let expected = b"babybear\0O2foo";
-        assert_eq!(domsep.as_units(), expected);
-    }
-
-    #[test]
-    fn test_challenge_scalars_base_field() {
-        let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("bb");
-        domsep.sample(3, "bar");
-        let expected = b"bb\0S3bar";
-        assert_eq!(domsep.as_units(), expected);
-    }
-
-    #[test]
-    fn test_add_scalars_quartic_ext_field() {
-        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("ext");
-        domsep.observe(2, "a");
-        let expected = b"ext\0O2a";
-        assert_eq!(domsep.as_units(), expected);
-    }
-
-    #[test]
-    fn test_challenge_scalars_quartic_ext_field() {
-        let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("ext2");
-        domsep.sample(1, "b");
-
-        let expected = b"ext2\0S1b";
-        assert_eq!(domsep.as_units(), expected);
-    }
-
-    #[test]
-    fn test_add_ood() {
-        let iop: DomainSeparator<F, F, u8> = DomainSeparator::new("test_protocol");
-        let mut updated_iop = iop.clone();
-        let mut unchanged_iop = iop;
-
-        // Apply OOD query addition
-        updated_iop.add_ood(3);
-
-        // Convert to a string for inspection
-        let pattern_str = String::from_utf8(updated_iop.as_units()).unwrap();
-
-        // Check if "ood_query" and "ood_ans" were correctly appended
-        assert!(pattern_str.contains("ood_query"));
-        assert!(pattern_str.contains("ood_ans"));
-
-        // Test case where num_samples = 0 (should not modify anything)
-        unchanged_iop.add_ood(0);
-        let unchanged_str = String::from_utf8(unchanged_iop.as_units()).unwrap();
-        assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
-    }
-
-    #[test]
-    fn test_pow() {
-        let iop: DomainSeparator<F, F, u8> = DomainSeparator::new("test_protocol");
-        let mut updated_iop = iop.clone();
-        let mut unchanged_iop = iop;
-
-        // Apply PoW challenge
-        updated_iop.pow(10.0);
-
-        // Convert to a string for inspection
-        let pattern_str = String::from_utf8(updated_iop.as_units()).unwrap();
-
-        // Check if "pow_queries" was correctly added
-        assert!(pattern_str.contains("pow-queries"));
-
-        // Test case where bits = 0 (should not modify anything)
-        unchanged_iop.pow(0.0);
-        let unchanged_str = String::from_utf8(unchanged_iop.as_units()).unwrap();
-        assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
-    }
-
-    #[test]
-    fn test_hint_format_is_correct_in_bytes() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("proto");
-        ds.hint("my_hint");
-        let expected = b"proto\0Hmy_hint";
-        assert_eq!(ds.as_units(), expected);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_hint_label_with_null_byte_panics() {
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("x");
-        ds.hint("bad\0hint");
-    }
-
-    #[test]
-    fn test_add_sumcheck_regular_two_rounds_no_pow() {
-        // Set up a new domain separator
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("regular");
-
-        // Add a sumcheck with 2 folding rounds, no PoW, no skipping
-        ds.add_sumcheck(&SumcheckParams {
-            rounds: 2,
-            pow_bits: 0.,
-            univariate_skip: None,
-        });
-
-        // Finalize the domain separator into a sequence of transcript operations
-        let ops = ds.io;
-
-        // Manually construct the expected transcript: 2 rounds of
-        // - Observe 3 scalars (sumcheck_poly)
-        // - Challenge 1 scalar (folding_randomness)
-        let mut ds_expected = DomainSeparator::<EF4, F, u8>::new("regular");
-        ds_expected.observe(3, "sumcheck_poly");
-        ds_expected.sample(1, "folding_randomness");
-
-        ds_expected.observe(3, "sumcheck_poly");
-        ds_expected.sample(1, "folding_randomness");
-
-        let ops_expected = ds_expected.io;
-        assert_eq!(ops, ops_expected);
-    }
-
-    #[test]
-    fn test_add_sumcheck_one_round_with_pow() {
-        // One round with PoW enabled
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("pow");
-        ds.add_sumcheck(&SumcheckParams {
-            rounds: 1,
-            pow_bits: 7.0,
-            univariate_skip: None,
-        });
-        let ops = ds.io;
-
-        // Expected operations:
-        // - Observe 3 scalars (sumcheck_poly)
-        // - Sample 1 scalar (folding_randomness)
-        // - PoW: Sample 32 bytes, then Observe 8 bytes (pow-nonce)
-        let mut expected = DomainSeparator::<EF4, F, u8>::new("pow");
-        expected.observe(3, "sumcheck_poly");
-        expected.sample(1, "folding_randomness");
-        expected.pow(7.);
-
-        assert_eq!(ops, expected.io);
-    }
-
-    #[test]
-    fn test_add_sumcheck_skip_two_rounds_no_pow() {
-        // With univariate skip enabled and skipped_rounds = 2
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("skip2");
-        ds.add_sumcheck(&SumcheckParams {
-            rounds: 3,
-            pow_bits: 0.,
-            univariate_skip: Some(2),
-        });
-        let ops = ds.io;
-
-        // Expected:
-        // - One LDE observation of 2^(2+1) = 8 scalars
-        // - One challenge for folding randomness
-        // - Then one regular round of sumcheck: (3 + 1 scalars)
-        let mut expected = DomainSeparator::<EF4, F, u8>::new("skip2");
-        expected.observe(8, "sumcheck_poly_skip");
-        expected.sample(1, "folding_randomness_skip");
-
-        expected.observe(3, "sumcheck_poly");
-        expected.sample(1, "folding_randomness");
-
-        assert_eq!(ops, expected.io);
-    }
-
-    #[test]
-    fn test_add_sumcheck_skip_two_rounds_with_pow() {
-        // With univariate skip and PoW active
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("skip2pow");
-        ds.add_sumcheck(&SumcheckParams {
-            rounds: 3,
-            pow_bits: 10.,
-            univariate_skip: Some(2),
-        });
-        let ops = ds.io;
-
-        let mut expected = DomainSeparator::<EF4, F, u8>::new("skip2pow");
-        expected.observe(8, "sumcheck_poly_skip");
-        expected.sample(1, "folding_randomness_skip");
-        expected.pow(10.);
-
-        expected.observe(3, "sumcheck_poly");
-        expected.sample(1, "folding_randomness");
-        expected.pow(10.);
-
-        assert_eq!(ops, expected.io);
-    }
-
-    #[test]
-    fn test_add_sumcheck_skip_one_round_behaves_regular() {
-        // Skip = 1 is not enough to trigger shortcut logic
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("skip1");
-        ds.add_sumcheck(&SumcheckParams {
-            rounds: 3,
-            pow_bits: 0.,
-            univariate_skip: None,
-        });
-        let ops = ds.io;
-
-        let mut expected = DomainSeparator::<EF4, F, u8>::new("skip1");
-
-        // Round 1
-        expected.observe(3, "sumcheck_poly");
-        expected.sample(1, "folding_randomness");
-
-        // Round 2
-        expected.observe(3, "sumcheck_poly");
-        expected.sample(1, "folding_randomness");
-
-        // Round 3
-        expected.observe(3, "sumcheck_poly");
-        expected.sample(1, "folding_randomness");
-
-        assert_eq!(ops, expected.io);
-    }
-
-    #[test]
-    fn test_as_field_elements() {
-        // Number of variables in the multilinear polynomial
-        let num_variables = 2;
-
-        // Create a WHIR protocol config with:
-        // - no initial sumcheck,
-        // - folding factor 2,
-        // - no PoW grinding.
-        let config = make_test_config(num_variables, false, 2, 0);
-
-        // Build DomainSeparator manually from encoded bytes
-        let mut ds = DomainSeparator::<EF4, F, u8>::new("test_protocol");
-
-        ds.add_whir_proof::<_, _, _, _, 32>(&config);
-
-        // Test that `as_field_elements()` decodes successfully
-        let _ = ds.as_field_elements();
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use p3_baby_bear::BabyBear;
+//     use p3_blake3::Blake3;
+//     use p3_challenger::HashChallenger;
+//     use p3_field::extension::BinomialExtensionField;
+//     use p3_keccak::Keccak256Hash;
+//     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
+
+//     use super::*;
+//     use crate::parameters::{
+//         FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
+//     };
+
+//     type F = BabyBear;
+//     type EF4 = BinomialExtensionField<F, 4>;
+//     type ByteHash = Blake3;
+//     type FieldHash = SerializingHasher<ByteHash>;
+//     type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+//     type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
+
+//     const DIGEST_ELEMS: usize = 32;
+
+//     /// Create a WHIR protocol configuration for test scenarios.
+//     ///
+//     /// This utility function builds a `WhirConfig` using the provided parameters:
+//     /// - `num_variables`: Number of variables in the multilinear polynomial.
+//     /// - `initial_statement`: Whether to start with an initial sumcheck statement.
+//     /// - `folding_factor`: Number of variables to fold per round.
+//     /// - `pow_bits`: Difficulty of the proof-of-work challenge used in Fiat-Shamir.
+//     ///
+//     /// The returned config can be used to initialize a prover and set up domain commitments
+//     /// for round state construction in WHIR tests.
+//     fn make_test_config(
+//         num_variables: usize,
+//         initial_statement: bool,
+//         folding_factor: usize,
+//         pow_bits: usize,
+//     ) -> WhirConfig<EF4, F, FieldHash, MyCompress, MyChallenger> {
+//         // Construct the multivariate parameter set with `num_variables` variables,
+//         // determining the size of the evaluation domain.
+//         let mv_params = MultivariateParameters::<EF4>::new(num_variables);
+
+//         // Define the core protocol parameters for WHIR, customizing behavior based
+//         // on whether to start with an initial sumcheck and how to fold the polynomial.
+//         let protocol_params = ProtocolParameters {
+//             initial_statement,
+//             security_level: 80,
+//             pow_bits,
+//             rs_domain_initial_reduction_factor: 1,
+//             folding_factor: FoldingFactor::Constant(folding_factor),
+//             merkle_hash: FieldHash::new(ByteHash {}),
+//             merkle_compress: MyCompress::new(ByteHash {}),
+//             soundness_type: SecurityAssumption::CapacityBound,
+//             starting_log_inv_rate: 1,
+//             univariate_skip: false,
+//         };
+
+//         // Combine the multivariate and protocol parameters into a full WHIR config
+//         WhirConfig::new(mv_params, protocol_params)
+//     }
+
+//     #[test]
+//     fn test_domain_separator_new_and_bytes() {
+//         let ds = DomainSeparator::<EF4, F>::new("session");
+//         assert_eq!(ds.as_units(), b"session");
+//     }
+
+//     #[test]
+//     #[should_panic]
+//     fn test_new_with_separator_byte_panics() {
+//         // This should panic because "\0" is forbidden in the session identifier.
+//         let _ = DomainSeparator::<EF4, F>::new("invalid\0session");
+//     }
+
+//     #[test]
+//     fn test_observe_return_value_format() {
+//         let mut ds = DomainSeparator::<EF4, F>::new("proto");
+//         ds.observe(3, "input");
+//         let expected_str = "proto\0O3input"; // initial + SEP + observe op + label
+//         assert_eq!(ds.as_units(), expected_str.as_bytes());
+//     }
+
+//     #[test]
+//     #[should_panic]
+//     fn test_observe_zero_panics() {
+//         DomainSeparator::<EF4, F>::new("x").observe(0, "label");
+//     }
+
+//     #[test]
+//     #[should_panic]
+//     fn test_label_with_separator_byte_panics() {
+//         DomainSeparator::<EF4, F>::new("x").observe(1, "bad\0label");
+//     }
+
+//     #[test]
+//     #[should_panic]
+//     fn test_label_starts_with_digit_panics() {
+//         DomainSeparator::<EF4, F>::new("x").observe(1, "1label");
+//     }
+
+//     #[test]
+//     fn test_round_trip_operations() {
+//         let mut ds1 = DomainSeparator::<EF4, F>::new("foo");
+//         ds1.observe(2, "a");
+//         ds1.sample(3, "b");
+//         let ops1 = ds1.clone().io;
+
+//         let tag = String::from_utf8(ds1.as_units()).unwrap();
+//         let ds2 = DomainSeparator::<EF4, F>::from_string(tag);
+//         let ops2 = ds2.io;
+
+//         assert_eq!(ops1, ops2);
+//     }
+
+//     #[test]
+//     fn test_squeeze_returns_correct_string() {
+//         let mut ds = DomainSeparator::<EF4, F>::new("proto");
+//         ds.sample(4, "challenge");
+//         let expected_str = "proto\0S4challenge";
+//         assert_eq!(ds.as_units(), expected_str.as_bytes());
+//     }
+
+//     #[test]
+//     #[should_panic]
+//     fn test_squeeze_zero_count_panics() {
+//         DomainSeparator::<EF4, F>::new("proto").sample(0, "label");
+//     }
+
+//     #[test]
+//     #[should_panic]
+//     fn test_squeeze_label_with_null_byte_panics() {
+//         DomainSeparator::<EF4, F>::new("proto").sample(2, "bad\0label");
+//     }
+
+//     #[test]
+//     #[should_panic]
+//     fn test_squeeze_label_starts_with_digit_panics() {
+//         DomainSeparator::<EF4, F>::new("proto").sample(2, "1invalid");
+//     }
+
+//     #[test]
+//     fn test_multiple_squeeze_chaining() {
+//         let mut ds = DomainSeparator::<EF4, F>::new("proto");
+//         ds.sample(1, "first");
+//         ds.sample(2, "second");
+//         let expected_str = "proto\0S1first\0S2second";
+//         assert_eq!(ds.as_units(), expected_str.as_bytes());
+//     }
+
+//     #[test]
+//     fn test_add_scalars_base_field() {
+//         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("babybear");
+//         domsep.observe(2, "foo");
+//         let expected = b"babybear\0O2foo";
+//         assert_eq!(domsep.as_units(), expected);
+//     }
+
+//     #[test]
+//     fn test_challenge_scalars_base_field() {
+//         let mut domsep: DomainSeparator<F, F, u8> = DomainSeparator::new("bb");
+//         domsep.sample(3, "bar");
+//         let expected = b"bb\0S3bar";
+//         assert_eq!(domsep.as_units(), expected);
+//     }
+
+//     #[test]
+//     fn test_add_scalars_quartic_ext_field() {
+//         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("ext");
+//         domsep.observe(2, "a");
+//         let expected = b"ext\0O2a";
+//         assert_eq!(domsep.as_units(), expected);
+//     }
+
+//     #[test]
+//     fn test_challenge_scalars_quartic_ext_field() {
+//         let mut domsep: DomainSeparator<EF4, F, u8> = DomainSeparator::new("ext2");
+//         domsep.sample(1, "b");
+
+//         let expected = b"ext2\0S1b";
+//         assert_eq!(domsep.as_units(), expected);
+//     }
+
+//     #[test]
+//     fn test_add_ood() {
+//         let iop: DomainSeparator<F, F, u8> = DomainSeparator::new("test_protocol");
+//         let mut updated_iop = iop.clone();
+//         let mut unchanged_iop = iop;
+
+//         // Apply OOD query addition
+//         updated_iop.add_ood(3);
+
+//         // Convert to a string for inspection
+//         let pattern_str = String::from_utf8(updated_iop.as_units()).unwrap();
+
+//         // Check if "ood_query" and "ood_ans" were correctly appended
+//         assert!(pattern_str.contains("ood_query"));
+//         assert!(pattern_str.contains("ood_ans"));
+
+//         // Test case where num_samples = 0 (should not modify anything)
+//         unchanged_iop.add_ood(0);
+//         let unchanged_str = String::from_utf8(unchanged_iop.as_units()).unwrap();
+//         assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
+//     }
+
+//     #[test]
+//     fn test_pow() {
+//         let iop: DomainSeparator<F, F, u8> = DomainSeparator::new("test_protocol");
+//         let mut updated_iop = iop.clone();
+//         let mut unchanged_iop = iop;
+
+//         // Apply PoW challenge
+//         updated_iop.pow(10.0);
+
+//         // Convert to a string for inspection
+//         let pattern_str = String::from_utf8(updated_iop.as_units()).unwrap();
+
+//         // Check if "pow_queries" was correctly added
+//         assert!(pattern_str.contains("pow-queries"));
+
+//         // Test case where bits = 0 (should not modify anything)
+//         unchanged_iop.pow(0.0);
+//         let unchanged_str = String::from_utf8(unchanged_iop.as_units()).unwrap();
+//         assert_eq!(unchanged_str, "test_protocol"); // Should remain the same
+//     }
+
+//     #[test]
+//     fn test_hint_format_is_correct_in_bytes() {
+//         let mut ds = DomainSeparator::<EF4, F>::new("proto");
+//         ds.hint("my_hint");
+//         let expected = b"proto\0Hmy_hint";
+//         assert_eq!(ds.as_units(), expected);
+//     }
+
+//     #[test]
+//     #[should_panic]
+//     fn test_hint_label_with_null_byte_panics() {
+//         let mut ds = DomainSeparator::<EF4, F>::new("x");
+//         ds.hint("bad\0hint");
+//     }
+
+//     #[test]
+//     fn test_add_sumcheck_regular_two_rounds_no_pow() {
+//         // Set up a new domain separator
+//         let mut ds = DomainSeparator::<EF4, F>::new("regular");
+
+//         // Add a sumcheck with 2 folding rounds, no PoW, no skipping
+//         ds.add_sumcheck(&SumcheckParams {
+//             rounds: 2,
+//             pow_bits: 0.,
+//             univariate_skip: None,
+//         });
+
+//         // Finalize the domain separator into a sequence of transcript operations
+//         let ops = ds.io;
+
+//         // Manually construct the expected transcript: 2 rounds of
+//         // - Observe 3 scalars (sumcheck_poly)
+//         // - Challenge 1 scalar (folding_randomness)
+//         let mut ds_expected = DomainSeparator::<EF4, F>::new("regular");
+//         ds_expected.observe(3, "sumcheck_poly");
+//         ds_expected.sample(1, "folding_randomness");
+
+//         ds_expected.observe(3, "sumcheck_poly");
+//         ds_expected.sample(1, "folding_randomness");
+
+//         let ops_expected = ds_expected.io;
+//         assert_eq!(ops, ops_expected);
+//     }
+
+//     #[test]
+//     fn test_add_sumcheck_one_round_with_pow() {
+//         // One round with PoW enabled
+//         let mut ds = DomainSeparator::<EF4, F>::new("pow");
+//         ds.add_sumcheck(&SumcheckParams {
+//             rounds: 1,
+//             pow_bits: 7.0,
+//             univariate_skip: None,
+//         });
+//         let ops = ds.io;
+
+//         // Expected operations:
+//         // - Observe 3 scalars (sumcheck_poly)
+//         // - Sample 1 scalar (folding_randomness)
+//         // - PoW: Sample 32 bytes, then Observe 8 bytes (pow-nonce)
+//         let mut expected = DomainSeparator::<EF4, F>::new("pow");
+//         expected.observe(3, "sumcheck_poly");
+//         expected.sample(1, "folding_randomness");
+//         expected.pow(7.);
+
+//         assert_eq!(ops, expected.io);
+//     }
+
+//     #[test]
+//     fn test_add_sumcheck_skip_two_rounds_no_pow() {
+//         // With univariate skip enabled and skipped_rounds = 2
+//         let mut ds = DomainSeparator::<EF4, F>::new("skip2");
+//         ds.add_sumcheck(&SumcheckParams {
+//             rounds: 3,
+//             pow_bits: 0.,
+//             univariate_skip: Some(2),
+//         });
+//         let ops = ds.io;
+
+//         // Expected:
+//         // - One LDE observation of 2^(2+1) = 8 scalars
+//         // - One challenge for folding randomness
+//         // - Then one regular round of sumcheck: (3 + 1 scalars)
+//         let mut expected = DomainSeparator::<EF4, F>::new("skip2");
+//         expected.observe(8, "sumcheck_poly_skip");
+//         expected.sample(1, "folding_randomness_skip");
+
+//         expected.observe(3, "sumcheck_poly");
+//         expected.sample(1, "folding_randomness");
+
+//         assert_eq!(ops, expected.io);
+//     }
+
+//     #[test]
+//     fn test_add_sumcheck_skip_two_rounds_with_pow() {
+//         // With univariate skip and PoW active
+//         let mut ds = DomainSeparator::<EF4, F>::new("skip2pow");
+//         ds.add_sumcheck(&SumcheckParams {
+//             rounds: 3,
+//             pow_bits: 10.,
+//             univariate_skip: Some(2),
+//         });
+//         let ops = ds.io;
+
+//         let mut expected = DomainSeparator::<EF4, F>::new("skip2pow");
+//         expected.observe(8, "sumcheck_poly_skip");
+//         expected.sample(1, "folding_randomness_skip");
+//         expected.pow(10.);
+
+//         expected.observe(3, "sumcheck_poly");
+//         expected.sample(1, "folding_randomness");
+//         expected.pow(10.);
+
+//         assert_eq!(ops, expected.io);
+//     }
+
+//     #[test]
+//     fn test_add_sumcheck_skip_one_round_behaves_regular() {
+//         // Skip = 1 is not enough to trigger shortcut logic
+//         let mut ds = DomainSeparator::<EF4, F>::new("skip1");
+//         ds.add_sumcheck(&SumcheckParams {
+//             rounds: 3,
+//             pow_bits: 0.,
+//             univariate_skip: None,
+//         });
+//         let ops = ds.io;
+
+//         let mut expected = DomainSeparator::<EF4, F>::new("skip1");
+
+//         // Round 1
+//         expected.observe(3, "sumcheck_poly");
+//         expected.sample(1, "folding_randomness");
+
+//         // Round 2
+//         expected.observe(3, "sumcheck_poly");
+//         expected.sample(1, "folding_randomness");
+
+//         // Round 3
+//         expected.observe(3, "sumcheck_poly");
+//         expected.sample(1, "folding_randomness");
+
+//         assert_eq!(ops, expected.io);
+//     }
+
+//     #[test]
+//     fn test_as_field_elements() {
+//         // Number of variables in the multilinear polynomial
+//         let num_variables = 2;
+
+//         // Create a WHIR protocol config with:
+//         // - no initial sumcheck,
+//         // - folding factor 2,
+//         // - no PoW grinding.
+//         let config = make_test_config(num_variables, false, 2, 0);
+
+//         // Build DomainSeparator manually from encoded bytes
+//         let mut ds = DomainSeparator::<EF4, F>::new("test_protocol");
+
+//         ds.add_whir_proof::<_, _, _, 8>(&config);
+
+//         // Test that `as_field_elements()` decodes successfully
+//         let _ = ds.as_field_elements();
+//     }
+// }

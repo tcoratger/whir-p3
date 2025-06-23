@@ -1,4 +1,4 @@
-use p3_challenger::{CanObserve, CanSample};
+use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
@@ -7,7 +7,7 @@ use tracing::{info_span, instrument};
 use super::{Leafs, Proof, Prover};
 use crate::{
     domain::Domain,
-    fiat_shamir::{errors::ProofResult, pow::traits::PowStrategy, prover::ProverState, unit::Unit},
+    fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::{evals::EvaluationStorage, multilinear::MultilinearPoint},
     sumcheck::{K_SKIP_SUMCHECK, sumcheck_single::SumcheckSingle},
     whir::{
@@ -78,7 +78,8 @@ where
     pub(crate) statement: Statement<EF>,
 }
 
-impl<EF, F, W, const DIGEST_ELEMS: usize> RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>
+#[allow(clippy::mismatching_type_param_order)]
+impl<EF, F, const DIGEST_ELEMS: usize> RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>
 where
     F: Field + TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
@@ -103,16 +104,14 @@ where
     /// This function should be called once at the beginning of the proof, before entering the
     /// main WHIR folding loop.
     #[instrument(skip_all)]
-    pub(crate) fn initialize_first_round_state<MyChallenger, C, PS, Challenger>(
-        prover: &Prover<'_, EF, F, MyChallenger, C, PS, Challenger, W>,
-        prover_state: &mut ProverState<EF, F, Challenger, W, DIGEST_ELEMS>,
+    pub(crate) fn initialize_first_round_state<MyChallenger, C, Challenger>(
+        prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
+        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
         mut statement: Statement<EF>,
-        witness: Witness<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
+        witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<Self>
     where
-        PS: PowStrategy,
-        W: Unit + Default + Copy,
-        Challenger: CanObserve<W> + CanSample<W>,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         // Convert witness ood_points into constraints
         let new_constraints = witness
@@ -134,7 +133,7 @@ where
         let folding_randomness = if prover.initial_statement {
             // If there is initial statement, then we run the sum-check for
             // this initial statement.
-            let [combination_randomness_gen] = prover_state.challenge_scalars_array();
+            let combination_randomness_gen: EF = prover_state.challenger.sample_algebra_element();
 
             // Create the sumcheck prover
             let mut sumcheck = SumcheckSingle::from_base_evals(
@@ -144,17 +143,16 @@ where
             );
 
             // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck
-                .compute_sumcheck_polynomials::<PS, _, _, DIGEST_ELEMS>(
-                    prover_state,
-                    prover.folding_factor.at_round(0),
-                    prover.starting_folding_pow_bits,
-                    if prover.univariate_skip {
-                        Some(K_SKIP_SUMCHECK)
-                    } else {
-                        None
-                    },
-                )?;
+            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<_, DIGEST_ELEMS>(
+                prover_state,
+                prover.folding_factor.at_round(0),
+                prover.starting_folding_pow_bits,
+                if prover.univariate_skip {
+                    Some(K_SKIP_SUMCHECK)
+                } else {
+                    None
+                },
+            )?;
 
             sumcheck_prover = Some(sumcheck);
             folding_randomness
@@ -163,10 +161,15 @@ where
             // initial rounds of the sum-check, and the verifier directly sends
             // the initial folding randomnesses.
             let mut folding_randomness = EF::zero_vec(prover.folding_factor.at_round(0));
-            prover_state.sample_scalars(&mut folding_randomness);
+            for folded_randomness in &mut folding_randomness {
+                *folded_randomness = prover_state.challenger.sample_algebra_element();
+            }
 
-            if prover.starting_folding_pow_bits > 0. {
-                prover_state.challenge_pow::<PS>(prover.starting_folding_pow_bits)?;
+            if prover.starting_folding_pow_bits > 0 {
+                let witness = prover_state
+                    .challenger
+                    .grind(prover.starting_folding_pow_bits as usize);
+                prover_state.proof_data.pow_witnesses.push(witness);
             }
             MultilinearPoint(folding_randomness)
         };
@@ -194,17 +197,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
-    use p3_blake3::Blake3;
-    use p3_challenger::HashChallenger;
+    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
+    use p3_challenger::DuplexChallenger;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
-    use p3_keccak::Keccak256Hash;
-    use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
+    use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
+    use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
     use crate::{
         dft::EvalsDft,
-        fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+        fiat_shamir::domain_separator::DomainSeparator,
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
@@ -212,17 +214,18 @@ mod tests {
             coeffs::CoefficientList,
             evals::{EvaluationStorage, EvaluationsList},
         },
-        whir::{W, WhirConfig, committer::writer::CommitmentWriter},
+        whir::{WhirConfig, committer::writer::CommitmentWriter},
     };
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
-    type ByteHash = Blake3;
-    type FieldHash = SerializingHasher<ByteHash>;
-    type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-    type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
+    type Perm = Poseidon2BabyBear<16>;
 
-    const DIGEST_ELEMS: usize = 32;
+    type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
+    type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
+    type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
+
+    const DIGEST_ELEMS: usize = 8;
 
     /// Create a WHIR protocol configuration for test scenarios.
     ///
@@ -239,10 +242,16 @@ mod tests {
         initial_statement: bool,
         folding_factor: usize,
         pow_bits: usize,
-    ) -> WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W> {
+    ) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger> {
         // Construct the multivariate parameter set with `num_variables` variables,
         // determining the size of the evaluation domain.
         let mv_params = MultivariateParameters::<EF4>::new(num_variables);
+
+        let mut rng = SmallRng::seed_from_u64(1);
+        let perm = Perm::new_from_rng_128(&mut rng);
+
+        let merkle_hash = MyHash::new(perm.clone());
+        let merkle_compress = MyCompress::new(perm);
 
         // Define the core protocol parameters for WHIR, customizing behavior based
         // on whether to start with an initial sumcheck and how to fold the polynomial.
@@ -252,8 +261,8 @@ mod tests {
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
             folding_factor: FoldingFactor::Constant(folding_factor),
-            merkle_hash: FieldHash::new(ByteHash {}),
-            merkle_compress: MyCompress::new(ByteHash {}),
+            merkle_hash,
+            merkle_compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
             univariate_skip: false,
@@ -274,26 +283,27 @@ mod tests {
     /// This is used as a boilerplate step before running the first WHIR round.
     #[allow(clippy::type_complexity)]
     fn setup_domain_and_commitment(
-        params: &WhirConfig<EF4, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>,
+        params: &WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger>,
         poly: EvaluationsList<F>,
     ) -> (
-        DomainSeparator<EF4, F, u8>,
-        ProverState<EF4, F, MyChallenger, W, 32>,
-        Witness<EF4, F, u8, DenseMatrix<F>, DIGEST_ELEMS>,
+        DomainSeparator<EF4, F>,
+        ProverState<EF4, F, MyChallenger, 8>,
+        Witness<EF4, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.
         let mut domsep = DomainSeparator::new("🌪️");
 
         // Observe the public statement into the transcript for binding.
-        domsep.commit_statement::<_, _, _, _, 32>(params);
+        domsep.commit_statement::<_, _, _, 8>(params);
 
         // Reserve transcript space for WHIR proof messages.
-        domsep.add_whir_proof::<_, _, _, _, 32>(params);
+        domsep.add_whir_proof::<_, _, _, 8>(params);
 
-        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut rng = SmallRng::seed_from_u64(1);
+        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
         // Convert the domain separator into a mutable prover-side transcript.
-        let mut prover_state = domsep.to_prover_state::<_, 32>(challenger);
+        let mut prover_state = domsep.to_prover_state::<_, 8>(challenger);
 
         // Create a committer using the protocol configuration (Merkle parameters, hashers, etc.).
         let committer = CommitmentWriter::new(params);

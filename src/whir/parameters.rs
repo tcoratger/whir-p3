@@ -1,11 +1,10 @@
 use std::{any::TypeId, f64::consts::LOG2_10, marker::PhantomData};
 
-use p3_challenger::{CanObserve, CanSample};
+use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
     domain::Domain,
-    fiat_shamir::unit::Unit,
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },
@@ -13,8 +12,8 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct RoundConfig<F> {
-    pub pow_bits: f64,
-    pub folding_pow_bits: f64,
+    pub pow_bits: usize,
+    pub folding_pow_bits: usize,
     pub num_queries: usize,
     pub ood_samples: usize,
     pub log_inv_rate: usize,
@@ -26,7 +25,7 @@ pub struct RoundConfig<F> {
 }
 
 #[derive(Debug, Clone)]
-pub struct WhirConfig<EF, F, MyChallenger, C, PowStrategy, Challenger, W>
+pub struct WhirConfig<EF, F, MyChallenger, C, Challenger>
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -45,20 +44,17 @@ where
     pub initial_statement: bool,
     pub starting_domain: Domain<EF>,
     pub starting_log_inv_rate: usize,
-    pub starting_folding_pow_bits: f64,
+    pub starting_folding_pow_bits: usize,
 
     pub folding_factor: FoldingFactor,
     pub rs_domain_initial_reduction_factor: usize,
     pub round_parameters: Vec<RoundConfig<EF>>,
 
     pub final_queries: usize,
-    pub final_pow_bits: f64,
+    pub final_pow_bits: usize,
     pub final_log_inv_rate: usize,
     pub final_sumcheck_rounds: usize,
-    pub final_folding_pow_bits: f64,
-
-    // PoW parameters
-    pub pow_strategy: PhantomData<PowStrategy>,
+    pub final_folding_pow_bits: usize,
 
     // Merkle tree parameters
     pub merkle_hash: MyChallenger,
@@ -70,16 +66,13 @@ where
     pub _base_field: PhantomData<F>,
     pub _extension_field: PhantomData<EF>,
     pub _challenger: PhantomData<Challenger>,
-    pub _unit: PhantomData<W>,
 }
 
-impl<EF, F, MyChallenger, C, PowStrategy, Challenger, W>
-    WhirConfig<EF, F, MyChallenger, C, PowStrategy, Challenger, W>
+impl<EF, F, MyChallenger, C, Challenger> WhirConfig<EF, F, MyChallenger, C, Challenger>
 where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    W: Unit + Default + Copy,
-    Challenger: CanObserve<W> + CanSample<W>,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     #[allow(clippy::too_many_lines)]
     pub fn new(
@@ -205,8 +198,8 @@ where
             );
 
             round_parameters.push(RoundConfig {
-                pow_bits,
-                folding_pow_bits,
+                pow_bits: pow_bits as usize,
+                folding_pow_bits: folding_pow_bits as usize,
                 num_queries,
                 ood_samples,
                 log_inv_rate,
@@ -248,23 +241,21 @@ where
             starting_domain,
             soundness_type: whir_parameters.soundness_type,
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,
-            starting_folding_pow_bits,
+            starting_folding_pow_bits: starting_folding_pow_bits as usize,
             folding_factor: whir_parameters.folding_factor,
             rs_domain_initial_reduction_factor: whir_parameters.rs_domain_initial_reduction_factor,
             round_parameters,
             final_queries,
-            final_pow_bits,
+            final_pow_bits: final_pow_bits as usize,
             final_sumcheck_rounds,
-            final_folding_pow_bits,
+            final_folding_pow_bits: final_folding_pow_bits as usize,
             final_log_inv_rate: log_inv_rate,
-            pow_strategy: PhantomData,
             merkle_hash: whir_parameters.merkle_hash,
             merkle_compress: whir_parameters.merkle_compress,
             univariate_skip: whir_parameters.univariate_skip,
             _base_field: PhantomData,
             _extension_field: PhantomData,
             _challenger: PhantomData,
-            _unit: PhantomData,
         }
     }
 
@@ -288,7 +279,7 @@ where
     }
 
     pub fn check_pow_bits(&self) -> bool {
-        let max_bits = self.max_pow_bits as f64;
+        let max_bits = self.max_pow_bits;
 
         // Check the main pow bits values
         if self.starting_folding_pow_bits > max_bits
@@ -429,19 +420,18 @@ where
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
-    use p3_challenger::HashChallenger;
+    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
+    use p3_challenger::DuplexChallenger;
     use p3_field::PrimeCharacteristicRing;
-    use p3_keccak::Keccak256Hash;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 
     use super::*;
-    use crate::whir::W;
 
     type F = BabyBear;
     type Poseidon2Compression<Perm16> = TruncatedPermutation<Perm16, 2, 8, 16>;
     type Poseidon2Sponge<Perm24> = PaddingFreeSponge<Perm24, 24, 16, 8>;
-    type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
+    type Perm = Poseidon2BabyBear<16>;
+    type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
     /// Generates default WHIR parameters
     const fn default_whir_params()
@@ -465,15 +455,10 @@ mod tests {
         let params = default_whir_params();
 
         let mv_params = MultivariateParameters::<F>::new(10);
-        let config = WhirConfig::<
-            F,
-            F,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-            MyChallenger,
-            W,
-        >::new(mv_params, params);
+        let config =
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
+                mv_params, params,
+            );
 
         assert_eq!(config.security_level, 100);
         assert_eq!(config.max_pow_bits, 20);
@@ -485,15 +470,10 @@ mod tests {
     fn test_n_rounds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let config = WhirConfig::<
-            F,
-            F,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-            MyChallenger,
-            W,
-        >::new(mv_params, params);
+        let config =
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
+                mv_params, params,
+            );
 
         assert_eq!(config.n_rounds(), config.round_parameters.len());
     }
@@ -503,7 +483,7 @@ mod tests {
         let field_size_bits = 64;
         let soundness = SecurityAssumption::CapacityBound;
 
-        let pow_bits = WhirConfig::<F, F, u8, u8, (), MyChallenger, W>::folding_pow_bits(
+        let pow_bits = WhirConfig::<F, F, u8, u8, MyChallenger>::folding_pow_bits(
             100, // Security level
             soundness,
             field_size_bits,
@@ -519,27 +499,22 @@ mod tests {
     fn test_check_pow_bits_within_limits() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<
-            F,
-            F,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-            MyChallenger,
-            W,
-        >::new(mv_params, params);
+        let mut config =
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
+                mv_params, params,
+            );
 
         // Set all values within limits
         config.max_pow_bits = 20;
-        config.starting_folding_pow_bits = 15.0;
-        config.final_pow_bits = 18.0;
-        config.final_folding_pow_bits = 19.5;
+        config.starting_folding_pow_bits = 15;
+        config.final_pow_bits = 18;
+        config.final_folding_pow_bits = 19;
 
         // Ensure all rounds are within limits
         config.round_parameters = vec![
             RoundConfig {
-                pow_bits: 17.0,
-                folding_pow_bits: 19.0,
+                pow_bits: 17,
+                folding_pow_bits: 19,
                 num_queries: 5,
                 ood_samples: 2,
                 log_inv_rate: 3,
@@ -550,8 +525,8 @@ mod tests {
                 exp_domain_gen: F::from_u64(2),
             },
             RoundConfig {
-                pow_bits: 18.0,
-                folding_pow_bits: 19.5,
+                pow_bits: 18,
+                folding_pow_bits: 19,
                 num_queries: 6,
                 ood_samples: 2,
                 log_inv_rate: 4,
@@ -573,20 +548,15 @@ mod tests {
     fn test_check_pow_bits_starting_folding_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<
-            F,
-            F,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-            MyChallenger,
-            W,
-        >::new(mv_params, params);
+        let mut config =
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
-        config.starting_folding_pow_bits = 21.0; // Exceeds max_pow_bits
-        config.final_pow_bits = 18.0;
-        config.final_folding_pow_bits = 19.5;
+        config.starting_folding_pow_bits = 21; // Exceeds max_pow_bits
+        config.final_pow_bits = 18;
+        config.final_folding_pow_bits = 19;
 
         assert!(
             !config.check_pow_bits(),
@@ -598,20 +568,15 @@ mod tests {
     fn test_check_pow_bits_final_pow_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<
-            F,
-            F,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-            MyChallenger,
-            W,
-        >::new(mv_params, params);
+        let mut config =
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
-        config.starting_folding_pow_bits = 15.0;
-        config.final_pow_bits = 21.0; // Exceeds max_pow_bits
-        config.final_folding_pow_bits = 19.5;
+        config.starting_folding_pow_bits = 15;
+        config.final_pow_bits = 21; // Exceeds max_pow_bits
+        config.final_folding_pow_bits = 19;
 
         assert!(
             !config.check_pow_bits(),
@@ -623,25 +588,20 @@ mod tests {
     fn test_check_pow_bits_round_pow_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<
-            F,
-            F,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-            MyChallenger,
-            W,
-        >::new(mv_params, params);
+        let mut config =
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
-        config.starting_folding_pow_bits = 15.0;
-        config.final_pow_bits = 18.0;
-        config.final_folding_pow_bits = 19.5;
+        config.starting_folding_pow_bits = 15;
+        config.final_pow_bits = 18;
+        config.final_folding_pow_bits = 19;
 
         // One round's pow_bits exceeds limit
         config.round_parameters = vec![RoundConfig {
-            pow_bits: 21.0, // Exceeds max_pow_bits
-            folding_pow_bits: 19.0,
+            pow_bits: 21, // Exceeds max_pow_bits
+            folding_pow_bits: 19,
             num_queries: 5,
             ood_samples: 2,
             log_inv_rate: 3,
@@ -662,25 +622,20 @@ mod tests {
     fn test_check_pow_bits_round_folding_pow_exceeds() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<
-            F,
-            F,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-            MyChallenger,
-            W,
-        >::new(mv_params, params);
+        let mut config =
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
-        config.starting_folding_pow_bits = 15.0;
-        config.final_pow_bits = 18.0;
-        config.final_folding_pow_bits = 19.5;
+        config.starting_folding_pow_bits = 15;
+        config.final_pow_bits = 18;
+        config.final_folding_pow_bits = 19;
 
         // One round's folding_pow_bits exceeds limit
         config.round_parameters = vec![RoundConfig {
-            pow_bits: 19.0,
-            folding_pow_bits: 21.0, // Exceeds max_pow_bits
+            pow_bits: 19,
+            folding_pow_bits: 21, // Exceeds max_pow_bits
             num_queries: 5,
             ood_samples: 2,
             log_inv_rate: 3,
@@ -701,24 +656,19 @@ mod tests {
     fn test_check_pow_bits_exactly_at_limit() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<
-            F,
-            F,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-            MyChallenger,
-            W,
-        >::new(mv_params, params);
+        let mut config =
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
-        config.starting_folding_pow_bits = 20.0;
-        config.final_pow_bits = 20.0;
-        config.final_folding_pow_bits = 20.0;
+        config.starting_folding_pow_bits = 20;
+        config.final_pow_bits = 20;
+        config.final_folding_pow_bits = 20;
 
         config.round_parameters = vec![RoundConfig {
-            pow_bits: 20.0,
-            folding_pow_bits: 20.0,
+            pow_bits: 20,
+            folding_pow_bits: 20,
             num_queries: 5,
             ood_samples: 2,
             log_inv_rate: 3,
@@ -739,24 +689,19 @@ mod tests {
     fn test_check_pow_bits_all_exceed() {
         let params = default_whir_params();
         let mv_params = MultivariateParameters::<F>::new(10);
-        let mut config = WhirConfig::<
-            F,
-            F,
-            Poseidon2Sponge<u8>,
-            Poseidon2Compression<u8>,
-            (),
-            MyChallenger,
-            W,
-        >::new(mv_params, params);
+        let mut config =
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
+                mv_params, params,
+            );
 
         config.max_pow_bits = 20;
-        config.starting_folding_pow_bits = 22.0;
-        config.final_pow_bits = 23.0;
-        config.final_folding_pow_bits = 24.0;
+        config.starting_folding_pow_bits = 22;
+        config.final_pow_bits = 23;
+        config.final_folding_pow_bits = 24;
 
         config.round_parameters = vec![RoundConfig {
-            pow_bits: 25.0,
-            folding_pow_bits: 26.0,
+            pow_bits: 25,
+            folding_pow_bits: 26,
             num_queries: 5,
             ood_samples: 2,
             log_inv_rate: 3,

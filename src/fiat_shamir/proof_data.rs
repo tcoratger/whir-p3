@@ -15,6 +15,8 @@ pub struct ProofData<EF, F, W, const DIGEST_ELEMS: usize> {
     pub(crate) sumcheck_evaluations: Rounds<SumcheckRounds<Vec<EF>>>,
 
     pub(crate) final_folded_evaluations: Vec<EF>,
+
+    pub(crate) pow_witnesses: Vec<F>,
 }
 
 impl<EF, F, W, const DIGEST_ELEMS: usize> Default for ProofData<EF, F, W, DIGEST_ELEMS>
@@ -35,6 +37,8 @@ where
             sumcheck_evaluations: Vec::new(),
 
             final_folded_evaluations: Vec::new(),
+
+            pow_witnesses: Vec::new(),
         }
     }
 }
