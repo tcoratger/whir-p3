@@ -170,7 +170,6 @@ where
             .iter()
             .all(|c| c.verify(&final_coefficients))
         {
-            dbg!("stir constraints");
             return Err(ProofError::InvalidProof);
         }
 
@@ -204,7 +203,6 @@ where
         // Check the final sumcheck evaluation
         let final_value = final_coefficients.evaluate(&final_sumcheck_randomness);
         if claimed_sum != evaluation_of_weights * final_value {
-            dbg!("final sumcheck");
             return Err(ProofError::InvalidProof);
         }
 

@@ -328,7 +328,6 @@ mod tests {
 
             // Verify sum over Boolean points {0,1} matches current sum
             let sum = poly.evaluations()[0] + poly.evaluations()[1];
-            dbg!(i);
             assert_eq!(
                 sum, current_sum,
                 "Sumcheck round {i}: sum rule failed (h(0) + h(1) != current_sum)"
