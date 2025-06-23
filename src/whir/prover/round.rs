@@ -4,7 +4,7 @@ use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
 use tracing::{info_span, instrument};
 
-use super::{Leafs, Proof, Prover};
+use super::Prover;
 use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
@@ -55,18 +55,6 @@ where
     /// Merkle commitment prover data for the **extension field** polynomials (folded rounds).
     /// Present only after the first round.
     pub(crate) merkle_prover_data: Option<RoundMerkleTree<F, EF, W, DIGEST_ELEMS>>,
-
-    /// Merkle proof from the initial commitment round.
-    /// - First: list of opened leaf values in the base field.
-    /// - Second: corresponding Merkle authentication paths.
-    /// - Empty during setup; populated during final query phase.
-    pub(crate) commitment_merkle_proof: Option<(Leafs<F>, Proof<W, DIGEST_ELEMS>)>,
-
-    /// Merkle proofs for intermediate folded rounds.
-    /// Each entry contains:
-    /// - The opened values at verifier-chosen locations,
-    /// - The corresponding authentication paths.
-    pub(crate) merkle_proofs: Vec<(Leafs<EF>, Proof<W, DIGEST_ELEMS>)>,
 
     /// Flat vector of challenge values used across all rounds.
     /// Populated progressively as folding randomness is sampled.
@@ -187,8 +175,6 @@ where
             evaluations: EvaluationStorage::Base(witness.polynomial),
             merkle_prover_data: None,
             commitment_merkle_prover_data: witness.prover_data,
-            commitment_merkle_proof: None,
-            merkle_proofs: vec![],
             randomness_vec,
             statement,
         })
@@ -367,10 +353,6 @@ mod tests {
 
         // Since this is the first round, no Merkle data for folded rounds should exist
         assert!(state.merkle_prover_data.is_none());
-
-        // No Merkle proofs should have been generated yet
-        assert!(state.commitment_merkle_proof.is_none());
-        assert!(state.merkle_proofs.is_empty());
     }
 
     #[test]
@@ -487,10 +469,6 @@ mod tests {
 
         // No folded Merkle tree data should exist at this point
         assert!(state.merkle_prover_data.is_none());
-
-        // No authentication paths should be produced yet
-        assert!(state.commitment_merkle_proof.is_none());
-        assert!(state.merkle_proofs.is_empty());
     }
 
     #[test]
@@ -572,10 +550,6 @@ mod tests {
 
         // No Merkle commitment data for folded rounds yet
         assert!(state.merkle_prover_data.is_none());
-
-        // No Merkle proofs or openings have been generated yet
-        assert!(state.commitment_merkle_proof.is_none());
-        assert!(state.merkle_proofs.is_empty());
     }
 
     #[test]
@@ -678,10 +652,6 @@ mod tests {
 
         // No Merkle tree data has been created for folded rounds yet
         assert!(state.merkle_prover_data.is_none());
-
-        // No Merkle proofs have been emitted at this stage
-        assert!(state.commitment_merkle_proof.is_none());
-        assert!(state.merkle_proofs.is_empty());
 
         // The randomness_vec must contain the sampled folding randomness, reversed and zero-padded
         assert_eq!(
