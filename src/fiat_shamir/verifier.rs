@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
@@ -23,17 +21,6 @@ where
 
     /// The proof data.
     pub(crate) proof_data: ProofData<EF, F, F, DIGEST_ELEMS>,
-
-    /// Marker for the base field `F`.
-    ///
-    /// This field is never read or written; it ensures type correctness for field-level operations.
-    _field: PhantomData<F>,
-
-    /// Marker for the extension field `EF`.
-    ///
-    /// Like `_field`, this is only for type-level bookkeeping. The extension field is used
-    /// to deserialize and operate on scalars in high-dimensional protocols.
-    _extension_field: PhantomData<EF>,
 }
 
 impl<EF, F, Challenger, const DIGEST_ELEMS: usize> VerifierState<EF, F, Challenger, DIGEST_ELEMS>
@@ -59,8 +46,6 @@ where
         Self {
             challenger,
             proof_data,
-            _field: PhantomData,
-            _extension_field: PhantomData,
         }
     }
 }

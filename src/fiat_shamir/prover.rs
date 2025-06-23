@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::fmt::Debug;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -32,10 +32,6 @@ where
     pub(crate) challenger: Challenger,
     /// The proof data.
     pub proof_data: ProofData<EF, F, F, DIGEST_ELEMS>,
-    /// Marker for the field.
-    _field: PhantomData<F>,
-    /// Marker for the extension field.
-    _extension_field: PhantomData<EF>,
 }
 
 impl<EF, F, Challenger, const DIGEST_ELEMS: usize> ProverState<EF, F, Challenger, DIGEST_ELEMS>
@@ -59,8 +55,6 @@ where
         Self {
             challenger,
             proof_data: ProofData::default(),
-            _field: PhantomData,
-            _extension_field: PhantomData,
         }
     }
 }
