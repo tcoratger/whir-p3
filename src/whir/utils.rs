@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use tracing::instrument;
 
 use crate::{
@@ -72,7 +72,7 @@ pub fn sample_ood_points<F, EF, E, Challenger, const DIGEST_ELEMS: usize>(
     evaluate_fn: E,
 ) -> (Vec<EF>, Vec<EF>)
 where
-    F: PrimeField64 + TwoAdicField,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     E: Fn(&MultilinearPoint<EF>) -> EF,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,

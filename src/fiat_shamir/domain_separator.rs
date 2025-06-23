@@ -1,7 +1,7 @@
 use std::{fmt::Write, marker::PhantomData};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
     fiat_shamir::{proof_data::ProofData, prover::ProverState, verifier::VerifierState},
@@ -86,7 +86,7 @@ pub struct DomainSeparator<EF, F> {
 impl<EF, F> DomainSeparator<EF, F>
 where
     EF: ExtensionField<F> + TwoAdicField,
-    F: Field + TwoAdicField + PrimeField64,
+    F: Field + TwoAdicField,
 {
     #[must_use]
     pub const fn from_string(io: String) -> Self {

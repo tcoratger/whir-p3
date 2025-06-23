@@ -1,7 +1,7 @@
 use std::{fmt::Debug, ops::Deref};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_symmetric::Hash;
 
 use crate::{
@@ -67,7 +67,7 @@ where
         round_index: usize,
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>>
     where
-        F: TwoAdicField + PrimeField64,
+        F: TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
@@ -134,7 +134,7 @@ where
 
 impl<'a, EF, F, H, C, Challenger> CommitmentReader<'a, EF, F, H, C, Challenger>
 where
-    F: Field + TwoAdicField + PrimeField64,
+    F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {

@@ -1,7 +1,7 @@
 use std::{fmt::Debug, marker::PhantomData};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use super::domain_separator::DomainSeparator;
 use crate::fiat_shamir::proof_data::ProofData;
@@ -41,7 +41,7 @@ where
 impl<EF, F, Challenger, const DIGEST_ELEMS: usize> ProverState<EF, F, Challenger, DIGEST_ELEMS>
 where
     EF: ExtensionField<F> + TwoAdicField,
-    F: PrimeField64 + TwoAdicField,
+    F: TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     /// Initialize a new `ProverState` from the given domain separator.

@@ -1,5 +1,5 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 #[cfg(feature = "parallel")]
@@ -365,7 +365,7 @@ where
         k_skip: Option<usize>,
     ) -> ProofResult<MultilinearPoint<EF>>
     where
-        F: PrimeField64 + TwoAdicField,
+        F: TwoAdicField,
         EF: TwoAdicField,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
@@ -429,7 +429,6 @@ where
             // Sample verifier challenge.
             let folding_randomness: EF = prover_state.challenger.sample_algebra_element();
             res.push(folding_randomness);
-            dbg!(folding_randomness);
 
             // Optional PoW grinding.
             if pow_bits > 0 {
@@ -599,7 +598,9 @@ where
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
-    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{
+        BasedVectorSpace, PrimeCharacteristicRing, PrimeField64, extension::BinomialExtensionField,
+    };
     use p3_interpolation::interpolate_subgroup;
     use p3_matrix::dense::RowMajorMatrix;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -1679,7 +1680,6 @@ mod tests {
 
             // Step 3: Verifier samples next challenge r_i ∈ F to fold
             let r: F = verifier_state.challenger.sample_algebra_element();
-            dbg!(r);
 
             // Step 4: Evaluate the sumcheck polynomial at r_i to compute new folded sum
             // The polynomial h_i is evaluated at x = r_i ∈ F (can be non-{0,1,2})
@@ -1790,8 +1790,6 @@ mod tests {
 
         // Initialize the sum to be verified round-by-round
         let mut current_sum = expected_initial_sum;
-
-        dbg!(folding_factor);
 
         for i in 0..folding_factor {
             // Read the 3 evaluations of the sumcheck polynomial for this round

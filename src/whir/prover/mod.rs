@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
-use p3_field::{ExtensionField, Field, Packable, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, Packable, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
@@ -55,7 +55,7 @@ where
 
 impl<EF, F, H, C, Challenger> Prover<'_, EF, F, H, C, Challenger>
 where
-    F: Field + TwoAdicField + PrimeField64,
+    F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
