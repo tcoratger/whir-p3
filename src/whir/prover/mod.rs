@@ -309,7 +309,6 @@ where
                     );
                 }
 
-                round_state.commitment_merkle_proof = Some((answers, merkle_proof));
                 stir_evaluations
             }
             Some(data) => {
@@ -336,7 +335,6 @@ where
                     );
                 }
 
-                round_state.merkle_proofs.push((answers, merkle_proof));
                 stir_evaluations
             }
         };
@@ -449,8 +447,6 @@ where
 
                 prover_state.hint(&answers)?;
                 prover_state.hint(&merkle_proof)?;
-
-                round_state.commitment_merkle_proof = Some((answers, merkle_proof));
             }
 
             Some(data) => {
@@ -464,8 +460,6 @@ where
 
                 prover_state.hint(&answers)?;
                 prover_state.hint(&merkle_proof)?;
-
-                round_state.merkle_proofs.push((answers, merkle_proof));
             }
         }
 
