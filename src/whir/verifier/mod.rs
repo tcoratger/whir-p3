@@ -170,6 +170,7 @@ where
             .iter()
             .all(|c| c.verify(&final_coefficients))
         {
+            dbg!("stir constraints");
             return Err(ProofError::InvalidProof);
         }
 
@@ -203,6 +204,7 @@ where
         // Check the final sumcheck evaluation
         let final_value = final_coefficients.evaluate(&final_sumcheck_randomness);
         if claimed_sum != evaluation_of_weights * final_value {
+            dbg!("final sumcheck");
             return Err(ProofError::InvalidProof);
         }
 
@@ -260,13 +262,17 @@ where
     ///
     /// # Errors
     /// Returns `ProofError::InvalidProof` if the PoW response is invalid.
-    pub const fn verify_proof_of_work<const DIGEST_ELEMS: usize>(
+    pub fn verify_proof_of_work<const DIGEST_ELEMS: usize>(
         &self,
-        _verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
+        verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
         bits: usize,
     ) -> ProofResult<()> {
         if bits > 0 {
-            // verifier_state.challenge_pow::<PS>(bits)?;
+            let pow_witness = verifier_state.proof_data.pow_witnesses.remove(0);
+            assert!(
+                verifier_state.challenger.check_witness(bits, pow_witness),
+                "Witness does not satisfy the PoW condition"
+            );
         }
         Ok(())
     }

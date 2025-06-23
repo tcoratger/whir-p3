@@ -184,8 +184,7 @@ mod tests {
             SecurityAssumption::UniqueDecoding,
         ];
         let num_points = [0, 1, 2];
-        // let pow_bits = [0, 5, 10];
-        let pow_bits = [0];
+        let pow_bits = [0, 5, 10];
         let rs_domain_initial_reduction_factors = 1..=3;
 
         for rs_domain_initial_reduction_factor in rs_domain_initial_reduction_factors {
