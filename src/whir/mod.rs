@@ -110,7 +110,7 @@ pub fn make_whir_things(
     statement.add_constraint(linear_claim_weight, sum);
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
-    let mut domainsep = DomainSeparator::new("🌪️");
+    let mut domainsep = DomainSeparator::new(vec![]);
     domainsep.commit_statement::<_, _, _, 32>(&params);
     domainsep.add_whir_proof::<_, _, _, 32>(&params);
 

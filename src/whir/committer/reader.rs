@@ -258,7 +258,7 @@ mod tests {
         let dft = EvalsDft::default();
 
         // Set up Fiat-Shamir transcript and commit the protocol parameters.
-        let mut ds = DomainSeparator::new("test");
+        let mut ds = DomainSeparator::new(vec![]);
         ds.commit_statement::<_, _, _, 8>(&params);
 
         // Create the prover state from the transcript.
@@ -300,7 +300,7 @@ mod tests {
         let dft = EvalsDft::default();
 
         // Begin the transcript and commit to the statement parameters.
-        let mut ds = DomainSeparator::new("test");
+        let mut ds = DomainSeparator::new(vec![]);
         ds.commit_statement::<_, _, _, 8>(&params);
 
         // Generate the prover state from the transcript.
@@ -344,7 +344,7 @@ mod tests {
         let dft = EvalsDft::default();
 
         // Start a new transcript and commit to the public parameters.
-        let mut ds = DomainSeparator::new("test");
+        let mut ds = DomainSeparator::new(vec![]);
         ds.commit_statement::<_, _, _, 8>(&params);
 
         // Create prover state from the transcript.
@@ -384,7 +384,7 @@ mod tests {
         let dft = EvalsDft::default();
 
         // Set up Fiat-Shamir transcript and commit to the public parameters.
-        let mut ds = DomainSeparator::new("oods_constraints_test");
+        let mut ds = DomainSeparator::new(vec![]);
         ds.commit_statement::<_, _, _, 8>(&params);
 
         // Generate prover and verifier transcript states.

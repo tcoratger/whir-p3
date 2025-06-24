@@ -1,17 +1,18 @@
-use std::{fmt::Write, marker::PhantomData};
+use std::marker::PhantomData;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
-    fiat_shamir::{proof_data::ProofData, prover::ProverState, verifier::VerifierState},
+    fiat_shamir::{
+        pattern::{Hint, Observe, Pattern, Sample},
+        proof_data::ProofData,
+        prover::ProverState,
+        verifier::VerifierState,
+    },
     sumcheck::K_SKIP_SUMCHECK,
     whir::parameters::WhirConfig,
 };
-
-/// This is the separator between operations in the IO Pattern
-/// and as such is the only forbidden character in labels.
-const SEP_BYTE: &str = "\0";
 
 /// Configuration parameters for a sumcheck phase in the protocol.
 #[derive(Debug)]
@@ -36,45 +37,11 @@ pub struct SumcheckParams {
     pub univariate_skip: Option<usize>,
 }
 
-/// The IO Pattern of an interactive protocol.
-///
-/// An IO pattern is a string that specifies the protocol in a simple,
-/// non-ambiguous, human-readable format. A typical example is the following:
-///
-/// ```text
-///     domain-separator A32generator A32public-key R A32commitment S32challenge A32response
-/// ```
-/// The domain-separator is a user-specified string uniquely identifying the end-user application
-/// (to avoid cross-protocol attacks). The letter `A` indicates the absorption of a public input (an
-/// `ABSORB`), while the letter `S` indicates the squeezing (a `SQUEEZE`) of a challenge. The letter
-/// `R` indicates a ratcheting operation: ratcheting means invoking the hash function even on an
-/// incomplete block. It provides forward secrecy and allows it to start from a clean rate.
-/// After the operation type, is the number of elements in base 10 that are being absorbed/squeezed.
-/// Then, follows the label associated with the element being absorbed/squeezed. This often comes
-/// from the underlying description of the protocol. The label cannot start with a digit or contain
-/// the NULL byte.
-///
-/// ## Guarantees
-///
-/// The struct [`DomainSeparator`] guarantees the creation of a valid IO Pattern string, whose
-/// lengths are coherent with the types described in the protocol. No information about the types
-/// themselves is stored in an IO Pattern. This means that [`ProverState`][`crate::ProverState`] or [`VerifierState`][`crate::VerifierState`] instances can generate successfully a protocol transcript respecting the length constraint but not the types. See [issue #6](https://github.com/arkworks-rs/spongefish/issues/6) for a discussion on the topic.
+/// The pattern of an interactive protocol.
 #[derive(Clone, Debug)]
 pub struct DomainSeparator<EF, F> {
-    /// The internal IOPattern string representation.
-    ///
-    /// This string encodes a sequence of transcript actions such as absorptions, squeezes,
-    /// and ratchets, in the format: `domain\0A32label\0S16challenge\0R...`.
-    ///
-    /// It is constructed incrementally by calling methods like `obverse`, `sample`, etc.,
-    /// and is later parsed into a queue of [`Op`] instructions by `finalize()`.
-    io: String,
-
-    /// Phantom marker for the base field type `F`.
-    ///
-    /// Ensures that field operations (e.g., `as_basis_coefficients_slice`) are
-    /// computed correctly for the given field implementation.
-    _field: PhantomData<F>,
+    /// The internal pattern finite field representation.
+    pattern: Vec<F>,
 
     /// Phantom marker for the extension field type `EF`.
     ///
@@ -89,91 +56,49 @@ where
     F: Field + TwoAdicField,
 {
     #[must_use]
-    pub const fn from_string(io: String) -> Self {
+    pub const fn from_pattern(pattern: Vec<F>) -> Self {
         Self {
-            io,
-            _field: PhantomData,
+            pattern,
             _extension_field: PhantomData,
         }
     }
 
     /// Create a new DomainSeparator with the domain separator.
     #[must_use]
-    pub fn new(session_identifier: &str) -> Self {
-        assert!(
-            !session_identifier.contains(SEP_BYTE),
-            "Domain separator cannot contain the separator BYTE."
-        );
-        Self::from_string(session_identifier.to_string())
+    pub const fn new(pattern: Vec<F>) -> Self {
+        Self::from_pattern(pattern)
     }
 
     /// Observe `count` native elements.
-    pub fn observe(&mut self, count: usize, label: &str) {
-        assert!(count > 0, "Count must be positive.");
-        assert!(
-            !label.contains(SEP_BYTE),
-            "Label cannot contain the separator BYTE."
+    pub fn observe(&mut self, count: usize, pattern: Observe) {
+        self.pattern.push(
+            pattern.as_field_element::<F>()
+                + F::from_usize(count)
+                + Pattern::Observe.as_field_element(),
         );
-        assert!(
-            label
-                .chars()
-                .next()
-                .is_none_or(|char| !char.is_ascii_digit()),
-            "Label cannot start with a digit."
-        );
-
-        self.io += SEP_BYTE;
-        write!(self.io, "O{count}{label}").expect("writing to String cannot fail");
     }
 
     /// Sample `count` native elements.
-    pub fn sample(&mut self, count: usize, label: &str) {
-        assert!(count > 0, "Count must be positive.");
-        assert!(
-            !label.contains(SEP_BYTE),
-            "Label cannot contain the separator BYTE."
+    pub fn sample(&mut self, count: usize, pattern: Sample) {
+        self.pattern.push(
+            pattern.as_field_element::<F>()
+                + F::from_usize(count)
+                + Pattern::Sample.as_field_element(),
         );
-        assert!(
-            label
-                .chars()
-                .next()
-                .is_none_or(|char| !char.is_ascii_digit()),
-            "Label cannot start with a digit."
-        );
-
-        self.io += SEP_BYTE;
-        write!(self.io, "S{count}{label}").expect("writing to String cannot fail");
     }
 
     /// Hint `count` native elements.
-    pub fn hint(&mut self, label: &str) {
-        assert!(
-            !label.contains(SEP_BYTE),
-            "Label cannot contain the separator BYTE."
-        );
-
-        self.io += SEP_BYTE;
-        write!(self.io, "H{label}").expect("writing to String cannot fail");
+    pub fn hint(&mut self, pattern: Hint) {
+        self.pattern
+            .push(pattern.as_field_element::<F>() + Pattern::Hint.as_field_element());
     }
-
-    // /// Return the IO Pattern as a Vec of Units.
-    // #[must_use]
-    // pub fn as_units(&self) -> Vec<U> {
-    //     U::slice_from_u8_slice(self.io.as_bytes())
-    // }
 
     #[must_use]
     pub fn as_field_elements(&self) -> Vec<F> {
-        // let (value, _) =
-        //     bincode::serde::decode_from_slice(self.io.as_bytes(), bincode::config::standard())
-        //         .unwrap();
-
-        // value
-
-        (0..self.io.len()).map(|i| F::from_u64(i as u64)).collect()
+        self.pattern.clone()
     }
 
-    /// Create an [`crate::ProverState`] instance from the IO Pattern.
+    /// Create a prover state from the domain separator
     #[must_use]
     pub fn to_prover_state<Challenger, const DIGEST_ELEMS: usize>(
         &self,
@@ -185,8 +110,7 @@ where
         ProverState::new(self, challenger)
     }
 
-    /// Create a [`crate::VerifierState`] instance from the IO Pattern and the protocol transcript
-    /// (bytes).
+    /// Create a verifier state from the domain separator
     #[must_use]
     pub fn to_verifier_state<Challenger, const DIGEST_ELEMS: usize>(
         &self,
@@ -201,8 +125,8 @@ where
 
     pub fn add_ood(&mut self, num_samples: usize) {
         if num_samples > 0 {
-            self.sample(num_samples, "ood_query");
-            self.observe(num_samples, "ood_ans");
+            self.sample(num_samples, Sample::OodQuery);
+            self.observe(num_samples, Observe::OodAnswers);
         }
     }
 
@@ -213,7 +137,7 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         // TODO: Add params
-        self.observe(DIGEST_ELEMS, "merkle_digest");
+        self.observe(DIGEST_ELEMS, Observe::MerkleDigest);
         if params.committment_ood_samples > 0 {
             assert!(params.initial_statement);
             self.add_ood(params.committment_ood_samples);
@@ -228,7 +152,7 @@ where
     {
         // TODO: Add statement
         if params.initial_statement {
-            self.sample(1, "initial_combination_randomness");
+            self.sample(1, Sample::InitialCombinationRandomness);
             self.add_sumcheck(&SumcheckParams {
                 rounds: params.folding_factor.at_round(0),
                 pow_bits: params.starting_folding_pow_bits,
@@ -239,7 +163,7 @@ where
                 },
             });
         } else {
-            self.sample(params.folding_factor.at_round(0), "folding_randomness");
+            self.sample(params.folding_factor.at_round(0), Sample::FoldingRandomness);
             self.pow(params.starting_folding_pow_bits);
         }
 
@@ -247,13 +171,13 @@ where
         for (round, r) in params.round_parameters.iter().enumerate() {
             let folded_domain_size = domain_size >> params.folding_factor.at_round(round);
             let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
-            self.observe(DIGEST_ELEMS, "merkle_digest");
+            self.observe(DIGEST_ELEMS, Observe::MerkleDigest);
             self.add_ood(r.ood_samples);
-            self.sample(r.num_queries * domain_size_bytes, "stir_queries");
-            self.hint("stir_queries");
-            self.hint("merkle_proof");
+            self.sample(r.num_queries * domain_size_bytes, Sample::StirQueries);
+            self.hint(Hint::StirQueries);
+            self.hint(Hint::MerkleProof);
             self.pow(r.pow_bits);
-            self.sample(1, "combination_randomness");
+            self.sample(1, Sample::CombinationRandomness);
 
             self.add_sumcheck(&SumcheckParams {
                 rounds: params.folding_factor.at_round(round + 1),
@@ -269,18 +193,21 @@ where
                 .at_round(params.round_parameters.len());
         let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
-        self.observe(1 << params.final_sumcheck_rounds, "final_coeffs");
+        self.observe(1 << params.final_sumcheck_rounds, Observe::FinalCoeffs);
 
-        self.sample(domain_size_bytes * params.final_queries, "final_queries");
-        self.hint("stir_answers");
-        self.hint("merkle_proof");
+        self.sample(
+            domain_size_bytes * params.final_queries,
+            Sample::FinalQueries,
+        );
+        self.hint(Hint::StirAnswers);
+        self.hint(Hint::MerkleProof);
         self.pow(params.final_pow_bits);
         self.add_sumcheck(&SumcheckParams {
             rounds: params.final_sumcheck_rounds,
             pow_bits: params.final_folding_pow_bits,
             univariate_skip: None,
         });
-        self.hint("deferred_weight_evaluations");
+        self.hint(Hint::DeferredWeightEvaluations);
     }
 
     /// Append the sumcheck protocol transcript steps to the domain separator.
@@ -316,8 +243,8 @@ where
         // - Optionally perform PoW after the LDE step.
         if k > 1 {
             let lde_size = 1 << (k + 1);
-            self.observe(lde_size, "sumcheck_poly_skip");
-            self.sample(1, "folding_randomness_skip");
+            self.observe(lde_size, Observe::SumcheckPolySkip);
+            self.sample(1, Sample::FoldingRandomnessSkip);
             self.pow(pow_bits);
         }
 
@@ -327,8 +254,8 @@ where
         // - Samples 1 folding randomness challenge.
         // - Optionally performs a PoW challenge.
         for _ in k..rounds {
-            self.observe(3, "sumcheck_poly");
-            self.sample(1, "folding_randomness");
+            self.observe(3, Observe::SumcheckPoly);
+            self.sample(1, Sample::FoldingRandomness);
             self.pow(pow_bits);
         }
     }
@@ -352,10 +279,10 @@ where
     pub fn pow(&mut self, bits: usize) {
         if bits > 0 {
             // Step 1: Sample a 32-byte challenge (typically used as PoW preimage)
-            self.sample(32, "pow-queries");
+            self.sample(32, Sample::PowQueries);
 
             // Step 2: Observe an 8-byte nonce in response
-            self.observe(8, "pow-nonce");
+            self.observe(8, Observe::PowNonce);
         }
     }
 }

@@ -1543,7 +1543,7 @@ mod tests {
         // Domain separator setup
         // - Initialize domain separator with a context label
         // - Add sumcheck
-        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
         domsep.add_sumcheck(&SumcheckParams {
             rounds: folding_factor,
             pow_bits,
@@ -1627,7 +1627,7 @@ mod tests {
 
         // Setup the domain separator
         // - Add sumcheck
-        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
         domsep.add_sumcheck(&SumcheckParams {
             rounds: folding_factor,
             pow_bits,
@@ -1764,7 +1764,7 @@ mod tests {
 
         // Setup the domain separator
         // - Add sumcheck (register interactions with the transcript for each round)
-        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
         domsep.add_sumcheck(&SumcheckParams {
             rounds: folding_factor,
             pow_bits,
@@ -1864,7 +1864,7 @@ mod tests {
 
         // No domain separator logic needed since we don't fold
         // - Add sumcheck (register interactions with the transcript for each round)
-        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
         domsep.add_sumcheck(&SumcheckParams {
             rounds: folding_factor,
             pow_bits,
@@ -2098,7 +2098,7 @@ mod tests {
 
         // Create domain separator for Fiat-Shamir transcript simulation
         // - Add sumcheck (register expected Fiat-Shamir interactions for each round)
-        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
         domsep.add_sumcheck(&SumcheckParams {
             rounds: folding_factor,
             pow_bits,
@@ -2307,14 +2307,14 @@ mod tests {
             let mut prover_ext = SumcheckSingle::<F, EF4>::from_extension_coeffs(ext_cl, &statement, combination_randomness);
 
             // Use a single shared DomainSeparator and clone it (identical transcript!)
-            let mut domsep_base: DomainSeparator<EF4, F> = DomainSeparator::new("tag");
+            let mut domsep_base: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
             domsep_base.add_sumcheck(&SumcheckParams {
                 rounds: folding_rounds,
                 pow_bits: 0,
                 univariate_skip: None,
             });
 
-            let mut domsep_ext:DomainSeparator<EF4, F> = DomainSeparator::new("tag");
+            let mut domsep_ext:DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
             domsep_ext.add_sumcheck(&SumcheckParams {
                 rounds: folding_rounds,
                 pow_bits: 0,
@@ -2500,7 +2500,7 @@ mod tests {
 
         // Create domain separator for Fiat-Shamir transcript simulation
         // - Add sumcheck
-        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("test");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
         domsep.add_sumcheck(&SumcheckParams {
             rounds: folding_factor,
             pow_bits,
@@ -2660,7 +2660,7 @@ mod tests {
         let folding_factor = 10;
         let pow_bits = 0;
 
-        let mut domsep = DomainSeparator::new("test_sumcheck_skip_7_of_10");
+        let mut domsep = DomainSeparator::new(vec![]);
         domsep.add_sumcheck(&SumcheckParams {
             rounds: folding_factor,
             pow_bits,

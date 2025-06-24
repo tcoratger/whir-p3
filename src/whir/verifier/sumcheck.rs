@@ -159,7 +159,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::domain_separator::{DomainSeparator, SumcheckParams},
+        fiat_shamir::{
+            domain_separator::{DomainSeparator, SumcheckParams},
+            pattern::{Observe, Sample},
+        },
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
@@ -291,7 +294,7 @@ mod tests {
 
         // Set up domain separator
         // - Add sumcheck
-        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("tag");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
         domsep.add_sumcheck(&SumcheckParams {
             rounds: folding_factor,
             pow_bits,
@@ -437,13 +440,13 @@ mod tests {
         // - 1 skipped round: 2^k_skip + 1 values
         // - remaining rounds: 3 values each
         // -------------------------------------------------------------
-        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new("test");
-        domsep.observe(1 << (K_SKIP + 1), "skip");
-        domsep.sample(1, "skip");
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
+        domsep.observe(1 << (K_SKIP + 1), Observe::Mock);
+        domsep.sample(1, Sample::Mock);
 
         for _ in 0..(NUM_VARS - K_SKIP) {
-            domsep.observe(3, "round");
-            domsep.sample(1, "round");
+            domsep.observe(3, Observe::Mock);
+            domsep.sample(1, Sample::Mock);
         }
 
         let mut rng = SmallRng::seed_from_u64(1);

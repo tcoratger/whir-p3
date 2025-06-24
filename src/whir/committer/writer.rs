@@ -188,7 +188,7 @@ mod tests {
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new("🌪️");
+        let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
         domainsep.commit_statement::<_, _, _, 8>(&params);
         domainsep.add_whir_proof::<_, _, _, 8>(&params);
 
@@ -268,7 +268,7 @@ mod tests {
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
 
-        let mut domainsep = DomainSeparator::new("🌪️");
+        let mut domainsep = DomainSeparator::new(vec![]);
         domainsep.commit_statement::<_, _, _, 8>(&params);
 
         let mut rng = SmallRng::seed_from_u64(1);
@@ -324,7 +324,7 @@ mod tests {
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        let mut domainsep = DomainSeparator::new("🌪️");
+        let mut domainsep = DomainSeparator::new(vec![]);
         domainsep.commit_statement::<_, _, _, 8>(&params);
 
         let mut rng = SmallRng::seed_from_u64(1);
