@@ -3,18 +3,20 @@
 Often, the polynomial used in the PIOP is represented by its evaluations on the boolean hypercube.
 It turns out we also need this representation in the Sumcheck of WHIR.
 
-When the prover must "Reed Solomon" encode a multilinear polynomial P(x_1, ..., x_n),
-i.e compute P(α, α^2, α^4, ..., α^(2^(n-1))) for every α such that α^(2^(n + log_inv_rate)) = 1,
+When the prover must "Reed Solomon" encode a multilinear polynomial `P(x_1, ..., x_n)`,
+i.e compute `P(α, α², α⁴, ..., α^(2^(n-1)))` for every `α` such that `α^(2^(n + log_inv_rate)) = 1`,
 the more straightforward approach is to convert the polynomial represented by its evals to
 the coefficients representation (canonical basis), and then to apply a well known DFT algorithm.
 
-However this approach is not the most efficient because the conversion evals -> coeffs is n.log(n).
+However this approach is not the most efficient because the conversion evals -> coeffs is `n * log(n)`.
 
 To avoid dealing with the coeffs, we can directly perform the DFT on the evals, using the fact that:
+```text
+    P(α, α², α⁴, ..., α^(2^(n-1))) = (1-α) * P(0, α², α⁴, ..., α^(2^(n-1))) + α * P(1, α², α⁴, ..., α^(2^(n-1)))
+                = P(0, α², α⁴, ..., α^(2^(n-1))) + α * (P(1, α², α⁴, ..., α^(2^(n-1))) - P(0, α², α⁴, ..., α^(2^(n-1))))
+```
 
-P(α, α^2, α^4, ..., α^(2^(n-1))) = (1 - α).P(0, α^2, α^4, ..., α^(2^(n-1))) + α.P(1, α^2, α^4, ..., α^(2^(n-1)))
-
-As a result, the algorithm we use is not the standard one.
+As a result, the algorithm we use is not the standard one and the twiddles look quite different.
 
 Credits: https://github.com/Plonky3/Plonky3 (radix_2_small_batch.rs)
 (the main difference is in `TwiddleFreeButterfly` and `DitButterfly`)
@@ -36,6 +38,10 @@ use p3_util::{log2_strict_usize, reverse_slice_index_bits};
 /// The number of layers to compute in each parallelization.
 const LAYERS_PER_GROUP: usize = 3;
 
+/// A specialized Discrete Fourier Transform (DFT) implementation for a univariate polynomial
+/// stored as a set of multivariate evaluations.
+///
+/// This struct provides efficient DFT computation conversion to coefficient representation.
 #[derive(Default, Clone, Debug)]
 pub struct EvalsDft<F> {
     twiddles: RefCell<Vec<Vec<F>>>,
