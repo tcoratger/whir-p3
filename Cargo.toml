@@ -41,13 +41,10 @@ rayon = { version = "1.0", optional = true }
 p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
-p3-monty-31 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-merkle-tree = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-commit = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
-p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
-p3-blake3 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-dft = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
@@ -66,12 +63,7 @@ tracing-subscriber = { version = "0.3.17", default-features = false, features = 
     "env-filter",
 ] }
 rand = "0.9"
-zeroize = { version = "1.8" }
-blake3 = "1.5.4"
-num-bigint = "0.4"
 clap = { version = "4.4.17", features = ["derive"] }
-bincode = { version = "2.0", features = ["serde"] }
-bytemuck = { version = "1.18", features = ["extern_crate_alloc"] }
 
 [dev-dependencies]
 criterion = "0.6"

@@ -16,7 +16,7 @@ pub type RoundMerkleTree<F, EF, W, const DIGEST_ELEMS: usize> =
 /// including the polynomial itself, the Merkle tree used for commitment,
 /// and out-of-domain (OOD) evaluations.
 #[derive(Debug)]
-pub struct Witness<EF, F, W, M, const DIGEST_ELEMS: usize>
+pub struct Witness<EF, F, M, const DIGEST_ELEMS: usize>
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -24,7 +24,7 @@ where
     /// The committed polynomial in evaluations form.
     pub polynomial: EvaluationsList<F>,
     /// Prover data of the Merkle tree.
-    pub prover_data: MerkleTree<F, W, M, DIGEST_ELEMS>,
+    pub prover_data: MerkleTree<F, F, M, DIGEST_ELEMS>,
     /// Out-of-domain challenge points used for polynomial verification.
     pub ood_points: Vec<EF>,
     /// The corresponding polynomial evaluations at the OOD challenge points.

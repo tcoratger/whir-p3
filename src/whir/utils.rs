@@ -1,10 +1,10 @@
 use itertools::Itertools;
-use p3_challenger::{CanObserve, CanSample};
-use p3_field::{ExtensionField, PrimeField64, TwoAdicField};
+use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use tracing::instrument;
 
 use crate::{
-    fiat_shamir::{errors::ProofResult, prover::ProverState, unit::Unit},
+    fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::multilinear::MultilinearPoint,
 };
 
@@ -26,15 +26,15 @@ pub const fn workload_size<T: Sized>() -> usize {
 /// - Computes the folded domain size: `folded_domain_size = domain_size / 2^folding_factor`.
 /// - Derives query indices from random transcript bytes.
 /// - Deduplicates indices while preserving order.
-pub fn get_challenge_stir_queries<Challenger, W>(
+pub fn get_challenge_stir_queries<Challenger, F>(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
     challenger: &mut Challenger,
 ) -> ProofResult<Vec<usize>>
 where
-    Challenger: CanObserve<W> + CanSample<W>,
-    W: Unit + Default + Copy,
+    F: Field,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     let folded_domain_size = domain_size >> folding_factor;
     // Compute required bytes per index: `domain_size_bytes = ceil(log2(folded_domain_size) / 8)`
@@ -47,10 +47,14 @@ where
     Ok(queries
         .chunks_exact(domain_size_bytes)
         .map(|chunk| {
-            chunk
-                .iter()
-                .fold(0usize, |acc, &b| (acc << 8) | W::to_u8(b) as usize)
-                % folded_domain_size
+            chunk.iter().fold(0usize, |acc, &b| {
+                let mut raw_bytes = b.into_bytes().into_iter().collect_vec();
+
+                // Pad with zeros at the end if needed
+                raw_bytes.resize(8, 0);
+
+                (acc << 8) | u64::from_be_bytes(raw_bytes.try_into().unwrap()) as usize
+            }) % folded_domain_size
         })
         .sorted_unstable()
         .dedup()
@@ -61,25 +65,26 @@ where
 ///
 /// This should be used on the prover side.
 #[instrument(skip_all)]
-pub fn sample_ood_points<F, EF, E, Challenger, W>(
-    prover_state: &mut ProverState<EF, F, Challenger, W>,
+pub fn sample_ood_points<F, EF, E, Challenger, const DIGEST_ELEMS: usize>(
+    prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
     num_samples: usize,
     num_variables: usize,
     evaluate_fn: E,
 ) -> (Vec<EF>, Vec<EF>)
 where
-    F: PrimeField64 + TwoAdicField,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     E: Fn(&MultilinearPoint<EF>) -> EF,
-    W: Unit + Default + Copy,
-    Challenger: CanObserve<W> + CanSample<W>,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     let mut ood_points = EF::zero_vec(num_samples);
     let mut ood_answers = Vec::with_capacity(num_samples);
 
     if num_samples > 0 {
         // Generate OOD points from ProverState randomness
-        prover_state.sample_scalars(&mut ood_points);
+        for ood_point in &mut ood_points {
+            *ood_point = prover_state.challenger.sample_algebra_element();
+        }
 
         // Evaluate the function at each OOD point
         ood_answers.extend(ood_points.iter().map(|ood_point| {
@@ -88,9 +93,6 @@ where
                 num_variables,
             ))
         }));
-
-        // Commit the answers to the narg_string
-        prover_state.add_scalars(&ood_answers);
     }
 
     (ood_points, ood_answers)

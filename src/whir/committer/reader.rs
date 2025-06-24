@@ -1,11 +1,11 @@
-use std::ops::Deref;
+use std::{fmt::Debug, ops::Deref};
 
-use p3_challenger::{CanObserve, CanSample};
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_symmetric::Hash;
 
 use crate::{
-    fiat_shamir::{errors::ProofResult, unit::Unit, verifier::VerifierState},
+    fiat_shamir::{errors::ProofResult, verifier::VerifierState},
     whir::{
         parameters::WhirConfig,
         statement::{constraint::Constraint, weights::Weights},
@@ -60,19 +60,19 @@ where
     /// - The prover's claimed answers at those points.
     ///
     /// This is used to verify consistency of polynomial commitments in WHIR.
-    pub fn parse<EF, Challenger, W, const DIGEST_ELEMS: usize>(
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
+    pub fn parse<EF, Challenger, const DIGEST_ELEMS: usize>(
+        verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
         num_variables: usize,
         ood_samples: usize,
-    ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>>
+        round_index: usize,
+    ) -> ProofResult<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>>
     where
-        F: TwoAdicField + PrimeField64,
+        F: TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
-        W: Unit + Default + Copy,
-        Challenger: CanObserve<W> + CanSample<W>,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         // Read the Merkle root hash committed by the prover.
-        let root = verifier_state.read_digest()?;
+        let root = verifier_state.proof_data.round_merkle_root[round_index].into();
 
         // Allocate space for the OOD challenge points and answers.
         let mut ood_points = EF::zero_vec(ood_samples);
@@ -81,10 +81,12 @@ where
         // If there are any OOD samples expected, read them from the transcript.
         if ood_samples > 0 {
             // Read challenge points chosen by Fiat-Shamir.
-            verifier_state.sample_scalars(&mut ood_points)?;
+            for ood_point in &mut ood_points {
+                *ood_point = verifier_state.challenger.sample_algebra_element();
+            }
 
             // Read the prover's claimed evaluations at those points.
-            verifier_state.fill_next_scalars(&mut ood_answers)?;
+            ood_answers.clone_from(&verifier_state.proof_data.round_ood_answers[round_index]);
         }
 
         // Return a structured representation of the commitment.
@@ -119,28 +121,27 @@ where
 /// The `CommitmentReader` wraps the WHIR configuration and provides a convenient
 /// method to extract a `ParsedCommitment` by reading values from the Fiat-Shamir transcript.
 #[derive(Debug)]
-pub struct CommitmentReader<'a, EF, F, H, C, PowStrategy, Challenger, W>(
+pub struct CommitmentReader<'a, EF, F, H, C, Challenger>(
     /// Reference to the verifier’s configuration object.
     ///
     /// This contains all parameters needed to parse the commitment,
     /// including how many out-of-domain samples are expected.
-    &'a WhirConfig<EF, F, H, C, PowStrategy, Challenger, W>,
+    &'a WhirConfig<EF, F, H, C, Challenger>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, PS, Challenger, W> CommitmentReader<'a, EF, F, H, C, PS, Challenger, W>
+impl<'a, EF, F, H, C, Challenger> CommitmentReader<'a, EF, F, H, C, Challenger>
 where
-    F: Field + TwoAdicField + PrimeField64,
+    F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    W: Unit + Default + Copy,
-    Challenger: CanObserve<W> + CanSample<W>,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     /// Create a new commitment reader from a WHIR configuration.
     ///
     /// This allows the verifier to parse a commitment from the Fiat-Shamir transcript.
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, PS, Challenger, W>) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, Challenger>) -> Self {
         Self(params)
     }
 
@@ -150,23 +151,23 @@ where
     /// expected for verifying the committed polynomial.
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<'_, EF, F, Challenger, W>,
-    ) -> ProofResult<ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>> {
-        ParsedCommitment::<_, Hash<F, W, DIGEST_ELEMS>>::parse(
+        verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
+    ) -> ProofResult<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>> {
+        ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
             verifier_state,
             self.mv_parameters.num_variables,
             self.committment_ood_samples,
+            0,
         )
     }
 }
 
-impl<EF, F, H, C, PowStrategy, Challenger, W> Deref
-    for CommitmentReader<'_, EF, F, H, C, PowStrategy, Challenger, W>
+impl<EF, F, H, C, Challenger> Deref for CommitmentReader<'_, EF, F, H, C, Challenger>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, PowStrategy, Challenger, W>;
+    type Target = WhirConfig<EF, F, H, C, Challenger>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -175,29 +176,27 @@ where
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
-    use p3_challenger::HashChallenger;
+    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
+    use p3_challenger::DuplexChallenger;
     use p3_field::PrimeCharacteristicRing;
-    use p3_keccak::Keccak256Hash;
-    use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
-    use rand::Rng;
+    use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
+    use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
     use crate::{
         dft::EvalsDft,
-        fiat_shamir::pow::blake3::Blake3PoW,
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
         poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-        whir::{DomainSeparator, W, committer::writer::CommitmentWriter},
+        whir::{DomainSeparator, committer::writer::CommitmentWriter},
     };
 
     type F = BabyBear;
-    type ByteHash = Keccak256Hash;
-    type FieldHash = SerializingHasher<ByteHash>;
-    type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-    type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
+    type Perm = Poseidon2BabyBear<16>;
+    type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
+    type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
+    type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
     /// Constructs a WHIR configuration and RNG for test purposes.
     ///
@@ -208,17 +207,17 @@ mod tests {
         num_variables: usize,
         ood_samples: usize,
     ) -> (
-        WhirConfig<BabyBear, BabyBear, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>,
+        WhirConfig<BabyBear, BabyBear, MyHash, MyCompress, MyChallenger>,
         rand::rngs::ThreadRng,
     ) {
-        // Initialize the underlying byte-level hash function (e.g., Keccak256).
-        let byte_hash = ByteHash {};
+        let mut rng = SmallRng::seed_from_u64(1);
+        let perm = Perm::new_from_rng_128(&mut rng);
 
         // Wrap the byte hash in a field-level serializer for Merkle hashing.
-        let field_hash = FieldHash::new(byte_hash);
+        let merkle_hash = MyHash::new(perm.clone());
 
         // Set up the Merkle compression function using the same byte hash.
-        let compress = MyCompress::new(byte_hash);
+        let merkle_compress = MyCompress::new(perm);
 
         // Define core protocol parameters for WHIR.
         let whir_params = ProtocolParameters {
@@ -227,8 +226,8 @@ mod tests {
             pow_bits: 10,
             rs_domain_initial_reduction_factor: 1,
             folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
-            merkle_hash: field_hash,
-            merkle_compress: compress,
+            merkle_hash,
+            merkle_compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
             univariate_skip: false,
@@ -259,11 +258,13 @@ mod tests {
         let dft = EvalsDft::default();
 
         // Set up Fiat-Shamir transcript and commit the protocol parameters.
-        let mut ds = DomainSeparator::new("test");
-        ds.commit_statement::<_, _, _, _, 32>(&params);
+        let mut ds = DomainSeparator::new(vec![]);
+        ds.commit_statement::<_, _, _, 8>(&params);
 
         // Create the prover state from the transcript.
-        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut rng = SmallRng::seed_from_u64(1);
+        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
@@ -272,11 +273,11 @@ mod tests {
             .unwrap();
 
         // Simulate verifier state using transcript view of prover’s nonce string.
-        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(prover_state.proof_data.clone(), challenger);
 
         // Create a commitment reader and parse the commitment from verifier state.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<32>(&mut verifier_state).unwrap();
+        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
 
         // Ensure the Merkle root matches between prover and parsed result.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -299,11 +300,12 @@ mod tests {
         let dft = EvalsDft::default();
 
         // Begin the transcript and commit to the statement parameters.
-        let mut ds = DomainSeparator::new("test");
-        ds.commit_statement::<_, _, _, _, 32>(&params);
+        let mut ds = DomainSeparator::new(vec![]);
+        ds.commit_statement::<_, _, _, 8>(&params);
 
         // Generate the prover state from the transcript.
-        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut rng = SmallRng::seed_from_u64(1);
+        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial to obtain the witness.
@@ -312,11 +314,11 @@ mod tests {
             .unwrap();
 
         // Initialize the verifier view of the transcript.
-        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(prover_state.proof_data.clone(), challenger);
 
         // Parse the commitment from verifier transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<32>(&mut verifier_state).unwrap();
+        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
 
         // Validate the Merkle root matches.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -342,11 +344,13 @@ mod tests {
         let dft = EvalsDft::default();
 
         // Start a new transcript and commit to the public parameters.
-        let mut ds = DomainSeparator::new("test");
-        ds.commit_statement::<_, _, _, _, 32>(&params);
+        let mut ds = DomainSeparator::new(vec![]);
+        ds.commit_statement::<_, _, _, 8>(&params);
 
         // Create prover state from the transcript.
-        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut rng = SmallRng::seed_from_u64(1);
+        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain the witness.
@@ -355,11 +359,11 @@ mod tests {
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
-        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(prover_state.proof_data.clone(), challenger);
 
         // Parse the commitment from verifier’s transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<32>(&mut verifier_state).unwrap();
+        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
 
         // Check Merkle root and OOD answers match.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -380,20 +384,22 @@ mod tests {
         let dft = EvalsDft::default();
 
         // Set up Fiat-Shamir transcript and commit to the public parameters.
-        let mut ds = DomainSeparator::new("oods_constraints_test");
-        ds.commit_statement::<_, _, _, _, 32>(&params);
+        let mut ds = DomainSeparator::new(vec![]);
+        ds.commit_statement::<_, _, _, 8>(&params);
 
         // Generate prover and verifier transcript states.
-        let challenger = MyChallenger::new(vec![], Keccak256Hash);
+        let mut rng = SmallRng::seed_from_u64(1);
+        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+
         let mut prover_state = ds.to_prover_state(challenger.clone());
         let _ = committer
             .commit(&dft, &mut prover_state, polynomial)
             .unwrap();
-        let mut verifier_state = ds.to_verifier_state(prover_state.narg_string(), challenger);
+        let mut verifier_state = ds.to_verifier_state(prover_state.proof_data.clone(), challenger);
 
         // Parse the commitment from the verifier’s state.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<32>(&mut verifier_state).unwrap();
+        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
 
         // Extract constraints from parsed commitment.
         let constraints = parsed.oods_constraints();

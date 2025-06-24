@@ -1,18 +1,17 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
-use p3_baby_bear::BabyBear;
-use p3_blake3::Blake3;
-use p3_challenger::HashChallenger;
+use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
+use p3_challenger::DuplexChallenger;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
-use p3_keccak::Keccak256Hash;
-use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
+use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
 use prover::Prover;
+use rand::{SeedableRng, rngs::SmallRng};
 use statement::{Statement, weights::Weights};
 use verifier::Verifier;
 
 use crate::{
     dft::EvalsDft,
-    fiat_shamir::{domain_separator::DomainSeparator, pow::blake3::Blake3PoW},
+    fiat_shamir::domain_separator::DomainSeparator,
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },
@@ -29,11 +28,11 @@ pub mod verifier;
 
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
-type ByteHash = Blake3;
-type FieldHash = SerializingHasher<ByteHash>;
-type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
-type W = u8;
+type Perm = Poseidon2BabyBear<16>;
+
+type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
+type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
+type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
 /// Run a complete WHIR proof lifecycle.
 ///
@@ -58,9 +57,11 @@ pub fn make_whir_things(
     let num_coeffs = 1 << num_variables;
 
     // Create hash and compression functions for the Merkle tree
-    let byte_hash = ByteHash {};
-    let merkle_hash = FieldHash::new(byte_hash);
-    let merkle_compress = MyCompress::new(byte_hash);
+    let mut rng = SmallRng::seed_from_u64(1);
+    let perm = Perm::new_from_rng_128(&mut rng);
+
+    let merkle_hash = MyHash::new(perm.clone());
+    let merkle_compress = MyCompress::new(perm);
 
     // Set the multivariate polynomial parameters
     let mv_params = MultivariateParameters::<EF>::new(num_variables);
@@ -80,10 +81,7 @@ pub fn make_whir_things(
     };
 
     // Combine protocol and polynomial parameters into a single config
-    let params = WhirConfig::<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, W>::new(
-        mv_params,
-        whir_params,
-    );
+    let params = WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
 
     // Define a polynomial with all coefficients set to 1
     let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]).to_evaluations();
@@ -112,11 +110,12 @@ pub fn make_whir_things(
     statement.add_constraint(linear_claim_weight, sum);
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
-    let mut domainsep = DomainSeparator::new("🌪️");
-    domainsep.commit_statement::<_, _, _, _, 32>(&params);
-    domainsep.add_whir_proof::<_, _, _, _, 32>(&params);
+    let mut domainsep = DomainSeparator::new(vec![]);
+    domainsep.commit_statement::<_, _, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, _, 32>(&params);
 
-    let challenger = MyChallenger::new(vec![], Keccak256Hash);
+    let mut rng = SmallRng::seed_from_u64(1);
+    let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
     // Initialize the Merlin transcript from the IOPattern
     let mut prover_state = domainsep.to_prover_state(challenger.clone());
@@ -146,11 +145,12 @@ pub fn make_whir_things(
     let verifier = Verifier::new(&params);
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    let mut verifier_state = domainsep.to_verifier_state(prover_state.narg_string(), challenger);
+    let mut verifier_state =
+        domainsep.to_verifier_state(prover_state.proof_data.clone(), challenger);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
-        .parse_commitment::<32>(&mut verifier_state)
+        .parse_commitment::<8>(&mut verifier_state)
         .unwrap();
 
     // Verify that the generated proof satisfies the statement
