@@ -190,10 +190,10 @@ fn dit_layer_par<F: Field>(mat: &mut RowMajorMatrixViewMut<'_, F>, twiddles: &[F
                 .for_each(|(hi_chunk, lo_chunk)| {
                     if ind == 0 {
                         // The first pair doesn't require a twiddle factor
-                        TwiddleFreeButterfly.apply_to_rows(hi_chunk, lo_chunk);
+                        TwiddleFreeEvalsButterfly.apply_to_rows(hi_chunk, lo_chunk);
                     } else {
                         // Apply DIT butterfly using the twiddle factor at index `ind - 1`
-                        DitButterfly(twiddles[ind]).apply_to_rows(hi_chunk, lo_chunk);
+                        DitEvalsButterfly(twiddles[ind]).apply_to_rows(hi_chunk, lo_chunk);
                     }
                 });
         });
@@ -245,7 +245,7 @@ fn dit_layer<F: Field>(vec: &mut [F], twiddles: &[F]) {
             let (hi_chunk, lo_chunk) = block.split_at_mut(half_block_size);
 
             // Apply DIT butterfly
-            DitButterfly(twiddle).apply_to_rows(hi_chunk, lo_chunk);
+            DitEvalsButterfly(twiddle).apply_to_rows(hi_chunk, lo_chunk);
         });
 }
 
@@ -297,21 +297,24 @@ fn dit_layer_par_double<F: Field>(
                         // Do 2 layers of the DIT FFT butterfly network at once.
                         if ind == 0 {
                             // Layer 0:
-                            TwiddleFreeButterfly.apply_to_rows(hi_hi_chunk, lo_hi_chunk);
-                            TwiddleFreeButterfly.apply_to_rows(hi_lo_chunk, lo_lo_chunk);
+                            TwiddleFreeEvalsButterfly.apply_to_rows(hi_hi_chunk, lo_hi_chunk);
+                            TwiddleFreeEvalsButterfly.apply_to_rows(hi_lo_chunk, lo_lo_chunk);
 
                             // Layer 1:
-                            TwiddleFreeButterfly.apply_to_rows(hi_hi_chunk, hi_lo_chunk);
-                            DitButterfly(twiddles_1[1]).apply_to_rows(lo_hi_chunk, lo_lo_chunk);
+                            TwiddleFreeEvalsButterfly.apply_to_rows(hi_hi_chunk, hi_lo_chunk);
+                            DitEvalsButterfly(twiddles_1[1])
+                                .apply_to_rows(lo_hi_chunk, lo_lo_chunk);
                         } else {
                             // Layer 0:
-                            DitButterfly(twiddles_0[ind]).apply_to_rows(hi_hi_chunk, lo_hi_chunk);
-                            DitButterfly(twiddles_0[ind]).apply_to_rows(hi_lo_chunk, lo_lo_chunk);
+                            DitEvalsButterfly(twiddles_0[ind])
+                                .apply_to_rows(hi_hi_chunk, lo_hi_chunk);
+                            DitEvalsButterfly(twiddles_0[ind])
+                                .apply_to_rows(hi_lo_chunk, lo_lo_chunk);
 
                             // Layer 1:
-                            DitButterfly(twiddles_1[2 * ind])
+                            DitEvalsButterfly(twiddles_1[2 * ind])
                                 .apply_to_rows(hi_hi_chunk, hi_lo_chunk);
-                            DitButterfly(twiddles_1[2 * ind + 1])
+                            DitEvalsButterfly(twiddles_1[2 * ind + 1])
                                 .apply_to_rows(lo_hi_chunk, lo_lo_chunk);
                         }
                     });
@@ -373,56 +376,56 @@ fn dit_layer_par_triple<F: Field>(
                         // Do 3 layers of the DIT FFT butterfly network at once.
                         if ind == 0 {
                             // Layer 0:
-                            TwiddleFreeButterfly.apply_to_rows(hi_hi_hi_chunk, lo_hi_hi_chunk);
-                            TwiddleFreeButterfly.apply_to_rows(hi_hi_lo_chunk, lo_hi_lo_chunk);
-                            TwiddleFreeButterfly.apply_to_rows(hi_lo_hi_chunk, lo_lo_hi_chunk);
-                            TwiddleFreeButterfly.apply_to_rows(hi_lo_lo_chunk, lo_lo_lo_chunk);
+                            TwiddleFreeEvalsButterfly.apply_to_rows(hi_hi_hi_chunk, lo_hi_hi_chunk);
+                            TwiddleFreeEvalsButterfly.apply_to_rows(hi_hi_lo_chunk, lo_hi_lo_chunk);
+                            TwiddleFreeEvalsButterfly.apply_to_rows(hi_lo_hi_chunk, lo_lo_hi_chunk);
+                            TwiddleFreeEvalsButterfly.apply_to_rows(hi_lo_lo_chunk, lo_lo_lo_chunk);
 
                             // Layer 1:
-                            TwiddleFreeButterfly.apply_to_rows(hi_hi_hi_chunk, hi_lo_hi_chunk);
-                            TwiddleFreeButterfly.apply_to_rows(hi_hi_lo_chunk, hi_lo_lo_chunk);
-                            DitButterfly(twiddles_1[1])
+                            TwiddleFreeEvalsButterfly.apply_to_rows(hi_hi_hi_chunk, hi_lo_hi_chunk);
+                            TwiddleFreeEvalsButterfly.apply_to_rows(hi_hi_lo_chunk, hi_lo_lo_chunk);
+                            DitEvalsButterfly(twiddles_1[1])
                                 .apply_to_rows(lo_hi_hi_chunk, lo_lo_hi_chunk);
-                            DitButterfly(twiddles_1[1])
+                            DitEvalsButterfly(twiddles_1[1])
                                 .apply_to_rows(lo_hi_lo_chunk, lo_lo_lo_chunk);
 
                             // Layer 2:
-                            TwiddleFreeButterfly.apply_to_rows(hi_hi_hi_chunk, hi_hi_lo_chunk);
-                            DitButterfly(twiddles_2[1])
+                            TwiddleFreeEvalsButterfly.apply_to_rows(hi_hi_hi_chunk, hi_hi_lo_chunk);
+                            DitEvalsButterfly(twiddles_2[1])
                                 .apply_to_rows(hi_lo_hi_chunk, hi_lo_lo_chunk);
-                            DitButterfly(twiddles_2[2])
+                            DitEvalsButterfly(twiddles_2[2])
                                 .apply_to_rows(lo_hi_hi_chunk, lo_hi_lo_chunk);
-                            DitButterfly(twiddles_2[3])
+                            DitEvalsButterfly(twiddles_2[3])
                                 .apply_to_rows(lo_lo_hi_chunk, lo_lo_lo_chunk);
                         } else {
                             // Layer 0:
-                            DitButterfly(twiddles_0[ind])
+                            DitEvalsButterfly(twiddles_0[ind])
                                 .apply_to_rows(hi_hi_hi_chunk, lo_hi_hi_chunk);
-                            DitButterfly(twiddles_0[ind])
+                            DitEvalsButterfly(twiddles_0[ind])
                                 .apply_to_rows(hi_hi_lo_chunk, lo_hi_lo_chunk);
-                            DitButterfly(twiddles_0[ind])
+                            DitEvalsButterfly(twiddles_0[ind])
                                 .apply_to_rows(hi_lo_hi_chunk, lo_lo_hi_chunk);
-                            DitButterfly(twiddles_0[ind])
+                            DitEvalsButterfly(twiddles_0[ind])
                                 .apply_to_rows(hi_lo_lo_chunk, lo_lo_lo_chunk);
 
                             // Layer 1:
-                            DitButterfly(twiddles_1[2 * ind])
+                            DitEvalsButterfly(twiddles_1[2 * ind])
                                 .apply_to_rows(hi_hi_hi_chunk, hi_lo_hi_chunk);
-                            DitButterfly(twiddles_1[2 * ind])
+                            DitEvalsButterfly(twiddles_1[2 * ind])
                                 .apply_to_rows(hi_hi_lo_chunk, hi_lo_lo_chunk);
-                            DitButterfly(twiddles_1[2 * ind + 1])
+                            DitEvalsButterfly(twiddles_1[2 * ind + 1])
                                 .apply_to_rows(lo_hi_hi_chunk, lo_lo_hi_chunk);
-                            DitButterfly(twiddles_1[2 * ind + 1])
+                            DitEvalsButterfly(twiddles_1[2 * ind + 1])
                                 .apply_to_rows(lo_hi_lo_chunk, lo_lo_lo_chunk);
 
                             // Layer 2:
-                            DitButterfly(twiddles_2[4 * ind])
+                            DitEvalsButterfly(twiddles_2[4 * ind])
                                 .apply_to_rows(hi_hi_hi_chunk, hi_hi_lo_chunk);
-                            DitButterfly(twiddles_2[4 * ind + 1])
+                            DitEvalsButterfly(twiddles_2[4 * ind + 1])
                                 .apply_to_rows(hi_lo_hi_chunk, hi_lo_lo_chunk);
-                            DitButterfly(twiddles_2[4 * ind + 2])
+                            DitEvalsButterfly(twiddles_2[4 * ind + 2])
                                 .apply_to_rows(lo_hi_hi_chunk, lo_hi_lo_chunk);
-                            DitButterfly(twiddles_2[4 * ind + 3])
+                            DitEvalsButterfly(twiddles_2[4 * ind + 3])
                                 .apply_to_rows(lo_lo_hi_chunk, lo_lo_lo_chunk);
                         }
                     },
@@ -482,9 +485,9 @@ fn zip_par_iter_vec<I: IndexedParallelIterator>(
 ///   - output_2 = 2.x1 - x2
 /// ```
 #[derive(Copy, Clone, Debug)]
-pub struct TwiddleFreeButterfly;
+pub struct TwiddleFreeEvalsButterfly;
 
-impl<F: Field> Butterfly<F> for TwiddleFreeButterfly {
+impl<F: Field> Butterfly<F> for TwiddleFreeEvalsButterfly {
     #[inline]
     fn apply<PF: PackedField<Scalar = F>>(&self, x_1: PF, x_2: PF) -> (PF, PF) {
         (x_2, x_1.double() - x_2)
@@ -496,14 +499,14 @@ impl<F: Field> Butterfly<F> for TwiddleFreeButterfly {
 /// Used in the *input-ordering* variant of NTT/FFT.
 /// This butterfly computes:
 /// ```text
-///   output_1 = (1 - twiddle).x1 + twiddle.x2
-///   output_2 = (1 + twiddle).x1 - x2 * twiddle
+///   output_1 = (1 - twiddle) * x1 + twiddle * x2 = x1 + twiddle * (x2 - x1)
+///   output_2 = (1 + twiddle) * x1 - twiddle * x2 = x1 - twiddle * (x2 - x1)
 /// ```
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
-pub struct DitButterfly<F>(pub F);
+pub struct DitEvalsButterfly<F>(pub F);
 
-impl<F: Field> Butterfly<F> for DitButterfly<F> {
+impl<F: Field> Butterfly<F> for DitEvalsButterfly<F> {
     #[inline]
     fn apply<PF: PackedField<Scalar = F>>(&self, x_1: PF, x_2: PF) -> (PF, PF) {
         let x_2_twiddle = (x_2 - x_1) * self.0;
