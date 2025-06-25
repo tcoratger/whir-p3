@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_util::log2_ceil_usize;
 use tracing::instrument;
 
 use crate::{
@@ -20,12 +21,20 @@ pub const fn workload_size<T: Sized>() -> usize {
     L1_CACHE_SIZE / size_of::<T>()
 }
 
-/// Generates a list of unique challenge queries within a folded domain.
+/// Samples a list of unique query indices from a folded evaluation domain, using transcript randomness.
 ///
-/// Given a `domain_size` and `folding_factor`, this function:
-/// - Computes the folded domain size: `folded_domain_size = domain_size / 2^folding_factor`.
-/// - Derives query indices from random transcript bytes.
-/// - Deduplicates indices while preserving order.
+/// This function is used to select random query locations for verifying proximity to a folded codeword.
+/// The folding reduces the domain size exponentially (e.g. by 2^folding_factor), so we sample indices
+/// in the reduced "folded" domain.
+///
+/// ## Parameters
+/// - `domain_size`: The size of the original evaluation domain (e.g., 2^22).
+/// - `folding_factor`: The number of folding rounds applied (e.g., k = 1 means domain halves).
+/// - `num_queries`: The number of query *indices* we want to obtain.
+/// - `challenger`: A Fiat–Shamir transcript used to sample randomness deterministically.
+///
+/// ## Returns
+/// A sorted and deduplicated list of random query indices in the folded domain.
 pub fn get_challenge_stir_queries<Challenger, F>(
     domain_size: usize,
     folding_factor: usize,
@@ -36,26 +45,27 @@ where
     F: Field,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
+    // Compute the number of indices in the folded domain: domain_size / 2^folding_factor.
     let folded_domain_size = domain_size >> folding_factor;
-    // Compute required bytes per index: `domain_size_bytes = ceil(log2(folded_domain_size) / 8)`
-    let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
-    // Allocate space for query bytes
-    let queries = challenger.sample_vec(num_queries * domain_size_bytes);
+    // Determine how many bits are needed to represent any index in [0, folded_domain_size).
+    let domain_size_bits = log2_ceil_usize(folded_domain_size);
 
-    // Convert bytes into indices in **one efficient pass**
+    // Determine how many *bytes* are needed to represent such an index.
+    // This is ceil(domain_size_bits / 8), ensuring we have enough entropy.
+    let domain_size_bytes = domain_size_bits.div_ceil(8);
+
+    // Draw num_queries * domain_size_bytes queries from the challenger transcript.
+    let queries = (0..num_queries * domain_size_bytes)
+        .map(|_| challenger.sample_bits(8))
+        .collect_vec();
+
+    // Convert every `domain_size_bytes` chunk into one usize index:
+    // - Chunks are interpreted in big-endian order (leftmost byte is most significant).
+    // - The resulting value is reduced modulo folded_domain_size to keep it in range.
     Ok(queries
         .chunks_exact(domain_size_bytes)
-        .map(|chunk| {
-            chunk.iter().fold(0usize, |acc, &b| {
-                let mut raw_bytes = b.into_bytes().into_iter().collect_vec();
-
-                // Pad with zeros at the end if needed
-                raw_bytes.resize(8, 0);
-
-                (acc << 8) | u64::from_le_bytes(raw_bytes.try_into().unwrap()) as usize
-            }) % folded_domain_size
-        })
+        .map(|chunk| chunk.iter().fold(0usize, |acc, &b| (acc << 8) | b) % folded_domain_size)
         .sorted_unstable()
         .dedup()
         .collect())
