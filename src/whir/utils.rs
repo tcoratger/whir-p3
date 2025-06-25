@@ -53,7 +53,7 @@ where
                 // Pad with zeros at the end if needed
                 raw_bytes.resize(8, 0);
 
-                (acc << 8) | u64::from_be_bytes(raw_bytes.try_into().unwrap()) as usize
+                (acc << 8) | u64::from_le_bytes(raw_bytes.try_into().unwrap()) as usize
             }) % folded_domain_size
         })
         .sorted_unstable()
