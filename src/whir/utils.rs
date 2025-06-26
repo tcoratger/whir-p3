@@ -45,30 +45,20 @@ where
     F: Field,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    // Compute the number of indices in the folded domain: domain_size / 2^folding_factor.
+    // Folded domain size = domain_size / 2^folding_factor.
     let folded_domain_size = domain_size >> folding_factor;
 
-    // Determine how many bits are needed to represent any index in [0, folded_domain_size).
+    // Number of bits needed to represent an index in the folded domain.
     let domain_size_bits = log2_ceil_usize(folded_domain_size);
 
-    // Determine how many *bytes* are needed to represent such an index.
-    // This is ceil(domain_size_bits / 8), ensuring we have enough entropy.
-    let domain_size_bytes = domain_size_bits.div_ceil(8);
-
-    // Draw num_queries * domain_size_bytes queries from the challenger transcript.
-    let queries = (0..num_queries * domain_size_bytes)
-        .map(|_| challenger.sample_bits(8))
-        .collect_vec();
-
-    // Convert every `domain_size_bytes` chunk into one usize index:
-    // - Chunks are interpreted in big-endian order (leftmost byte is most significant).
-    // - The resulting value is reduced modulo folded_domain_size to keep it in range.
-    Ok(queries
-        .chunks_exact(domain_size_bytes)
-        .map(|chunk| chunk.iter().fold(0usize, |acc, &b| (acc << 8) | b) % folded_domain_size)
+    // Sample one integer per query, each with domain_size_bits of entropy.
+    let queries = (0..num_queries)
+        .map(|_| challenger.sample_bits(domain_size_bits) % folded_domain_size)
         .sorted_unstable()
         .dedup()
-        .collect())
+        .collect();
+
+    Ok(queries)
 }
 
 /// A utility function to sample Out-of-Domain (OOD) points and evaluate them.
