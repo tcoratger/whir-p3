@@ -1,5 +1,5 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
 use tracing::{info_span, instrument};
@@ -29,7 +29,7 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct RoundState<EF, F, W, M, const DIGEST_ELEMS: usize>
 where
-    F: Field + TwoAdicField,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
 {
     /// The domain used in this round, including the size and generator.
@@ -69,7 +69,7 @@ where
 #[allow(clippy::mismatching_type_param_order)]
 impl<EF, F, const DIGEST_ELEMS: usize> RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>
 where
-    F: Field + TwoAdicField,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
 {
     /// Initializes the prover’s state for the first round of the WHIR protocol.

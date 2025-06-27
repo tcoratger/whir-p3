@@ -70,7 +70,7 @@ where
 
 impl<EF, F, MyChallenger, C, Challenger> WhirConfig<EF, F, MyChallenger, C, Challenger>
 where
-    F: Field + TwoAdicField,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {

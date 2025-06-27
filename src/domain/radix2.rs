@@ -1,4 +1,4 @@
-use p3_field::{Field, TwoAdicField};
+use p3_field::TwoAdicField;
 
 /// Defines a domain over which finite field (I)FFTs can be performed. Works
 /// only for fields that have a large multiplicative subgroup of size that is
@@ -26,7 +26,7 @@ pub struct Radix2EvaluationDomain<F> {
     pub offset_pow_size: F,
 }
 
-impl<F: Field + TwoAdicField> Radix2EvaluationDomain<F> {
+impl<F: TwoAdicField> Radix2EvaluationDomain<F> {
     #[must_use]
     pub fn new(num_coeffs: usize) -> Option<Self> {
         let size = num_coeffs.next_power_of_two() as u64;
