@@ -1,5 +1,5 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 
@@ -18,7 +18,7 @@ type SumcheckRandomness<F> = MultilinearPoint<F>;
 
 impl<EF, F, MyChallenger, C, Challenger> Verifier<'_, EF, F, MyChallenger, C, Challenger>
 where
-    F: Field + TwoAdicField,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {

@@ -1,4 +1,4 @@
-use p3_field::{Field, TwoAdicField};
+use p3_field::TwoAdicField;
 
 use super::radix2::Radix2EvaluationDomain;
 
@@ -12,7 +12,7 @@ pub enum GeneralEvaluationDomain<F> {
     Radix2(Radix2EvaluationDomain<F>),
 }
 
-impl<F: Field + TwoAdicField> GeneralEvaluationDomain<F> {
+impl<F: TwoAdicField> GeneralEvaluationDomain<F> {
     /// Construct a domain that is large enough for evaluations of a polynomial
     /// having `num_coeffs` coefficients.
     ///

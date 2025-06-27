@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, TwoAdicField};
 
 use crate::{
     fiat_shamir::{
@@ -53,7 +53,7 @@ pub struct DomainSeparator<EF, F> {
 impl<EF, F> DomainSeparator<EF, F>
 where
     EF: ExtensionField<F> + TwoAdicField,
-    F: Field + TwoAdicField,
+    F: TwoAdicField,
 {
     #[must_use]
     pub const fn from_pattern(pattern: Vec<F>) -> Self {

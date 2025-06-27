@@ -1,5 +1,5 @@
 use p3_dft::{NaiveDft, TwoAdicSubgroupDft};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 #[cfg(feature = "parallel")]
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
@@ -9,7 +9,7 @@ use crate::poly::evals::EvaluationStorage;
 
 impl<F, EF> SumcheckSingle<F, EF>
 where
-    F: Field + TwoAdicField,
+    F: TwoAdicField,
     EF: ExtensionField<F>,
 {
     /// Computes the sumcheck polynomial using the **univariate skip** optimization,
