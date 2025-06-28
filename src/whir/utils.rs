@@ -1,13 +1,10 @@
 use itertools::Itertools;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field};
 use p3_util::log2_ceil_usize;
 use tracing::instrument;
 
-use crate::{
-    fiat_shamir::{errors::ProofResult, prover::ProverState},
-    poly::multilinear::MultilinearPoint,
-};
+use crate::{fiat_shamir::errors::ProofResult, poly::multilinear::MultilinearPoint};
 
 /// Computes the optimal workload size for `T` to fit in L1 cache (32 KB).
 ///
@@ -65,17 +62,15 @@ where
 ///
 /// This should be used on the prover side.
 #[instrument(skip_all)]
-pub fn sample_ood_points<F, EF, E, Challenger, const DIGEST_ELEMS: usize>(
-    prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+pub fn sample_ood_points<F: Field, EF: ExtensionField<F>, E, Challenger>(
+    challenger: &mut Challenger,
     num_samples: usize,
     num_variables: usize,
     evaluate_fn: E,
 ) -> (Vec<EF>, Vec<EF>)
 where
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
     E: Fn(&MultilinearPoint<EF>) -> EF,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F>,
 {
     let mut ood_points = EF::zero_vec(num_samples);
     let mut ood_answers = Vec::with_capacity(num_samples);
@@ -83,15 +78,18 @@ where
     if num_samples > 0 {
         // Generate OOD points from ProverState randomness
         for ood_point in &mut ood_points {
-            *ood_point = prover_state.challenger.sample_algebra_element();
+            *ood_point = challenger.sample_algebra_element();
         }
 
         // Evaluate the function at each OOD point
         ood_answers.extend(ood_points.iter().map(|ood_point| {
-            evaluate_fn(&MultilinearPoint::expand_from_univariate(
+            let eval = evaluate_fn(&MultilinearPoint::expand_from_univariate(
                 *ood_point,
                 num_variables,
-            ))
+            ));
+            // Observe ood evaluation
+            challenger.observe_algebra_element(eval);
+            eval
         }));
     }
 
