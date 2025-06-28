@@ -1,5 +1,5 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 
@@ -18,7 +18,7 @@ type SumcheckRandomness<F> = MultilinearPoint<F>;
 
 impl<EF, F, MyChallenger, C, Challenger> Verifier<'_, EF, F, MyChallenger, C, Challenger>
 where
-    F: Field + TwoAdicField,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -82,6 +82,10 @@ where
 
             // Interpolate into a univariate polynomial (over the coset domain)
             let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+            // Observe round polynomial
+            poly.evaluations()
+                .iter()
+                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
             // Sample the challenge scalar r₀ ∈ 𝔽 for this round
             let rand = verifier_state.challenger.sample_algebra_element();
@@ -120,6 +124,10 @@ where
             .unwrap();
 
             let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+            // Observe round polynomial
+            poly.evaluations()
+                .iter()
+                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
             // Verify claimed sum is consistent with polynomial
             if poly.sum_over_boolean_hypercube() != *claimed_sum {
@@ -327,7 +335,11 @@ mod tests {
                 .clone()
                 .try_into()
                 .unwrap();
+
             let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
+            poly.evaluations()
+                .iter()
+                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
             // Verify sum over Boolean points {0,1} matches current sum
             let sum = poly.evaluations()[0] + poly.evaluations()[1];
@@ -475,6 +487,9 @@ mod tests {
             .try_into()
             .unwrap();
         let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+        poly.evaluations()
+            .iter()
+            .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
         let r0: EF4 = verifier_state.challenger.sample_algebra_element();
         expected.push((poly, r0));
 
@@ -488,6 +503,9 @@ mod tests {
                 .try_into()
                 .unwrap();
             let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+            poly.evaluations()
+                .iter()
+                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
             let r: EF4 = verifier_state.challenger.sample_algebra_element();
             assert_eq!(poly.evaluations()[0] + poly.evaluations()[1], current_sum);
             current_sum = poly.evaluate_at_point(&r.into());

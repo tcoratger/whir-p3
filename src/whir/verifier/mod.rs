@@ -41,7 +41,7 @@ where
 
 impl<'a, EF, F, H, C, Challenger> Verifier<'a, EF, F, H, C, Challenger>
 where
-    F: Field + TwoAdicField,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -154,7 +154,13 @@ where
 
         // In the final round we receive the full polynomial instead of a commitment.
         let final_coefficients = verifier_state.proof_data.final_folded_evaluations.clone();
-        let final_coefficients = EvaluationsList::new(final_coefficients);
+        let final_evaluations = EvaluationsList::new(final_coefficients);
+
+        // Observe final evaluations
+        final_evaluations
+            .evals()
+            .iter()
+            .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
         // Verify in-domain challenges on the previous commitment.
         let stir_constraints = self.verify_stir_challenges(
@@ -166,12 +172,11 @@ where
         )?;
 
         // Verify stir constraints directly on final polynomial
-        if !stir_constraints
+        stir_constraints
             .iter()
-            .all(|c| c.verify(&final_coefficients))
-        {
-            return Err(ProofError::InvalidProof);
-        }
+            .all(|c| c.verify(&final_evaluations))
+            .then_some(())
+            .ok_or(ProofError::InvalidProof)?;
 
         let final_sumcheck_randomness = self.verify_sumcheck_rounds(
             verifier_state,
@@ -201,7 +206,7 @@ where
             self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
 
         // Check the final sumcheck evaluation
-        let final_value = final_coefficients.evaluate(&final_sumcheck_randomness);
+        let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
         if claimed_sum != evaluation_of_weights * final_value {
             return Err(ProofError::InvalidProof);
         }

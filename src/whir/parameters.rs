@@ -25,7 +25,7 @@ pub struct RoundConfig<F> {
 }
 
 #[derive(Debug, Clone)]
-pub struct WhirConfig<EF, F, MyChallenger, C, Challenger>
+pub struct WhirConfig<EF, F, Hash, C, Challenger>
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -57,7 +57,7 @@ where
     pub final_folding_pow_bits: usize,
 
     // Merkle tree parameters
-    pub merkle_hash: MyChallenger,
+    pub merkle_hash: Hash,
     pub merkle_compress: C,
 
     // Univariate skip optimization
@@ -68,16 +68,16 @@ where
     pub _challenger: PhantomData<Challenger>,
 }
 
-impl<EF, F, MyChallenger, C, Challenger> WhirConfig<EF, F, MyChallenger, C, Challenger>
+impl<EF, F, Hash, C, Challenger> WhirConfig<EF, F, Hash, C, Challenger>
 where
-    F: Field + TwoAdicField,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     #[allow(clippy::too_many_lines)]
     pub fn new(
         mv_parameters: MultivariateParameters<EF>,
-        whir_parameters: ProtocolParameters<MyChallenger, C>,
+        whir_parameters: ProtocolParameters<Hash, C>,
     ) -> Self {
         whir_parameters
             .folding_factor

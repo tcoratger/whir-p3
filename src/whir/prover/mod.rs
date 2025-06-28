@@ -55,7 +55,7 @@ where
 
 impl<EF, F, H, C, Challenger> Prover<'_, EF, F, H, C, Challenger>
 where
-    F: Field + TwoAdicField,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -267,10 +267,11 @@ where
             .proof_data
             .round_merkle_root
             .push(*root.as_ref());
+        prover_state.challenger.observe_slice(root.as_ref());
 
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) = sample_ood_points(
-            prover_state,
+            &mut prover_state.challenger,
             round_params.ood_samples,
             num_variables,
             |point| info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point)),
@@ -445,6 +446,11 @@ where
             .proof_data
             .final_folded_evaluations
             .clone_from(&folded_evaluations.evals().to_vec());
+        // Observe final evaluations
+        folded_evaluations
+            .evals()
+            .iter()
+            .for_each(|&eval| prover_state.challenger.observe_algebra_element(eval));
 
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
