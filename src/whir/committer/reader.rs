@@ -72,7 +72,10 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         // Read the Merkle root hash committed by the prover.
-        let root = verifier_state.proof_data.round_merkle_root[round_index].into();
+        let root: Hash<F, F, DIGEST_ELEMS> =
+            verifier_state.proof_data.round_merkle_root[round_index].into();
+        // Observe the merkle root
+        verifier_state.challenger.observe_slice(root.as_ref());
 
         // Allocate space for the OOD challenge points and answers.
         let mut ood_points = EF::zero_vec(ood_samples);
@@ -87,6 +90,10 @@ where
 
             // Read the prover's claimed evaluations at those points.
             ood_answers.clone_from(&verifier_state.proof_data.round_ood_answers[round_index]);
+            // Observe the OOD answers
+            ood_answers
+                .iter()
+                .for_each(|&answer| verifier_state.challenger.observe_algebra_element(answer));
         }
 
         // Return a structured representation of the commitment.

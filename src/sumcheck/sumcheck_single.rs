@@ -384,6 +384,11 @@ where
                 // Collapse the first k variables via a univariate evaluation over a multiplicative coset.
                 let (sumcheck_poly, f_mat, w_mat) = self.compute_skipping_sumcheck_polynomial(k);
 
+                // Observe round polynomial
+                sumcheck_poly
+                    .evaluations()
+                    .iter()
+                    .for_each(|&eval| prover_state.challenger.observe_algebra_element(eval));
                 // Send the evaluations of the univariate polynomial (length 2^k) to the verifier.
                 sumcheck_evaluations.push(sumcheck_poly.evaluations().to_vec());
 
@@ -423,6 +428,11 @@ where
             // Compute the quadratic sumcheck polynomial for the current variable.
             let sumcheck_poly = self.compute_sumcheck_polynomial();
 
+            // Observe round polynomial
+            sumcheck_poly
+                .evaluations()
+                .iter()
+                .for_each(|&eval| prover_state.challenger.observe_algebra_element(eval));
             // Send polynomial evaluations to verifier.
             sumcheck_evaluations.push(sumcheck_poly.evaluations().to_vec());
 
@@ -1581,6 +1591,10 @@ mod tests {
             .unwrap();
 
         let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
+        sumcheck_poly
+            .evaluations()
+            .iter()
+            .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
         // Read the folding randomness challenge
         let folding_randomness: F = verifier_state.challenger.sample_algebra_element();
@@ -1667,6 +1681,9 @@ mod tests {
 
             // Create a SumcheckPolynomial over 1 variable with those 3 values
             let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
+            poly.evaluations()
+                .iter()
+                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
             // Step 2: Verifier checks sum over Boolean hypercube {0,1}^1
             // This ensures that:
@@ -1801,6 +1818,9 @@ mod tests {
 
             // Construct the polynomial h_i(X) over 1 variable with those evaluations
             let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
+            poly.evaluations()
+                .iter()
+                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
             // Check that h_i(0) + h_i(1) equals the claimed current sum
             let sum = poly.evaluations()[0] + poly.evaluations()[1];
@@ -2134,6 +2154,9 @@ mod tests {
                 .try_into()
                 .unwrap();
             let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
+            poly.evaluations()
+                .iter()
+                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
             // Verify sum over Boolean points {0,1} matches current sum
             let sum = poly.evaluations()[0] + poly.evaluations()[1];
@@ -2544,6 +2567,9 @@ mod tests {
             .try_into()
             .unwrap();
         let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
+        poly.evaluations()
+            .iter()
+            .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
         // Check the sum of the polynomial evaluations is correct
         assert_eq!(
@@ -2567,8 +2593,12 @@ mod tests {
                 .try_into()
                 .unwrap();
             let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
+            poly.evaluations()
+                .iter()
+                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
             let sum = poly.evaluations()[0] + poly.evaluations()[1];
+
             assert_eq!(
                 sum, current_sum,
                 "Sumcheck round {i}: h(0) + h(1) != current_sum"
