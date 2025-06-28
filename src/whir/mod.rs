@@ -138,7 +138,7 @@ pub fn make_whir_things(
         .prove(&dft_prover, &mut prover_state, statement.clone(), witness)
         .unwrap();
 
-    let checkpoint0: F = prover_state.challenger.sample();
+    let checkpoint_prover: F = prover_state.challenger.sample();
 
     // Create a commitment reader
     let commitment_reader = CommitmentReader::new(&params);
@@ -160,8 +160,8 @@ pub fn make_whir_things(
         .verify(&mut verifier_state, &parsed_commitment, &statement)
         .unwrap();
 
-    let checkpoint1: F = verifier_state.challenger.sample();
-    assert_eq!(checkpoint0, checkpoint1);
+    let checkpoint_verifier: F = verifier_state.challenger.sample();
+    assert_eq!(checkpoint_prover, checkpoint_verifier);
 }
 
 #[cfg(test)]

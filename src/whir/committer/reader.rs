@@ -91,9 +91,9 @@ where
             // Read the prover's claimed evaluations at those points.
             ood_answers.clone_from(&verifier_state.proof_data.round_ood_answers[round_index]);
             // Observe the OOD answers
-            ood_answers
-                .iter()
-                .for_each(|&answer| verifier_state.challenger.observe_algebra_element(answer));
+            for &answer in &ood_answers {
+                verifier_state.challenger.observe_algebra_element(answer);
+            }
         }
 
         // Return a structured representation of the commitment.
