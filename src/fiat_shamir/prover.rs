@@ -14,7 +14,7 @@ where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     /// The internal challenger.
-    pub(crate) challenger: Challenger,
+    pub challenger: Challenger,
     /// The proof data.
     pub proof_data: ProofData<EF, F, F, DIGEST_ELEMS>,
 }
