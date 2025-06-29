@@ -12,10 +12,10 @@ where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     /// Challenger for sampling randomness.
-    pub(crate) challenger: Challenger,
+    pub challenger: Challenger,
 
     /// The proof data.
-    pub(crate) proof_data: ProofData<EF, F, F, DIGEST_ELEMS>,
+    pub proof_data: ProofData<EF, F, F, DIGEST_ELEMS>,
 }
 
 impl<EF, F, Challenger, const DIGEST_ELEMS: usize> VerifierState<EF, F, Challenger, DIGEST_ELEMS>
