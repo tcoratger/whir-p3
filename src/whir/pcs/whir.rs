@@ -44,7 +44,7 @@ use crate::{
 };
 
 type F = BabyBear;
-type EF = BinomialExtensionField<F, 4>;
+type EF4 = BinomialExtensionField<F, 4>;
 type Perm = Poseidon2BabyBear<16>;
 type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
 type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
@@ -117,6 +117,9 @@ where
                 coeffs
             });
 
+            //Retrive the folding factor for round 0 
+            //Create a new dense matrix of the given dimensions
+            //For each column we compute DFT 
             let folded_codeword = info_span!("compute folded codeword").in_scope(|| {
                 let width = 1 << self.whir.folding_factor.at_round(0);
                 let folded_coeffs = RowMajorMatrix::new(coeffs, width);
@@ -175,7 +178,7 @@ where
                         univariate_skip: self.whir.univariate_skip,
                     };
 
-                    WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(
+                    WhirConfig::<EF4, F, MyHash, MyCompress, MyChallenger>::new(
                         MultivariateParameters::new(concat_mats.meta.log_b),
                         whir_params,
                     )
@@ -239,7 +242,6 @@ where
                         ood_answers: ood_answers.clone(),
                     };
                     
-               
                     let dft = EvalsDft::<F>::new(1 << config.max_fft_size());
                     
                     let prover = Prover(&config);
@@ -296,7 +298,7 @@ where
                     univariate_skip: self.whir.univariate_skip,
                 };
 
-                WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(
+                WhirConfig::<EF4, F, MyHash, MyCompress, MyChallenger>::new(
                     MultivariateParameters::new(concat_mats_meta.log_b),
                     whir_params,
                 )
