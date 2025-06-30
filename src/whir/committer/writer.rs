@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{ops::Deref, sync::Arc};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
@@ -106,7 +106,7 @@ where
         // Return the witness containing the polynomial, Merkle tree, and OOD results.
         Ok(Witness {
             polynomial,
-            prover_data,
+            prover_data: Arc::new(prover_data),
             ood_points,
             ood_answers,
         })

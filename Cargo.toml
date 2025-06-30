@@ -10,8 +10,8 @@ rust.missing_debug_implementations = "warn"
 rust.unreachable_pub = "warn"
 rust.unused_must_use = "deny"
 rust.rust_2018_idioms = { level = "deny", priority = -1 }
-rustdoc.all = "warn"
 rust.dead_code = "allow"
+rustdoc.all = "warn"
 
 [lints.clippy]
 # all lints that are on by default (correctness, suspicious, style, complexity, perf)
