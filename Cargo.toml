@@ -64,7 +64,6 @@ tracing-subscriber = { version = "0.3.17", default-features = false, features = 
 ] }
 rand = "0.9"
 clap = { version = "4.4.17", features = ["derive"] }
-p3-keccak = "0.3.0"
 
 [dev-dependencies]
 criterion = "0.6"
