@@ -81,14 +81,21 @@ pub fn make_whir_things(
     };
 
     // Combine protocol and polynomial parameters into a single config
-    let params = WhirConfig::<EF4, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
+    let params =
+        WhirConfig::<EF4, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
 
     // Define a polynomial with all coefficients set to 1
     let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]).to_evaluations();
 
     // Sample `num_points` multilinear points
     let points: Vec<_> = (0..num_points)
-        .map(|_| MultilinearPoint((0..num_variables).map(|i| EF4::from_u64(i as u64)).collect()))
+        .map(|_| {
+            MultilinearPoint(
+                (0..num_variables)
+                    .map(|i| EF4::from_u64(i as u64))
+                    .collect(),
+            )
+        })
         .collect();
 
     // Construct a new statement with the correct number of variables
