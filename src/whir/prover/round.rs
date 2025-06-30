@@ -52,7 +52,7 @@ where
 
     /// Merkle commitment prover data for the **base field** polynomial from the first round.
     /// This is used to open values at queried locations.
-    pub(crate) commitment_merkle_prover_data: Arc<MerkleTree<F, F, M, DIGEST_ELEMS>>,
+    pub(crate) commitment_merkle_prover_data: Arc<MerkleTree<F, W, M, DIGEST_ELEMS>>,
 
     /// Merkle commitment prover data for the **extension field** polynomials (folded rounds).
     /// Present only after the first round.
