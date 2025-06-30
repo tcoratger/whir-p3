@@ -30,7 +30,7 @@ where
     #[inline]
     #[must_use]
     pub fn num_variables(&self) -> usize {
-        self.0.len()
+        self.len()
     }
 
     /// Converts a `BinaryHypercubePoint` (bit representation) into a `MultilinearPoint`.
@@ -59,8 +59,7 @@ where
     /// ```
     /// Returns `None` if any coordinate is non-binary.
     pub fn to_hypercube(&self) -> Option<BinaryHypercubePoint> {
-        self.0
-            .iter()
+        self.iter()
             .try_fold(0, |acc, &coord| {
                 if coord == F::ZERO {
                     Some(acc << 1)
@@ -115,7 +114,7 @@ where
 
         let mut acc = F::ONE;
 
-        for val in self.0.iter().rev() {
+        for val in self.iter().rev() {
             let b = *point % 2;
             acc *= if b == 1 { *val } else { F::ONE - *val };
             *point >>= 1;
@@ -143,7 +142,7 @@ where
 
         let mut acc = F::ONE;
 
-        for (&l, &r) in self.0.iter().zip(&point.0) {
+        for (&l, &r) in self.iter().zip(&point.0) {
             // l * r + (1 - l) * (1 - r) = 1 + 2 * l * r - l - r
             // +/- much cheaper than multiplication.
             acc *= F::ONE + l * r.double() - l - r;
@@ -171,7 +170,7 @@ where
         let mut acc = F::ONE;
 
         // Iterate in **little-endian** order and adjust using big-endian convention.
-        for &val in self.0.iter().rev() {
+        for &val in self.iter().rev() {
             let val_minus_one = val - F::ONE;
             let val_minus_two = val - F::TWO;
 
