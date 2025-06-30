@@ -12,5 +12,5 @@ pub struct ProofData<EF, F, W, const DIGEST_ELEMS: usize> {
     pub sumcheck_evaluations: Rounds<SumcheckRounds<Vec<EF>>>,
     pub final_folded_evaluations: Vec<EF>,
     pub pow_witnesses: Vec<F>,
-    pub piop_sumcheck_poly_coeffs: Vec<Vec<EF>>,
+    pub piop: Vec<Vec<EF>>,
 }
