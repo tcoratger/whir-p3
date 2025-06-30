@@ -27,7 +27,7 @@ pub mod utils;
 pub mod verifier;
 
 type F = BabyBear;
-type EF4 = BinomialExtensionField<F, 4>;
+type EF = BinomialExtensionField<F, 4>;
 type Perm = Poseidon2BabyBear<16>;
 
 type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
@@ -64,7 +64,7 @@ pub fn make_whir_things(
     let merkle_compress = MyCompress::new(perm);
 
     // Set the multivariate polynomial parameters
-    let mv_params = MultivariateParameters::<EF4>::new(num_variables);
+    let mv_params = MultivariateParameters::<EF>::new(num_variables);
 
     // Construct WHIR protocol parameters
     let whir_params = ProtocolParameters {
@@ -82,7 +82,7 @@ pub fn make_whir_things(
 
     // Combine protocol and polynomial parameters into a single config
     let params =
-        WhirConfig::<EF4, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
+        WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
 
     // Define a polynomial with all coefficients set to 1
     let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]).to_evaluations();
@@ -92,14 +92,14 @@ pub fn make_whir_things(
         .map(|_| {
             MultilinearPoint(
                 (0..num_variables)
-                    .map(|i| EF4::from_u64(i as u64))
+                    .map(|i| EF::from_u64(i as u64))
                     .collect(),
             )
         })
         .collect();
 
     // Construct a new statement with the correct number of variables
-    let mut statement = Statement::<EF4>::new(num_variables);
+    let mut statement = Statement::<EF>::new(num_variables);
 
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
@@ -109,7 +109,7 @@ pub fn make_whir_things(
     }
 
     // Construct a linear constraint to test sumcheck
-    let input = CoefficientList::new((0..1 << num_variables).map(EF4::from_u64).collect());
+    let input = CoefficientList::new((0..1 << num_variables).map(EF::from_u64).collect());
     let linear_claim_weight = Weights::linear(input.to_evaluations::<F>());
 
     // Evaluate the weighted sum and add it as a linear constraint
