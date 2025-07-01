@@ -167,7 +167,7 @@ impl<F: Field> WhirDensePolynomial<F> {
 impl<F: Field> Add for &WhirDensePolynomial<F> {
     type Output = WhirDensePolynomial<F>;
 
-    // Adds two dense polynomials and returns the resulting polynomial.
+    /// Adds two dense polynomials and returns the resulting polynomial.
     ///
     /// This function computes the sum of `self` and `other` by adding their
     /// coefficients term by term. If the polynomials have different lengths,
