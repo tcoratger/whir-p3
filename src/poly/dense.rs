@@ -463,4 +463,115 @@ mod tests {
             prop_assert_eq!(interpolated, pol);
         }
     }
+
+    /// Builds a strategy that yields random dense polynomials over `F`.
+    ///
+    /// Each polynomial’s degree is chosen uniformly from `max_deg` (exclusive),
+    /// then its coefficients are sampled as `u64` values and lifted into `F`
+    /// via `F::from_u64`.
+    ///
+    /// # Parameters
+    ///
+    /// - `max_deg`: an exclusive upper bound on the degree.
+    ///   Degrees will be drawn from `0..max_deg`; a sampled degree `d`
+    ///   yields a polynomial of degree exactly `d` (with `d+1` coefficients).
+    ///
+    /// # Returns
+    ///
+    /// A `proptest::Strategy` producing `WhirDensePolynomial<F>` instances.
+    fn any_polynomial(
+        max_deg: std::ops::Range<usize>,
+    ) -> impl Strategy<Value = WhirDensePolynomial<F>> {
+        max_deg
+            // 1. Pick a random degree `deg` in 0..max_deg
+            .prop_flat_map(move |deg| {
+                // 2. Generate exactly `deg + 1` raw `u64` values
+                prop::collection::vec(any::<u64>(), deg + 1)
+            })
+            // 3. Convert each `u64` into `F` and build the polynomial
+            .prop_map(|coeffs_u64| {
+                let coeffs_f = coeffs_u64.into_iter().map(F::from_u64).collect();
+                WhirDensePolynomial::from_coefficients_vec(coeffs_f)
+            })
+    }
+
+    proptest! {
+        /// (a + b) + c == a + (b + c)
+        #[test]
+        fn prop_add_associative(
+            // three random polys of small degree for speed
+            a in any_polynomial(0..5),
+            b in any_polynomial(0..5),
+            c in any_polynomial(0..5),
+        ) {
+            let lhs = &(&a + &b) + &c;
+            let rhs = &a + &(&b + &c);
+            prop_assert_eq!(lhs, rhs);
+        }
+
+        /// a + b == b + a
+        #[test]
+        fn prop_add_commutative(
+            a in any_polynomial(0..5),
+            b in any_polynomial(0..5),
+        ) {
+            prop_assert_eq!(&a + &b, &b + &a);
+        }
+
+        /// 0 is the additive identity: a + 0 == a
+        #[test]
+        #[allow(clippy::redundant_clone)]
+        fn prop_add_identity(
+            a in any_polynomial(0..5),
+        ) {
+            let zero = WhirDensePolynomial::<F>::default();
+            prop_assert_eq!(&a + &zero, a.clone());
+            prop_assert_eq!(&zero + &a, a);
+        }
+
+        /// (a * b) * c == a * (b * c)
+        #[test]
+        fn prop_mul_associative(
+            a in any_polynomial(0..5),
+            b in any_polynomial(0..5),
+            c in any_polynomial(0..5),
+        ) {
+            let lhs = &(&a * &b) * &c;
+            let rhs = &a * &(&b * &c);
+            prop_assert_eq!(lhs, rhs);
+        }
+
+        /// a * b == b * a
+        #[test]
+        fn prop_mul_commutative(
+            a in any_polynomial(0..5),
+            b in any_polynomial(0..5),
+        ) {
+            prop_assert_eq!(&a * &b, &b * &a);
+        }
+
+        /// 1 is the multiplicative identity: a * 1 == a
+        #[test]
+        #[allow(clippy::redundant_clone)]
+        fn prop_mul_identity(
+            a in any_polynomial(0..5),
+        ) {
+            // Build the constant-1 polynomial
+            let one = WhirDensePolynomial::from_coefficients_vec(vec![F::ONE]);
+            prop_assert_eq!(&a * &one, a.clone());
+            prop_assert_eq!(&one * &a, a);
+        }
+
+        /// Distributivity: a * (b + c) == a*b + a*c
+        #[test]
+        fn prop_distributive(
+            a in any_polynomial(0..5),
+            b in any_polynomial(0..5),
+            c in any_polynomial(0..5),
+        ) {
+            let lhs = &a * &(&b + &c);
+            let rhs = &(&a * &b) + &(&a * &c);
+            prop_assert_eq!(lhs, rhs);
+        }
+    }
 }
