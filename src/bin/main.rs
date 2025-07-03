@@ -6,6 +6,9 @@ use p3_challenger::DuplexChallenger;
 use p3_field::{Field, extension::BinomialExtensionField};
 use p3_goldilocks::{Goldilocks, Poseidon2Goldilocks};
 use p3_koala_bear::KoalaBear;
+use p3_field::extension::BinomialExtensionField;
+use p3_goldilocks::Goldilocks;
+use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{
     Rng, SeedableRng,
@@ -17,7 +20,7 @@ use whir_p3::{
     dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{
-        FoldingFactor, MultivariateParameters, ProtocolParameters, default_max_pow,
+        DEFAULT_MAX_POW, FoldingFactor, MultivariateParameters, ProtocolParameters,
         errors::SecurityAssumption,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -30,28 +33,30 @@ use whir_p3::{
     },
 };
 
-type F = Goldilocks;
-type EF = BinomialExtensionField<F, 2>;
+type F = KoalaBear;
+type EF = BinomialExtensionField<F, 4>;
 type _F = BabyBear;
 type _EF = BinomialExtensionField<_F, 5>;
-type __F = KoalaBear;
-type __EF = BinomialExtensionField<__F, 4>;
-type Perm = Poseidon2Goldilocks<16>;
+type __F = Goldilocks;
+type __EF = BinomialExtensionField<__F, 2>;
 
-type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
-type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
-type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
+type Poseidon16 = Poseidon2KoalaBear<16>;
+type Poseidon24 = Poseidon2KoalaBear<24>;
+
+type MerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
+type MerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
+type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short = 'l', long, default_value = "100")]
+    #[arg(short = 'l', long, default_value = "90")]
     security_level: usize,
 
     #[arg(short = 'p', long)]
     pow_bits: Option<usize>,
 
-    #[arg(short = 'd', long, default_value = "24")]
+    #[arg(short = 'd', long, default_value = "25")]
     num_variables: usize,
 
     #[arg(short = 'e', long = "evaluations", default_value = "1")]
@@ -83,7 +88,7 @@ fn main() {
     let mut args = Args::parse();
 
     if args.pow_bits.is_none() {
-        args.pow_bits = Some(default_max_pow(args.num_variables, args.rate));
+        args.pow_bits = Some(DEFAULT_MAX_POW);
     }
 
     // Runs as a PCS
@@ -101,10 +106,11 @@ fn main() {
 
     // Create hash and compression functions for the Merkle tree
     let mut rng = SmallRng::seed_from_u64(1);
-    let perm = Perm::new_from_rng_128(&mut rng);
+    let poseidon16 = Poseidon16::new_from_rng_128(&mut rng);
+    let poseidon24 = Poseidon24::new_from_rng_128(&mut rng);
 
-    let merkle_hash = MyHash::new(perm.clone());
-    let merkle_compress = MyCompress::new(perm);
+    let merkle_hash = MerkleHash::new(poseidon24);
+    let merkle_compress = MerkleCompress::new(poseidon16.clone());
 
     let rs_domain_initial_reduction_factor = args.rs_domain_initial_reduction_factor;
 
@@ -126,7 +132,8 @@ fn main() {
         univariate_skip: false,
     };
 
-    let params = WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
+    let params =
+        WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(mv_params, whir_params);
 
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
@@ -157,8 +164,7 @@ fn main() {
         println!("WARN: more PoW bits required than what specified.");
     }
 
-    let mut rng = SmallRng::seed_from_u64(1);
-    let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    let challenger = MyChallenger::new(poseidon16);
 
     // Initialize the Merlin transcript from the IOPattern
     let mut prover_state = domainsep.to_prover_state(challenger.clone());
