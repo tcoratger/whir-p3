@@ -11,7 +11,7 @@ use whir_p3::{
     dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{
-        FoldingFactor, MultivariateParameters, ProtocolParameters, default_max_pow,
+        DEFAULT_MAX_POW, FoldingFactor, MultivariateParameters, ProtocolParameters,
         errors::SecurityAssumption,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -49,7 +49,7 @@ fn prepare_inputs() -> (
     let num_variables = 24;
 
     // Number of PoW bits required, computed based on the domain size and rate.
-    let pow_bits = default_max_pow(num_variables, 1);
+    let pow_bits = DEFAULT_MAX_POW;
 
     // Folding factor `k`: number of variables folded per round in the sumcheck.
     let folding_factor = FoldingFactor::Constant(4);

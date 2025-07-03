@@ -17,7 +17,7 @@ use whir_p3::{
     dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{
-        FoldingFactor, MultivariateParameters, ProtocolParameters, default_max_pow,
+        DEFAULT_MAX_POW, FoldingFactor, MultivariateParameters, ProtocolParameters,
         errors::SecurityAssumption,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -45,7 +45,7 @@ type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short = 'l', long, default_value = "100")]
+    #[arg(short = 'l', long, default_value = "95")]
     security_level: usize,
 
     #[arg(short = 'p', long)]
@@ -83,7 +83,7 @@ fn main() {
     let mut args = Args::parse();
 
     if args.pow_bits.is_none() {
-        args.pow_bits = Some(default_max_pow(args.num_variables, args.rate));
+        args.pow_bits = Some(DEFAULT_MAX_POW);
     }
 
     // Runs as a PCS
