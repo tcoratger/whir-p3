@@ -3,7 +3,7 @@ use std::time::Instant;
 use clap::Parser;
 use p3_baby_bear::BabyBear;
 use p3_challenger::DuplexChallenger;
-use p3_field::extension::BinomialExtensionField;
+use p3_field::{Field, extension::BinomialExtensionField};
 use p3_goldilocks::{Goldilocks, Poseidon2Goldilocks};
 use p3_koala_bear::KoalaBear;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -170,7 +170,11 @@ fn main() {
 
     let time = Instant::now();
     let witness = committer
-        .commit(&dft, &mut prover_state, polynomial)
+        .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
+            &dft,
+            &mut prover_state,
+            polynomial,
+        )
         .unwrap();
     let commit_time = time.elapsed();
 

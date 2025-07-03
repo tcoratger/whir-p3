@@ -276,7 +276,11 @@ mod tests {
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
+                &dft,
+                &mut prover_state,
+                polynomial,
+            )
             .unwrap();
 
         // Simulate verifier state using transcript view of prover’s nonce string.
@@ -317,7 +321,11 @@ mod tests {
 
         // Commit the polynomial to obtain the witness.
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
+                &dft,
+                &mut prover_state,
+                polynomial,
+            )
             .unwrap();
 
         // Initialize the verifier view of the transcript.
@@ -362,7 +370,11 @@ mod tests {
 
         // Commit the polynomial and obtain the witness.
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
+                &dft,
+                &mut prover_state,
+                polynomial,
+            )
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
@@ -400,7 +412,11 @@ mod tests {
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
         let _ = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
+                &dft,
+                &mut prover_state,
+                polynomial,
+            )
             .unwrap();
         let mut verifier_state = ds.to_verifier_state(prover_state.proof_data.clone(), challenger);
 
