@@ -1,7 +1,7 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
-use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
 use prover::Prover;
@@ -126,11 +126,7 @@ pub fn make_whir_things(
     let dft_committer = EvalsDft::<F>::default();
 
     let witness = committer
-        .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
-            &dft_committer,
-            &mut prover_state,
-            polynomial,
-        )
+        .commit(&dft_committer, &mut prover_state, polynomial)
         .unwrap();
 
     let prover = Prover(&params);

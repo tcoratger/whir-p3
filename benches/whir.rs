@@ -1,6 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use p3_challenger::DuplexChallenger;
-use p3_field::{Field, extension::BinomialExtensionField};
+use p3_field::extension::BinomialExtensionField;
 use p3_goldilocks::{Goldilocks, Poseidon2Goldilocks};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{
@@ -148,11 +148,7 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
             let mut prover_state = domainsep.to_prover_state(challenger.clone());
             let committer = CommitmentWriter::new(&params);
             let _witness = committer
-                .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
-                    &dft,
-                    &mut prover_state,
-                    polynomial.clone(),
-                )
+                .commit(&dft, &mut prover_state, polynomial.clone())
                 .unwrap();
         });
     });
@@ -162,11 +158,7 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
             let mut prover_state = domainsep.to_prover_state(challenger.clone());
             let committer = CommitmentWriter::new(&params);
             let witness = committer
-                .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
-                    &dft,
-                    &mut prover_state,
-                    polynomial.clone(),
-                )
+                .commit(&dft, &mut prover_state, polynomial.clone())
                 .unwrap();
 
             let prover = Prover(&params);

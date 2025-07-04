@@ -182,7 +182,7 @@ where
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
-    use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{SeedableRng, rngs::SmallRng};
 
@@ -294,11 +294,7 @@ mod tests {
         // Perform DFT-based commitment to the polynomial, producing a witness
         // which includes the Merkle tree and polynomial values.
         let witness = committer
-            .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
-                &EvalsDft::<F>::default(),
-                &mut prover_state,
-                poly,
-            )
+            .commit(&EvalsDft::<F>::default(), &mut prover_state, poly)
             .unwrap();
 
         // Return all initialized components needed for round state setup.

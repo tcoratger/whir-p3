@@ -2,7 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
-use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
+use p3_field::{ExtensionField, Field, Packable, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
@@ -54,23 +54,21 @@ where
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
     #[instrument(skip_all)]
-    pub fn commit<P, PW, const DIGEST_ELEMS: usize>(
+    pub fn commit<const DIGEST_ELEMS: usize>(
         &self,
         dft: &EvalsDft<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
         polynomial: EvaluationsList<F>,
     ) -> ProofResult<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>>
     where
-        P: PackedValue<Value = F>,
-        PW: PackedValue<Value = F>,
-        H: CryptographicHasher<P::Value, [PW::Value; DIGEST_ELEMS]>
-            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[PW::Value; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
             + Sync,
-        PW::Value: Eq,
-        [PW::Value; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        F: Eq + Packable,
     {
         let evals_repeated = info_span!("repeating evals")
             .in_scope(|| parallel_repeat(polynomial.evals(), 1 << self.starting_log_inv_rate));
@@ -84,7 +82,7 @@ where
             });
 
         // Commit to the Merkle tree
-        let merkle_tree = MerkleTreeMmcs::<P, PW, H, C, DIGEST_ELEMS>::new(
+        let merkle_tree = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
             self.merkle_hash.clone(),
             self.merkle_compress.clone(),
         );
@@ -200,11 +198,7 @@ mod tests {
         let committer = CommitmentWriter::new(&params);
         let dft_committer = EvalsDft::<F>::default();
         let witness = committer
-            .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
-                &dft_committer,
-                &mut prover_state,
-                polynomial.clone(),
-            )
+            .commit(&dft_committer, &mut prover_state, polynomial.clone())
             .unwrap();
 
         // Ensure OOD (out-of-domain) points are generated.
@@ -282,11 +276,7 @@ mod tests {
         let dft_committer = EvalsDft::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let _ = committer
-            .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
-                &dft_committer,
-                &mut prover_state,
-                polynomial,
-            )
+            .commit(&dft_committer, &mut prover_state, polynomial)
             .unwrap();
     }
 
@@ -342,11 +332,7 @@ mod tests {
         let dft_committer = EvalsDft::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let witness = committer
-            .commit::<<F as Field>::Packing, <F as Field>::Packing, 8>(
-                &dft_committer,
-                &mut prover_state,
-                polynomial,
-            )
+            .commit(&dft_committer, &mut prover_state, polynomial)
             .unwrap();
 
         assert!(
