@@ -1,6 +1,6 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::{CanSample, DuplexChallenger};
+use p3_challenger::DuplexChallenger;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
@@ -138,7 +138,7 @@ pub fn make_whir_things(
         .prove(&dft_prover, &mut prover_state, statement.clone(), witness)
         .unwrap();
 
-    let checkpoint_prover: F = prover_state.challenger.sample();
+    let checkpoint_prover: EF = prover_state.sample();
 
     // Create a commitment reader
     let commitment_reader = CommitmentReader::new(&params);
@@ -148,7 +148,7 @@ pub fn make_whir_things(
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
     let mut verifier_state =
-        domainsep.to_verifier_state(prover_state.proof_data.clone(), challenger);
+        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
@@ -160,7 +160,7 @@ pub fn make_whir_things(
         .verify(&mut verifier_state, &parsed_commitment, &statement)
         .unwrap();
 
-    let checkpoint_verifier: F = verifier_state.challenger.sample();
+    let checkpoint_verifier: EF = verifier_state.sample();
     assert_eq!(checkpoint_prover, checkpoint_verifier);
 }
 

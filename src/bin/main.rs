@@ -195,7 +195,7 @@ fn main() {
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
     let mut verifier_state =
-        domainsep.to_verifier_state(prover_state.proof_data.clone(), challenger);
+        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader

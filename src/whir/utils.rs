@@ -4,7 +4,10 @@ use p3_field::{ExtensionField, Field};
 use p3_util::log2_ceil_usize;
 use tracing::instrument;
 
-use crate::{fiat_shamir::errors::ProofResult, poly::multilinear::MultilinearPoint};
+use crate::{
+    fiat_shamir::{ChallengSampler, errors::ProofResult, prover::ProverState},
+    poly::multilinear::MultilinearPoint,
+};
 
 /// Computes the optimal workload size for `T` to fit in L1 cache (32 KB).
 ///
@@ -32,15 +35,15 @@ pub const fn workload_size<T: Sized>() -> usize {
 ///
 /// ## Returns
 /// A sorted and deduplicated list of random query indices in the folded domain.
-pub fn get_challenge_stir_queries<Challenger, F>(
+pub fn get_challenge_stir_queries<Chal: ChallengSampler<EF>, F, EF>(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
-    challenger: &mut Challenger,
+    prover_state: &mut Chal,
 ) -> ProofResult<Vec<usize>>
 where
     F: Field,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    EF: ExtensionField<F>,
 {
     // Folded domain size = domain_size / 2^folding_factor.
     let folded_domain_size = domain_size >> folding_factor;
@@ -50,7 +53,7 @@ where
 
     // Sample one integer per query, each with domain_size_bits of entropy.
     let queries = (0..num_queries)
-        .map(|_| challenger.sample_bits(domain_size_bits) % folded_domain_size)
+        .map(|_| prover_state.sample_bits(domain_size_bits) % folded_domain_size)
         .sorted_unstable()
         .dedup()
         .collect();
@@ -63,14 +66,14 @@ where
 /// This should be used on the prover side.
 #[instrument(skip_all)]
 pub fn sample_ood_points<F: Field, EF: ExtensionField<F>, E, Challenger>(
-    challenger: &mut Challenger,
+    prover_state: &mut ProverState<F, EF, Challenger>,
     num_samples: usize,
     num_variables: usize,
     evaluate_fn: E,
 ) -> (Vec<EF>, Vec<EF>)
 where
     E: Fn(&MultilinearPoint<EF>) -> EF,
-    Challenger: FieldChallenger<F>,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     let mut ood_points = EF::zero_vec(num_samples);
     let mut ood_answers = Vec::with_capacity(num_samples);
@@ -78,19 +81,18 @@ where
     if num_samples > 0 {
         // Generate OOD points from ProverState randomness
         for ood_point in &mut ood_points {
-            *ood_point = challenger.sample_algebra_element();
+            *ood_point = prover_state.sample();
         }
 
         // Evaluate the function at each OOD point
         ood_answers.extend(ood_points.iter().map(|ood_point| {
-            let eval = evaluate_fn(&MultilinearPoint::expand_from_univariate(
+            evaluate_fn(&MultilinearPoint::expand_from_univariate(
                 *ood_point,
                 num_variables,
-            ));
-            // Observe ood evaluation
-            challenger.observe_algebra_element(eval);
-            eval
+            ))
         }));
+
+        prover_state.add_extension_scalars(&ood_answers);
     }
 
     (ood_points, ood_answers)
