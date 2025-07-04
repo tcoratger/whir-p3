@@ -271,6 +271,24 @@ where
         }
     }
 
+    pub fn log_inv_rate_at(&self, round: usize) -> usize {
+        let mut res = self.starting_log_inv_rate;
+        for r in 0..round {
+            res += self.folding_factor.at_round(r);
+            res -= self.rs_reduction_factor(r);
+        }
+        res
+    }
+
+    pub fn merkle_tree_height(&self, round: usize) -> usize {
+        self.log_inv_rate_at(round) + self.mv_parameters.num_variables
+            - self.folding_factor.total_number(round)
+    }
+
+    pub fn n_vars_of_final_polynomial(&self) -> usize {
+        self.mv_parameters.num_variables - self.folding_factor.total_number(self.n_rounds())
+    }
+
     /// Returns the log2 size of the largest FFT
     /// (At commitment we perform 2^folding_factor FFT of size 2^max_fft_size)
     pub const fn max_fft_size(&self) -> usize {

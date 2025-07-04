@@ -1,12 +1,11 @@
 use std::marker::PhantomData;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
     fiat_shamir::{
         pattern::{Hint, Observe, Pattern, Sample},
-        proof_data::ProofData,
         prover::ProverState,
         verifier::VerifierState,
     },
@@ -52,8 +51,8 @@ pub struct DomainSeparator<EF, F> {
 
 impl<EF, F> DomainSeparator<EF, F>
 where
-    EF: ExtensionField<F> + TwoAdicField,
-    F: TwoAdicField,
+    EF: ExtensionField<F>,
+    F: Field,
 {
     #[must_use]
     pub const fn from_pattern(pattern: Vec<F>) -> Self {
@@ -100,10 +99,10 @@ where
 
     /// Create a prover state from the domain separator
     #[must_use]
-    pub fn to_prover_state<Challenger, const DIGEST_ELEMS: usize>(
+    pub fn to_prover_state<Challenger>(
         &self,
         challenger: Challenger,
-    ) -> ProverState<EF, F, Challenger, DIGEST_ELEMS>
+    ) -> ProverState<F, EF, Challenger>
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
@@ -112,11 +111,11 @@ where
 
     /// Create a verifier state from the domain separator
     #[must_use]
-    pub fn to_verifier_state<Challenger, const DIGEST_ELEMS: usize>(
+    pub fn to_verifier_state<Challenger>(
         &self,
-        proof_data: ProofData<EF, F, F, DIGEST_ELEMS>,
+        proof_data: Vec<F>,
         challenger: Challenger,
-    ) -> VerifierState<EF, F, Challenger, DIGEST_ELEMS>
+    ) -> VerifierState<F, EF, Challenger>
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
@@ -149,6 +148,8 @@ where
         params: &WhirConfig<EF, F, HC, C, Challenger>,
     ) where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        EF: TwoAdicField,
+        F: TwoAdicField,
     {
         // TODO: Add statement
         if params.initial_statement {

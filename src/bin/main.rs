@@ -4,6 +4,7 @@ use clap::Parser;
 use p3_baby_bear::BabyBear;
 use p3_challenger::DuplexChallenger;
 use p3_field::{Field, extension::BinomialExtensionField};
+use p3_field::{PrimeField64, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -199,7 +200,7 @@ fn main() {
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
     let mut verifier_state =
-        domainsep.to_verifier_state(prover_state.proof_data.clone(), challenger);
+        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
@@ -218,5 +219,7 @@ fn main() {
         commit_time.as_millis(),
         opening_time.as_millis()
     );
+    let proof_size = prover_state.proof_data().len() as f64 * (F::ORDER_U64 as f64).log2() / 8.0;
+    println!("proof size: {:.2} KiB", proof_size / 1024.0);
     println!("Verification time: {} μs", verify_time.as_micros());
 }

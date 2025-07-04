@@ -141,7 +141,7 @@ where
     pub fn prove<const DIGEST_ELEMS: usize>(
         &self,
         dft: &EvalsDft<F>,
-        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<F, EF, Challenger>,
         statement: Statement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
@@ -182,11 +182,9 @@ where
             .iter()
             .filter(|constraint| constraint.defer_evaluation)
             .map(|constraint| constraint.weights.compute(&constraint_eval))
-            .collect();
-        prover_state
-            .proof_data
-            .deferred_constraints
-            .clone_from(&deferred);
+            .collect::<Vec<_>>();
+
+        prover_state.hint_extension_scalars(&deferred);
 
         Ok((constraint_eval, deferred))
     }
@@ -197,7 +195,7 @@ where
         &self,
         round_index: usize,
         dft: &EvalsDft<F>,
-        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<F, EF, Challenger>,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
@@ -262,25 +260,15 @@ where
         let (root, prover_data) =
             info_span!("commit matrix").in_scope(|| extension_mmcs.commit_matrix(folded_matrix));
 
-        // Observe Merkle root in challenger
-        prover_state
-            .proof_data
-            .round_merkle_root
-            .push(*root.as_ref());
-        prover_state.challenger.observe_slice(root.as_ref());
+        prover_state.add_base_scalars(root.as_ref());
 
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) = sample_ood_points(
-            &mut prover_state.challenger,
+            prover_state,
             round_params.ood_samples,
             num_variables,
             |point| info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point)),
         );
-
-        prover_state
-            .proof_data
-            .round_ood_answers
-            .push(ood_answers.clone());
 
         // STIR Queries
         let (stir_challenges, stir_challenges_indexes) = self.compute_stir_queries(
@@ -296,24 +284,25 @@ where
         let stir_evaluations = match &round_state.merkle_prover_data {
             None => {
                 let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
-                let mut merkle_proof = Vec::with_capacity(stir_challenges_indexes.len());
+                let mut merkle_proofs = Vec::with_capacity(stir_challenges_indexes.len());
                 for challenge in &stir_challenges_indexes {
                     let commitment =
                         mmcs.open_batch(*challenge, &round_state.commitment_merkle_prover_data);
                     answers.push(commitment.opened_values[0].clone());
-                    merkle_proof.push(commitment.opening_proof);
+                    merkle_proofs.push(commitment.opening_proof);
                 }
 
-                prover_state
-                    .proof_data
-                    .base_field_merkle_answers
-                    .clone_from(&answers);
-                // Ugly trick to have index compatibility when verifying
-                prover_state.proof_data.round_merkle_answers.push(vec![]);
-                prover_state
-                    .proof_data
-                    .round_merkle_proof
-                    .push(merkle_proof.clone());
+                // merkle leaves
+                for answer in &answers {
+                    prover_state.hint_base_scalars(answer);
+                }
+
+                // merkle authentication proof
+                for merkle_proof in &merkle_proofs {
+                    for digest in merkle_proof {
+                        prover_state.hint_base_scalars(digest);
+                    }
+                }
 
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
@@ -331,21 +320,24 @@ where
             }
             Some(data) => {
                 let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
-                let mut merkle_proof = Vec::with_capacity(stir_challenges_indexes.len());
+                let mut merkle_proofs = Vec::with_capacity(stir_challenges_indexes.len());
                 for challenge in &stir_challenges_indexes {
                     let commitment = extension_mmcs.open_batch(*challenge, data);
                     answers.push(commitment.opened_values[0].clone());
-                    merkle_proof.push(commitment.opening_proof);
+                    merkle_proofs.push(commitment.opening_proof);
                 }
 
-                prover_state
-                    .proof_data
-                    .round_merkle_answers
-                    .push(answers.clone());
-                prover_state
-                    .proof_data
-                    .round_merkle_proof
-                    .push(merkle_proof.clone());
+                // merkle leaves
+                for answer in &answers {
+                    prover_state.hint_extension_scalars(answer);
+                }
+
+                // merkle authentication proof
+                for merkle_proof in &merkle_proofs {
+                    for digest in merkle_proof {
+                        prover_state.hint_base_scalars(digest);
+                    }
+                }
 
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = ood_answers;
@@ -363,14 +355,10 @@ where
             }
         };
 
-        // PoW
-        if round_params.pow_bits > 0 {
-            let witness = prover_state.challenger.grind(round_params.pow_bits);
-            prover_state.proof_data.pow_witnesses.push(witness);
-        }
+        prover_state.pow_grinding(round_params.pow_bits);
 
         // Randomness for combination
-        let combination_randomness_gen: EF = prover_state.challenger.sample_algebra_element();
+        let combination_randomness_gen: EF = prover_state.sample();
         let combination_randomness: Vec<_> = combination_randomness_gen
             .powers()
             .take(stir_challenges.len())
@@ -399,7 +387,7 @@ where
                 )
             };
 
-        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials::<_, DIGEST_ELEMS>(
+        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials(
             prover_state,
             folding_factor_next,
             round_params.folding_pow_bits,
@@ -431,7 +419,7 @@ where
     fn final_round<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<F, EF, Challenger>,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
         folded_evaluations: &EvaluationsList<EF>,
     ) -> ProofResult<()>
@@ -442,15 +430,7 @@ where
         F: Eq + Packable,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        prover_state
-            .proof_data
-            .final_folded_evaluations
-            .clone_from(&folded_evaluations.evals().to_vec());
-        // Observe final evaluations
-        folded_evaluations
-            .evals()
-            .iter()
-            .for_each(|&eval| prover_state.challenger.observe_algebra_element(eval));
+        prover_state.add_extension_scalars(folded_evaluations.evals());
 
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
@@ -459,7 +439,7 @@ where
             // The folding factor we used to fold the previous polynomial
             self.folding_factor.at_round(round_index),
             self.final_queries,
-            &mut prover_state.challenger,
+            prover_state,
         )?;
 
         // Every query requires opening these many in the previous Merkle tree
@@ -469,52 +449,52 @@ where
         match &round_state.merkle_prover_data {
             None => {
                 let mut answers = Vec::with_capacity(final_challenge_indexes.len());
-                let mut merkle_proof = Vec::with_capacity(final_challenge_indexes.len());
+                let mut merkle_proofs = Vec::with_capacity(final_challenge_indexes.len());
 
                 for challenge in final_challenge_indexes {
                     let commitment =
                         mmcs.open_batch(challenge, &round_state.commitment_merkle_prover_data);
                     answers.push(commitment.opened_values[0].clone());
-                    merkle_proof.push(commitment.opening_proof);
+                    merkle_proofs.push(commitment.opening_proof);
                 }
 
-                prover_state
-                    .proof_data
-                    .base_field_merkle_answers
-                    .clone_from(&answers);
-                // Ugly trick to have index compatibility when verifying
-                prover_state.proof_data.round_merkle_answers.push(vec![]);
-                prover_state
-                    .proof_data
-                    .round_merkle_proof
-                    .push(merkle_proof.clone());
+                // merkle leaves
+                for answer in &answers {
+                    prover_state.hint_base_scalars(answer);
+                }
+
+                // merkle authentication proof
+                for merkle_proof in &merkle_proofs {
+                    for digest in merkle_proof {
+                        prover_state.hint_base_scalars(digest);
+                    }
+                }
             }
 
             Some(data) => {
                 let mut answers = Vec::with_capacity(final_challenge_indexes.len());
-                let mut merkle_proof = Vec::with_capacity(final_challenge_indexes.len());
+                let mut merkle_proofs = Vec::with_capacity(final_challenge_indexes.len());
                 for challenge in final_challenge_indexes {
                     let commitment = extension_mmcs.open_batch(challenge, data);
                     answers.push(commitment.opened_values[0].clone());
-                    merkle_proof.push(commitment.opening_proof);
+                    merkle_proofs.push(commitment.opening_proof);
                 }
 
-                prover_state
-                    .proof_data
-                    .round_merkle_answers
-                    .push(answers.clone());
-                prover_state
-                    .proof_data
-                    .round_merkle_proof
-                    .push(merkle_proof.clone());
+                // merkle leaves
+                for answer in &answers {
+                    prover_state.hint_extension_scalars(answer);
+                }
+
+                // merkle authentication proof
+                for merkle_proof in &merkle_proofs {
+                    for digest in merkle_proof {
+                        prover_state.hint_base_scalars(digest);
+                    }
+                }
             }
         }
 
-        // PoW
-        if self.final_pow_bits > 0 {
-            let witness = prover_state.challenger.grind(self.final_pow_bits);
-            prover_state.proof_data.pow_witnesses.push(witness);
-        }
+        prover_state.pow_grinding(self.final_pow_bits);
 
         // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
@@ -528,7 +508,7 @@ where
                         EF::ONE,
                     )
                 })
-                .compute_sumcheck_polynomials::<_, DIGEST_ELEMS>(
+                .compute_sumcheck_polynomials(
                     prover_state,
                     self.final_sumcheck_rounds,
                     self.final_folding_pow_bits,
@@ -554,7 +534,7 @@ where
     fn compute_stir_queries<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<F, EF, Challenger>,
         round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig<EF>,
@@ -564,7 +544,7 @@ where
             round_state.domain.size(),
             self.folding_factor.at_round(round_index),
             round_params.num_queries,
-            &mut prover_state.challenger,
+            prover_state,
         )?;
 
         // Compute the generator of the folded domain, in the extension field

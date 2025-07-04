@@ -170,6 +170,14 @@ impl<F: Field> Statement<F> {
 
         (combined_evals, combined_sum)
     }
+
+    #[must_use]
+    pub fn num_deref_constraints(&self) -> usize {
+        self.constraints
+            .iter()
+            .filter(|constraint| constraint.defer_evaluation)
+            .count()
+    }
 }
 
 #[cfg(test)]

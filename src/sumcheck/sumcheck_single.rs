@@ -357,9 +357,9 @@ where
     /// - If `folding_factor > num_variables()`
     /// - If univariate skip is attempted with evaluations in the extension field.
     #[instrument(skip_all)]
-    pub fn compute_sumcheck_polynomials<Challenger, const DIGEST_ELEMS: usize>(
+    pub fn compute_sumcheck_polynomials<Challenger>(
         &mut self,
-        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<F, EF, Challenger>,
         folding_factor: usize,
         pow_bits: usize,
         k_skip: Option<usize>,
@@ -372,9 +372,6 @@ where
         // Will store the verifier's folding challenges for each round.
         let mut res = Vec::with_capacity(folding_factor);
 
-        // To store the sumcheck evaluations for each round
-        let mut sumcheck_evaluations = Vec::with_capacity(folding_factor);
-
         // Track number of rounds already skipped.
         let mut skip = 0;
 
@@ -384,23 +381,14 @@ where
                 // Collapse the first k variables via a univariate evaluation over a multiplicative coset.
                 let (sumcheck_poly, f_mat, w_mat) = self.compute_skipping_sumcheck_polynomial(k);
 
-                // Observe round polynomial
-                sumcheck_poly
-                    .evaluations()
-                    .iter()
-                    .for_each(|&eval| prover_state.challenger.observe_algebra_element(eval));
-                // Send the evaluations of the univariate polynomial (length 2^k) to the verifier.
-                sumcheck_evaluations.push(sumcheck_poly.evaluations().to_vec());
+                prover_state.add_extension_scalars(sumcheck_poly.evaluations());
 
                 // Receive the verifier challenge for this entire collapsed round.
-                let folding_randomness: EF = prover_state.challenger.sample_algebra_element();
+                let folding_randomness: EF = prover_state.sample();
                 res.push(folding_randomness);
 
-                // Optional proof-of-work challenge to delay prover.
-                if pow_bits > 0 {
-                    let witness = prover_state.challenger.grind(pow_bits);
-                    prover_state.proof_data.pow_witnesses.push(witness);
-                }
+                // Proof-of-work challenge to delay prover.
+                prover_state.pow_grinding(pow_bits);
 
                 // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
                 let new_p = interpolate_subgroup(&f_mat, folding_randomness);
@@ -428,33 +416,17 @@ where
             // Compute the quadratic sumcheck polynomial for the current variable.
             let sumcheck_poly = self.compute_sumcheck_polynomial();
 
-            // Observe round polynomial
-            sumcheck_poly
-                .evaluations()
-                .iter()
-                .for_each(|&eval| prover_state.challenger.observe_algebra_element(eval));
-            // Send polynomial evaluations to verifier.
-            sumcheck_evaluations.push(sumcheck_poly.evaluations().to_vec());
+            prover_state.add_extension_scalars(sumcheck_poly.evaluations());
 
             // Sample verifier challenge.
-            let folding_randomness: EF = prover_state.challenger.sample_algebra_element();
+            let folding_randomness: EF = prover_state.sample();
             res.push(folding_randomness);
 
-            // Optional PoW grinding.
-            if pow_bits > 0 {
-                let witness = prover_state.challenger.grind(pow_bits);
-                prover_state.proof_data.pow_witnesses.push(witness);
-            }
+            prover_state.pow_grinding(pow_bits);
 
             // Fold the polynomial and weight evaluations over the new challenge.
             self.compress(EF::ONE, &folding_randomness.into(), &sumcheck_poly);
         }
-
-        // Add the sumcheck evaluations to the proof data
-        prover_state
-            .proof_data
-            .sumcheck_evaluations
-            .push(sumcheck_evaluations);
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
         res.reverse();
@@ -1565,7 +1537,7 @@ mod tests {
         let perm = Perm::new_from_rng_128(&mut rng);
         let challenger = MyChallenger::new(perm);
 
-        let mut prover_state = domsep.to_prover_state::<_, 8>(challenger.clone());
+        let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         // Check sum BEFORE running protocol via dot product
         let expected_sum =
@@ -1574,7 +1546,7 @@ mod tests {
 
         // Compute sumcheck polynomials
         let result = prover
-            .compute_sumcheck_polynomials::<_, 8>(&mut prover_state, folding_factor, pow_bits, None)
+            .compute_sumcheck_polynomials(&mut prover_state, folding_factor, pow_bits, None)
             .unwrap();
 
         // The result should contain `folding_factor` elements
@@ -1582,22 +1554,15 @@ mod tests {
 
         // Reconstruct verifier state to manually validate the sumcheck round
         let mut verifier_state =
-            domsep.to_verifier_state::<_, 8>(prover_state.proof_data.clone(), challenger);
+            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
         // Read the sumcheck polynomial evaluations: h(0), h(1), h(2)
-        let sumcheck_poly_evals: [_; 3] = verifier_state.proof_data.sumcheck_evaluations[0][0]
-            .clone()
-            .try_into()
-            .unwrap();
+        let sumcheck_poly_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
 
         let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-        sumcheck_poly
-            .evaluations()
-            .iter()
-            .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
         // Read the folding randomness challenge
-        let folding_randomness: F = verifier_state.challenger.sample_algebra_element();
+        let folding_randomness: F = verifier_state.sample();
 
         // Check that sumcheck polynomial satisfies the sum rule:
         //  h(0) + h(1) = claimed initial sum = eval
@@ -1653,10 +1618,10 @@ mod tests {
         let perm = Perm::new_from_rng_128(&mut rng);
         let challenger = MyChallenger::new(perm);
 
-        let mut prover_state = domsep.to_prover_state::<_, 8>(challenger.clone());
+        let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         let result = prover
-            .compute_sumcheck_polynomials::<_, 8>(&mut prover_state, folding_factor, pow_bits, None)
+            .compute_sumcheck_polynomials(&mut prover_state, folding_factor, pow_bits, None)
             .unwrap();
 
         // Ensure we get `folding_factor` sampled randomness values
@@ -1664,7 +1629,7 @@ mod tests {
 
         // Reconstruct verifier state for round-by-round checks
         let mut verifier_state =
-            domsep.to_verifier_state::<_, 8>(prover_state.proof_data.clone(), challenger);
+            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
         // Initialize claimed sum with the expected initial value from constraints (before any folding)
         let mut current_sum = expected_initial_sum;
@@ -1674,16 +1639,10 @@ mod tests {
 
             // The prover sends 3 evaluations of a degree-1 polynomial h_i over {0,1,2}
             // These are evaluations at points 0, 1, 2, stored in lexicographic ternary order
-            let sumcheck_evals: [_; 3] = verifier_state.proof_data.sumcheck_evaluations[0][i]
-                .clone()
-                .try_into()
-                .unwrap();
+            let sumcheck_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
 
             // Create a SumcheckPolynomial over 1 variable with those 3 values
             let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
-            poly.evaluations()
-                .iter()
-                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
             // Step 2: Verifier checks sum over Boolean hypercube {0,1}^1
             // This ensures that:
@@ -1696,7 +1655,7 @@ mod tests {
             );
 
             // Step 3: Verifier samples next challenge r_i ∈ F to fold
-            let r: F = verifier_state.challenger.sample_algebra_element();
+            let r: F = verifier_state.sample();
 
             // Step 4: Evaluate the sumcheck polynomial at r_i to compute new folded sum
             // The polynomial h_i is evaluated at x = r_i ∈ F (can be non-{0,1,2})
@@ -1793,10 +1752,10 @@ mod tests {
         let perm = Perm::new_from_rng_128(&mut rng);
         let challenger = MyChallenger::new(perm);
 
-        let mut prover_state = domsep.to_prover_state::<_, 8>(challenger.clone());
+        let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         let result = prover
-            .compute_sumcheck_polynomials::<_, 8>(&mut prover_state, folding_factor, pow_bits, None)
+            .compute_sumcheck_polynomials(&mut prover_state, folding_factor, pow_bits, None)
             .unwrap();
 
         // There should be exactly `folding_factor` sumcheck polynomials
@@ -1804,23 +1763,17 @@ mod tests {
 
         // Initialize the verifier state for checking round-by-round
         let mut verifier_state =
-            domsep.to_verifier_state::<_, 8>(prover_state.proof_data.clone(), challenger);
+            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
         // Initialize the sum to be verified round-by-round
         let mut current_sum = expected_initial_sum;
 
         for i in 0..folding_factor {
             // Read the 3 evaluations of the sumcheck polynomial for this round
-            let sumcheck_evals: [_; 3] = verifier_state.proof_data.sumcheck_evaluations[0][i]
-                .clone()
-                .try_into()
-                .unwrap();
+            let sumcheck_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
 
             // Construct the polynomial h_i(X) over 1 variable with those evaluations
             let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
-            poly.evaluations()
-                .iter()
-                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
             // Check that h_i(0) + h_i(1) equals the claimed current sum
             let sum = poly.evaluations()[0] + poly.evaluations()[1];
@@ -1830,7 +1783,7 @@ mod tests {
             );
 
             // Sample the next folding challenge r_i ∈ F
-            let r: F = verifier_state.challenger.sample_algebra_element();
+            let r: F = verifier_state.sample();
 
             // Fold the polynomial at r_i to get new claimed sum
             current_sum = poly.evaluate_at_point(&r.into());
@@ -1891,10 +1844,10 @@ mod tests {
             univariate_skip: None,
         });
 
-        let mut prover_state = domsep.to_prover_state::<_, 8>(challenger);
+        let mut prover_state = domsep.to_prover_state(challenger);
 
         let result = prover
-            .compute_sumcheck_polynomials::<_, 8>(&mut prover_state, folding_factor, pow_bits, None)
+            .compute_sumcheck_polynomials(&mut prover_state, folding_factor, pow_bits, None)
             .unwrap();
 
         assert_eq!(result.0.len(), 0);
@@ -2130,11 +2083,11 @@ mod tests {
         let challenger = MyChallenger::new(perm);
 
         // Convert domain separator into prover state object
-        let mut prover_state = domsep.to_prover_state::<_, 8>(challenger.clone());
+        let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
         let result = prover
-            .compute_sumcheck_polynomials::<_, 8>(&mut prover_state, folding_factor, pow_bits, None)
+            .compute_sumcheck_polynomials(&mut prover_state, folding_factor, pow_bits, None)
             .unwrap();
 
         // Ensure we received the expected number of folding randomness values
@@ -2142,21 +2095,15 @@ mod tests {
 
         // Reconstruct verifier state to simulate the rounds
         let mut verifier_state =
-            domsep.to_verifier_state::<_, 8>(prover_state.proof_data.clone(), challenger);
+            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
 
         for i in 0..folding_factor {
             // Get the 3 evaluations of sumcheck polynomial h_i(X) at X = 0, 1, 2
-            let sumcheck_evals: [_; 3] = verifier_state.proof_data.sumcheck_evaluations[0][i]
-                .clone()
-                .try_into()
-                .unwrap();
+            let sumcheck_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
             let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
-            poly.evaluations()
-                .iter()
-                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
             // Verify sum over Boolean points {0,1} matches current sum
             let sum = poly.evaluations()[0] + poly.evaluations()[1];
@@ -2166,7 +2113,7 @@ mod tests {
             );
 
             // Sample random challenge r_i ∈ F and evaluate h_i(r_i)
-            let r: EF4 = verifier_state.challenger.sample_algebra_element();
+            let r: EF4 = verifier_state.sample();
             current_sum = poly.evaluate_at_point(&r.into());
 
             // Apply grinding check if required
@@ -2357,11 +2304,11 @@ mod tests {
 
             // Run sumcheck with zero grinding (no challenge_pow)
             let final_point_base = prover_base
-                .compute_sumcheck_polynomials::<_, 8>(&mut state_base, folding_rounds, 0, None)
+                .compute_sumcheck_polynomials(&mut state_base, folding_rounds, 0, None)
                 .unwrap();
 
             let final_point_ext = prover_ext
-                .compute_sumcheck_polynomials::<_, 8>(&mut state_ext, folding_rounds, 0, None)
+                .compute_sumcheck_polynomials(&mut state_ext, folding_rounds, 0, None)
                 .unwrap();
 
             // Ensure roundtrip consistency
@@ -2535,11 +2482,11 @@ mod tests {
         let perm = Perm::new_from_rng_128(&mut rng);
         let challenger = MyChallenger::new(perm);
 
-        let mut prover_state = domsep.to_prover_state::<_, 8>(challenger.clone());
+        let mut prover_state = domsep.to_prover_state(challenger.clone());
 
         // Run sumcheck with k = 2 skipped rounds and 1 regular round
         let result = prover
-            .compute_sumcheck_polynomials::<_, 8>(
+            .compute_sumcheck_polynomials(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
@@ -2558,18 +2505,12 @@ mod tests {
         // Replay verifier's side using same Fiat-Shamir transcript
         // -------------------------------------------------------------
         let mut verifier_state =
-            domsep.to_verifier_state::<_, 8>(prover_state.proof_data.clone(), challenger);
+            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
         let mut current_sum = expected_sum;
 
         // Get the 8 evaluations of the skipping polynomial h₀(X)
-        let sumcheck_evals: [_; 8] = verifier_state.proof_data.sumcheck_evaluations[0][0]
-            .clone()
-            .try_into()
-            .unwrap();
+        let sumcheck_evals: [_; 8] = verifier_state.next_extension_scalars_const().unwrap();
         let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
-        poly.evaluations()
-            .iter()
-            .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
         // Check the sum of the polynomial evaluations is correct
         assert_eq!(
@@ -2579,7 +2520,7 @@ mod tests {
 
         // Interpolate h₀(X) and update current sum using first challenge r₀
         let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);
-        let r: EF4 = verifier_state.challenger.sample_algebra_element();
+        let r: EF4 = verifier_state.sample();
 
         current_sum = interpolate_subgroup(&evals_mat, r)[0];
 
@@ -2588,14 +2529,8 @@ mod tests {
         // h₁(X) must satisfy h₁(0) + h₁(1) == current_sum
         // -------------------------------------------------------------
         for i in 2..folding_factor {
-            let sumcheck_evals: [_; 3] = verifier_state.proof_data.sumcheck_evaluations[0][i - 1]
-                .clone()
-                .try_into()
-                .unwrap();
+            let sumcheck_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
             let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
-            poly.evaluations()
-                .iter()
-                .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
             let sum = poly.evaluations()[0] + poly.evaluations()[1];
 
@@ -2604,7 +2539,7 @@ mod tests {
                 "Sumcheck round {i}: h(0) + h(1) != current_sum"
             );
 
-            let r: EF4 = verifier_state.challenger.sample_algebra_element();
+            let r: EF4 = verifier_state.sample();
             current_sum = poly.evaluate_at_point(&r.into());
         }
 
@@ -2701,10 +2636,10 @@ mod tests {
         let perm = Perm::new_from_rng_128(&mut rng);
         let challenger = MyChallenger::new(perm);
 
-        let mut prover_state = domsep.to_prover_state::<_, 8>(challenger);
+        let mut prover_state = domsep.to_prover_state(challenger);
 
         let _ = prover
-            .compute_sumcheck_polynomials::<_, 8>(
+            .compute_sumcheck_polynomials(
                 &mut prover_state,
                 folding_factor,
                 pow_bits,
