@@ -31,8 +31,10 @@ pub enum ProofError {
     InvalidProof,
     /// The domain separator specified mismatches the protocol execution.
     InvalidDomainSeparator(DomainSeparatorMismatch),
-    /// Serialization/Deserialization led to errors.
-    SerializationError,
+    /// Verifier is asking more data than what was provided in the transcript.
+    ExceededTranscript,
+    /// Invalid Pow Grinding
+    InvalidGrindingWitness,
 }
 
 /// The result type when trying to prove or verify a proof using Fiat-Shamir.
@@ -47,9 +49,10 @@ impl Display for DomainSeparatorMismatch {
 impl Display for ProofError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SerializationError => write!(f, "Serialization Error"),
             Self::InvalidDomainSeparator(e) => e.fmt(f),
             Self::InvalidProof => write!(f, "Invalid proof"),
+            Self::ExceededTranscript => write!(f, "Verifier exceeded transcript length"),
+            Self::InvalidGrindingWitness => write!(f, "Invalid grinding witness"),
         }
     }
 }

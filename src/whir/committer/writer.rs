@@ -57,7 +57,7 @@ where
     pub fn commit<const DIGEST_ELEMS: usize>(
         &self,
         dft: &EvalsDft<F>,
-        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<F, EF, Challenger>,
         polynomial: EvaluationsList<F>,
     ) -> ProofResult<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>>
     where
@@ -83,25 +83,15 @@ where
         let (root, prover_data) =
             info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
 
-        // Observe merkle root
-        prover_state.challenger.observe_slice(root.as_ref());
-        prover_state
-            .proof_data
-            .round_merkle_root
-            .push(*root.as_ref());
+        prover_state.add_base_scalars(root.as_ref());
 
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) = sample_ood_points(
-            &mut prover_state.challenger,
+            prover_state,
             self.committment_ood_samples,
             self.mv_parameters.num_variables,
             |point| info_span!("ood evaluation").in_scope(|| polynomial.evaluate(point)),
         );
-
-        prover_state
-            .proof_data
-            .round_ood_answers
-            .push(ood_answers.clone());
 
         // Return the witness containing the polynomial, Merkle tree, and OOD results.
         Ok(Witness {

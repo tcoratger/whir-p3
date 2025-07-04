@@ -21,7 +21,7 @@ use crate::{
         verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{Statement, parameters::WhirConfig},
+    whir::{Statement, parameters::WhirConfig, verifier::sumcheck::verify_sumcheck_rounds},
 };
 
 pub mod sumcheck;
@@ -53,7 +53,7 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
+        verifier_state: &mut VerifierState<F, EF, Challenger>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         statement: &Statement<EF>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
@@ -83,10 +83,9 @@ where
             round_constraints.push((combination_randomness, constraints));
 
             // Initial sumcheck
-            let folding_randomness = self.verify_sumcheck_rounds(
+            let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_sum,
-                0,
                 self.folding_factor.at_round(0),
                 self.starting_folding_pow_bits,
                 false,
@@ -99,12 +98,11 @@ where
 
             let mut folding_randomness = EF::zero_vec(self.folding_factor.at_round(0));
             for folded_randomness in &mut folding_randomness {
-                *folded_randomness = verifier_state.challenger.sample_algebra_element();
+                *folded_randomness = verifier_state.sample();
             }
             round_folding_randomness.push(MultilinearPoint(folding_randomness));
 
-            // PoW
-            self.verify_proof_of_work(verifier_state, self.starting_folding_pow_bits);
+            verifier_state.check_pow_grinding(self.starting_folding_pow_bits)?;
         }
 
         for round_index in 0..self.n_rounds() {
@@ -116,7 +114,6 @@ where
                 verifier_state,
                 round_params.num_variables,
                 round_params.ood_samples,
-                round_index + 1,
             )?;
 
             // Verify in-domain challenges on the previous commitment.
@@ -134,18 +131,19 @@ where
                 .into_iter()
                 .chain(stir_constraints.into_iter())
                 .collect();
+
             let combination_randomness =
                 self.combine_constraints(verifier_state, &mut claimed_sum, &constraints)?;
             round_constraints.push((combination_randomness.clone(), constraints));
 
-            let folding_randomness = self.verify_sumcheck_rounds(
+            let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_sum,
-                round_index + 1,
                 self.folding_factor.at_round(round_index + 1),
                 round_params.folding_pow_bits,
                 false,
             )?;
+
             round_folding_randomness.push(folding_randomness);
 
             // Update round parameters
@@ -153,14 +151,9 @@ where
         }
 
         // In the final round we receive the full polynomial instead of a commitment.
-        let final_coefficients = verifier_state.proof_data.final_folded_evaluations.clone();
+        let n_final_coeffs = 1 << self.0.n_vars_of_final_polynomial();
+        let final_coefficients = verifier_state.next_extension_scalars_vec(n_final_coeffs)?;
         let final_evaluations = EvaluationsList::new(final_coefficients);
-
-        // Observe final evaluations
-        final_evaluations
-            .evals()
-            .iter()
-            .for_each(|&eval| verifier_state.challenger.observe_algebra_element(eval));
 
         // Verify in-domain challenges on the previous commitment.
         let stir_constraints = self.verify_stir_challenges(
@@ -178,10 +171,9 @@ where
             .then_some(())
             .ok_or(ProofError::InvalidProof)?;
 
-        let final_sumcheck_randomness = self.verify_sumcheck_rounds(
+        let final_sumcheck_randomness = verify_sumcheck_rounds(
             verifier_state,
             &mut claimed_sum,
-            self.n_rounds() + 1,
             self.final_sumcheck_rounds,
             self.final_folding_pow_bits,
             false,
@@ -200,7 +192,8 @@ where
         // Compute evaluation of weights in folding randomness
         // Some weight computations can be deferred and will be returned for the caller
         // to verify.
-        let deferred = verifier_state.proof_data.deferred_constraints.clone();
+        let deferred =
+            verifier_state.next_extension_scalars_vec(statement.num_deref_constraints())?;
 
         let evaluation_of_weights =
             self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
@@ -230,13 +223,13 @@ where
     ///
     /// # Returns
     /// A vector of randomness values used to weight each constraint.
-    pub fn combine_constraints<const DIGEST_ELEMS: usize>(
+    pub fn combine_constraints(
         &self,
-        verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
+        verifier_state: &mut VerifierState<F, EF, Challenger>,
         claimed_sum: &mut EF,
         constraints: &[Constraint<EF>],
     ) -> ProofResult<Vec<EF>> {
-        let combination_randomness_gen: EF = verifier_state.challenger.sample_algebra_element();
+        let combination_randomness_gen: EF = verifier_state.sample();
         let combination_randomness: Vec<_> = combination_randomness_gen
             .powers()
             .take(constraints.len())
@@ -248,35 +241,6 @@ where
             .sum::<EF>();
 
         Ok(combination_randomness)
-    }
-
-    /// Verify the prover's proof of work (PoW) challenge response.
-    ///
-    /// If the configured `bits` value is greater than zero, this function checks that
-    /// the prover has provided a valid PoW nonce satisfying the difficulty constraint.
-    /// This prevents spam and ensures the prover has committed nontrivial effort
-    /// before submitting a proof.
-    ///
-    /// If `bits == 0.`, no proof of work is required and the function returns immediately.
-    ///
-    /// # Arguments
-    /// - `verifier_state`: The verifier’s Fiat-Shamir state.
-    /// - `bits`: The number of difficulty bits required for the proof of work.
-    ///
-    /// # Errors
-    /// Panics if the PoW response is invalid.
-    pub fn verify_proof_of_work<const DIGEST_ELEMS: usize>(
-        &self,
-        verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
-        bits: usize,
-    ) {
-        if bits > 0 {
-            let pow_witness = verifier_state.proof_data.pow_witnesses.remove(0);
-            assert!(
-                verifier_state.challenger.check_witness(bits, pow_witness),
-                "Witness does not satisfy the PoW condition"
-            );
-        }
     }
 
     /// Verify STIR in-domain queries and produce associated constraints.
@@ -305,7 +269,7 @@ where
     /// or the prover’s data does not match the commitment.
     pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
+        verifier_state: &mut VerifierState<F, EF, Challenger>,
         params: &RoundConfig<EF>,
         commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
@@ -323,14 +287,13 @@ where
             params.domain_size,
             params.folding_factor,
             params.num_queries,
-            &mut verifier_state.challenger,
+            verifier_state,
         )?;
 
         let dimensions = vec![Dimensions {
             height: params.domain_size >> params.folding_factor,
             width: 1 << params.folding_factor,
         }];
-
         let answers = self.verify_merkle_proof(
             verifier_state,
             &commitment.root,
@@ -340,7 +303,7 @@ where
             round_index,
         )?;
 
-        self.verify_proof_of_work(verifier_state, params.pow_bits);
+        verifier_state.check_pow_grinding(params.pow_bits)?;
 
         // Compute STIR Constraints
         let folds: Vec<_> = answers
@@ -387,7 +350,7 @@ where
     /// Returns `ProofError::InvalidProof` if any Merkle proof fails verification.
     pub fn verify_merkle_proof<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
+        verifier_state: &mut VerifierState<F, EF, Challenger>,
         root: &Hash<F, F, DIGEST_ELEMS>,
         indices: &[usize],
         dimensions: &[Dimensions],
@@ -408,11 +371,26 @@ where
 
         // Branch depending on whether the committed leafs are base field or extension field.
         let res = if leafs_base_field {
-            // Read the claimed leaf values for each queried index from the Fiat-Shamir transcript.
-            let answers = verifier_state.proof_data.base_field_merkle_answers.clone();
+            // Merkle leaves
+            let mut answers = vec![];
+            let merkle_leaf_size = 1 << self.folding_factor.at_round(round_index);
+            for _ in 0..indices.len() {
+                answers.push(verifier_state.receive_hint_base_scalars(merkle_leaf_size)?);
+            }
 
-            // Read the Merkle proofs for each queried index from the Fiat-Shamir transcript.
-            let merkle_proof = verifier_state.proof_data.round_merkle_proof[round_index].clone();
+            // Merkle proofs
+            let mut merkle_proofs = Vec::new();
+            for _ in 0..indices.len() {
+                let mut merkle_path = vec![];
+                for _ in 0..self.merkle_tree_height(round_index) {
+                    let digest: [F; DIGEST_ELEMS] = verifier_state
+                        .receive_hint_base_scalars(DIGEST_ELEMS)?
+                        .try_into()
+                        .unwrap();
+                    merkle_path.push(digest);
+                }
+                merkle_proofs.push(merkle_path);
+            }
 
             // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
@@ -423,7 +401,7 @@ where
                     index,
                     BatchOpeningRef {
                         opened_values: &[answers[i].clone()],
-                        opening_proof: &merkle_proof[i],
+                        opening_proof: &merkle_proofs[i],
                     },
                 )
                 .map_err(|_| ProofError::InvalidProof)?;
@@ -435,11 +413,26 @@ where
                 .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
                 .collect()
         } else {
-            // Read the claimed extension field leaf values.
-            let answers = verifier_state.proof_data.round_merkle_answers[round_index].clone();
+            // Merkle leaves
+            let mut answers = vec![];
+            let merkle_leaf_size = 1 << self.folding_factor.at_round(round_index);
+            for _ in 0..indices.len() {
+                answers.push(verifier_state.receive_hint_extension_scalars(merkle_leaf_size)?);
+            }
 
-            // Read the Merkle proofs.
-            let merkle_proof = verifier_state.proof_data.round_merkle_proof[round_index].clone();
+            // Merkle proofs
+            let mut merkle_proofs = Vec::new();
+            for _ in 0..indices.len() {
+                let mut merkle_path = vec![];
+                for _ in 0..self.merkle_tree_height(round_index) {
+                    let digest: [F; DIGEST_ELEMS] = verifier_state
+                        .receive_hint_base_scalars(DIGEST_ELEMS)?
+                        .try_into()
+                        .unwrap();
+                    merkle_path.push(digest);
+                }
+                merkle_proofs.push(merkle_path);
+            }
 
             // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
@@ -451,7 +444,7 @@ where
                         index,
                         BatchOpeningRef {
                             opened_values: &[answers[i].clone()],
-                            opening_proof: &merkle_proof[i],
+                            opening_proof: &merkle_proofs[i],
                         },
                     )
                     .map_err(|_| ProofError::InvalidProof)?;

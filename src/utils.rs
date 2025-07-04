@@ -1,5 +1,6 @@
 use p3_field::{
-    Algebra, ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing,
+    Algebra, BasedVectorSpace, ExtensionField, Field, PackedFieldExtension, PackedValue,
+    PrimeCharacteristicRing,
 };
 use p3_util::log2_strict_usize;
 #[cfg(feature = "parallel")]
@@ -721,6 +722,26 @@ where
         // x_i = 1 part (new subproblem starts at 0)
         eval_eq_chunked(tail, high_chunk, s1, 0);
     }
+}
+
+pub fn flatten_scalars_to_base<F: Field, EF: ExtensionField<F>>(scalars: &[EF]) -> Vec<F> {
+    scalars
+        .iter()
+        .flat_map(BasedVectorSpace::as_basis_coefficients_slice)
+        .copied()
+        .collect()
+}
+
+pub fn pack_scalars_to_extension<F: Field, EF: ExtensionField<F>>(scalars: &[F]) -> Vec<EF> {
+    let extension_size = <EF as BasedVectorSpace<F>>::DIMENSION;
+    assert!(
+        scalars.len() % extension_size == 0,
+        "Scalars length must be a multiple of the extension size"
+    );
+    scalars
+        .chunks_exact(extension_size)
+        .map(|chunk| EF::from_basis_coefficients_slice(chunk).unwrap())
+        .collect()
 }
 
 /// Returns a vector of uninitialized elements of type `A` with the specified length.

@@ -96,7 +96,7 @@ where
     #[instrument(skip_all)]
     pub(crate) fn initialize_first_round_state<MyChallenger, C, Challenger>(
         prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
-        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<F, EF, Challenger>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<Self>
@@ -123,7 +123,7 @@ where
         let folding_randomness = if prover.initial_statement {
             // If there is initial statement, then we run the sum-check for
             // this initial statement.
-            let combination_randomness_gen: EF = prover_state.challenger.sample_algebra_element();
+            let combination_randomness_gen: EF = prover_state.sample();
 
             // Create the sumcheck prover
             let mut sumcheck = SumcheckSingle::from_base_evals(
@@ -133,7 +133,7 @@ where
             );
 
             // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck.compute_sumcheck_polynomials::<_, DIGEST_ELEMS>(
+            let folding_randomness = sumcheck.compute_sumcheck_polynomials(
                 prover_state,
                 prover.folding_factor.at_round(0),
                 prover.starting_folding_pow_bits,
@@ -152,15 +152,10 @@ where
             // the initial folding randomnesses.
             let mut folding_randomness = EF::zero_vec(prover.folding_factor.at_round(0));
             for folded_randomness in &mut folding_randomness {
-                *folded_randomness = prover_state.challenger.sample_algebra_element();
+                *folded_randomness = prover_state.sample();
             }
 
-            if prover.starting_folding_pow_bits > 0 {
-                let witness = prover_state
-                    .challenger
-                    .grind(prover.starting_folding_pow_bits);
-                prover_state.proof_data.pow_witnesses.push(witness);
-            }
+            prover_state.pow_grinding(prover.starting_folding_pow_bits);
             MultilinearPoint(folding_randomness)
         };
         let randomness_vec = info_span!("copy_across_random_vec").in_scope(|| {
@@ -275,7 +270,7 @@ mod tests {
         poly: EvaluationsList<F>,
     ) -> (
         DomainSeparator<EF4, F>,
-        ProverState<EF4, F, MyChallenger, 8>,
+        ProverState<F, EF4, MyChallenger>,
         Witness<EF4, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) {
         // Create a new Fiat-Shamir domain separator.
@@ -291,7 +286,7 @@ mod tests {
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
         // Convert the domain separator into a mutable prover-side transcript.
-        let mut prover_state = domsep.to_prover_state::<_, 8>(challenger);
+        let mut prover_state = domsep.to_prover_state::<_>(challenger);
 
         // Create a committer using the protocol configuration (Merkle parameters, hashers, etc.).
         let committer = CommitmentWriter::new(params);
