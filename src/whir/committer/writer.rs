@@ -61,8 +61,12 @@ where
         polynomial: EvaluationsList<F>,
     ) -> ProofResult<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+            + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         F: Eq + Packable,
     {
@@ -78,8 +82,10 @@ where
             });
 
         // Commit to the Merkle tree
-        let merkle_tree =
-            MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
+        let merkle_tree = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
+            self.merkle_hash.clone(),
+            self.merkle_compress.clone(),
+        );
         let (root, prover_data) =
             info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
 
