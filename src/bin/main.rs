@@ -72,6 +72,7 @@ struct Args {
     rs_domain_initial_reduction_factor: usize,
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())

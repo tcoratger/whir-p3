@@ -1,6 +1,6 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::{CanSample, DuplexChallenger};
+use p3_challenger::DuplexChallenger;
 use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;

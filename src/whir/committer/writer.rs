@@ -1,6 +1,6 @@
 use std::{ops::Deref, sync::Arc};
 
-use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
@@ -69,9 +69,8 @@ where
         C: PseudoCompressionFunction<[PW::Value; DIGEST_ELEMS], 2>
             + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
             + Sync,
-        PW::Value: Eq + Field,
+        PW::Value: Eq,
         [PW::Value; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        Challenger: CanObserve<PW::Value> + FieldChallenger<PW::Value>,
     {
         let evals_repeated = info_span!("repeating evals")
             .in_scope(|| parallel_repeat(polynomial.evals(), 1 << self.starting_log_inv_rate));
