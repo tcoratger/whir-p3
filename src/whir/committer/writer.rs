@@ -2,7 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
-use p3_field::{ExtensionField, Field, Packable, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
@@ -68,7 +68,6 @@ where
             + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        F: Eq + Packable,
     {
         let evals_repeated = info_span!("repeating evals")
             .in_scope(|| parallel_repeat(polynomial.evals(), 1 << self.starting_log_inv_rate));
