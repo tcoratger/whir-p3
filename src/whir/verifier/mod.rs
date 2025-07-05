@@ -58,8 +58,12 @@ where
         statement: &Statement<EF>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+            + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         F: Eq + Packable,
     {
@@ -276,8 +280,12 @@ where
         round_index: usize,
     ) -> ProofResult<Vec<Constraint<EF>>>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+            + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         F: Eq + Packable,
     {
@@ -358,13 +366,20 @@ where
         round_index: usize,
     ) -> ProofResult<Vec<Vec<EF>>>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+            + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         F: Eq + Packable,
     {
         // Create a Merkle MMCS instance
-        let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
+        let mmcs = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
+            self.merkle_hash.clone(),
+            self.merkle_compress.clone(),
+        );
 
         // Wrap the MMCS in an extension-aware wrapper for EF leaf support.
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
