@@ -1,8 +1,8 @@
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
-use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_field::extension::BinomialExtensionField;
 use proptest::prelude::*;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 
 use crate::fiat_shamir::{
     domain_separator::DomainSeparator, prover::ProverState, verifier::VerifierState,
@@ -24,8 +24,10 @@ fn make_domain_separator() -> DomainSeparator<EF, F> {
 
 proptest! {
     #[test]
-    fn test_base_scalar_roundtrip(vals in prop::collection::vec(1u64..10, 1..10)) {
-        let vals: Vec<F> = vals.into_iter().map(F::from_u64).collect();
+    fn test_base_scalar_roundtrip(seed in any::<u64>(), n in 1usize..16) {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let vals: Vec<F> = (0..n).map(|_| rng.random()).collect();
+
         let domsep = make_domain_separator();
         let challenger = make_challenger();
 
@@ -39,10 +41,9 @@ proptest! {
     }
 
     #[test]
-    fn test_extension_scalar_roundtrip(vals in prop::collection::vec(prop::array::uniform4(1u64..10), 1..5)) {
-        let ext_vals: Vec<EF> = vals.into_iter()
-            .map(|arr| EF::from_basis_coefficients_slice(&arr.map(F::from_u64)).unwrap())
-            .collect();
+    fn test_extension_scalar_roundtrip(seed in any::<u64>(), n in 1usize..8) {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let ext_vals: Vec<EF> = (0..n).map(|_| rng.random()).collect();
 
         let domsep = make_domain_separator();
         let challenger = make_challenger();
@@ -57,8 +58,10 @@ proptest! {
     }
 
     #[test]
-    fn test_hint_base_scalar_roundtrip(vals in prop::collection::vec(1u64..10, 1..10)) {
-        let vals: Vec<F> = vals.into_iter().map(F::from_u64).collect();
+    fn test_hint_base_scalar_roundtrip(seed in any::<u64>(), n in 1usize..16) {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let vals: Vec<F> = (0..n).map(|_| rng.random()).collect();
+
         let domsep = make_domain_separator();
         let challenger = make_challenger();
 
@@ -72,10 +75,9 @@ proptest! {
     }
 
     #[test]
-    fn test_hint_extension_scalar_roundtrip(vals in prop::collection::vec(prop::array::uniform4(1u64..10), 1..5)) {
-        let ext_vals: Vec<EF> = vals.into_iter()
-            .map(|arr| EF::from_basis_coefficients_slice(&arr.map(F::from_u64)).unwrap())
-            .collect();
+    fn test_hint_extension_scalar_roundtrip(seed in any::<u64>(), n in 1usize..8) {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let ext_vals: Vec<EF> = (0..n).map(|_| rng.random()).collect();
 
         let domsep = make_domain_separator();
         let challenger = make_challenger();
