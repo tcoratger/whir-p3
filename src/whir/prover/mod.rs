@@ -146,8 +146,12 @@ where
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+            + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         F: Eq + Packable,
     {
@@ -199,8 +203,12 @@ where
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<()>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+            + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         F: Eq + Packable,
     {
@@ -255,7 +263,10 @@ where
             })
         });
 
-        let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
+        let mmcs = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
+            self.merkle_hash.clone(),
+            self.merkle_compress.clone(),
+        );
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
         let (root, prover_data) =
             info_span!("commit matrix").in_scope(|| extension_mmcs.commit_matrix(folded_matrix));
@@ -424,8 +435,12 @@ where
         folded_evaluations: &EvaluationsList<EF>,
     ) -> ProofResult<()>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+            + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         F: Eq + Packable,
     {
@@ -443,7 +458,10 @@ where
         )?;
 
         // Every query requires opening these many in the previous Merkle tree
-        let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
+        let mmcs = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
+            self.merkle_hash.clone(),
+            self.merkle_compress.clone(),
+        );
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
 
         match &round_state.merkle_prover_data {
