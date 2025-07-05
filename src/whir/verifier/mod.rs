@@ -2,7 +2,7 @@ use std::{fmt::Debug, ops::Deref};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
-use p3_field::{ExtensionField, Field, Packable, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
@@ -61,7 +61,6 @@ where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        F: Eq + Packable,
     {
         // During the rounds we collect constraints, combination randomness, folding randomness
         // and we update the claimed sum of constraint evaluation.
@@ -279,7 +278,6 @@ where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        F: Eq + Packable,
     {
         let leafs_base_field = round_index == 0;
 
@@ -361,7 +359,6 @@ where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        F: Eq + Packable,
     {
         // Create a Merkle MMCS instance
         let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
