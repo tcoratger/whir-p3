@@ -2,6 +2,8 @@ pub mod domain_separator;
 pub mod errors;
 pub mod pattern;
 pub mod prover;
+#[cfg(test)]
+mod tests;
 pub mod verifier;
 
 pub trait ChallengSampler<EF> {
