@@ -82,6 +82,7 @@ fn bench_challenge_queries_small(c: &mut Criterion) {
                     black_box(folding_factor),
                     black_box(num_queries),
                     black_box(&mut challenger),
+                    None,
                 )
                 .unwrap(),
             )
@@ -120,6 +121,7 @@ fn bench_challenge_queries_medium(c: &mut Criterion) {
                     black_box(folding_factor),
                     black_box(num_queries),
                     black_box(&mut challenger),
+                    None,
                 )
                 .unwrap(),
             )
@@ -158,6 +160,7 @@ fn bench_challenge_queries_large(c: &mut Criterion) {
                     black_box(folding_factor),
                     black_box(num_queries),
                     black_box(&mut challenger),
+                    None,
                 )
                 .unwrap(),
             )

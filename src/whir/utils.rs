@@ -1,11 +1,12 @@
-use itertools::Itertools;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
 use p3_util::log2_ceil_usize;
 use tracing::instrument;
 
+use crate::fiat_shamir::errors::ProofError;
 use crate::{
     fiat_shamir::{ChallengSampler, errors::ProofResult, prover::ProverState},
+    parameters::ChallengeQueryConfig,
     poly::multilinear::MultilinearPoint,
 };
 
@@ -114,100 +115,132 @@ impl<'a> BitstreamReader<'a> {
     }
 }
 
-/// Samples a list of unique query indices from a folded evaluation domain, using transcript randomness.
+/// Convert a large bit value into a byte array using little-endian encoding
+fn bits_to_bytes(bits: usize, num_bytes: usize) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(num_bytes);
+    let mut remaining_bits = bits;
+
+    for _ in 0..num_bytes {
+        bytes.push((remaining_bits & 0xFF) as u8);
+        remaining_bits >>= 8;
+    }
+
+    bytes
+}
+
+/// Extract bits from a byte array starting at a specific bit offset
+fn extract_bits(bytes: &[u8], bit_offset: usize, num_bits: usize) -> usize {
+    let mut result = 0usize;
+    let mut bits_read = 0;
+
+    while bits_read < num_bits {
+        let byte_idx = (bit_offset + bits_read) / 8;
+        let bit_idx = (bit_offset + bits_read) % 8;
+        let bits_in_byte = (8 - bit_idx).min(num_bits - bits_read);
+
+        if byte_idx < bytes.len() {
+            let byte_val = bytes[byte_idx];
+            // Handle the case where bits_in_byte == 8 to avoid overflow
+            let mask = if bits_in_byte == 8 {
+                0xFF
+            } else {
+                (1u8 << bits_in_byte) - 1
+            } << bit_idx;
+            let extracted = ((byte_val & mask) >> bit_idx) as usize;
+            result |= extracted << bits_read;
+        }
+
+        bits_read += bits_in_byte;
+    }
+
+    result
+}
+
+/// Samples a list of unique query indices from a folded evaluation domain using adaptive optimization.
 ///
-/// This function is used to select random query locations for verifying proximity to a folded codeword.
-/// The folding reduces the domain size exponentially (e.g. by 2^folding_factor), so we sample indices
-/// in the reduced "folded" domain.
+/// This implementation uses a smart hybrid approach: for small requests where the overhead
+/// of batch processing exceeds benefits, it uses the direct method. For larger requests,
+/// it employs optimized batch processing to minimize challenger calls while respecting
+/// platform and field constraints.
 ///
 /// ## Parameters
-/// - `domain_size`: The size of the original evaluation domain (e.g., 2^22).
-/// - `folding_factor`: The number of folding rounds applied (e.g., k = 1 means domain halves).
-/// - `num_queries`: The number of query *indices* we want to obtain.
-/// - `challenger`: A Fiat–Shamir transcript used to sample randomness deterministically.
+/// - `domain_size`: Size of the original evaluation domain
+/// - `folding_factor`: Number of folding rounds applied
+/// - `num_queries`: Number of query indices to generate
+/// - `challenger`: Fiat-Shamir transcript for deterministic randomness
+/// - `config`: Configuration parameters for query generation (optional, uses default if None)
 ///
 /// ## Returns
-/// A sorted and deduplicated list of random query indices in the folded domain.
+/// Sorted and deduplicated list of query indices in the folded domain
 pub fn get_challenge_stir_queries<Challenger, F>(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
     challenger: &mut Challenger,
+    config: Option<&ChallengeQueryConfig>,
 ) -> ProofResult<Vec<usize>>
 where
     F: Field,
     Challenger: ChallengSampler<F>,
 {
-    // Folded domain size = domain_size / 2^folding_factor.
-    let folded_domain_size = domain_size >> folding_factor;
+    // Use provided config or default
+    let default_config = ChallengeQueryConfig::default();
+    let config = config.unwrap_or(&default_config);
 
-    // Number of bits needed to represent an index in the folded domain.
+    // Validate configuration at runtime
+    config.validate().map_err(|_| ProofError::InvalidProof)?;
+
+    let folded_domain_size = domain_size >> folding_factor;
     let domain_size_bits = log2_ceil_usize(folded_domain_size);
 
-    // Calculate total bits needed
+    // Calculate total bit requirements for all queries
     let total_bits = num_queries * domain_size_bits;
 
-    // Ultra-fast path: for very small requests, the original method may be faster
-    // Avoids overhead from additional allocations and complex logic
-    if total_bits <= 64 {
-        let queries = (0..num_queries)
-            .map(|_| challenger.sample_bits(domain_size_bits) % folded_domain_size)
-            .sorted_unstable()
-            .dedup()
-            .collect();
-        return Ok(queries);
-    }
-
-    // Batch sampling optimization: suitable for medium to large requests
-    // Only fall back to original method for extremely large requests (>4096 bits)
-    if total_bits <= 30 * 136 {
-        // 30 bits per word * 136 words = 4080 bits threshold
-        // Calculate how many usize words we need
-        let words_needed = total_bits.div_ceil(30); // Round up division
-
-        // Pre-allocate with exact capacity to avoid reallocations
-        let mut random_words = Vec::with_capacity(words_needed);
-
-        // Batch sample all required words at once
-        // Note: We sample 30 bits to stay within BabyBear field order (2^31 - 2^27 + 1)
-        random_words.extend((0..words_needed).map(|_| challenger.sample_bits(30)));
-
-        // Create bitstream reader
-        let mut reader = BitstreamReader::new(&random_words);
-
-        // Pre-allocate result vector with exact capacity
+    if total_bits < config.batch_threshold {
+        // Fast path: direct sampling for small requests
         let mut queries = Vec::with_capacity(num_queries);
-
-        // Extract queries from the bitstream using unrolled loop for better performance
-        let chunks = num_queries / 4;
-        let remainder = num_queries % 4;
-
-        // Process in chunks of 4 for better instruction-level parallelism
-        for _ in 0..chunks {
-            queries.push(reader.read_bits(domain_size_bits) % folded_domain_size);
-            queries.push(reader.read_bits(domain_size_bits) % folded_domain_size);
-            queries.push(reader.read_bits(domain_size_bits) % folded_domain_size);
-            queries.push(reader.read_bits(domain_size_bits) % folded_domain_size);
+        for _ in 0..num_queries {
+            let query = challenger.sample_bits(domain_size_bits) % folded_domain_size;
+            queries.push(query);
         }
-
-        // Handle remaining queries
-        for _ in 0..remainder {
-            queries.push(reader.read_bits(domain_size_bits) % folded_domain_size);
-        }
-
-        // Sort and deduplicate
         queries.sort_unstable();
         queries.dedup();
-
         Ok(queries)
     } else {
-        // Fall back to original method for extremely large requests
-        let queries = (0..num_queries)
-            .map(|_| challenger.sample_bits(domain_size_bits) % folded_domain_size)
-            .sorted_unstable()
-            .dedup()
-            .collect();
+        // Batch processing path: optimized for larger requests
+        let bytes_needed = total_bits.div_ceil(8);
+        let mut random_bytes = Vec::with_capacity(bytes_needed);
 
+        // Use maximum safe chunk size for field constraints
+        let mut remaining_bits = total_bits;
+
+        while remaining_bits > 0 {
+            let chunk_bits = remaining_bits.min(config.max_bits_per_call);
+            let chunk_bytes = chunk_bits.div_ceil(8);
+
+            // Get random bits for this chunk
+            let chunk_random_bits = challenger.sample_bits(chunk_bits);
+            let chunk_bytes_vec = bits_to_bytes(chunk_random_bits, chunk_bytes);
+
+            // Append to our byte array
+            random_bytes.extend_from_slice(&chunk_bytes_vec);
+            remaining_bits -= chunk_bits;
+        }
+
+        // Extract queries from the continuous bitstream
+        let mut queries = Vec::with_capacity(num_queries);
+        let mut bit_offset = 0;
+
+        for _ in 0..num_queries {
+            let query =
+                extract_bits(&random_bytes, bit_offset, domain_size_bits) % folded_domain_size;
+            queries.push(query);
+            bit_offset += domain_size_bits;
+        }
+
+        // Sort and remove duplicates
+        queries.sort_unstable();
+        queries.dedup();
         Ok(queries)
     }
 }
