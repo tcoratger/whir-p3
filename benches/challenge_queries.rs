@@ -12,7 +12,7 @@ struct TestChallenger {
 }
 
 impl TestChallenger {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self { counter: 0 }
     }
 }
@@ -25,11 +25,11 @@ impl ChallengSampler<F> for TestChallenger {
     fn sample_bits(&mut self, bits: usize) -> usize {
         self.counter += 1;
         // Simple pseudo-random number generation
-        (self.counter.wrapping_mul(1103515245).wrapping_add(12345) >> 16) & ((1 << bits) - 1)
+        (self.counter.wrapping_mul(1_103_515_245).wrapping_add(12345) >> 16) & ((1 << bits) - 1)
     }
 }
 
-fn create_challenger() -> TestChallenger {
+const fn create_challenger() -> TestChallenger {
     TestChallenger::new()
 }
 
@@ -70,7 +70,7 @@ fn bench_challenge_queries_small(c: &mut Criterion) {
                 black_box(num_queries),
                 black_box(&mut challenger),
             ))
-        })
+        });
     });
 
     group.bench_function("optimized", |b| {
@@ -85,7 +85,7 @@ fn bench_challenge_queries_small(c: &mut Criterion) {
                 )
                 .unwrap(),
             )
-        })
+        });
     });
 
     group.finish();
@@ -108,7 +108,7 @@ fn bench_challenge_queries_medium(c: &mut Criterion) {
                 black_box(num_queries),
                 black_box(&mut challenger),
             ))
-        })
+        });
     });
 
     group.bench_function("optimized", |b| {
@@ -123,7 +123,7 @@ fn bench_challenge_queries_medium(c: &mut Criterion) {
                 )
                 .unwrap(),
             )
-        })
+        });
     });
 
     group.finish();
@@ -146,7 +146,7 @@ fn bench_challenge_queries_large(c: &mut Criterion) {
                 black_box(num_queries),
                 black_box(&mut challenger),
             ))
-        })
+        });
     });
 
     group.bench_function("optimized", |b| {
@@ -161,7 +161,7 @@ fn bench_challenge_queries_large(c: &mut Criterion) {
                 )
                 .unwrap(),
             )
-        })
+        });
     });
 
     group.finish();
