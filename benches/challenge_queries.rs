@@ -1,8 +1,8 @@
+use std::hint::black_box;
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
-use std::hint::black_box;
-use whir_p3::fiat_shamir::ChallengSampler;
-use whir_p3::whir::utils::get_challenge_stir_queries;
+use whir_p3::{fiat_shamir::ChallengSampler, whir::utils::get_challenge_stir_queries};
 
 type F = BabyBear;
 
@@ -41,7 +41,6 @@ fn get_challenge_stir_queries_original(
     challenger: &mut TestChallenger,
 ) -> Vec<usize> {
     use itertools::Itertools;
-
     use p3_util::log2_ceil_usize;
 
     let folded_domain_size = domain_size >> folding_factor;
