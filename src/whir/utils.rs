@@ -34,7 +34,8 @@ pub struct BitstreamReader<'a> {
 impl<'a> BitstreamReader<'a> {
     const WORD_BITS: usize = usize::BITS as usize;
 
-    pub fn new(source: &'a [usize]) -> Self {
+    #[must_use]
+    const fn new(source: &'a [usize]) -> Self {
         Self {
             source,
             word_idx: 0,
@@ -92,7 +93,7 @@ impl<'a> BitstreamReader<'a> {
     }
 
     /// Checks if there are enough bits available to read
-    pub fn has_bits(&self, n: usize) -> bool {
+    pub const fn has_bits(&self, n: usize) -> bool {
         let remaining_bits_in_current_word = Self::WORD_BITS - self.bit_idx;
         let remaining_words = self.source.len().saturating_sub(self.word_idx + 1);
         let total_remaining_bits =
@@ -101,7 +102,8 @@ impl<'a> BitstreamReader<'a> {
     }
 
     /// Gets the number of remaining readable bits
-    pub fn remaining_bits(&self) -> usize {
+    #[must_use]
+    pub const fn remaining_bits(&self) -> usize {
         if self.word_idx >= self.source.len() {
             return 0;
         }
@@ -125,7 +127,6 @@ impl<'a> BitstreamReader<'a> {
 ///
 /// ## Returns
 /// A sorted and deduplicated list of random query indices in the folded domain.
-
 pub fn get_challenge_stir_queries<Challenger, F>(
     domain_size: usize,
     folding_factor: usize,
@@ -161,7 +162,7 @@ where
     if total_bits <= 30 * 136 {
         // 30 bits per word * 136 words = 4080 bits threshold
         // Calculate how many usize words we need
-        let words_needed = (total_bits + 29) / 30; // Round up division
+        let words_needed = total_bits.div_ceil(30); // Round up division
 
         // Pre-allocate with exact capacity to avoid reallocations
         let mut random_words = Vec::with_capacity(words_needed);
