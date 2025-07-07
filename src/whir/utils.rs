@@ -1,15 +1,10 @@
+use itertools::Itertools;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
-use p3_util::log2_ceil_usize;
 use tracing::instrument;
 
 use crate::{
-    fiat_shamir::{
-        ChallengSampler,
-        errors::{ProofError, ProofResult},
-        prover::ProverState,
-    },
-    parameters::ChallengeQueryConfig,
+    fiat_shamir::{ChallengSampler, errors::ProofResult, prover::ProverState},
     poly::multilinear::MultilinearPoint,
 };
 
@@ -25,183 +20,52 @@ pub const fn workload_size<T: Sized>() -> usize {
     L1_CACHE_SIZE / size_of::<T>()
 }
 
-#[derive(Debug)]
-pub struct BitstreamReader<'a> {
-    /// Data source storing random bits
-    source: &'a [usize],
-    /// Current word index in `source`
-    word_idx: usize,
-    /// Current bit index in `source[word_idx]` (from LSB to MSB)
-    bit_idx: usize,
-}
-
-impl<'a> BitstreamReader<'a> {
-    pub const WORD_BITS: usize = usize::BITS as usize;
-
-    #[must_use]
-    const fn new(source: &'a [usize]) -> Self {
-        Self {
-            source,
-            word_idx: 0,
-            bit_idx: 0,
-        }
-    }
-
-    /// Reads `n` bits from the stream and returns them as a `usize`.
-    /// `n` must be less than or equal to `WORD_BITS`.
-    #[inline]
-    pub fn read_bits(&mut self, n: usize) -> usize {
-        debug_assert!(n <= Self::WORD_BITS, "Cannot read more bits than a word");
-        debug_assert!(n > 0, "Must read at least 1 bit");
-
-        // Fast path: all bits are within the current word
-        if self.bit_idx + n <= Self::WORD_BITS {
-            // Use bit shifting and masking to extract bits
-            let mask = (1usize << n).wrapping_sub(1); // Avoid overflow when n=64
-            let result =
-                (unsafe { *self.source.get_unchecked(self.word_idx) } >> self.bit_idx) & mask;
-
-            self.bit_idx += n;
-            // Use conditional move to avoid branching
-            let (new_word_idx, new_bit_idx) = if self.bit_idx == Self::WORD_BITS {
-                (self.word_idx + 1, 0)
-            } else {
-                (self.word_idx, self.bit_idx)
-            };
-            self.word_idx = new_word_idx;
-            self.bit_idx = new_bit_idx;
-
-            result
-        } else {
-            // Slow path: need to read across word boundaries
-            let bits_in_first_word = Self::WORD_BITS - self.bit_idx;
-            let bits_in_second_word = n - bits_in_first_word;
-
-            // Read from the high bits of the first word
-            let first_part = unsafe { *self.source.get_unchecked(self.word_idx) } >> self.bit_idx;
-
-            // Move to the next word
-            self.word_idx += 1;
-
-            // Read from the low bits of the second word
-            let second_part_mask = (1usize << bits_in_second_word).wrapping_sub(1);
-            let second_part =
-                unsafe { *self.source.get_unchecked(self.word_idx) } & second_part_mask;
-
-            // Update bit index
-            self.bit_idx = bits_in_second_word;
-
-            // Combine the two parts
-            (second_part << bits_in_first_word) | first_part
-        }
-    }
-
-    /// Checks if there are enough bits available to read
-    #[must_use]
-    pub const fn has_bits(&self, n: usize) -> bool {
-        let remaining_bits_in_current_word = Self::WORD_BITS - self.bit_idx;
-        let remaining_words = self.source.len().saturating_sub(self.word_idx + 1);
-        let total_remaining_bits =
-            remaining_bits_in_current_word + remaining_words * Self::WORD_BITS;
-        total_remaining_bits >= n
-    }
-
-    /// Gets the number of remaining readable bits
-    #[must_use]
-    pub const fn remaining_bits(&self) -> usize {
-        if self.word_idx >= self.source.len() {
-            return 0;
-        }
-        let remaining_bits_in_current_word = Self::WORD_BITS - self.bit_idx;
-        let remaining_words = self.source.len().saturating_sub(self.word_idx + 1);
-        remaining_bits_in_current_word + remaining_words * Self::WORD_BITS
-    }
-}
-
-/// Samples a list of unique query indices from a folded evaluation domain using adaptive optimization.
+/// Samples a list of unique query indices from a folded evaluation domain.
 ///
-/// This implementation uses a smart hybrid approach: for small requests where the overhead
-/// of batch processing exceeds benefits, it uses the direct method. For larger requests,
-/// it employs optimized batch processing to minimize challenger calls while respecting
-/// platform and field constraints.
+/// This implementation efficiently generates random bytes and converts them to indices
+/// in a single pass, minimizing challenger calls and memory allocations.
 ///
 /// ## Parameters
 /// - `domain_size`: Size of the original evaluation domain
 /// - `folding_factor`: Number of folding rounds applied
 /// - `num_queries`: Number of query indices to generate
-/// - `challenger`: Fiat-Shamir transcript for deterministic randomness
-/// - `config`: Configuration parameters for query generation (optional, uses default if None)
+/// - `state`: State containing the Fiat-Shamir transcript (ProverState or VerifierState)
 ///
 /// ## Returns
 /// Sorted and deduplicated list of query indices in the folded domain
-pub fn get_challenge_stir_queries<Challenger, F>(
+pub fn get_challenge_stir_queries<Chal: ChallengSampler<EF>, F, EF>(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
-    challenger: &mut Challenger,
-    config: Option<&ChallengeQueryConfig>,
+    prover_state: &mut Chal,
 ) -> ProofResult<Vec<usize>>
 where
     F: Field,
-    Challenger: ChallengSampler<F>,
+    EF: ExtensionField<F>,
 {
-    // Use provided config or default
-    let default_config = ChallengeQueryConfig::default();
-    let config = config.unwrap_or(&default_config);
-
-    // Validate configuration at runtime
-    config.validate().map_err(|_| ProofError::InvalidProof)?;
-
     let folded_domain_size = domain_size >> folding_factor;
-    let domain_size_bits = log2_ceil_usize(folded_domain_size);
+    // Compute required bytes per index: `domain_size_bytes = ceil(log2(folded_domain_size) / 8)`
+    let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
-    // Calculate total bit requirements for all queries
-    let total_bits = num_queries * domain_size_bits;
+    // Allocate space for query bytes
+    let mut queries = vec![0u8; num_queries * domain_size_bytes];
 
-    if total_bits < config.batch_threshold {
-        // Fast path: direct sampling for small requests
-        let mut queries = Vec::with_capacity(num_queries);
-        for _ in 0..num_queries {
-            let query = challenger.sample_bits(domain_size_bits) % folded_domain_size;
-            queries.push(query);
-        }
-        queries.sort_unstable();
-        queries.dedup();
-        Ok(queries)
-    } else {
-        // Batch processing path: optimized for larger requests using BitstreamReader
-        let words_needed = total_bits.div_ceil(BitstreamReader::WORD_BITS);
-        let mut random_words = Vec::with_capacity(words_needed);
-
-        // Collect random words in batches to minimize challenger calls
-        let mut remaining_bits = total_bits;
-        while remaining_bits > 0 {
-            let chunk_bits = remaining_bits.min(config.max_bits_per_call);
-            let chunk_words = chunk_bits.div_ceil(BitstreamReader::WORD_BITS);
-
-            // Sample words for this chunk
-            for _ in 0..chunk_words {
-                let word_bits = remaining_bits.min(BitstreamReader::WORD_BITS);
-                let random_word = challenger.sample_bits(word_bits);
-                random_words.push(random_word);
-                remaining_bits = remaining_bits.saturating_sub(word_bits);
-            }
-        }
-
-        // Use BitstreamReader for efficient bit extraction
-        let mut reader = BitstreamReader::new(&random_words);
-        let mut queries = Vec::with_capacity(num_queries);
-
-        for _ in 0..num_queries {
-            let query = reader.read_bits(domain_size_bits) % folded_domain_size;
-            queries.push(query);
-        }
-
-        // Sort and remove duplicates
-        queries.sort_unstable();
-        queries.dedup();
-        Ok(queries)
+    // Fill query bytes by sampling 8 bits at a time
+    for byte in &mut queries {
+        *byte = prover_state.sample_bits(8) as u8;
     }
+
+    // Convert bytes into indices in **one efficient pass**
+    let indices = queries
+        .chunks_exact(domain_size_bytes)
+        .map(|chunk| {
+            chunk.iter().fold(0usize, |acc, &b| (acc << 8) | b as usize) % folded_domain_size
+        })
+        .sorted_unstable()
+        .dedup()
+        .collect_vec();
+
+    Ok(indices)
 }
 
 /// A utility function to sample Out-of-Domain (OOD) points and evaluate them.

@@ -77,12 +77,11 @@ fn bench_challenge_queries_small(c: &mut Criterion) {
         b.iter(|| {
             let mut challenger = create_challenger();
             black_box(
-                get_challenge_stir_queries::<TestChallenger, F>(
+                get_challenge_stir_queries::<TestChallenger, F, F>(
                     black_box(domain_size),
                     black_box(folding_factor),
                     black_box(num_queries),
                     black_box(&mut challenger),
-                    None,
                 )
                 .unwrap(),
             )
@@ -116,12 +115,11 @@ fn bench_challenge_queries_medium(c: &mut Criterion) {
         b.iter(|| {
             let mut challenger = create_challenger();
             black_box(
-                get_challenge_stir_queries::<TestChallenger, F>(
+                get_challenge_stir_queries::<TestChallenger, F, F>(
                     black_box(domain_size),
                     black_box(folding_factor),
                     black_box(num_queries),
                     black_box(&mut challenger),
-                    None,
                 )
                 .unwrap(),
             )
@@ -155,12 +153,11 @@ fn bench_challenge_queries_large(c: &mut Criterion) {
         b.iter(|| {
             let mut challenger = create_challenger();
             black_box(
-                get_challenge_stir_queries::<TestChallenger, F>(
+                get_challenge_stir_queries::<TestChallenger, F, F>(
                     black_box(domain_size),
                     black_box(folding_factor),
                     black_box(num_queries),
                     black_box(&mut challenger),
-                    None,
                 )
                 .unwrap(),
             )

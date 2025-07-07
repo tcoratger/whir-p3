@@ -452,7 +452,6 @@ where
             self.folding_factor.at_round(round_index),
             self.final_queries,
             prover_state,
-            None,
         )?;
 
         // Every query requires opening these many in the previous Merkle tree
@@ -561,7 +560,6 @@ where
             self.folding_factor.at_round(round_index),
             round_params.num_queries,
             prover_state,
-            None,
         )?;
 
         // Compute the generator of the folded domain, in the extension field

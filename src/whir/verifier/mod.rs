@@ -286,7 +286,6 @@ where
             params.folding_factor,
             params.num_queries,
             verifier_state,
-            None,
         )?;
 
         let dimensions = vec![Dimensions {
