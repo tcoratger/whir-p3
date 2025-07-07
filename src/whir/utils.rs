@@ -3,9 +3,12 @@ use p3_field::{ExtensionField, Field};
 use p3_util::log2_ceil_usize;
 use tracing::instrument;
 
-use crate::fiat_shamir::errors::ProofError;
 use crate::{
-    fiat_shamir::{ChallengSampler, errors::ProofResult, prover::ProverState},
+    fiat_shamir::{
+        ChallengSampler,
+        errors::{ProofError, ProofResult},
+        prover::ProverState,
+    },
     parameters::ChallengeQueryConfig,
     poly::multilinear::MultilinearPoint,
 };
