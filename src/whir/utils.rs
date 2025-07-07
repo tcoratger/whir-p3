@@ -93,6 +93,7 @@ impl<'a> BitstreamReader<'a> {
     }
 
     /// Checks if there are enough bits available to read
+    #[must_use]
     pub const fn has_bits(&self, n: usize) -> bool {
         let remaining_bits_in_current_word = Self::WORD_BITS - self.bit_idx;
         let remaining_words = self.source.len().saturating_sub(self.word_idx + 1);
