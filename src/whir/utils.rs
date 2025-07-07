@@ -33,7 +33,7 @@ pub struct BitstreamReader<'a> {
 }
 
 impl<'a> BitstreamReader<'a> {
-    const WORD_BITS: usize = usize::BITS as usize;
+    pub const WORD_BITS: usize = usize::BITS as usize;
 
     #[must_use]
     const fn new(source: &'a [usize]) -> Self {
@@ -115,47 +115,6 @@ impl<'a> BitstreamReader<'a> {
     }
 }
 
-/// Convert a large bit value into a byte array using little-endian encoding
-fn bits_to_bytes(bits: usize, num_bytes: usize) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(num_bytes);
-    let mut remaining_bits = bits;
-
-    for _ in 0..num_bytes {
-        bytes.push((remaining_bits & 0xFF) as u8);
-        remaining_bits >>= 8;
-    }
-
-    bytes
-}
-
-/// Extract bits from a byte array starting at a specific bit offset
-fn extract_bits(bytes: &[u8], bit_offset: usize, num_bits: usize) -> usize {
-    let mut result = 0usize;
-    let mut bits_read = 0;
-
-    while bits_read < num_bits {
-        let byte_idx = (bit_offset + bits_read) / 8;
-        let bit_idx = (bit_offset + bits_read) % 8;
-        let bits_in_byte = (8 - bit_idx).min(num_bits - bits_read);
-
-        if byte_idx < bytes.len() {
-            let byte_val = bytes[byte_idx];
-            // Handle the case where bits_in_byte == 8 to avoid overflow
-            let mask = if bits_in_byte == 8 {
-                0xFF
-            } else {
-                (1u8 << bits_in_byte) - 1
-            } << bit_idx;
-            let extracted = ((byte_val & mask) >> bit_idx) as usize;
-            result |= extracted << bits_read;
-        }
-
-        bits_read += bits_in_byte;
-    }
-
-    result
-}
-
 /// Samples a list of unique query indices from a folded evaluation domain using adaptive optimization.
 ///
 /// This implementation uses a smart hybrid approach: for small requests where the overhead
@@ -207,35 +166,32 @@ where
         queries.dedup();
         Ok(queries)
     } else {
-        // Batch processing path: optimized for larger requests
-        let bytes_needed = total_bits.div_ceil(8);
-        let mut random_bytes = Vec::with_capacity(bytes_needed);
+        // Batch processing path: optimized for larger requests using BitstreamReader
+        let words_needed = total_bits.div_ceil(BitstreamReader::WORD_BITS);
+        let mut random_words = Vec::with_capacity(words_needed);
 
-        // Use maximum safe chunk size for field constraints
+        // Collect random words in batches to minimize challenger calls
         let mut remaining_bits = total_bits;
-
         while remaining_bits > 0 {
             let chunk_bits = remaining_bits.min(config.max_bits_per_call);
-            let chunk_bytes = chunk_bits.div_ceil(8);
+            let chunk_words = chunk_bits.div_ceil(BitstreamReader::WORD_BITS);
 
-            // Get random bits for this chunk
-            let chunk_random_bits = challenger.sample_bits(chunk_bits);
-            let chunk_bytes_vec = bits_to_bytes(chunk_random_bits, chunk_bytes);
-
-            // Append to our byte array
-            random_bytes.extend_from_slice(&chunk_bytes_vec);
-            remaining_bits -= chunk_bits;
+            // Sample words for this chunk
+            for _ in 0..chunk_words {
+                let word_bits = remaining_bits.min(BitstreamReader::WORD_BITS);
+                let random_word = challenger.sample_bits(word_bits);
+                random_words.push(random_word);
+                remaining_bits = remaining_bits.saturating_sub(word_bits);
+            }
         }
 
-        // Extract queries from the continuous bitstream
+        // Use BitstreamReader for efficient bit extraction
+        let mut reader = BitstreamReader::new(&random_words);
         let mut queries = Vec::with_capacity(num_queries);
-        let mut bit_offset = 0;
 
         for _ in 0..num_queries {
-            let query =
-                extract_bits(&random_bytes, bit_offset, domain_size_bits) % folded_domain_size;
+            let query = reader.read_bits(domain_size_bits) % folded_domain_size;
             queries.push(query);
-            bit_offset += domain_size_bits;
         }
 
         // Sort and remove duplicates

@@ -16,8 +16,11 @@ This optimization focuses on comprehensive performance improvements to the `get_
 - **Smart Path Selection**: Automatic strategy selection based on workload characteristics
 
 ### 3. Core Technical Improvements
+- **Unified Bitstream Processing**: Leverages optimized `BitstreamReader` for consistent bit extraction across all code paths
 - **Reduced Function Call Overhead**: Batch processing minimizes `challenger.sample_bits()` invocations
-- **Memory Access Optimization**: Contiguous memory operations improve cache efficiency
+- **Memory Access Optimization**: Direct word-based processing eliminates unnecessary byte conversions
+- **Cache Efficiency**: Contiguous memory operations and reduced data transformations improve performance
+- **Code Consistency**: Unified use of `BitstreamReader` enhances maintainability and reduces code duplication
 - **Preserved Functionality**: Maintains sorting and deduplication logic integrity
 - **Error Handling**: Robust configuration validation with proper error propagation
 
@@ -59,7 +62,7 @@ impl Default for ChallengeQueryConfig {
 }
 ```
 
-### Adaptive Strategy Implementation
+### Optimized Implementation with BitstreamReader
 ```rust
 pub fn get_challenge_stir_queries<C: Challenger<F>, F: Field>(
     challenger: &mut C,
@@ -75,8 +78,23 @@ pub fn get_challenge_stir_queries<C: Challenger<F>, F: Field>(
         // Direct sampling for small workloads
         sample_directly(challenger, state)
     } else {
-        // Batch processing for large workloads
-        sample_in_batches(challenger, config, state)
+        // Optimized batch processing with BitstreamReader
+        let words_needed = (total_bits + BitstreamReader::WORD_BITS - 1) / BitstreamReader::WORD_BITS;
+        let random_words: Vec<usize> = (0..words_needed)
+            .map(|_| challenger.sample_bits(BitstreamReader::WORD_BITS))
+            .collect::<Result<Vec<_>, _>>()?;
+        
+        let mut reader = BitstreamReader::new(&random_words);
+        let mut queries = Vec::with_capacity(state.num_queries);
+        
+        for _ in 0..state.num_queries {
+            let query = reader.read_bits(state.domain_size_bits) % state.domain_size;
+            queries.push(query);
+        }
+        
+        queries.sort_unstable();
+        queries.dedup();
+        Ok(queries)
     }
 }
 ```
@@ -107,12 +125,21 @@ let config = ChallengeQueryConfig {
 let queries = get_challenge_stir_queries(challenger, Some(&config), &state)?;
 ```
 
+## Recent Code Quality Improvements
+
+### Latest Optimizations (2024)
+- **Unified Bitstream Processing**: Replaced custom byte array handling with optimized `BitstreamReader`
+- **Reduced Memory Allocations**: Direct word-based processing eliminates intermediate byte conversions
+- **Code Simplification**: Removed redundant helper functions (`bits_to_bytes`, `extract_bits`)
+- **Enhanced Maintainability**: Consistent use of `BitstreamReader` across all processing paths
+
 ## Future Optimization Directions
 
 1. **Dynamic Threshold Adjustment**: Runtime profiling to optimize thresholds based on actual performance
 2. **Hardware-Aware Configuration**: Automatic parameter tuning based on CPU characteristics
 3. **Parallel Batch Processing**: Multi-threaded batch sampling for extremely large workloads
 4. **Memory Pool Optimization**: Reusable memory pools to reduce allocation overhead
+5. **SIMD Optimizations**: Leverage vectorized operations for large-scale bit processing
 
 ---
 
