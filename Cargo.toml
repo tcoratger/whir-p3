@@ -68,6 +68,7 @@ clap = { version = "4.4.17", features = ["derive"] }
 [dev-dependencies]
 criterion = "0.6"
 proptest = "1.0"
+p3-poseidon2 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 
 [features]
 default = ["parallel"]
@@ -92,4 +93,8 @@ harness = false
 
 [[bench]]
 name = "lagrange"
+harness = false
+
+[[bench]]
+name = "challenge_queries"
 harness = false

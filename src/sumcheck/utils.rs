@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_sumcheck_quadratic_linearity() {
-        // Test linearity property：f(a+b) = f(a) + f(b)
+        // Test linearity property: f(a+b) = f(a) + f(b)
         let p1 = &[F::from_u64(1), F::from_u64(2)];
         let p2 = &[F::from_u64(3), F::from_u64(4)];
         let eq = &[EF4::from_u64(5), EF4::from_u64(6)];
