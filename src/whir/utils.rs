@@ -125,31 +125,6 @@ impl<'a> BitstreamReader<'a> {
 ///
 /// ## Returns
 /// A sorted and deduplicated list of random query indices in the folded domain.
-// pub fn get_challenge_stir_queries<Chal: ChallengSampler<EF>, F, EF>(
-//     domain_size: usize,
-//     folding_factor: usize,
-//     num_queries: usize,
-//     prover_state: &mut Chal,
-// ) -> ProofResult<Vec<usize>>
-// where
-//     F: Field,
-//     EF: ExtensionField<F>,
-// {
-//     // Folded domain size = domain_size / 2^folding_factor.
-//     let folded_domain_size = domain_size >> folding_factor;
-
-//     // Number of bits needed to represent an index in the folded domain.
-//     let domain_size_bits = log2_ceil_usize(folded_domain_size);
-
-//     // Sample one integer per query, each with domain_size_bits of entropy.
-//     let queries = (0..num_queries)
-//         .map(|_| prover_state.sample_bits(domain_size_bits) % folded_domain_size)
-//         .sorted_unstable()
-//         .dedup()
-//         .collect();
-
-//     Ok(queries)
-// }
 
 pub fn get_challenge_stir_queries<Challenger, F>(
     domain_size: usize,
