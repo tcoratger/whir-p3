@@ -71,7 +71,7 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         // Read the Merkle root hash committed by the prover.
-        let root: Hash<F, F, DIGEST_ELEMS> = verifier_state
+        let root = verifier_state
             .next_base_scalars_const::<DIGEST_ELEMS>()?
             .into();
 
