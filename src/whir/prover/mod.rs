@@ -192,7 +192,7 @@ where
         Ok((constraint_eval, deferred))
     }
 
-    // #[instrument(skip_all, fields(round_number = round_index, log_size = round_state.evaluations.num_variables()))]
+    #[instrument(skip_all, fields(round_number = round_index, log_size = self.mv_parameters.num_variables - self.folding_factor.total_number(round_index)))]
     #[allow(clippy::too_many_lines)]
     fn round<const DIGEST_ELEMS: usize>(
         &self,
