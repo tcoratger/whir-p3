@@ -10,7 +10,7 @@ use super::Prover;
 use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
-    poly::{evals::EvaluationStorage, multilinear::MultilinearPoint},
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{K_SKIP_SUMCHECK, sumcheck_single::SumcheckSingle},
     whir::{
         committer::{RoundMerkleTree, Witness},
@@ -48,7 +48,7 @@ where
 
     /// The multilinear polynomial evaluations at the start of this round.
     /// These are updated by folding the previous round’s coefficients using `folding_randomness`.
-    pub(crate) evaluations: EvaluationStorage<F, EF>,
+    pub(crate) initial_evaluations: Option<EvaluationsList<F>>,
 
     /// Merkle commitment prover data for the **base field** polynomial from the first round.
     /// This is used to open values at queried locations.
@@ -165,11 +165,14 @@ where
             randomness_vec
         });
 
+        let initial_evaluations = sumcheck_prover
+            .as_ref()
+            .map_or(Some(witness.polynomial), |_| None);
         Ok(Self {
             domain: prover.starting_domain.clone(),
             sumcheck_prover,
             folding_randomness,
-            evaluations: EvaluationStorage::Base(witness.polynomial),
+            initial_evaluations,
             merkle_prover_data: None,
             commitment_merkle_prover_data: witness.prover_data,
             randomness_vec,
@@ -480,7 +483,7 @@ mod tests {
         let poly = EvaluationsList::new(vec![F::ZERO; 1 << num_variables]);
 
         // Generate domain separator, prover state, and Merkle commitment witness for the poly
-        let (_, mut prover_state, witness) = setup_domain_and_commitment(&config, poly.clone());
+        let (_, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
 
         // Create a new statement with multiple constraints
         let mut statement = Statement::<EF4>::new(num_variables);
@@ -537,7 +540,7 @@ mod tests {
         );
 
         // Coefficients should match the original zero polynomial
-        assert_eq!(state.evaluations, EvaluationStorage::Base(poly));
+        assert!(state.initial_evaluations.is_none());
 
         // Domain must match the WHIR config's expected size
         assert_eq!(
@@ -595,7 +598,7 @@ mod tests {
         );
 
         // Set up Fiat-Shamir domain and produce commitment + witness
-        let (_, mut prover_state, witness) = setup_domain_and_commitment(&config, poly.clone());
+        let (_, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
 
         // Run the first round initialization
         let state = RoundState::initialize_first_round_state(
@@ -639,7 +642,7 @@ mod tests {
         }
 
         // Evaluation storage must match original polynomial
-        assert_eq!(state.evaluations, EvaluationStorage::Base(poly));
+        assert!(state.initial_evaluations.is_none());
 
         // Domain should match expected size and rate
         assert_eq!(
