@@ -192,7 +192,7 @@ where
         Ok((constraint_eval, deferred))
     }
 
-    #[instrument(skip_all, fields(round_number = round_index, log_size = round_state.evaluations.num_variables()))]
+    // #[instrument(skip_all, fields(round_number = round_index, log_size = round_state.evaluations.num_variables()))]
     #[allow(clippy::too_many_lines)]
     fn round<const DIGEST_ELEMS: usize>(
         &self,
@@ -221,7 +221,9 @@ where
             }
         } else {
             round_state
-                .evaluations
+                .initial_evaluations
+                .as_ref()
+                .unwrap()
                 .fold(&round_state.folding_randomness)
         };
 
@@ -418,7 +420,6 @@ where
         round_state.domain = new_domain;
         round_state.sumcheck_prover = Some(sumcheck_prover);
         round_state.folding_randomness = folding_randomness;
-        round_state.evaluations = EvaluationStorage::Extension(folded_evaluations);
         round_state.merkle_prover_data = Some(prover_data);
 
         Ok(())
