@@ -1,7 +1,8 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use p3_challenger::DuplexChallenger;
 use p3_field::extension::BinomialExtensionField;
-use p3_goldilocks::{Goldilocks, Poseidon2Goldilocks};
+use p3_goldilocks::Poseidon2Goldilocks;
+use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{
     Rng, SeedableRng,
@@ -23,17 +24,20 @@ use whir_p3::{
     },
 };
 
-type F = Goldilocks;
-type EF = BinomialExtensionField<F, 2>;
+type F = KoalaBear;
+type EF = BinomialExtensionField<F, 4>;
 type Perm = Poseidon2Goldilocks<16>;
 
-type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
-type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
-type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
+type Poseidon16 = Poseidon2KoalaBear<16>;
+type Poseidon24 = Poseidon2KoalaBear<24>;
+
+type MerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
+type MerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
+type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 
 #[allow(clippy::type_complexity)]
 fn prepare_inputs() -> (
-    WhirConfig<EF, F, MyHash, MyCompress, MyChallenger>,
+    WhirConfig<EF, F, MerkleHash, MerkleCompress, MyChallenger>,
     EvalsDft<F>,
     EvaluationsList<F>,
     Statement<EF>,
@@ -67,10 +71,11 @@ fn prepare_inputs() -> (
 
     // Define the hash functions for Merkle tree and compression.
     let mut rng = SmallRng::seed_from_u64(1);
-    let perm = Perm::new_from_rng_128(&mut rng);
+    let poseidon16 = Poseidon16::new_from_rng_128(&mut rng);
+    let poseidon24 = Poseidon24::new_from_rng_128(&mut rng);
 
-    let merkle_hash = MyHash::new(perm.clone());
-    let merkle_compress = MyCompress::new(perm);
+    let merkle_hash = MerkleHash::new(poseidon24);
+    let merkle_compress = MerkleCompress::new(poseidon16.clone());
 
     // Type of soundness assumption used in the IOP model.
     let soundness_type = SecurityAssumption::CapacityBound;
@@ -128,8 +133,7 @@ fn prepare_inputs() -> (
     domainsep.add_whir_proof::<_, _, _, 32>(&params);
 
     // Instantiate the Fiat-Shamir challenger from an empty seed and Keccak.
-    let mut rng = SmallRng::seed_from_u64(1);
-    let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    let challenger = MyChallenger::new(poseidon16);
 
     // DFT backend setup
 
