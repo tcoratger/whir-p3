@@ -2,8 +2,7 @@ use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
-use whir_p3::fiat_shamir::ChallengSampler;
-use whir_p3::whir::utils::get_challenge_stir_queries;
+use whir_p3::{fiat_shamir::ChallengSampler, whir::utils::get_challenge_stir_queries};
 
 type F = BabyBear;
 
