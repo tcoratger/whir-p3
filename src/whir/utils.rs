@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
 use tracing::instrument;
@@ -22,8 +21,8 @@ pub const fn workload_size<T: Sized>() -> usize {
 
 /// Samples a list of unique query indices from a folded evaluation domain.
 ///
-/// This implementation efficiently generates random bytes and converts them to indices
-/// in a single pass, minimizing challenger calls and memory allocations.
+/// This optimized implementation reduces challenger invocations by sampling all required
+/// bits in a single call and then parsing the indices from the resulting bitstream.
 ///
 /// ## Parameters
 /// - `domain_size`: Size of the original evaluation domain
@@ -33,6 +32,7 @@ pub const fn workload_size<T: Sized>() -> usize {
 ///
 /// ## Returns
 /// Sorted and deduplicated list of query indices in the folded domain
+#[inline]
 pub fn get_challenge_stir_queries<Chal: ChallengSampler<EF>, F, EF>(
     domain_size: usize,
     folding_factor: usize,
@@ -44,26 +44,29 @@ where
     EF: ExtensionField<F>,
 {
     let folded_domain_size = domain_size >> folding_factor;
-    // Compute required bytes per index: `domain_size_bytes = ceil(log2(folded_domain_size) / 8)`
+    // Calculate the number of bytes needed for each index
     let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
-    // Allocate space for query bytes
-    let mut queries = vec![0u8; num_queries * domain_size_bytes];
+    // Simple approach: sample bytes one by one
+    let total_bytes = num_queries * domain_size_bytes;
+    let mut query_bytes = Vec::with_capacity(total_bytes);
 
-    // Fill query bytes by sampling 8 bits at a time
-    for byte in &mut queries {
-        *byte = prover_state.sample_bits(8) as u8;
+    for _ in 0..total_bytes {
+        let byte = prover_state.sample_bits(8) as u8;
+        query_bytes.push(byte);
     }
 
-    // Convert bytes into indices in **one efficient pass**
-    let indices = queries
+    // Batch convert bytes to indices
+    let mut indices: Vec<usize> = query_bytes
         .chunks_exact(domain_size_bytes)
         .map(|chunk| {
             chunk.iter().fold(0usize, |acc, &b| (acc << 8) | b as usize) % folded_domain_size
         })
-        .sorted_unstable()
-        .dedup()
-        .collect_vec();
+        .collect();
+
+    // Sort and deduplicate
+    indices.sort_unstable();
+    indices.dedup();
 
     Ok(indices)
 }

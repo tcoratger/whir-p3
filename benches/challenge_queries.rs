@@ -2,7 +2,8 @@ use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
-use whir_p3::{fiat_shamir::ChallengSampler, whir::utils::get_challenge_stir_queries};
+use whir_p3::fiat_shamir::ChallengSampler;
+use whir_p3::whir::utils::get_challenge_stir_queries;
 
 type F = BabyBear;
 
@@ -33,7 +34,7 @@ const fn create_challenger() -> TestChallenger {
     TestChallenger::new()
 }
 
-// Original implementation (for comparison)
+// Original implementation (for comparison) - matches the old algorithm exactly
 fn get_challenge_stir_queries_original(
     domain_size: usize,
     folding_factor: usize,
@@ -77,7 +78,7 @@ fn bench_challenge_queries_small(c: &mut Criterion) {
         b.iter(|| {
             let mut challenger = create_challenger();
             black_box(
-                get_challenge_stir_queries::<TestChallenger, F, F>(
+                get_challenge_stir_queries(
                     black_box(domain_size),
                     black_box(folding_factor),
                     black_box(num_queries),
@@ -115,7 +116,7 @@ fn bench_challenge_queries_medium(c: &mut Criterion) {
         b.iter(|| {
             let mut challenger = create_challenger();
             black_box(
-                get_challenge_stir_queries::<TestChallenger, F, F>(
+                get_challenge_stir_queries(
                     black_box(domain_size),
                     black_box(folding_factor),
                     black_box(num_queries),
@@ -153,7 +154,7 @@ fn bench_challenge_queries_large(c: &mut Criterion) {
         b.iter(|| {
             let mut challenger = create_challenger();
             black_box(
-                get_challenge_stir_queries::<TestChallenger, F, F>(
+                get_challenge_stir_queries(
                     black_box(domain_size),
                     black_box(folding_factor),
                     black_box(num_queries),
