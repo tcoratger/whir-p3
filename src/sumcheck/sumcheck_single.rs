@@ -156,13 +156,13 @@ where
     /// Given points `z_i`, weights `ε_i`, and evaluation values `f(z_i)`, it updates:
     ///
     /// \begin{equation}
-    /// w(X) = w(X) + \sum \epsilon_i \cdot w_{z_i}(X)
+    ///     w(X) = w(X) + \sum ε_i \cdot w_{z_i}(X)
     /// \end{equation}
     ///
     /// and updates the sum as:
     ///
     /// \begin{equation}
-    /// S = S + \sum \epsilon_i \cdot f(z_i)
+    ///     S = S + \sum ε_i \cdot f(z_i)
     /// \end{equation}
     ///
     /// where `w_{z_i}(X)` represents the constraint encoding at point `z_i`.
@@ -180,26 +180,21 @@ where
 
         #[cfg(feature = "parallel")]
         {
-            let n = points[0].0.len();
-            let num_coeffs = 1 << n;
-            let num_chunks = rayon::current_num_threads().max(1);
-            #[allow(clippy::manual_div_ceil)]
-            let chunk_size = (num_coeffs + num_chunks - 1) / num_chunks;
+            use tracing::info_span;
 
             // Parallel update of weight buffer
-            points
-                .iter()
-                .zip(combination_randomness.iter())
-                .for_each(|(point, &rand)| {
-                    self.weights
-                        .evals_mut()
-                        .par_chunks_mut(chunk_size)
-                        .enumerate()
-                        .for_each(|(chunk_idx, chunk)| {
-                            let start_index = chunk_idx * chunk_size;
-                            crate::utils::eval_eq_chunked(&point.0, chunk, rand, start_index);
-                        });
-                });
+            info_span!("accumulate_weight_buffer").in_scope(|| {
+                points
+                    .iter()
+                    .zip(combination_randomness.iter())
+                    .for_each(|(point, &rand)| {
+                        crate::utils::eval_eq::<_, _, true>(
+                            &point.0,
+                            self.weights.evals_mut(),
+                            rand,
+                        );
+                    });
+            });
 
             // Accumulate the weighted sum (cheap, done sequentially)
             self.sum += combination_randomness
@@ -456,7 +451,7 @@ where
     /// # Effects
     /// - Shrinks `p(X)` and `w(X)` by half.
     /// - Updates `sum` using `sumcheck_poly`.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, fields(size = self.evaluation_of_p.num_variables()))]
     pub fn compress(
         &mut self,
         combination_randomness: EF, // Scale the initial point
@@ -482,66 +477,26 @@ where
             const PARALLEL_THRESHOLD: usize = 4096;
 
             match &self.evaluation_of_p {
-                EvaluationStorage::Base(evals_f) => {
-                    if evals_f.evals().len() >= PARALLEL_THRESHOLD
-                        && self.weights.evals().len() >= PARALLEL_THRESHOLD
-                    {
-                        rayon::join(
-                            || evals_f.evals().par_chunks_exact(2).map(fold_base).collect(),
-                            || {
-                                self.weights
-                                    .evals()
-                                    .par_chunks_exact(2)
-                                    .map(fold_extension)
-                                    .collect()
-                            },
-                        )
-                    } else {
-                        (
-                            evals_f.evals().chunks_exact(2).map(fold_base).collect(),
-                            self.weights
-                                .evals()
-                                .chunks_exact(2)
-                                .map(fold_extension)
-                                .collect(),
-                        )
-                    }
-                }
-                EvaluationStorage::Extension(evals_ef) => {
-                    if evals_ef.evals().len() >= PARALLEL_THRESHOLD
-                        && self.weights.evals().len() >= PARALLEL_THRESHOLD
-                    {
-                        rayon::join(
-                            || {
-                                evals_ef
-                                    .evals()
-                                    .par_chunks_exact(2)
-                                    .map(fold_extension)
-                                    .collect()
-                            },
-                            || {
-                                self.weights
-                                    .evals()
-                                    .par_chunks_exact(2)
-                                    .map(fold_extension)
-                                    .collect()
-                            },
-                        )
-                    } else {
-                        (
-                            evals_ef
-                                .evals()
-                                .chunks_exact(2)
-                                .map(fold_extension)
-                                .collect(),
-                            self.weights
-                                .evals()
-                                .chunks_exact(2)
-                                .map(fold_extension)
-                                .collect(),
-                        )
-                    }
-                }
+                EvaluationStorage::Base(evals_f) => (
+                    evals_f.evals().par_chunks_exact(2).map(fold_base).collect(),
+                    self.weights
+                        .evals()
+                        .par_chunks_exact(2)
+                        .map(fold_extension)
+                        .collect(),
+                ),
+                EvaluationStorage::Extension(evals_ef) => (
+                    evals_ef
+                        .evals()
+                        .par_chunks_exact(2)
+                        .map(fold_extension)
+                        .collect(),
+                    self.weights
+                        .evals()
+                        .par_chunks_exact(2)
+                        .map(fold_extension)
+                        .collect(),
+                ),
             }
         };
 

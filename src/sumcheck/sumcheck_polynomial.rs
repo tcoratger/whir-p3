@@ -113,6 +113,7 @@ where
     /// # Constraints:
     /// - The input `point` must have `n_variables` dimensions.
     #[must_use]
+    #[inline]
     pub fn evaluate_at_point(&self, point: &MultilinearPoint<F>) -> F {
         assert_eq!(point.num_variables(), self.n_variables);
         self.evaluations

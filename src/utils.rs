@@ -433,65 +433,45 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
 
     match eval.len() {
         0 => {
-            // TODO: Going to add something to Plonky3 to make this more efficient.
-            // Will let us add using the in-built packings.
-            EF::ExtensionPacking::to_ext_iter([scalar])
-                .zip(out.iter_mut())
-                .for_each(|(scalar, out)| {
-                    if INITIALIZED {
-                        *out += scalar;
-                    } else {
-                        *out = scalar;
-                    }
-                });
+            let result: Vec<EF> = EF::ExtensionPacking::to_ext_iter([scalar]).collect();
+            if INITIALIZED {
+                EF::add_slices(out, &result);
+            } else {
+                out.copy_from_slice(&result);
+            }
         }
         1 => {
             // Manually unroll for single variable case
             let eq_evaluations = eval_eq_1(eval, scalar);
 
-            // TODO: Going to add something to Plonky3 to make this more efficient.
-            // Will let us add using the in-built packings.
-            EF::ExtensionPacking::to_ext_iter(eq_evaluations)
-                .zip(out.iter_mut())
-                .for_each(|(scalar, out)| {
-                    if INITIALIZED {
-                        *out += scalar;
-                    } else {
-                        *out = scalar;
-                    }
-                });
+            let result: Vec<EF> = EF::ExtensionPacking::to_ext_iter(eq_evaluations).collect();
+            if INITIALIZED {
+                EF::add_slices(out, &result);
+            } else {
+                out.copy_from_slice(&result);
+            }
         }
         2 => {
             // Manually unroll for two variables case
             let eq_evaluations = eval_eq_2(eval, scalar);
 
-            // TODO: Going to add something to Plonky3 to make this more efficient.
-            // Will let us add using the in-built packings.
-            EF::ExtensionPacking::to_ext_iter(eq_evaluations)
-                .zip(out.iter_mut())
-                .for_each(|(scalar, out)| {
-                    if INITIALIZED {
-                        *out += scalar;
-                    } else {
-                        *out = scalar;
-                    }
-                });
+            let result: Vec<EF> = EF::ExtensionPacking::to_ext_iter(eq_evaluations).collect();
+            if INITIALIZED {
+                EF::add_slices(out, &result);
+            } else {
+                out.copy_from_slice(&result);
+            }
         }
         3 => {
             // Manually unroll for single variable case
             let eq_evaluations = eval_eq_3(eval, scalar);
 
-            // TODO: Going to add something to Plonky3 to make this more efficient.
-            // Will let us add using the in-built packings.
-            EF::ExtensionPacking::to_ext_iter(eq_evaluations)
-                .zip(out.iter_mut())
-                .for_each(|(scalar, out)| {
-                    if INITIALIZED {
-                        *out += scalar;
-                    } else {
-                        *out = scalar;
-                    }
-                });
+            let result: Vec<EF> = EF::ExtensionPacking::to_ext_iter(eq_evaluations).collect();
+            if INITIALIZED {
+                EF::add_slices(out, &result);
+            } else {
+                out.copy_from_slice(&result);
+            }
         }
         _ => {
             let (&x, tail) = eval.split_first().unwrap();
