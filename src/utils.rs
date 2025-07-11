@@ -2,7 +2,7 @@ use p3_field::{
     Algebra, BasedVectorSpace, ExtensionField, Field, PackedFieldExtension, PackedValue,
     PrimeCharacteristicRing,
 };
-use p3_util::log2_strict_usize;
+use p3_util::{iter_array_chunks_padded, log2_strict_usize};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -466,12 +466,18 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
             // Manually unroll for single variable case
             let eq_evaluations = eval_eq_3(eval, scalar);
 
-            let result: Vec<EF> = EF::ExtensionPacking::to_ext_iter(eq_evaluations).collect();
-            if INITIALIZED {
-                EF::add_slices(out, &result);
-            } else {
-                out.copy_from_slice(&result);
-            }
+            iter_array_chunks_padded::<_, 8>(
+                EF::ExtensionPacking::to_ext_iter(eq_evaluations),
+                EF::ZERO,
+            )
+            .zip(out.chunks_exact_mut(8))
+            .for_each(|(res, out_chunk)| {
+                if INITIALIZED {
+                    EF::add_slices(out_chunk, &res);
+                } else {
+                    out_chunk.copy_from_slice(&res);
+                }
+            });
         }
         _ => {
             let (&x, tail) = eval.split_first().unwrap();
