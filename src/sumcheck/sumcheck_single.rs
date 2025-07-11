@@ -477,26 +477,66 @@ where
             const PARALLEL_THRESHOLD: usize = 4096;
 
             match &self.evaluation_of_p {
-                EvaluationStorage::Base(evals_f) => (
-                    evals_f.evals().par_chunks_exact(2).map(fold_base).collect(),
-                    self.weights
-                        .evals()
-                        .par_chunks_exact(2)
-                        .map(fold_extension)
-                        .collect(),
-                ),
-                EvaluationStorage::Extension(evals_ef) => (
-                    evals_ef
-                        .evals()
-                        .par_chunks_exact(2)
-                        .map(fold_extension)
-                        .collect(),
-                    self.weights
-                        .evals()
-                        .par_chunks_exact(2)
-                        .map(fold_extension)
-                        .collect(),
-                ),
+                EvaluationStorage::Base(evals_f) => {
+                    if evals_f.evals().len() >= PARALLEL_THRESHOLD
+                        && self.weights.evals().len() >= PARALLEL_THRESHOLD
+                    {
+                        rayon::join(
+                            || evals_f.evals().par_chunks_exact(2).map(fold_base).collect(),
+                            || {
+                                self.weights
+                                    .evals()
+                                    .par_chunks_exact(2)
+                                    .map(fold_extension)
+                                    .collect()
+                            },
+                        )
+                    } else {
+                        (
+                            evals_f.evals().chunks_exact(2).map(fold_base).collect(),
+                            self.weights
+                                .evals()
+                                .chunks_exact(2)
+                                .map(fold_extension)
+                                .collect(),
+                        )
+                    }
+                }
+                EvaluationStorage::Extension(evals_ef) => {
+                    if evals_ef.evals().len() >= PARALLEL_THRESHOLD
+                        && self.weights.evals().len() >= PARALLEL_THRESHOLD
+                    {
+                        rayon::join(
+                            || {
+                                evals_ef
+                                    .evals()
+                                    .par_chunks_exact(2)
+                                    .map(fold_extension)
+                                    .collect()
+                            },
+                            || {
+                                self.weights
+                                    .evals()
+                                    .par_chunks_exact(2)
+                                    .map(fold_extension)
+                                    .collect()
+                            },
+                        )
+                    } else {
+                        (
+                            evals_ef
+                                .evals()
+                                .chunks_exact(2)
+                                .map(fold_extension)
+                                .collect(),
+                            self.weights
+                                .evals()
+                                .chunks_exact(2)
+                                .map(fold_extension)
+                                .collect(),
+                        )
+                    }
+                }
             }
         };
 
