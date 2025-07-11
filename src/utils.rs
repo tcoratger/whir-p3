@@ -463,14 +463,21 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
             }
         }
         3 => {
+            const EVAL_LEN: usize = 8;
+
             // Manually unroll for single variable case
             let eq_evaluations = eval_eq_3(eval, scalar);
 
-            iter_array_chunks_padded::<_, 8>(
+            // Unpack the evaluations back into EF elements and add to output.
+            // We use `iter_array_chunks_padded` to allow us to use `add_slices` without
+            // needing a vector allocation. Note that `eq_evaluations: [EF::ExtensionPacking: 8]`
+            // so we know that `out.len() = 8 * F::Packing::WIDTH` meaning we can use `chunks_exact_mut`
+            // and `iter_array_chunks_padded` will never actually pad anything.
+            iter_array_chunks_padded::<_, EVAL_LEN>(
                 EF::ExtensionPacking::to_ext_iter(eq_evaluations),
                 EF::ZERO,
             )
-            .zip(out.chunks_exact_mut(8))
+            .zip(out.chunks_exact_mut(EVAL_LEN))
             .for_each(|(res, out_chunk)| {
                 if INITIALIZED {
                     EF::add_slices(out_chunk, &res);
