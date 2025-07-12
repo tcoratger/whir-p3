@@ -69,6 +69,7 @@ clap = { version = "4.4.17", features = ["derive"] }
 criterion = "0.6"
 proptest = "1.0"
 
+
 [features]
 default = ["parallel"]
 parallel = ["dep:rayon", "p3-maybe-rayon/parallel", "p3-util/parallel"]
@@ -92,4 +93,8 @@ harness = false
 
 [[bench]]
 name = "lagrange"
+harness = false
+
+[[bench]]
+name = "challenge_queries"
 harness = false
