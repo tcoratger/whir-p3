@@ -180,7 +180,7 @@ where
             self.final_folding_pow_bits,
             false,
         )?;
-        round_folding_randomness.push(final_sumcheck_randomness.clone());
+        round_folding_randomness.push(final_sumcheck_randomness);
 
         // Compute folding randomness across all rounds.
         let folding_randomness = MultilinearPoint(
@@ -197,8 +197,8 @@ where
         let deferred =
             verifier_state.next_extension_scalars_vec(statement.num_deref_constraints())?;
 
-        // let evaluation_of_weights =
-        //     self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
+        let _evaluation_of_weights =
+            self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
 
         // // Check the final sumcheck evaluation
         // let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
@@ -316,7 +316,7 @@ where
                     && self.univariate_skip
                     && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
                 {
-                    let evals_mat = RowMajorMatrix::new(answers.clone(), 1);
+                    let evals_mat = RowMajorMatrix::new(answers, 1);
                     interpolate_subgroup(&evals_mat, folding_randomness[0])[0]
                 } else {
                     EvaluationsList::new(answers).evaluate(folding_randomness)
