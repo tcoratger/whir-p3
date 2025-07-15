@@ -185,9 +185,9 @@ impl<F: Field> Weights<F> {
         }
     }
 
-    /// Evaluate the weighted sum with a polynomial in coefficient form.
+    /// Evaluate the weighted sum with a polynomial in evaluation form.
     #[must_use]
-    pub fn evaluate_coeffs(&self, poly: &EvaluationsList<F>) -> F {
+    pub fn evaluate(&self, poly: &EvaluationsList<F>) -> F {
         assert_eq!(self.num_variables(), poly.num_variables());
         match self {
             Self::Evaluation { point } => poly.evaluate(point),
