@@ -52,7 +52,7 @@ where
     }
 
     #[instrument(skip_all)]
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::collection_is_never_read)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<F, EF, Challenger>,
@@ -197,8 +197,8 @@ where
         let deferred =
             verifier_state.next_extension_scalars_vec(statement.num_deref_constraints())?;
 
-        let _evaluation_of_weights =
-            self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
+        // let _evaluation_of_weights =
+        //     self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
 
         // // Check the final sumcheck evaluation
         // let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
