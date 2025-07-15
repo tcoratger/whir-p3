@@ -316,7 +316,7 @@ where
                     && self.univariate_skip
                     && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
                 {
-                    let evals_mat = RowMajorMatrix::new(answers, 1);
+                    let evals_mat = RowMajorMatrix::new_col(answers);
                     interpolate_subgroup(&evals_mat, folding_randomness[0])[0]
                 } else {
                     EvaluationsList::new(answers).evaluate(folding_randomness)

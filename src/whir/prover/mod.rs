@@ -326,7 +326,7 @@ where
                         && self.univariate_skip
                         && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
                     {
-                        let evals_mat = RowMajorMatrix::new(answer.clone(), 1);
+                        let evals_mat = RowMajorMatrix::new_col(answer.clone());
                         interpolate_subgroup(&evals_mat, round_state.folding_randomness[0])[0]
                     } else {
                         EvaluationsList::new(answer.clone())
