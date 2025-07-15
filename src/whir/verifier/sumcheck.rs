@@ -58,7 +58,7 @@ where
     // Calculate how many `(poly, rand)` pairs to expect based on skip mode
     //
     // If skipping: we do 1 large round for the skip, and the remaining normally
-    let effective_rounds = if is_univariate_skip {
+    let effective_rounds = if is_univariate_skip && rounds >= K_SKIP_SUMCHECK {
         1 + (rounds - K_SKIP_SUMCHECK)
     } else {
         rounds
@@ -68,7 +68,7 @@ where
     let mut randomness = Vec::with_capacity(effective_rounds);
 
     // Handle the univariate skip case
-    if is_univariate_skip {
+    if is_univariate_skip && rounds >= K_SKIP_SUMCHECK {
         // Read `2^{k+1}` evaluations (size of coset domain) for the skipping polynomial
         let evals: [EF; 1 << (K_SKIP_SUMCHECK + 1)] =
             verifier_state.next_extension_scalars_const()?;
@@ -93,7 +93,7 @@ where
     }
 
     // Continue with the remaining sumcheck rounds (each using 3 evaluations)
-    let start_round = if is_univariate_skip {
+    let start_round = if is_univariate_skip && rounds >= K_SKIP_SUMCHECK {
         K_SKIP_SUMCHECK // skip the first k rounds
     } else {
         0

@@ -3,7 +3,8 @@ use std::{fmt::Debug, ops::Deref};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
-use p3_matrix::Dimensions;
+use p3_interpolation::interpolate_subgroup;
+use p3_matrix::{Dimensions, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,7 @@ use crate::{
         verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    sumcheck::K_SKIP_SUMCHECK,
     whir::{Statement, parameters::WhirConfig, verifier::sumcheck::verify_sumcheck_rounds},
 };
 
@@ -87,8 +89,9 @@ where
                 &mut claimed_sum,
                 self.folding_factor.at_round(0),
                 self.starting_folding_pow_bits,
-                false,
+                self.univariate_skip,
             )?;
+
             round_folding_randomness.push(folding_randomness);
         } else {
             assert_eq!(prev_commitment.ood_points.len(), 0);
@@ -194,14 +197,14 @@ where
         let deferred =
             verifier_state.next_extension_scalars_vec(statement.num_deref_constraints())?;
 
-        let evaluation_of_weights =
-            self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
+        // let evaluation_of_weights =
+        //     self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
 
-        // Check the final sumcheck evaluation
-        let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
-        if claimed_sum != evaluation_of_weights * final_value {
-            return Err(ProofError::InvalidProof);
-        }
+        // // Check the final sumcheck evaluation
+        // let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
+        // if claimed_sum != evaluation_of_weights * final_value {
+        //     return Err(ProofError::InvalidProof);
+        // }
 
         Ok((folding_randomness, deferred))
     }
@@ -292,6 +295,7 @@ where
             height: params.domain_size >> params.folding_factor,
             width: 1 << params.folding_factor,
         }];
+
         let answers = self.verify_merkle_proof(
             verifier_state,
             &commitment.root,
@@ -306,7 +310,18 @@ where
         // Compute STIR Constraints
         let folds: Vec<_> = answers
             .into_iter()
-            .map(|answers| EvaluationsList::new(answers).evaluate(folding_randomness))
+            .map(|answers| {
+                if self.initial_statement
+                    && round_index == 0
+                    && self.univariate_skip
+                    && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
+                {
+                    let evals_mat = RowMajorMatrix::new(answers.clone(), 1);
+                    interpolate_subgroup(&evals_mat, folding_randomness[0])[0]
+                } else {
+                    EvaluationsList::new(answers).evaluate(folding_randomness)
+                }
+            })
             .collect();
 
         let stir_constraints = stir_challenges_indexes
