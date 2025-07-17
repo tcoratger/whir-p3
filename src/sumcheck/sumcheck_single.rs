@@ -46,7 +46,7 @@ pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
     };
 
     #[cfg(not(feature = "parallel"))]
-    let folded = evals.evals().chunks_exact(2).map(fold_extension).collect();
+    let folded = evals.evals().chunks_exact(2).map(fold).collect();
     EvaluationsList::new(folded)
 }
 
@@ -73,7 +73,7 @@ pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
     };
 
     #[cfg(not(feature = "parallel"))]
-    let evaluations_of_p = evals.evals().chunks_exact(2).map(fold_extension).collect();
+    let folded = evals.evals().chunks_exact(2).map(fold).collect();
 
     *evals = EvaluationsList::new(folded);
 }
@@ -182,10 +182,9 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
         .chunks_exact(2)
         .zip(weights.evals().chunks_exact(2))
         .map(sumcheck_quadratic::<F, EF>)
-        .reduce(
-            || (EF::ZERO, EF::ZERO),
-            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-        );
+        .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
+            (a0 + b0, a2 + b2)
+        });
 
     // Compute the middle (linear) coefficient
     //
