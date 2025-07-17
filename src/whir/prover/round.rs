@@ -10,7 +10,7 @@ use super::Prover;
 use crate::{
     domain::Domain,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::multilinear::MultilinearPoint,
     sumcheck::{K_SKIP_SUMCHECK, sumcheck_single::SumcheckSingle},
     whir::{
         committer::{RoundMerkleTree, Witness},
@@ -40,15 +40,11 @@ where
 
     /// The sumcheck prover responsible for managing constraint accumulation and sumcheck rounds.
     /// Initialized in the first round (if applicable), and reused/updated in each subsequent round.
-    pub(crate) sumcheck_prover: Option<SumcheckSingle<F, EF>>,
+    pub(crate) sumcheck_prover: SumcheckSingle<F, EF>,
 
     /// The sampled folding randomness for this round, used to collapse a subset of variables.
     /// Length equals the folding factor at this round.
     pub(crate) folding_randomness: MultilinearPoint<EF>,
-
-    /// The multilinear polynomial evaluations at the start of this round.
-    /// These are updated by folding the previous round’s coefficients using `folding_randomness`.
-    pub(crate) initial_evaluations: Option<EvaluationsList<F>>,
 
     /// Merkle commitment prover data for the **base field** polynomial from the first round.
     /// This is used to open values at queried locations.
@@ -119,8 +115,7 @@ where
 
         statement.add_constraints_in_front(new_constraints);
 
-        let mut sumcheck_prover = None;
-        let folding_randomness = if prover.initial_statement {
+        let (sumcheck_prover, folding_randomness) = if prover.initial_statement {
             // If there is initial statement, then we run the sum-check for
             // this initial statement.
             let combination_randomness_gen: EF = prover_state.sample();
@@ -147,33 +142,41 @@ where
                 )
             };
 
-            sumcheck_prover = Some(sumcheck);
-            folding_randomness
+            (sumcheck, folding_randomness)
         } else {
             // If there is no initial statement, there is no need to run the
             // initial rounds of the sum-check, and the verifier directly sends
             // the initial folding randomnesses.
-            let folding_randomness = std::iter::repeat(prover_state.sample())
-                .take(prover.folding_factor.at_round(0))
-                .collect();
+
+            let folding_randomness = MultilinearPoint(
+                (0..prover.folding_factor.at_round(0))
+                    .map(|_| prover_state.sample())
+                    .collect::<Vec<_>>(),
+            );
+
+            let poly = witness.polynomial.fold(&folding_randomness);
+            let num_variables = poly.num_variables();
+
+            // Create the sumcheck prover w/o running any rounds.
+            let sumcheck =
+                SumcheckSingle::from_extension_evals(poly, &Statement::new(num_variables), EF::ONE);
+
             prover_state.pow_grinding(prover.starting_folding_pow_bits);
-            MultilinearPoint(folding_randomness)
+
+            (sumcheck, folding_randomness)
         };
+
         let randomness_vec = info_span!("copy_across_random_vec").in_scope(|| {
             let mut randomness_vec = Vec::with_capacity(prover.mv_parameters.num_variables);
-            randomness_vec.extend(folding_randomness.0.iter().rev().copied());
+            randomness_vec.extend(folding_randomness.iter().rev().copied());
             randomness_vec.resize(prover.mv_parameters.num_variables, EF::ZERO);
             randomness_vec
         });
 
-        let initial_evaluations = sumcheck_prover
-            .as_ref()
-            .map_or(Some(witness.polynomial), |_| None);
         Ok(Self {
             domain: prover.starting_domain.clone(),
             sumcheck_prover,
             folding_randomness,
-            initial_evaluations,
             merkle_prover_data: None,
             commitment_merkle_prover_data: witness.prover_data,
             randomness_vec,
@@ -334,9 +337,6 @@ mod tests {
         )
         .unwrap();
 
-        // Since there's no initial statement, the sumcheck should not be created
-        assert!(state.sumcheck_prover.is_none());
-
         // Folding factor was 2, so we expect 2 sampled folding randomness values
         assert_eq!(state.folding_randomness.0.len(), 2);
 
@@ -410,7 +410,7 @@ mod tests {
         .unwrap();
 
         // Extract the constructed sumcheck prover and folding randomness
-        let sumcheck = state.sumcheck_prover.as_ref().unwrap();
+        let sumcheck = &state.sumcheck_prover;
         let sumcheck_randomness = state.folding_randomness.clone();
 
         // With a folding factor of 3, all variables are collapsed in 1 round, so we expect only 1 evaluation left
@@ -499,7 +499,7 @@ mod tests {
         .unwrap();
 
         // Extract the sumcheck prover and folding randomness
-        let sumcheck = state.sumcheck_prover.as_ref().unwrap();
+        let sumcheck = &state.sumcheck_prover;
         let sumcheck_randomness = state.folding_randomness.0.clone();
 
         for (f, w) in sumcheck.evals.iter().zip(sumcheck.weights.evals()) {
@@ -525,9 +525,6 @@ mod tests {
             state.folding_randomness,
             MultilinearPoint(vec![sumcheck_randomness[0]])
         );
-
-        // Coefficients should match the original zero polynomial
-        assert!(state.initial_evaluations.is_none());
 
         // Domain must match the WHIR config's expected size
         assert_eq!(
@@ -597,7 +594,7 @@ mod tests {
         .expect("RoundState initialization failed");
 
         // Unwrap the sumcheck prover and get the sampled folding randomness
-        let sumcheck = state.sumcheck_prover.unwrap();
+        let sumcheck = &state.sumcheck_prover;
         let sumcheck_randomness = &state.folding_randomness;
 
         // Evaluate f at (32636, 9876, r0) and match it with the sumcheck's recovered evaluation
@@ -620,9 +617,6 @@ mod tests {
             + evals_f.evals()[2] * sumcheck.weights.evals()[2]
             + evals_f.evals()[3] * sumcheck.weights.evals()[3];
         assert_eq!(dot_product, sumcheck.sum);
-
-        // Evaluation storage must match original polynomial
-        assert!(state.initial_evaluations.is_none());
 
         // Domain should match expected size and rate
         assert_eq!(

@@ -267,39 +267,21 @@ where
     ///   where `p` is already represented over the extension field `EF`.
     /// - Applies the provided `Statement` to compute equality weights and the expected sum.
     /// - Initializes the internal state used in the sumcheck protocol.
-    /// - Applies first set of sumcheck rounds
     ///
     /// This is the entry point when the polynomial is defined directly over `EF`.
-    pub fn from_extension_evals<Challenger>(
-        mut evals: EvaluationsList<EF>,
+    pub fn from_extension_evals(
+        evals: EvaluationsList<EF>,
         statement: &Statement<EF>,
         combination_randomness: EF,
+    ) -> Self {
+        let (weights, sum) = statement.combine::<F>(combination_randomness);
 
-        prover_state: &mut ProverState<F, EF, Challenger>,
-        folding_factor: usize,
-        pow_bits: usize,
-    ) -> (Self, MultilinearPoint<EF>)
-    where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    {
-        let (mut weights, mut sum) = statement.combine::<F>(combination_randomness);
-
-        // Apply the remaining sumcheck rounds
-        let mut res = (0..folding_factor)
-            .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits))
-            .collect::<Vec<_>>();
-
-        // Reverse challenges to maintain order from X₀ to Xₙ.
-        res.reverse();
-
-        let sumcheck = Self {
+        Self {
             evals,
             weights,
             sum,
             phantom: std::marker::PhantomData,
-        };
-
-        (sumcheck, MultilinearPoint(res))
+        }
     }
 
     /// Constructs a new `SumcheckSingle` instance from evaluations in the base field.
