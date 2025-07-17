@@ -73,7 +73,7 @@ where
         self.pattern.push(
             pattern.as_field_element::<F>()
                 + F::from_usize(count)
-                + Pattern::Observe.as_field_element(),
+                + Pattern::Observe.as_field_element::<F>(),
         );
     }
 
@@ -82,14 +82,14 @@ where
         self.pattern.push(
             pattern.as_field_element::<F>()
                 + F::from_usize(count)
-                + Pattern::Sample.as_field_element(),
+                + Pattern::Sample.as_field_element::<F>(),
         );
     }
 
     /// Hint `count` native elements.
     pub fn hint(&mut self, pattern: Hint) {
         self.pattern
-            .push(pattern.as_field_element::<F>() + Pattern::Hint.as_field_element());
+            .push(pattern.as_field_element::<F>() + Pattern::Hint.as_field_element::<F>());
     }
 
     #[must_use]
