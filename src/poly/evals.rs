@@ -8,52 +8,6 @@ use tracing::instrument;
 use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
 use crate::utils::{eval_eq, parallel_clone, uninitialized_vec};
 
-/// A wrapper enum that holds evaluation data for a multilinear polynomial,
-/// either over the base field `F` or an extension field `EF`.
-///
-/// This abstraction allows operating generically on both base and extension
-/// field evaluations, as used in sumcheck protocols and other polynomial
-/// computations.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum EvaluationStorage<F, EF> {
-    /// Evaluation data over the base field `F`.
-    Base(EvaluationsList<F>),
-    /// Evaluation data over the extension field `EF`.
-    Extension(EvaluationsList<EF>),
-}
-
-impl<F, EF> EvaluationStorage<F, EF>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    /// Returns the number of variables in the stored evaluation list.
-    ///
-    /// This corresponds to the logarithm base 2 of the number of evaluation points.
-    /// It is assumed that the number of evaluations is a power of two.
-    ///
-    /// # Returns
-    /// - `usize`: The number of input variables of the underlying multilinear polynomial.
-    pub(crate) const fn num_variables(&self) -> usize {
-        match self {
-            Self::Base(evals) => evals.num_variables(),
-            Self::Extension(evals) => evals.num_variables(),
-        }
-    }
-
-    /// Folds the stored polynomial using the provided `folding_randomness`, returning a new
-    /// `EvaluationsList<EF>` with fewer variables.
-    ///
-    /// Works generically on both base and extension field representations.
-    #[instrument(skip_all)]
-    pub(crate) fn fold(&self, folding_randomness: &MultilinearPoint<EF>) -> EvaluationsList<EF> {
-        match self {
-            Self::Base(cl) => cl.fold(folding_randomness),
-            Self::Extension(cl) => cl.fold(folding_randomness),
-        }
-    }
-}
-
 /// Represents a multilinear polynomial `f` in `num_variables` unknowns, stored via its evaluations
 /// over the hypercube `{0,1}^{num_variables}`.
 ///
@@ -601,41 +555,6 @@ mod tests {
 
         // Validate against the function output
         assert_eq!(eval_multilinear(&evals, &[x, y, z, w]), expected);
-    }
-
-    #[test]
-    fn test_num_variables_base_storage() {
-        // Polynomial with 2 variables: 4 evaluation points
-        let values = vec![F::ONE, F::ZERO, F::ONE, F::ZERO];
-        let evals = EvaluationsList::new(values);
-
-        // Wrap in EvaluationStorage::Base
-        let storage = EvaluationStorage::<F, EF4>::Base(evals);
-
-        // 4 points = 2 variables (log2(4) = 2)
-        assert_eq!(storage.num_variables(), 2);
-    }
-
-    #[test]
-    fn test_num_variables_extension_storage() {
-        // Polynomial with 3 variables: 8 evaluation points
-        let values = vec![
-            EF4::ONE,
-            EF4::ZERO,
-            EF4::ONE,
-            EF4::ZERO,
-            EF4::ONE,
-            EF4::ZERO,
-            EF4::ONE,
-            EF4::ZERO,
-        ];
-        let evals = EvaluationsList::new(values);
-
-        // Wrap in EvaluationStorage::Extension
-        let storage = EvaluationStorage::<F, EF4>::Extension(evals);
-
-        // 8 points = 3 variables (log2(8) = 3)
-        assert_eq!(storage.num_variables(), 3);
     }
 
     proptest! {

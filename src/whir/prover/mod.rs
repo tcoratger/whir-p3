@@ -14,10 +14,7 @@ use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     dft::EvalsDft,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
-    poly::{
-        evals::{EvaluationStorage, EvaluationsList},
-        multilinear::MultilinearPoint,
-    },
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     utils::parallel_repeat,
     whir::{
@@ -213,12 +210,7 @@ where
         // - If a sumcheck already exists, use its evaluations
         // - Otherwise, fold the evaluations from the previous round
         let folded_evaluations = if let Some(sumcheck) = &round_state.sumcheck_prover {
-            match &sumcheck.evaluation_of_p {
-                EvaluationStorage::Base(_) => {
-                    panic!("After a first round, the evaluations must be in the extension field")
-                }
-                EvaluationStorage::Extension(f) => f.parallel_clone(),
-            }
+            sumcheck.evals.parallel_clone()
         } else {
             round_state
                 .initial_evaluations
@@ -229,7 +221,6 @@ where
 
         let num_variables =
             self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
-        // The number of variables at the given round should match the folded number of variables.
         assert_eq!(num_variables, folded_evaluations.num_variables());
 
         // Base case: final round reached
@@ -395,15 +386,18 @@ where
                     folded_evaluations.parallel_clone(),
                     &statement,
                     combination_randomness[1],
+                    prover_state,
+                    0,
+                    0,
                 )
+                .0
             };
 
         let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials(
             prover_state,
             folding_factor_next,
             round_params.folding_pow_bits,
-            None,
-        )?;
+        );
 
         let start_idx = self.folding_factor.total_number(round_index);
         let dst_randomness =
@@ -514,22 +508,26 @@ where
 
         // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
-            let final_folding_randomness = round_state
-                .sumcheck_prover
-                .clone()
-                .unwrap_or_else(|| {
+            let final_folding_randomness =
+                if let Some(sumcheck_prover) = &mut round_state.sumcheck_prover {
+                    // If we already have a sumcheck prover, we can use it to compute the final folding randomness
+                    sumcheck_prover.compute_sumcheck_polynomials(
+                        prover_state,
+                        self.final_sumcheck_rounds,
+                        self.final_folding_pow_bits,
+                    )
+                } else {
+                    // Otherwise, we need to create a new sumcheck prover for the final folding
                     SumcheckSingle::from_extension_evals(
                         folded_evaluations.parallel_clone(),
                         &round_state.statement,
                         EF::ONE,
+                        prover_state,
+                        self.final_sumcheck_rounds,
+                        self.final_folding_pow_bits,
                     )
-                })
-                .compute_sumcheck_polynomials(
-                    prover_state,
-                    self.final_sumcheck_rounds,
-                    self.final_folding_pow_bits,
-                    None,
-                )?;
+                    .1
+                };
 
             let start_idx = self.folding_factor.total_number(round_index);
             let rand_dst = &mut round_state.randomness_vec

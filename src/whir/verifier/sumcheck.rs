@@ -134,8 +134,6 @@ mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
-    use p3_interpolation::interpolate_subgroup;
-    use p3_matrix::dense::RowMajorMatrix;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{SeedableRng, rngs::SmallRng};
 
@@ -148,7 +146,7 @@ mod tests {
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
-        poly::{coeffs::CoefficientList, evals::EvaluationStorage, multilinear::MultilinearPoint},
+        poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
             parameters::WhirConfig,
@@ -249,28 +247,6 @@ mod tests {
         statement.add_constraint(Weights::evaluation(x_111), f_111);
         statement.add_constraint(Weights::evaluation(x_011), f_011);
 
-        // Instantiate the prover with base field coefficients
-        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
-
-        // Get the f evaluations
-        let evals_f = match prover.evaluation_of_p {
-            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
-        };
-        // Get the w evaluations
-        let evals_w = prover.weights.evals();
-
-        // Compute expected sum of evaluations via dot product
-        let mut expected_initial_sum = evals_w[0] * evals_f[0]
-            + evals_w[1] * evals_f[1]
-            + evals_w[2] * evals_f[2]
-            + evals_w[3] * evals_f[3]
-            + evals_w[4] * evals_f[4]
-            + evals_w[5] * evals_f[5]
-            + evals_w[6] * evals_f[6]
-            + evals_w[7] * evals_f[7];
-        assert_eq!(prover.sum, expected_initial_sum);
-
         let folding_factor = 3;
         let pow_bits = 0;
 
@@ -289,15 +265,21 @@ mod tests {
         // Convert domain separator into prover state object
         let mut prover_state = domsep.to_prover_state(challenger.clone());
 
-        // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
-        let _ = prover
-            .compute_sumcheck_polynomials(&mut prover_state, folding_factor, pow_bits, None)
-            .unwrap();
+        // Instantiate the prover with base field coefficients
+        let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals(
+            &coeffs.to_evaluations(),
+            &statement,
+            EF4::ONE,
+            &mut prover_state,
+            folding_factor,
+            pow_bits,
+        );
 
         // Reconstruct verifier state to simulate the rounds
         let mut verifier_state =
             domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger.clone());
 
+        let (_, mut expected_initial_sum) = statement.combine::<F>(EF4::ONE);
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
 
@@ -389,25 +371,6 @@ mod tests {
         }
 
         // -------------------------------------------------------------
-        // Construct prover with base coefficients
-        // -------------------------------------------------------------
-        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
-
-        // Compute expected weighted sum: dot product of f(b) * w(b)
-        let evals_f = match prover.evaluation_of_p {
-            EvaluationStorage::Base(ref evals) => evals.evals(),
-            EvaluationStorage::Extension(_) => panic!("Expected base evaluation"),
-        };
-        let evals_w = prover.weights.evals();
-
-        let mut expected_sum = evals_f
-            .iter()
-            .zip(evals_w)
-            .map(|(a, b)| *b * *a)
-            .sum::<EF4>();
-        assert_eq!(prover.sum, expected_sum);
-
-        // -------------------------------------------------------------
         // Simulate Fiat-Shamir transcript
         // Reserve interactions for:
         // - 1 skipped round: 2^k_skip + 1 values
@@ -431,9 +394,21 @@ mod tests {
         // -------------------------------------------------------------
         // Run prover-side folding
         // -------------------------------------------------------------
-        let _ = prover
-            .compute_sumcheck_polynomials(&mut prover_state, NUM_VARS, 0, Some(K_SKIP))
-            .unwrap();
+
+        let (_, mut expected_sum) = statement.combine::<F>(EF4::ONE);
+
+        // -------------------------------------------------------------
+        // Construct prover with base coefficients
+        // -------------------------------------------------------------
+        let (_, _) = SumcheckSingle::<F, EF4>::with_skip(
+            &coeffs.to_evaluations(),
+            &statement,
+            EF4::ONE,
+            &mut prover_state,
+            NUM_VARS,
+            0,
+            K_SKIP,
+        );
 
         // -------------------------------------------------------------
         // Manually extract expected sumcheck rounds by replaying transcript

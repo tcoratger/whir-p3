@@ -126,23 +126,26 @@ where
             let combination_randomness_gen: EF = prover_state.sample();
 
             // Create the sumcheck prover
-            let mut sumcheck = SumcheckSingle::from_base_evals(
-                witness.polynomial.parallel_clone(), // TODO I think we could avoid cloning here
-                &statement,
-                combination_randomness_gen,
-            );
-
-            // Compute sumcheck polynomials and return the folding randomness values
-            let folding_randomness = sumcheck.compute_sumcheck_polynomials(
-                prover_state,
-                prover.folding_factor.at_round(0),
-                prover.starting_folding_pow_bits,
-                if prover.univariate_skip {
-                    Some(K_SKIP_SUMCHECK)
-                } else {
-                    None
-                },
-            )?;
+            let (sumcheck, folding_randomness) = if !prover.univariate_skip {
+                SumcheckSingle::from_base_evals(
+                    &witness.polynomial,
+                    &statement,
+                    combination_randomness_gen,
+                    prover_state,
+                    prover.folding_factor.at_round(0),
+                    prover.starting_folding_pow_bits,
+                )
+            } else {
+                SumcheckSingle::with_skip(
+                    &witness.polynomial,
+                    &statement,
+                    combination_randomness_gen,
+                    prover_state,
+                    prover.folding_factor.at_round(0),
+                    prover.starting_folding_pow_bits,
+                    K_SKIP_SUMCHECK,
+                )
+            };
 
             sumcheck_prover = Some(sumcheck);
             folding_randomness
@@ -150,11 +153,9 @@ where
             // If there is no initial statement, there is no need to run the
             // initial rounds of the sum-check, and the verifier directly sends
             // the initial folding randomnesses.
-            let mut folding_randomness = EF::zero_vec(prover.folding_factor.at_round(0));
-            for folded_randomness in &mut folding_randomness {
-                *folded_randomness = prover_state.sample();
-            }
-
+            let folding_randomness = std::iter::repeat(prover_state.sample())
+                .take(prover.folding_factor.at_round(0))
+                .collect();
             prover_state.pow_grinding(prover.starting_folding_pow_bits);
             MultilinearPoint(folding_randomness)
         };
@@ -196,10 +197,7 @@ mod tests {
         parameters::{
             FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
         },
-        poly::{
-            coeffs::CoefficientList,
-            evals::{EvaluationStorage, EvaluationsList},
-        },
+        poly::{coeffs::CoefficientList, evals::EvaluationsList},
         whir::{WhirConfig, committer::writer::CommitmentWriter},
     };
 
@@ -415,31 +413,26 @@ mod tests {
         let sumcheck = state.sumcheck_prover.as_ref().unwrap();
         let sumcheck_randomness = state.folding_randomness.clone();
 
-        match &sumcheck.evaluation_of_p {
-            EvaluationStorage::Extension(evals) => {
-                // With a folding factor of 3, all variables are collapsed in 1 round, so we expect only 1 evaluation left
-                assert_eq!(evals.evals().len(), 1);
+        // With a folding factor of 3, all variables are collapsed in 1 round, so we expect only 1 evaluation left
+        assert_eq!(sumcheck.evals.len(), 1);
 
-                // The value of f at the folding point should match the evaluation
-                let eval_at_point = evals[0];
-                let expected = f(
-                    sumcheck_randomness.0[0],
-                    sumcheck_randomness.0[1],
-                    sumcheck_randomness.0[2],
-                );
-                assert_eq!(eval_at_point, expected);
+        // The value of f at the folding point should match the evaluation
+        let eval_at_point = sumcheck.evals[0];
+        let expected = f(
+            sumcheck_randomness.0[0],
+            sumcheck_randomness.0[1],
+            sumcheck_randomness.0[2],
+        );
+        assert_eq!(eval_at_point, expected);
 
-                // Check that dot product of evaluations and weights matches the final sum
-                let dot_product: EF4 = evals
-                    .evals()
-                    .iter()
-                    .zip(sumcheck.weights.evals())
-                    .map(|(f, w)| *f * *w)
-                    .sum();
-                assert_eq!(dot_product, sumcheck.sum);
-            }
-            EvaluationStorage::Base(_) => panic!("Expected extension evaluation"),
-        }
+        // Check that dot product of evaluations and weights matches the final sum
+        let dot_product: EF4 = sumcheck
+            .evals
+            .iter()
+            .zip(sumcheck.weights.evals())
+            .map(|(f, w)| *f * *w)
+            .sum();
+        assert_eq!(dot_product, sumcheck.sum);
 
         // Verify that the `randomness_vec` (which is in reverse variable order) matches the expected layout
         assert_eq!(
@@ -509,20 +502,14 @@ mod tests {
         let sumcheck = state.sumcheck_prover.as_ref().unwrap();
         let sumcheck_randomness = state.folding_randomness.0.clone();
 
-        // The sumcheck polynomial's evaluations should all be zero
-        match &sumcheck.evaluation_of_p {
-            EvaluationStorage::Extension(evals) => {
-                for (f, w) in evals.evals().iter().zip(sumcheck.weights.evals()) {
-                    // Each evaluation should be 0
-                    assert_eq!(*f, EF4::ZERO);
-                    // Their contribution to the weighted sum should also be 0
-                    assert_eq!(*f * *w, EF4::ZERO);
-                }
-                // Final claimed sum is 0
-                assert_eq!(sumcheck.sum, EF4::ZERO);
-            }
-            EvaluationStorage::Base(_) => panic!("Expected extension evaluation"),
+        for (f, w) in sumcheck.evals.iter().zip(sumcheck.weights.evals()) {
+            // Each evaluation should be 0
+            assert_eq!(*f, EF4::ZERO);
+            // Their contribution to the weighted sum should also be 0
+            assert_eq!(*f * *w, EF4::ZERO);
         }
+        // Final claimed sum is 0
+        assert_eq!(sumcheck.sum, EF4::ZERO);
 
         // Folding randomness should have length equal to the folding factor (1)
         assert_eq!(sumcheck_randomness.len(), 1);
@@ -613,33 +600,26 @@ mod tests {
         let sumcheck = state.sumcheck_prover.unwrap();
         let sumcheck_randomness = &state.folding_randomness;
 
-        // Ensure evaluations are in the extension field
-        match sumcheck.evaluation_of_p {
-            EvaluationStorage::Base(_) => {
-                panic!("Evaluations of f should be in extension field")
-            }
-            EvaluationStorage::Extension(ref evals_f) => {
-                // Evaluate f at (32636, 9876, r0) and match it with the sumcheck's recovered evaluation
-                assert_eq!(
-                    evals_f.evaluate(&MultilinearPoint(vec![
-                        EF4::from_u64(32636),
-                        EF4::from_u64(9876)
-                    ])),
-                    f(
-                        EF4::from_u64(32636),
-                        EF4::from_u64(9876),
-                        sumcheck_randomness.0[0]
-                    )
-                );
+        // Evaluate f at (32636, 9876, r0) and match it with the sumcheck's recovered evaluation
+        let evals_f = &sumcheck.evals;
+        assert_eq!(
+            evals_f.evaluate(&MultilinearPoint(vec![
+                EF4::from_u64(32636),
+                EF4::from_u64(9876)
+            ])),
+            f(
+                EF4::from_u64(32636),
+                EF4::from_u64(9876),
+                sumcheck_randomness.0[0]
+            )
+        );
 
-                // Manually verify that ⟨f, w⟩ = claimed sum
-                let dot_product = evals_f.evals()[0] * sumcheck.weights.evals()[0]
-                    + evals_f.evals()[1] * sumcheck.weights.evals()[1]
-                    + evals_f.evals()[2] * sumcheck.weights.evals()[2]
-                    + evals_f.evals()[3] * sumcheck.weights.evals()[3];
-                assert_eq!(dot_product, sumcheck.sum);
-            }
-        }
+        // Manually verify that ⟨f, w⟩ = claimed sum
+        let dot_product = evals_f.evals()[0] * sumcheck.weights.evals()[0]
+            + evals_f.evals()[1] * sumcheck.weights.evals()[1]
+            + evals_f.evals()[2] * sumcheck.weights.evals()[2]
+            + evals_f.evals()[3] * sumcheck.weights.evals()[3];
+        assert_eq!(dot_product, sumcheck.sum);
 
         // Evaluation storage must match original polynomial
         assert!(state.initial_evaluations.is_none());
