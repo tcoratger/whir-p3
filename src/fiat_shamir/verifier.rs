@@ -63,6 +63,10 @@ where
         }
     }
 
+    pub fn challenger(&self) -> &Challenger {
+        &self.challenger
+    }
+
     /// Consume and return `n` base scalars from the proof data, observing them in the challenger.
     ///
     /// # Arguments
