@@ -269,7 +269,7 @@ mod tests {
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(&dft, &mut prover_state, polynomial.clone())
             .unwrap();
 
         // Simulate verifier state using transcript view of prover’s nonce string.
@@ -286,6 +286,11 @@ mod tests {
         // Ensure the out-of-domain points and their answers match what was committed.
         assert_eq!(parsed.ood_points, witness.ood_points);
         assert_eq!(parsed.ood_answers, witness.ood_answers);
+
+        // Ensure the constraints are satisfied.
+        for constraint in parsed.oods_constraints() {
+            assert!(constraint.verify(&polynomial));
+        }
     }
 
     #[test]
@@ -311,7 +316,7 @@ mod tests {
 
         // Commit the polynomial to obtain the witness.
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(&dft, &mut prover_state, polynomial.clone())
             .unwrap();
 
         // Initialize the verifier view of the transcript.
@@ -331,6 +336,11 @@ mod tests {
 
         assert_eq!(parsed.ood_points, witness.ood_points);
         assert_eq!(parsed.ood_answers, witness.ood_answers);
+
+        // Ensure the constraints are satisfied.
+        for constraint in parsed.oods_constraints() {
+            assert!(constraint.verify(&polynomial));
+        }
     }
 
     #[test]
@@ -357,7 +367,7 @@ mod tests {
 
         // Commit the polynomial and obtain the witness.
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(&dft, &mut prover_state, polynomial.clone())
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
@@ -372,6 +382,11 @@ mod tests {
         assert_eq!(parsed.root, witness.prover_data.root());
         assert_eq!(parsed.ood_points, witness.ood_points);
         assert_eq!(parsed.ood_answers, witness.ood_answers);
+
+        // Ensure the constraints are satisfied.
+        for constraint in parsed.oods_constraints() {
+            assert!(constraint.verify(&polynomial));
+        }
     }
 
     #[test]
@@ -396,7 +411,7 @@ mod tests {
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
         let _ = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(&dft, &mut prover_state, polynomial.clone())
             .unwrap();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
@@ -413,6 +428,9 @@ mod tests {
 
         // Each constraint should have correct univariate weight, sum, and flag.
         for (i, constraint) in constraints.iter().enumerate() {
+            // Ensure the constraints are satisfied.
+            assert!(constraint.verify(&polynomial));
+
             let point = parsed.ood_points[i];
             let expected_eval = parsed.ood_answers[i];
 
