@@ -121,16 +121,7 @@ where
             let combination_randomness_gen: EF = prover_state.sample();
 
             // Create the sumcheck prover
-            let (sumcheck, folding_randomness) = if !prover.univariate_skip {
-                SumcheckSingle::from_base_evals(
-                    &witness.polynomial,
-                    &statement,
-                    combination_randomness_gen,
-                    prover_state,
-                    prover.folding_factor.at_round(0),
-                    prover.starting_folding_pow_bits,
-                )
-            } else {
+            let (sumcheck, folding_randomness) = if prover.univariate_skip {
                 SumcheckSingle::with_skip(
                     &witness.polynomial,
                     &statement,
@@ -139,6 +130,15 @@ where
                     prover.folding_factor.at_round(0),
                     prover.starting_folding_pow_bits,
                     K_SKIP_SUMCHECK,
+                )
+            } else {
+                SumcheckSingle::from_base_evals(
+                    &witness.polynomial,
+                    &statement,
+                    combination_randomness_gen,
+                    prover_state,
+                    prover.folding_factor.at_round(0),
+                    prover.starting_folding_pow_bits,
                 )
             };
 

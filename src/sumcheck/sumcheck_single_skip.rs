@@ -7,7 +7,8 @@ use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::poly::evals::EvaluationsList;
 
-pub fn compute_skipping_sumcheck_polynomial<F: TwoAdicField, EF: ExtensionField<F>>(
+#[must_use]
+pub(crate) fn compute_skipping_sumcheck_polynomial<F: TwoAdicField, EF: ExtensionField<F>>(
     k: usize,
     evals: &EvaluationsList<F>,
     weights: &EvaluationsList<EF>,

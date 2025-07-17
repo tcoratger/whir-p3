@@ -16,6 +16,9 @@ use crate::{
     whir::statement::Statement,
 };
 
+#[cfg(feature = "parallel")]
+const PARALLEL_THRESHOLD: usize = 4096;
+
 #[instrument(skip_all)]
 pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
     evals: &EvaluationsList<F>,
@@ -30,10 +33,9 @@ pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
     //
     // This was chosen based on experiments with the `compress` function.
     // It is possible that the threshold can be tuned further.
+
     #[cfg(feature = "parallel")]
-    const PARALLEL_THRESHOLD: usize = 4096;
-    #[cfg(feature = "parallel")]
-    let folded = if evals.evals().len() >= 4096 {
+    let folded = if evals.evals().len() >= PARALLEL_THRESHOLD {
         evals
             .evals()
             .par_chunks_exact(2)
@@ -60,9 +62,7 @@ pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
     // This was chosen based on experiments with the `compress` function.
     // It is possible that the threshold can be tuned further.
     #[cfg(feature = "parallel")]
-    const PARALLEL_THRESHOLD: usize = 4096;
-    #[cfg(feature = "parallel")]
-    let folded = if evals.evals().len() >= 4096 {
+    let folded = if evals.evals().len() >= PARALLEL_THRESHOLD {
         evals
             .evals()
             .par_chunks_exact(2)
@@ -75,7 +75,7 @@ pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
     #[cfg(not(feature = "parallel"))]
     let evaluations_of_p = evals.evals().chunks_exact(2).map(fold_extension).collect();
 
-    *evals = EvaluationsList::new(folded)
+    *evals = EvaluationsList::new(folded);
 }
 
 fn round_ext<Challenger, F: Field, EF: ExtensionField<F>>(
@@ -89,7 +89,7 @@ where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     // Compute the quadratic sumcheck polynomial for the current variable.
-    let sumcheck_poly = compute_sumcheck_polynomial(&evals, &weights, *sum);
+    let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
     prover_state.add_extension_scalars(sumcheck_poly.evaluations());
 
     // Sample verifier challenge.
@@ -98,7 +98,7 @@ where
     prover_state.pow_grinding(pow_bits);
 
     // Compress polynomials and update the sum.
-    let evals = compress_ext(&evals, r);
+    let evals = compress_ext(evals, r);
     compress(weights, r);
     *sum = sumcheck_poly.evaluate_at_point(&r.into());
 
@@ -116,7 +116,7 @@ where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     // Compute the quadratic sumcheck polynomial for the current variable.
-    let sumcheck_poly = compute_sumcheck_polynomial(&evals, &weights, *sum);
+    let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
     prover_state.add_extension_scalars(sumcheck_poly.evaluations());
 
     // Sample verifier challenge.
@@ -636,7 +636,7 @@ mod tests {
 
         let mut statement = Statement::new(num_vars);
         points.iter().zip(evals.iter()).for_each(|(point, &eval)| {
-            statement.add_constraint(Weights::evaluation(point.clone()), eval)
+            statement.add_constraint(Weights::evaluation(point.clone()), eval);
         });
         statement
     }
@@ -692,13 +692,13 @@ mod tests {
     where
         F: Field,
     {
-        fn extend(&mut self, rest: &MultilinearPoint<F>) {
+        fn extend(&mut self, rest: &Self) {
             self.0 = rest
                 .0
                 .iter()
                 .chain(self.0.iter())
-                .cloned()
-                .collect::<Vec<_>>()
+                .copied()
+                .collect::<Vec<_>>();
         }
     }
 
@@ -716,7 +716,7 @@ mod tests {
         alpha
     }
 
-    pub(crate) fn eval_constraints_poly<EF: Field>(
+    fn eval_constraints_poly<EF: Field>(
         mut num_variables: usize,
         folding_factor: &[usize],
         constraints: &[Vec<Constraint<EF>>],
@@ -767,9 +767,6 @@ mod tests {
                 SumcheckSingle::from_base_evals(&poly, &statement, alpha, prover, folding, 0);
             let mut num_vars_inter = num_vars - folding;
 
-            let mut constraints = vec![statement.constraints];
-            let mut alphas = vec![alpha];
-
             // Run intermediate rounds
             // With intermediate statements
             for (&folding, &num_points) in folding_factors
@@ -777,10 +774,7 @@ mod tests {
                 .skip(1)
                 .zip(num_points.iter().skip(1))
             {
-                let (statement, alpha) = make_inter_statement(prover, num_points, &mut sumcheck);
-
-                constraints.push(statement.constraints);
-                alphas.push(alpha);
+                make_inter_statement(prover, num_points, &mut sumcheck);
 
                 r.extend(&sumcheck.compute_sumcheck_polynomials(prover, folding_factors[1], 0));
                 num_vars_inter -= folding;
@@ -829,7 +823,7 @@ mod tests {
 
             // Check if `sum == f(r) * eq(z, r)`
             let eq_eval =
-                eval_constraints_poly(num_vars, &folding_factors, &constraints, &alphas, r);
+                eval_constraints_poly(num_vars, folding_factors, &constraints, &alphas, r);
             assert_eq!(sum, constant * eq_eval);
         }
     }
@@ -866,9 +860,6 @@ mod tests {
             );
             let mut num_vars_inter = num_vars - folding;
 
-            let mut constraints = vec![statement.constraints];
-            let mut alphas = vec![alpha];
-
             // Run intermediate rounds
             // With intermediate statements
             for (&folding, &num_points) in folding_factors
@@ -876,10 +867,7 @@ mod tests {
                 .skip(1)
                 .zip(num_points.iter().skip(1))
             {
-                let (statement, alpha) = make_inter_statement(prover, num_points, &mut sumcheck);
-
-                constraints.push(statement.constraints);
-                alphas.push(alpha);
+                make_inter_statement(prover, num_points, &mut sumcheck);
 
                 r.extend(&sumcheck.compute_sumcheck_polynomials(prover, folding_factors[1], 0));
                 num_vars_inter -= folding;
@@ -928,7 +916,7 @@ mod tests {
 
             // Check if `sum == f(r) * eq(z, r)`
             let eq_eval =
-                eval_constraints_poly(num_vars, &folding_factors, &constraints, &alphas, r);
+                eval_constraints_poly(num_vars, folding_factors, &constraints, &alphas, r);
             assert_eq!(sum, constant * eq_eval);
         }
     }
