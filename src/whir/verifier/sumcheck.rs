@@ -76,6 +76,15 @@ where
         // Interpolate into a univariate polynomial (over the coset domain)
         let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
 
+        // Verify that the sum over the subgroup H of size 2^k matches the claimed sum.
+        //
+        // The prover sends evaluations on a coset of H.
+        // The even-indexed evaluations correspond to the points in H itself.
+        let actual_sum: EF = poly.evaluations().iter().step_by(2).copied().sum();
+        if actual_sum != *claimed_sum {
+            return Err(ProofError::InvalidProof);
+        }
+
         // Sample the challenge scalar r₀ ∈ 𝔽 for this round
         let rand = verifier_state.sample();
 
