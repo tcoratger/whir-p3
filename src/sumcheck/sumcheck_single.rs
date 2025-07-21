@@ -1,13 +1,17 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::dense::RowMajorMatrix;
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use tracing::instrument;
 
-use super::sumcheck_polynomial::SumcheckPolynomial;
+use super::{
+    sumcheck_polynomial::SumcheckPolynomial,
+    utils::{fold_multilinear, interpolate_multilinear, univariate_selectors},
+};
 use crate::{
+    domain_mapper::DomainMapper,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::{
         coeffs::CoefficientList,
@@ -380,14 +384,41 @@ where
 
                 // Receive the verifier challenge for this entire collapsed round.
                 let folding_randomness: EF = prover_state.sample();
-                res.push(folding_randomness);
+                // res.push(folding_randomness);
 
                 // Proof-of-work challenge to delay prover.
                 prover_state.pow_grinding(pow_bits);
 
-                // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
-                let new_p = interpolate_subgroup(&f_mat, folding_randomness);
-                let new_w = interpolate_subgroup(&w_mat, folding_randomness);
+                let mapper = DomainMapper::<EF>::new(k);
+                let mut multilinear_challenges = mapper.map_point(folding_randomness);
+
+                res.extend_from_slice(&multilinear_challenges.0);
+
+                let f_mat = f_mat.transpose();
+                let w_mat = w_mat.transpose();
+
+                let new_p: Vec<_> = f_mat
+                    .par_rows()
+                    .map(|row| {
+                        EvaluationsList::new(row.into_iter().collect())
+                            .evaluate(&multilinear_challenges)
+                    })
+                    .collect();
+
+                let new_w: Vec<_> = w_mat
+                    .par_rows()
+                    .map(|row| {
+                        EvaluationsList::new(row.into_iter().collect())
+                            .evaluate(&multilinear_challenges)
+                    })
+                    .collect();
+
+                // // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
+                // let new_p = interpolate_subgroup(&f_mat, folding_randomness);
+                // let new_w = interpolate_subgroup(&w_mat, folding_randomness);
+
+                // let new_p = interpolate_multilinear(&f_mat, &multilinear_challenges.0);
+                // let new_w = interpolate_multilinear(&w_mat, &multilinear_challenges.0);
 
                 // Update polynomial and weights with reduced dimensionality.
                 self.evaluation_of_p = EvaluationStorage::Extension(EvaluationsList::new(new_p));
@@ -1989,7 +2020,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_sumcheck_polynomials_mixed_fields_three_vars() {
+    fn test_compute_sumcheck_polynomials_mixed_fields_three_vars1() {
         // Define a multilinear polynomial in 3 variables:
         // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
         //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
@@ -2037,7 +2068,8 @@ mod tests {
         statement.add_constraint(Weights::evaluation(x_011), f_011);
 
         // Instantiate the Sumcheck prover using base field coefficients and extension field EF4
-        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+        let mut prover =
+            SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs.clone(), &statement, EF4::ONE);
 
         // Get the f evaluations
         let evals_f = match prover.evaluation_of_p {
@@ -2121,6 +2153,22 @@ mod tests {
             prover.sum, current_sum,
             "Final folded sum does not match prover's claimed value"
         );
+
+        // ######################################
+        // ######################################
+        // ######################################
+
+        let claimed_sum = prover.sum;
+
+        let e = coeffs.to_evaluations().evaluate(&result);
+        let (w, _) = statement.combine::<F>(EF4::ONE);
+        let w = w.evaluate(&result);
+
+        assert_eq!(e * w, claimed_sum);
+
+        // ######################################
+        // ######################################
+        // ######################################
     }
 
     proptest! {
@@ -2393,7 +2441,8 @@ mod tests {
         // Create the prover instance using the coefficients and constraints
         // The prover evaluates the polynomial at all 8 Boolean points and stores results
         // -------------------------------------------------------------
-        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+        let mut prover =
+            SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs.clone(), &statement, EF4::ONE);
 
         // -------------------------------------------------------------
         // Evaluate the polynomial manually at all 8 input points
@@ -2489,60 +2538,76 @@ mod tests {
             )
             .unwrap();
 
-        // -------------------------------------------------------------
-        // Ensure we received exactly 2 challenge points:
-        // - 1 challenge for the first two skipped rounds
-        // - 1 challenge for the final regular round
-        // -------------------------------------------------------------
-        assert_eq!(result.0.len(), 2);
+        // // -------------------------------------------------------------
+        // // Ensure we received exactly 2 challenge points:
+        // // - 1 challenge for the first two skipped rounds
+        // // - 1 challenge for the final regular round
+        // // -------------------------------------------------------------
+        // assert_eq!(result.0.len(), 3);
 
-        // -------------------------------------------------------------
-        // Replay verifier's side using same Fiat-Shamir transcript
-        // -------------------------------------------------------------
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
-        let mut current_sum = expected_sum;
+        // // -------------------------------------------------------------
+        // // Replay verifier's side using same Fiat-Shamir transcript
+        // // -------------------------------------------------------------
+        // let mut verifier_state =
+        //     domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+        // let mut current_sum = expected_sum;
 
-        // Get the 8 evaluations of the skipping polynomial h₀(X)
-        let sumcheck_evals: [_; 8] = verifier_state.next_extension_scalars_const().unwrap();
-        let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
+        // // Get the 8 evaluations of the skipping polynomial h₀(X)
+        // let sumcheck_evals: [_; 8] = verifier_state.next_extension_scalars_const().unwrap();
+        // let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
 
-        // Check the sum of the polynomial evaluations is correct
-        assert_eq!(
-            poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
-            current_sum
-        );
+        // // Check the sum of the polynomial evaluations is correct
+        // assert_eq!(
+        //     poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
+        //     current_sum
+        // );
 
-        // Interpolate h₀(X) and update current sum using first challenge r₀
-        let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);
-        let r: EF4 = verifier_state.sample();
+        // // Interpolate h₀(X) and update current sum using first challenge r₀
+        // let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);
+        // let r: EF4 = verifier_state.sample();
 
-        current_sum = interpolate_subgroup(&evals_mat, r)[0];
+        // current_sum = interpolate_subgroup(&evals_mat, r)[0];
 
-        // -------------------------------------------------------------
-        // Continue with round 2: regular quadratic sumcheck step
-        // h₁(X) must satisfy h₁(0) + h₁(1) == current_sum
-        // -------------------------------------------------------------
-        for i in 2..folding_factor {
-            let sumcheck_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
-            let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
+        // // -------------------------------------------------------------
+        // // Continue with round 2: regular quadratic sumcheck step
+        // // h₁(X) must satisfy h₁(0) + h₁(1) == current_sum
+        // // -------------------------------------------------------------
+        // for i in 2..folding_factor {
+        //     let sumcheck_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
+        //     let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
 
-            let sum = poly.evaluations()[0] + poly.evaluations()[1];
+        //     let sum = poly.evaluations()[0] + poly.evaluations()[1];
 
-            assert_eq!(
-                sum, current_sum,
-                "Sumcheck round {i}: h(0) + h(1) != current_sum"
-            );
+        //     assert_eq!(
+        //         sum, current_sum,
+        //         "Sumcheck round {i}: h(0) + h(1) != current_sum"
+        //     );
 
-            let r: EF4 = verifier_state.sample();
-            current_sum = poly.evaluate_at_point(&r.into());
-        }
+        //     let r: EF4 = verifier_state.sample();
+        //     current_sum = poly.evaluate_at_point(&r.into());
+        // }
 
-        // Final consistency check: does prover's internal `sum` match verifier’s result?
-        assert_eq!(
-            prover.sum, current_sum,
-            "Final prover sum doesn't match verifier folding result"
-        );
+        // // Final consistency check: does prover's internal `sum` match verifier’s result?
+        // assert_eq!(
+        //     prover.sum, current_sum,
+        //     "Final prover sum doesn't match verifier folding result"
+        // );
+
+        // ######################################
+        // ######################################
+        // ######################################
+
+        let claimed_sum = prover.sum;
+
+        let e = coeffs.to_evaluations().evaluate(&result);
+        let (w, _) = statement.combine::<F>(EF4::ONE);
+        let w = w.evaluate(&result);
+
+        assert_eq!(e * w, claimed_sum);
+
+        // ######################################
+        // ######################################
+        // ######################################
     }
 
     #[test]

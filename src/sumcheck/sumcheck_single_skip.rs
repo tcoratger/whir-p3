@@ -1,6 +1,6 @@
 use p3_dft::{NaiveDft, TwoAdicSubgroupDft};
 use p3_field::{ExtensionField, TwoAdicField};
-use p3_matrix::{Matrix, dense::RowMajorMatrix};
+use p3_matrix::{Matrix, dense::RowMajorMatrix, util::reverse_matrix_index_bits};
 #[cfg(feature = "parallel")]
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 
@@ -57,16 +57,26 @@ where
         // Only base field evaluations are supported for skipping.
         let (out_vec, f, w) = match &self.evaluation_of_p {
             EvaluationStorage::Base(evals_f) => {
-                // Reinterpret the flat evaluation vector as a matrix of shape:
-                // - Rows: 2^k (assignments to the first k variables, which we skip)
-                // - Columns: 2^{n-k} (assignments to the remaining variables)
-                //
-                // The transpose operation converts from row-major evaluations over {0,1}^n
-                // into a layout where each row corresponds to a fixed setting of the remaining variables.
-                let f_mat = RowMajorMatrix::new(evals_f.evals().to_vec(), 1 << k).transpose();
-                // Similarly reshape weights to align with p
-                let weights_mat =
-                    RowMajorMatrix::new(self.weights.evals().to_vec(), 1 << k).transpose();
+                // // Reinterpret the flat evaluation vector as a matrix of shape:
+                // // - Rows: 2^k (assignments to the first k variables, which we skip)
+                // // - Columns: 2^{n-k} (assignments to the remaining variables)
+                // //
+                // // The transpose operation converts from row-major evaluations over {0,1}^n
+                // // into a layout where each row corresponds to a fixed setting of the remaining variables.
+                // let f_mat = RowMajorMatrix::new(evals_f.evals().to_vec(), 1 << k).transpose();
+                // // Similarly reshape weights to align with p
+                // let weights_mat =
+                //     RowMajorMatrix::new(self.weights.evals().to_vec(), 1 << k).transpose();
+
+                let n = self.num_variables();
+                let num_remaining_vars = n - k;
+                let width = 1 << num_remaining_vars;
+
+                let mut f_mat = RowMajorMatrix::new(evals_f.evals().to_vec(), width);
+                let mut weights_mat = RowMajorMatrix::new(self.weights.evals().to_vec(), width);
+
+                // reverse_matrix_index_bits(&mut f_mat);
+                // reverse_matrix_index_bits(&mut weights_mat);
 
                 // Apply low-degree extension (LDE) over a multiplicative coset of size 2^{k+1}
                 // to both the function and weights matrices:
@@ -370,7 +380,7 @@ mod tests {
         // ------------------------------------------------------------
         // Compute the polynomial using the function under test
         // ------------------------------------------------------------
-        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(k);
+        let (poly, f_mat, w_mat) = prover.compute_skipping_sumcheck_polynomial(k);
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3
@@ -419,26 +429,66 @@ mod tests {
         // and each column to X0 = 0 and X0 = 1.
         // The matrix is stored in row-major order, but transposed.
         // This layout aligns with batch DFTs over the "folded" variable X0.
+        // let f_mat_transpose = RowMajorMatrix::new(
+        //     vec![
+        //         f_000, f_100, // X0 = 0, 1 | (X1, X2) = (0, 0)
+        //         f_001, f_101, // X0 = 0, 1 | (X1, X2) = (0, 1)
+        //         f_010, f_110, // X0 = 0, 1 | (X1, X2) = (1, 0)
+        //         f_011, f_111, // X0 = 0, 1 | (X1, X2) = (1, 1)
+        //     ],
+        //     2, // num columns = 2 (X0=0, X0=1)
+        // );
+        // let f_mat_transpose = RowMajorMatrix::new(
+        //     vec![
+        //         f_000, f_001, // X0 = 0, 1 | (X1, X2) = (0, 0)
+        //         f_100, f_101, // X0 = 0, 1 | (X1, X2) = (0, 1)
+        //         f_010, f_011, // X0 = 0, 1 | (X1, X2) = (1, 0)
+        //         f_110, f_111, // X0 = 0, 1 | (X1, X2) = (1, 1)
+        //     ],
+        //     2, // num columns = 2 (X0=0, X0=1)
+        // );
         let f_mat_transpose = RowMajorMatrix::new(
             vec![
-                f_000, f_100, // X0 = 0, 1 | (X1, X2) = (0, 0)
-                f_001, f_101, // X0 = 0, 1 | (X1, X2) = (0, 1)
-                f_010, f_110, // X0 = 0, 1 | (X1, X2) = (1, 0)
-                f_011, f_111, // X0 = 0, 1 | (X1, X2) = (1, 1)
+                f_000, f_001, // X0 = 0, 1 | (X1, X2) = (0, 0)
+                f_010, f_011, // X0 = 0, 1 | (X1, X2) = (0, 1)
+                f_100, f_101, // X0 = 0, 1 | (X1, X2) = (1, 0)
+                f_110, f_111, // X0 = 0, 1 | (X1, X2) = (1, 1)
             ],
             2, // num columns = 2 (X0=0, X0=1)
         );
 
         // Do the same for the equality weights w(X0, X1, X2)
+        // let weights_mat_transpose = RowMajorMatrix::new(
+        //     vec![
+        //         w_000, w_100, // X0 = 0, 1 | (X1, X2) = (0, 0)
+        //         w_001, w_101, // X0 = 0, 1 | (X1, X2) = (0, 1)
+        //         w_010, w_110, // X0 = 0, 1 | (X1, X2) = (1, 0)
+        //         w_011, w_111, // X0 = 0, 1 | (X1, X2) = (1, 1)
+        //     ],
+        //     2,
+        // );
+        // let weights_mat_transpose = RowMajorMatrix::new(
+        //     vec![
+        //         w_000, w_001, // X0 = 0, 1 | (X1, X2) = (0, 0)
+        //         w_100, w_101, // X0 = 0, 1 | (X1, X2) = (0, 1)
+        //         w_010, w_011, // X0 = 0, 1 | (X1, X2) = (1, 0)
+        //         w_110, w_111, // X0 = 0, 1 | (X1, X2) = (1, 1)
+        //     ],
+        //     2,
+        // );
         let weights_mat_transpose = RowMajorMatrix::new(
             vec![
-                w_000, w_100, // X0 = 0, 1 | (X1, X2) = (0, 0)
-                w_001, w_101, // X0 = 0, 1 | (X1, X2) = (0, 1)
-                w_010, w_110, // X0 = 0, 1 | (X1, X2) = (1, 0)
-                w_011, w_111, // X0 = 0, 1 | (X1, X2) = (1, 1)
+                w_000, w_001, // X0 = 0, 1 | (X1, X2) = (0, 0)
+                w_010, w_011, // X0 = 0, 1 | (X1, X2) = (0, 1)
+                w_100, w_101, // X0 = 0, 1 | (X1, X2) = (1, 0)
+                w_110, w_111, // X0 = 0, 1 | (X1, X2) = (1, 1)
             ],
             2,
         );
+
+        // Verify the f and w matrices
+        assert_eq!(f_mat, f_mat_transpose);
+        assert_eq!(w_mat, weights_mat_transpose);
 
         // We recover the coefficients of f by doing the inverse DFT of each column.
         //

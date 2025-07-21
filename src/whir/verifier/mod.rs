@@ -1,9 +1,13 @@
-use std::{fmt::Debug, ops::Deref};
+use std::{
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
-use p3_matrix::Dimensions;
+use p3_interpolation::interpolate_subgroup;
+use p3_matrix::{Dimensions, Matrix, dense::RowMajorMatrix, util::reverse_matrix_index_bits};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -16,11 +20,13 @@ use super::{
     utils::get_challenge_stir_queries,
 };
 use crate::{
+    domain_mapper::DomainMapper,
     fiat_shamir::{
         errors::{ProofError, ProofResult},
         verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    sumcheck::{K_SKIP_SUMCHECK, utils::interpolate_multilinear},
     whir::{Statement, parameters::WhirConfig, verifier::sumcheck::verify_sumcheck_rounds},
 };
 
@@ -50,7 +56,7 @@ where
     }
 
     #[instrument(skip_all)]
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::collection_is_never_read)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<F, EF, Challenger>,
@@ -87,8 +93,9 @@ where
                 &mut claimed_sum,
                 self.folding_factor.at_round(0),
                 self.starting_folding_pow_bits,
-                false,
+                self.univariate_skip,
             )?;
+
             round_folding_randomness.push(folding_randomness);
         } else {
             assert_eq!(prev_commitment.ood_points.len(), 0);
@@ -292,6 +299,7 @@ where
             height: params.domain_size >> params.folding_factor,
             width: 1 << params.folding_factor,
         }];
+
         let answers = self.verify_merkle_proof(
             verifier_state,
             &commitment.root,
@@ -303,11 +311,51 @@ where
 
         verifier_state.check_pow_grinding(params.pow_bits)?;
 
-        // Compute STIR Constraints
-        let folds: Vec<_> = answers
-            .into_iter()
-            .map(|answers| EvaluationsList::new(answers).evaluate(folding_randomness))
-            .collect();
+        let mut folds = vec![];
+
+        for answer in &answers {
+            if self.initial_statement
+                && self.univariate_skip
+                && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
+            {
+                let n = self.folding_factor.at_round(0);
+                let num_remaining_vars = n - K_SKIP_SUMCHECK;
+                let width = 1 << num_remaining_vars;
+
+                let mut f_mat = RowMajorMatrix::new(answer.to_vec(), width);
+                // reverse_matrix_index_bits(&mut f_mat);
+                let f_mat = f_mat.transpose();
+
+                folds.extend_from_slice(
+                    &f_mat
+                        .rows()
+                        .map(|row| {
+                            EvaluationsList::new(row.into_iter().collect())
+                                .evaluate(&folding_randomness)
+                        })
+                        .collect::<Vec<_>>(),
+                );
+            } else {
+                folds.push(EvaluationsList::new(answer.clone()).evaluate(&folding_randomness));
+            };
+        }
+
+        // // Compute STIR Constraints
+        // let folds: Vec<_> = answers
+        //     .into_iter()
+        //     .map(|answers| {
+        //         if self.initial_statement
+        //             && round_index == 0
+        //             && self.univariate_skip
+        //             && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
+        //         {
+        //             let evals_mat = RowMajorMatrix::new_col(answers);
+        //             interpolate_subgroup(&evals_mat, folding_randomness[0])[0]
+        //         } else {
+        //             EvaluationsList::new(answers).evaluate(folding_randomness)
+        //         }
+        //     })
+        //     .collect();
 
         let stir_constraints = stir_challenges_indexes
             .iter()

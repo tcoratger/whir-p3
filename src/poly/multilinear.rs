@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use p3_field::Field;
 use rand::{
@@ -19,6 +19,12 @@ impl<F> Deref for MultilinearPoint<F> {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl<F> DerefMut for MultilinearPoint<F> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
