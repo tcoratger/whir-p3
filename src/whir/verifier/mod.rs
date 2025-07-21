@@ -87,7 +87,7 @@ where
                 &mut claimed_sum,
                 self.folding_factor.at_round(0),
                 self.starting_folding_pow_bits,
-                false,
+                self.univariate_skip,
             )?;
             round_folding_randomness.push(folding_randomness);
         } else {
