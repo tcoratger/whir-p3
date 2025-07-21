@@ -1,10 +1,13 @@
-use std::{fmt::Debug, ops::Deref};
+use std::{
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::{Dimensions, dense::RowMajorMatrix};
+use p3_matrix::{Dimensions, Matrix, dense::RowMajorMatrix, util::reverse_matrix_index_bits};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -17,12 +20,13 @@ use super::{
     utils::get_challenge_stir_queries,
 };
 use crate::{
+    domain_mapper::DomainMapper,
     fiat_shamir::{
         errors::{ProofError, ProofResult},
         verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::K_SKIP_SUMCHECK,
+    sumcheck::{K_SKIP_SUMCHECK, utils::interpolate_multilinear},
     whir::{Statement, parameters::WhirConfig, verifier::sumcheck::verify_sumcheck_rounds},
 };
 
@@ -180,7 +184,7 @@ where
             self.final_folding_pow_bits,
             false,
         )?;
-        round_folding_randomness.push(final_sumcheck_randomness);
+        round_folding_randomness.push(final_sumcheck_randomness.clone());
 
         // Compute folding randomness across all rounds.
         let folding_randomness = MultilinearPoint(
@@ -197,14 +201,14 @@ where
         let deferred =
             verifier_state.next_extension_scalars_vec(statement.num_deref_constraints())?;
 
-        // let _evaluation_of_weights =
-        //     self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
+        let evaluation_of_weights =
+            self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
 
-        // // Check the final sumcheck evaluation
-        // let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
-        // if claimed_sum != evaluation_of_weights * final_value {
-        //     return Err(ProofError::InvalidProof);
-        // }
+        // Check the final sumcheck evaluation
+        let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
+        if claimed_sum != evaluation_of_weights * final_value {
+            return Err(ProofError::InvalidProof);
+        }
 
         Ok((folding_randomness, deferred))
     }
@@ -307,22 +311,51 @@ where
 
         verifier_state.check_pow_grinding(params.pow_bits)?;
 
-        // Compute STIR Constraints
-        let folds: Vec<_> = answers
-            .into_iter()
-            .map(|answers| {
-                if self.initial_statement
-                    && round_index == 0
-                    && self.univariate_skip
-                    && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
-                {
-                    let evals_mat = RowMajorMatrix::new_col(answers);
-                    interpolate_subgroup(&evals_mat, folding_randomness[0])[0]
-                } else {
-                    EvaluationsList::new(answers).evaluate(folding_randomness)
-                }
-            })
-            .collect();
+        let mut folds = vec![];
+
+        for answer in &answers {
+            if self.initial_statement
+                && self.univariate_skip
+                && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
+            {
+                let n = self.folding_factor.at_round(0);
+                let num_remaining_vars = n - K_SKIP_SUMCHECK;
+                let width = 1 << num_remaining_vars;
+
+                let mut f_mat = RowMajorMatrix::new(answer.to_vec(), width);
+                // reverse_matrix_index_bits(&mut f_mat);
+                let f_mat = f_mat.transpose();
+
+                folds.extend_from_slice(
+                    &f_mat
+                        .rows()
+                        .map(|row| {
+                            EvaluationsList::new(row.into_iter().collect())
+                                .evaluate(&folding_randomness)
+                        })
+                        .collect::<Vec<_>>(),
+                );
+            } else {
+                folds.push(EvaluationsList::new(answer.clone()).evaluate(&folding_randomness));
+            };
+        }
+
+        // // Compute STIR Constraints
+        // let folds: Vec<_> = answers
+        //     .into_iter()
+        //     .map(|answers| {
+        //         if self.initial_statement
+        //             && round_index == 0
+        //             && self.univariate_skip
+        //             && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
+        //         {
+        //             let evals_mat = RowMajorMatrix::new_col(answers);
+        //             interpolate_subgroup(&evals_mat, folding_randomness[0])[0]
+        //         } else {
+        //             EvaluationsList::new(answers).evaluate(folding_randomness)
+        //         }
+        //     })
+        //     .collect();
 
         let stir_constraints = stir_challenges_indexes
             .iter()

@@ -165,6 +165,27 @@ where
             randomness_vec
         });
 
+        // let randomness_vec = {
+        //     let mut vec = vec![EF::ZERO; prover.mv_parameters.num_variables];
+        //     let k = prover.folding_factor.at_round(0);
+
+        //     // The `folding_randomness` contains the *effective* multilinear points.
+        //     assert_eq!(
+        //         folding_randomness.num_variables(),
+        //         k,
+        //         "Initial folding randomness must match the number of variables for round 0"
+        //     );
+
+        //     // The challenges are for variables X_{k-1}, ..., X_0. We store them in
+        //     // `randomness_vec` in reverse order of variables, so we copy them directly.
+        //     // i.e., r_0 -> randomness_vec[k-1], r_1 -> randomness_vec[k-2], etc.
+        //     // The `rev()` correctly handles this.
+        //     for (i, &rand) in folding_randomness.iter().rev().enumerate() {
+        //         vec[i] = rand;
+        //     }
+        //     vec
+        // };
+
         let initial_evaluations = sumcheck_prover
             .as_ref()
             .map_or(Some(witness.polynomial), |_| None);

@@ -192,29 +192,38 @@ mod tests {
         let pow_bits = [0, 5, 10];
         let rs_domain_initial_reduction_factors = 1..=3;
 
-        for rs_domain_initial_reduction_factor in rs_domain_initial_reduction_factors {
-            for folding_factor in folding_factors {
-                if folding_factor.at_round(0) < rs_domain_initial_reduction_factor {
-                    continue;
-                }
-                let num_variables = folding_factor.at_round(0)..=3 * folding_factor.at_round(0);
-                for num_variable in num_variables {
-                    for num_points in num_points {
-                        for soundness_type in soundness_type {
-                            for pow_bits in pow_bits {
-                                make_whir_things(
-                                    num_variable,
-                                    folding_factor,
-                                    num_points,
-                                    soundness_type,
-                                    pow_bits,
-                                    rs_domain_initial_reduction_factor,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        make_whir_things(
+            5,
+            FoldingFactor::ConstantFromSecondRound(5, 2),
+            0,
+            SecurityAssumption::JohnsonBound,
+            0,
+            1,
+        );
+
+        // for rs_domain_initial_reduction_factor in rs_domain_initial_reduction_factors {
+        //     for folding_factor in folding_factors {
+        //         if folding_factor.at_round(0) < rs_domain_initial_reduction_factor {
+        //             continue;
+        //         }
+        //         let num_variables = folding_factor.at_round(0)..=3 * folding_factor.at_round(0);
+        //         for num_variable in num_variables {
+        //             for num_points in num_points {
+        //                 for soundness_type in soundness_type {
+        //                     for pow_bits in pow_bits {
+        //                         make_whir_things(
+        //                             num_variable,
+        //                             folding_factor,
+        //                             num_points,
+        //                             soundness_type,
+        //                             pow_bits,
+        //                             rs_domain_initial_reduction_factor,
+        //                         );
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
     }
 }

@@ -4,7 +4,11 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
+use p3_matrix::{
+    Matrix,
+    dense::{DenseMatrix, RowMajorMatrix},
+    util::reverse_matrix_index_bits,
+};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use round::RoundState;
@@ -19,7 +23,7 @@ use crate::{
         evals::{EvaluationStorage, EvaluationsList},
         multilinear::MultilinearPoint,
     },
-    sumcheck::{K_SKIP_SUMCHECK, sumcheck_single::SumcheckSingle},
+    sumcheck::{K_SKIP_SUMCHECK, sumcheck_single::SumcheckSingle, utils::interpolate_multilinear},
     utils::parallel_repeat,
     whir::{
         parameters::RoundConfig,
@@ -322,18 +326,46 @@ where
                 stir_evaluations.reserve_exact(answers.len());
 
                 for answer in &answers {
-                    let eval = if self.initial_statement
+                    // let eval = if self.initial_statement
+                    //     && self.univariate_skip
+                    //     && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
+                    // {
+                    //     let evals_mat = RowMajorMatrix::new_col(answer.clone());
+                    //     interpolate_subgroup(&evals_mat, round_state.folding_randomness[0])[0]
+                    // } else {
+                    //     EvaluationsList::new(answer.clone())
+                    //         .evaluate(&round_state.folding_randomness)
+                    // };
+
+                    // stir_evaluations.push(eval);
+
+                    if self.initial_statement
                         && self.univariate_skip
                         && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
                     {
-                        let evals_mat = RowMajorMatrix::new_col(answer.clone());
-                        interpolate_subgroup(&evals_mat, round_state.folding_randomness[0])[0]
-                    } else {
-                        EvaluationsList::new(answer.clone())
-                            .evaluate(&round_state.folding_randomness)
-                    };
+                        let n = self.folding_factor.at_round(0);
+                        let num_remaining_vars = n - K_SKIP_SUMCHECK;
+                        let width = 1 << num_remaining_vars;
 
-                    stir_evaluations.push(eval);
+                        let mut f_mat = RowMajorMatrix::new(answer.to_vec(), width);
+                        // reverse_matrix_index_bits(&mut f_mat);
+                        let f_mat = f_mat.transpose();
+
+                        stir_evaluations.extend_from_slice(
+                            &f_mat
+                                .rows()
+                                .map(|row| {
+                                    EvaluationsList::new(row.into_iter().collect())
+                                        .evaluate(&round_state.folding_randomness)
+                                })
+                                .collect::<Vec<_>>(),
+                        );
+                    } else {
+                        stir_evaluations.push(
+                            EvaluationsList::new(answer.clone())
+                                .evaluate(&round_state.folding_randomness),
+                        );
+                    };
                 }
 
                 stir_evaluations

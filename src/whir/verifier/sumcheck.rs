@@ -4,6 +4,7 @@ use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 
 use crate::{
+    domain_mapper::DomainMapper,
     fiat_shamir::{
         errors::{ProofError, ProofResult},
         verifier::VerifierState,
@@ -94,8 +95,13 @@ where
         *claimed_sum =
             interpolate_subgroup(&RowMajorMatrix::new_col(poly.evaluations().to_vec()), rand)[0];
 
-        // Record this round’s randomness
-        randomness.push(rand);
+        // Use the DomainMapper to expand the single challenge back into k multilinear points.
+        let mapper = DomainMapper::new(K_SKIP_SUMCHECK);
+        let expanded_points = mapper.map_point(rand);
+        randomness.extend_from_slice(&expanded_points.0);
+
+        // // Record this round’s randomness
+        // randomness.push(rand);
 
         // Optional: apply proof-of-work query
         verifier_state.check_pow_grinding(pow_bits)?;
