@@ -184,24 +184,6 @@ impl<F: Field> Weights<F> {
             Self::Linear { weight } => weight.evaluate(folding_randomness),
         }
     }
-
-    /// Evaluate the weighted sum with a polynomial in coefficient form.
-    #[must_use]
-    pub fn evaluate_coeffs(&self, poly: &EvaluationsList<F>) -> F {
-        assert_eq!(self.num_variables(), poly.num_variables());
-        match self {
-            Self::Evaluation { point } => poly.evaluate(point),
-
-            // We intentionally avoid parallel iterators here because this function is only called by the verifier,
-            // which is assumed to run on a lightweight device.
-            Self::Linear { weight } => weight
-                .evals()
-                .iter()
-                .zip(poly.evals())
-                .map(|(&w, &p)| w * p)
-                .sum(),
-        }
-    }
 }
 
 #[cfg(test)]

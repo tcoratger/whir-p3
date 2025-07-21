@@ -402,7 +402,7 @@ mod tests {
         let expected = f(F::ONE, F::ZERO);
 
         // Check that Weights::evaluate returns the correct result
-        assert_eq!(weight.evaluate_coeffs(&coeffs.to_evaluations()), expected);
+        assert_eq!(weight.evaluate_evals(&coeffs.to_evaluations()), expected);
     }
 
     #[test]
@@ -431,7 +431,7 @@ mod tests {
         let expected = w0 * evals[0] + w1 * evals[1] + w2 * evals[2] + w3 * evals[3];
 
         // Call the evaluate method
-        let result = weights.evaluate_coeffs(&coeffs.to_evaluations());
+        let result = weights.evaluate_evals(&coeffs.to_evaluations());
 
         // Check that the evaluation matches the expected sum
         assert_eq!(result, expected);
@@ -447,6 +447,6 @@ mod tests {
         let weights = Weights::linear(EvaluationsList::new(vec![F::ONE; 4]));
 
         // This should panic because num_variables mismatch
-        let _ = weights.evaluate_coeffs(&coeffs.to_evaluations());
+        let _ = weights.evaluate_evals(&coeffs.to_evaluations());
     }
 }
