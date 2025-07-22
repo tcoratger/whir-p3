@@ -893,10 +893,10 @@ mod tests {
 
         for _ in 0..K {
             let point = MultilinearPoint::<F>::rand(&mut rng, N);
-            let first = point.0[0];
+            let first = point[0];
 
             // Check if all coordinates are the same as the first one
-            if point.0.iter().all(|&x| x == first) {
+            if point.iter().all(|&x| x == first) {
                 all_same_count += 1;
             }
         }
@@ -925,7 +925,7 @@ mod tests {
 
             // Compute expected value using manual formula:
             // eq(c, p) = ∏ (c_i * p_i + (1 - c_i)(1 - p_i))
-            let expected = p1.0.iter().zip(&p2.0).fold(F::ONE, |acc, (&a, &b)| {
+            let expected = p1.iter().zip(&p2.0).fold(F::ONE, |acc, (&a, &b)| {
                 acc * (a * b + (F::ONE - a) * (F::ONE - b))
             });
 

@@ -140,7 +140,7 @@ impl<F: Field> Weights<F> {
         assert_eq!(accumulator.num_variables(), self.num_variables());
         match self {
             Self::Evaluation { point } => {
-                eval_eq::<Base, F, INITIALIZED>(&point.0, accumulator.evals_mut(), factor);
+                eval_eq::<Base, F, INITIALIZED>(point, accumulator.evals_mut(), factor);
             }
             Self::Linear { weight } => {
                 #[cfg(feature = "parallel")]
@@ -303,7 +303,7 @@ mod tests {
 
         // Compute expected result manually
         let mut expected = vec![F::ZERO, F::ZERO];
-        eval_eq::<_, _, true>(&point.0, &mut expected, factor);
+        eval_eq::<_, _, true>(&point, &mut expected, factor);
 
         assert_eq!(accumulator.evals(), &expected);
     }

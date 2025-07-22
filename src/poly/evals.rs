@@ -111,7 +111,7 @@ where
         if let Some(point) = point.to_hypercube() {
             return self.evals[point.0].into();
         }
-        eval_multilinear(&self.evals, &point.0)
+        eval_multilinear(&self.evals, point)
     }
 
     /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
@@ -148,13 +148,13 @@ where
         let evals = self
             .evals
             .chunks_exact(1 << folding_factor)
-            .map(|ev| eval_multilinear(ev, &folding_randomness.0))
+            .map(|ev| eval_multilinear(ev, folding_randomness))
             .collect();
         #[cfg(feature = "parallel")]
         let evals = self
             .evals
             .par_chunks_exact(1 << folding_factor)
-            .map(|ev| eval_multilinear(ev, &folding_randomness.0))
+            .map(|ev| eval_multilinear(ev, folding_randomness))
             .collect();
 
         EvaluationsList {
@@ -432,7 +432,7 @@ mod tests {
         let result = evals.evaluate(&point);
 
         // Expected result using `eval_multilinear`
-        let expected = eval_multilinear(evals.evals(), &point.0);
+        let expected = eval_multilinear(evals.evals(), &point);
 
         assert_eq!(result, expected);
     }
