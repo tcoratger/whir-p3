@@ -64,45 +64,76 @@ pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
     EvaluationsList::new(folded)
 }
 
-/// Compresses a list of evaluations in-place.
+/// Compresses a list of evaluations in-place using a random challenge.
 ///
-/// This function performs an in-place compression of a polynomial's evaluations. It takes a mutable
-/// list of evaluations and a random challenge `r` from the same field, and updates the list with
-/// the compressed evaluations. This is the step in the sumcheck protocol where we reduce the polynomial's
-/// variable count by one in each round.
+/// This function performs an in-place memory optimization for the folding step
+/// in the sumcheck protocol.
+///
+/// ## Algorithm
+/// For smaller inputs, this function avoids allocating a new vector by overwriting
+/// the first half of the existing evaluation list and then truncating it.
+/// For larger inputs (determined by `PARALLEL_THRESHOLD`), it uses a parallel,
+/// out-of-place method to maximize performance, consistent with the original implementation.
 ///
 /// ## Arguments
-/// * `evals`: A mutable reference to an `EvaluationsList<F>`, which will be updated with the
-///   compressed evaluations.
+/// * `evals`: A mutable reference to an `EvaluationsList<F>`, which will be modified in-place.
 /// * `r`: A value from the field `F`, used as the random folding challenge.
 ///
-/// This function modifies `evals` in-place, halving the number of evaluations and thus reducing the
-/// polynomial's variable count.
-///
-/// The compression formula is the same as for `compress_ext`:
+/// ## Mathematical Formula
+/// The compression is achieved by applying the following formula to pairs of evaluations:
 /// $p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)$
 #[instrument(skip_all)]
 pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
+    // Ensure the polynomial is not a constant (i.e., has variables to fold).
     assert_ne!(evals.num_variables(), 0);
 
-    // Fold between base and extension field elements
-    let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
-
-    // Threshold below which sequential computation is faster
-    //
-    // This was chosen based on experiments with the `compress` function.
-    // It is possible that the threshold can be tuned further.
-    #[cfg(feature = "parallel")]
-    let folded = if evals.evals().len() >= PARALLEL_THRESHOLD {
-        evals.evals().par_chunks_exact(2).map(fold).collect()
-    } else {
-        evals.evals().chunks_exact(2).map(fold).collect()
-    };
-
+    // The sequential, in-place logic is used for the non-parallel build
+    // and for smaller inputs in the parallel build.
     #[cfg(not(feature = "parallel"))]
-    let folded = evals.evals().chunks_exact(2).map(fold).collect();
+    {
+        // Calculate the new length of the evaluations list after folding.
+        let mid = evals.len() / 2;
 
-    *evals = EvaluationsList::new(folded);
+        // Get a mutable slice to the underlying vector of evaluations.
+        let evals_slice = evals.evals_mut();
+
+        // Sequentially fold pairs of evaluations and write the result to the first half of the slice.
+        for i in 0..mid {
+            // Read the pair of evaluations, p(..., 0) and p(..., 1), for the last variable.
+            let p0 = evals_slice[2 * i];
+            let p1 = evals_slice[2 * i + 1];
+
+            // Apply the folding formula and overwrite the entry at the current write position.
+            evals_slice[i] = r * (p1 - p0) + p0;
+        }
+
+        // Truncate the evaluations list to its new, smaller size.
+        evals.truncate(mid);
+    }
+
+    // The parallel logic is only available when the "parallel" feature is enabled.
+    #[cfg(feature = "parallel")]
+    {
+        // For large inputs, we use the original parallel, out-of-place strategy for maximum speed.
+        if evals.evals().len() >= PARALLEL_THRESHOLD {
+            // Define the folding operation for a pair of elements.
+            let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
+            // Execute the fold in parallel and collect into a new vector.
+            let folded = evals.evals().par_chunks_exact(2).map(fold).collect();
+            // Replace the old evaluations with the new, folded evaluations.
+            *evals = EvaluationsList::new(folded);
+        } else {
+            // For smaller inputs, we use the sequential, in-place strategy to save memory.
+            let mid = evals.len() / 2;
+            let evals_slice = evals.evals_mut();
+            for i in 0..mid {
+                let p0 = evals_slice[2 * i];
+                let p1 = evals_slice[2 * i + 1];
+                evals_slice[i] = r * (p1 - p0) + p0;
+            }
+            evals.truncate(mid);
+        }
+    }
 }
 
 /// Executes the initial round of the sumcheck protocol.

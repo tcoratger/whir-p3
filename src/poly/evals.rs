@@ -97,6 +97,26 @@ where
         self.num_variables
     }
 
+    /// Truncates the list of evaluations to a new length.
+    ///
+    /// This is used in protocols like sumcheck where the number of evaluations is
+    /// halved in each round. The new length must be a power of two.
+    ///
+    /// # Panics
+    /// Panics if `new_len` is not a power of two.
+    pub fn truncate(&mut self, new_len: usize) {
+        assert!(
+            new_len.is_power_of_two(),
+            "New evaluation list length must be a power of two."
+        );
+        self.evals.truncate(new_len);
+        self.num_variables = if new_len == 0 {
+            0
+        } else {
+            new_len.ilog2() as usize
+        };
+    }
+
     /// Evaluates the multilinear polynomial at `point ∈ [0,1]^n`.
     ///
     /// - If `point ∈ {0,1}^n`, returns the precomputed evaluation `f(point)`.
