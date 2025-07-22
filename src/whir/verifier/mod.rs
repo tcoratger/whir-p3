@@ -95,11 +95,13 @@ where
             assert!(statement.constraints.is_empty());
             round_constraints.push((vec![], vec![]));
 
-            let mut folding_randomness = EF::zero_vec(self.folding_factor.at_round(0));
-            for folded_randomness in &mut folding_randomness {
-                *folded_randomness = verifier_state.sample();
-            }
-            round_folding_randomness.push(MultilinearPoint(folding_randomness));
+            let folding_randomness = MultilinearPoint(
+                (0..self.folding_factor.at_round(0))
+                    .map(|_| verifier_state.sample())
+                    .collect::<Vec<_>>(),
+            );
+
+            round_folding_randomness.push(folding_randomness);
 
             verifier_state.check_pow_grinding(self.starting_folding_pow_bits)?;
         }

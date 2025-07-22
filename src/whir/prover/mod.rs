@@ -14,15 +14,10 @@ use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     dft::EvalsDft,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
-    poly::{
-        evals::{EvaluationStorage, EvaluationsList},
-        multilinear::MultilinearPoint,
-    },
-    sumcheck::sumcheck_single::SumcheckSingle,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::parallel_repeat,
     whir::{
         parameters::RoundConfig,
-        statement::weights::Weights,
         utils::{get_challenge_stir_queries, sample_ood_points},
     },
 };
@@ -210,31 +205,14 @@ where
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
-        // - If a sumcheck already exists, use its evaluations
-        // - Otherwise, fold the evaluations from the previous round
-        let folded_evaluations = if let Some(sumcheck) = &round_state.sumcheck_prover {
-            match &sumcheck.evaluation_of_p {
-                EvaluationStorage::Base(_) => {
-                    panic!("After a first round, the evaluations must be in the extension field")
-                }
-                EvaluationStorage::Extension(f) => f.parallel_clone(),
-            }
-        } else {
-            round_state
-                .initial_evaluations
-                .as_ref()
-                .unwrap()
-                .fold(&round_state.folding_randomness)
-        };
-
+        let folded_evaluations = &round_state.sumcheck_prover.evals;
         let num_variables =
             self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
-        // The number of variables at the given round should match the folded number of variables.
         assert_eq!(num_variables, folded_evaluations.num_variables());
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
-            return self.final_round(round_index, prover_state, round_state, &folded_evaluations);
+            return self.final_round(round_index, prover_state, round_state);
         }
 
         let round_params = &self.round_parameters[round_index];
@@ -375,35 +353,17 @@ where
             .take(stir_challenges.len())
             .collect();
 
-        let mut sumcheck_prover =
-            if let Some(mut sumcheck_prover) = round_state.sumcheck_prover.take() {
-                sumcheck_prover.add_new_equality(
-                    &stir_challenges,
-                    &stir_evaluations,
-                    &combination_randomness,
-                );
-                sumcheck_prover
-            } else {
-                let mut statement = Statement::new(folded_evaluations.num_variables());
+        round_state.sumcheck_prover.add_new_equality(
+            &stir_challenges,
+            &stir_evaluations,
+            &combination_randomness,
+        );
 
-                for (point, eval) in stir_challenges.into_iter().zip(stir_evaluations) {
-                    let weights = Weights::evaluation(point);
-                    statement.add_constraint(weights, eval);
-                }
-
-                SumcheckSingle::from_extension_evals(
-                    folded_evaluations.parallel_clone(),
-                    &statement,
-                    combination_randomness[1],
-                )
-            };
-
-        let folding_randomness = sumcheck_prover.compute_sumcheck_polynomials(
+        let folding_randomness = round_state.sumcheck_prover.compute_sumcheck_polynomials(
             prover_state,
             folding_factor_next,
             round_params.folding_pow_bits,
-            None,
-        )?;
+        );
 
         let start_idx = self.folding_factor.total_number(round_index);
         let dst_randomness =
@@ -418,7 +378,6 @@ where
 
         // Update round state
         round_state.domain = new_domain;
-        round_state.sumcheck_prover = Some(sumcheck_prover);
         round_state.folding_randomness = folding_randomness;
         round_state.merkle_prover_data = Some(prover_data);
 
@@ -431,7 +390,6 @@ where
         round_index: usize,
         prover_state: &mut ProverState<F, EF, Challenger>,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
-        folded_evaluations: &EvaluationsList<EF>,
     ) -> ProofResult<()>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
@@ -443,7 +401,7 @@ where
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        prover_state.add_extension_scalars(folded_evaluations.evals());
+        prover_state.add_extension_scalars(&round_state.sumcheck_prover.evals);
 
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
@@ -514,23 +472,12 @@ where
 
         // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
-            let final_folding_randomness = round_state
-                .sumcheck_prover
-                .clone()
-                .unwrap_or_else(|| {
-                    SumcheckSingle::from_extension_evals(
-                        folded_evaluations.parallel_clone(),
-                        &round_state.statement,
-                        EF::ONE,
-                    )
-                })
-                .compute_sumcheck_polynomials(
+            let final_folding_randomness =
+                round_state.sumcheck_prover.compute_sumcheck_polynomials(
                     prover_state,
                     self.final_sumcheck_rounds,
                     self.final_folding_pow_bits,
-                    None,
-                )?;
-
+                );
             let start_idx = self.folding_factor.total_number(round_index);
             let rand_dst = &mut round_state.randomness_vec
                 [start_idx..start_idx + final_folding_randomness.0.len()];

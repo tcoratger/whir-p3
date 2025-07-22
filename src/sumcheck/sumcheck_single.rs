@@ -8,15 +8,293 @@ use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
-    fiat_shamir::{errors::ProofResult, prover::ProverState},
-    poly::{
-        coeffs::CoefficientList,
-        evals::{EvaluationStorage, EvaluationsList},
-        multilinear::MultilinearPoint,
+    fiat_shamir::prover::ProverState,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    sumcheck::{
+        sumcheck_single_skip::compute_skipping_sumcheck_polynomial, utils::sumcheck_quadratic,
     },
-    sumcheck::utils::sumcheck_quadratic,
     whir::statement::Statement,
 };
+
+#[cfg(feature = "parallel")]
+const PARALLEL_THRESHOLD: usize = 4096;
+
+/// Folds a list of evaluations from a base field `F` into an extension field `EF`.
+///
+/// This function performs an out-of-place compression of a polynomial's evaluations. It takes evaluations
+/// over a base field `F`, folds them using a random value `r` from an extension field `EF`, and returns a new
+/// list of evaluations in `EF`. This operation effectively reduces the number of variables in the
+/// represented multilinear polynomial by one.
+///
+/// ## Arguments
+/// * `evals`: A reference to an `EvaluationsList<F>` containing the evaluations of a multilinear
+///   polynomial over the boolean hypercube in the base field `F`.
+/// * `r`: A value `r` from the extension field `EF`, used as the random challenge for folding.
+///
+/// ## Returns
+/// A new `EvaluationsList<EF>` containing the compressed evaluations in the extension field.
+///
+/// The compression is achieved by applying the following formula to pairs of evaluations:
+///
+/// The compression is achieved by applying the following formula to pairs of evaluations:
+/// $p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)$
+#[instrument(skip_all)]
+pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
+    evals: &EvaluationsList<F>,
+    r: EF,
+) -> EvaluationsList<EF> {
+    assert_ne!(evals.num_variables(), 0);
+
+    // Fold between base and extension field elements
+    let fold = |slice: &[F]| -> EF { r * (slice[1] - slice[0]) + slice[0] };
+
+    // Threshold below which sequential computation is faster
+    //
+    // This was chosen based on experiments with the `compress` function.
+    // It is possible that the threshold can be tuned further.
+    #[cfg(feature = "parallel")]
+    let folded = if evals.evals().len() >= PARALLEL_THRESHOLD {
+        evals.evals().par_chunks_exact(2).map(fold).collect()
+    } else {
+        evals.evals().chunks_exact(2).map(fold).collect()
+    };
+
+    #[cfg(not(feature = "parallel"))]
+    let folded = evals.evals().chunks_exact(2).map(fold).collect();
+    EvaluationsList::new(folded)
+}
+
+/// Compresses a list of evaluations in-place.
+///
+/// This function performs an in-place compression of a polynomial's evaluations. It takes a mutable
+/// list of evaluations and a random challenge `r` from the same field, and updates the list with
+/// the compressed evaluations. This is the step in the sumcheck protocol where we reduce the polynomial's
+/// variable count by one in each round.
+///
+/// ## Arguments
+/// * `evals`: A mutable reference to an `EvaluationsList<F>`, which will be updated with the
+///   compressed evaluations.
+/// * `r`: A value from the field `F`, used as the random folding challenge.
+///
+/// This function modifies `evals` in-place, halving the number of evaluations and thus reducing the
+/// polynomial's variable count.
+///
+/// The compression formula is the same as for `compress_ext`:
+/// $p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)$
+#[instrument(skip_all)]
+pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
+    assert_ne!(evals.num_variables(), 0);
+
+    // Fold between base and extension field elements
+    let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
+
+    // Threshold below which sequential computation is faster
+    //
+    // This was chosen based on experiments with the `compress` function.
+    // It is possible that the threshold can be tuned further.
+    #[cfg(feature = "parallel")]
+    let folded = if evals.evals().len() >= PARALLEL_THRESHOLD {
+        evals.evals().par_chunks_exact(2).map(fold).collect()
+    } else {
+        evals.evals().chunks_exact(2).map(fold).collect()
+    };
+
+    #[cfg(not(feature = "parallel"))]
+    let folded = evals.evals().chunks_exact(2).map(fold).collect();
+
+    *evals = EvaluationsList::new(folded);
+}
+
+/// Executes the initial round of the sumcheck protocol.
+///
+/// This function executes the initial round of the sumcheck protocol, which is unique because it
+/// transitions the polynomial evaluations from the base field `F` to the extension field `EF`.
+/// It computes the sumcheck polynomial, incorporates it into the prover's state, derives a challenge,
+/// and then uses that challenge to compress both the polynomial evaluations and the constraint weights.
+///
+/// ## Arguments
+/// * `prover_state`: A mutable reference to the `ProverState`, which manages the Fiat-Shamir transcript.
+/// * `evals`: A reference to the polynomial's evaluations in the base field `F`.
+/// * `weights`: A mutable reference to the weight evaluations in the extension field `EF`.
+/// * `sum`: A mutable reference to the claimed sum, which is updated with the new value after folding.
+/// * `pow_bits`: The number of proof-of-work bits for the grinding protocol.
+///
+/// ## Returns
+/// A tuple containing:
+/// * The verifier's challenge `r` as an `EF` element.
+/// * The new, compressed polynomial evaluations as an `EvaluationsList<EF>`.
+fn initial_round<Challenger, F: Field, EF: ExtensionField<F>>(
+    prover_state: &mut ProverState<F, EF, Challenger>,
+    evals: &EvaluationsList<F>,
+    weights: &mut EvaluationsList<EF>,
+    sum: &mut EF,
+    pow_bits: usize,
+) -> (EF, EvaluationsList<EF>)
+where
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+{
+    // Compute the quadratic sumcheck polynomial for the current variable.
+    let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
+    prover_state.add_extension_scalars(sumcheck_poly.evaluations());
+
+    // Sample verifier challenge.
+    let r: EF = prover_state.sample();
+
+    prover_state.pow_grinding(pow_bits);
+
+    // Compress polynomials and update the sum.
+
+    #[cfg(feature = "parallel")]
+    let evals = { rayon::join(|| compress(weights, r), || compress_ext(evals, r)).1 };
+    #[cfg(not(feature = "parallel"))]
+    let evals = {
+        compress(weights, r);
+        compress_ext(evals, r)
+    };
+    *sum = sumcheck_poly.evaluate_at_point(&r.into());
+
+    (r, evals)
+}
+
+/// Executes a standard, intermediate round of the sumcheck protocol.
+///
+/// This function executes a standard, intermediate round of the sumcheck protocol. Unlike the initial round,
+/// it operates entirely within the extension field `EF`. It computes the sumcheck polynomial from the
+/// current evaluations and weights, adds it to the transcript, gets a new challenge from the verifier,
+/// and then compresses both the polynomial and weight evaluations in-place.
+///
+/// ## Arguments
+/// * `prover_state` - A mutable reference to the `ProverState`, managing the Fiat-Shamir transcript.
+/// * `evals` - A mutable reference to the polynomial's evaluations in `EF`, which will be compressed.
+/// * `weights` - A mutable reference to the weight evaluations in `EF`, which will also be compressed.
+/// * `sum` - A mutable reference to the claimed sum, updated after folding.
+/// * `pow_bits` - The number of proof-of-work bits for grinding.
+///
+/// ## Returns
+/// The verifier's challenge `r` as an `EF` element.
+fn round<Challenger, F: Field, EF: ExtensionField<F>>(
+    prover_state: &mut ProverState<F, EF, Challenger>,
+    evals: &mut EvaluationsList<EF>,
+    weights: &mut EvaluationsList<EF>,
+    sum: &mut EF,
+    pow_bits: usize,
+) -> EF
+where
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+{
+    // Compute the quadratic sumcheck polynomial for the current variable.
+    let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
+    prover_state.add_extension_scalars(sumcheck_poly.evaluations());
+
+    // Sample verifier challenge.
+    let r: EF = prover_state.sample();
+
+    prover_state.pow_grinding(pow_bits);
+
+    // Compress polynomials and update the sum.
+    #[cfg(feature = "parallel")]
+    {
+        rayon::join(|| compress(evals, r), || compress(weights, r));
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        compress(evals, r);
+        compress(weights, r);
+    }
+    *sum = sumcheck_poly.evaluate_at_point(&r.into());
+    r
+}
+
+/// Computes the sumcheck polynomial `h(X)`, a quadratic polynomial resulting from the folding step.
+///
+/// The sumcheck polynomial is computed as:
+///
+/// \[
+/// h(X) = \sum_b p(b, X) \cdot w(b, X)
+/// \]
+///
+/// where:
+/// - `b` ranges over evaluation points in `{0,1,2}^1` (i.e., two points per fold).
+/// - `p(b, X)` is the polynomial evaluation at `b` as a function of `X`.
+/// - `w(b, X)` is the associated weight applied at `b` as a function of `X`.
+///
+/// **Mathematical model:**
+/// - Each chunk of two evaluations encodes a linear polynomial in `X`.
+/// - The product `p(X) * w(X)` is a quadratic polynomial.
+/// - We compute the constant and quadratic coefficients first, then infer the linear coefficient using:
+///
+/// \[
+/// \text{sum} = 2 \cdot c_0 + c_1 + c_2
+/// \]
+///
+/// where `sum` is the accumulated constraint sum.
+///
+/// Returns a `SumcheckPolynomial` with evaluations at `X = 0, 1, 2`.
+#[instrument(skip_all, level = "debug")]
+pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
+    evals: &EvaluationsList<F>,
+    weights: &EvaluationsList<EF>,
+    sum: EF,
+) -> SumcheckPolynomial<EF> {
+    assert!(evals.num_variables() >= 1);
+
+    #[cfg(feature = "parallel")]
+    let (c0, c2) = evals
+        .evals()
+        .par_chunks_exact(2)
+        .zip(weights.evals().par_chunks_exact(2))
+        .map(sumcheck_quadratic::<F, EF>)
+        .reduce(
+            || (EF::ZERO, EF::ZERO),
+            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
+        );
+
+    #[cfg(not(feature = "parallel"))]
+    let (c0, c2) = evals
+        .evals()
+        .chunks_exact(2)
+        .zip(weights.evals().chunks_exact(2))
+        .map(sumcheck_quadratic::<F, EF>)
+        .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
+            (a0 + b0, a2 + b2)
+        });
+
+    // Compute the middle (linear) coefficient
+    //
+    // The quadratic polynomial h(X) has the form:
+    //     h(X) = c0 + c1 * X + c2 * X^2
+    //
+    // We already computed:
+    // - c0: the constant coefficient (contribution at X=0)
+    // - c2: the quadratic coefficient (contribution at X^2)
+    //
+    // To recover c1 (linear term), we use the known sum rule:
+    //     sum = h(0) + h(1)
+    // Expand h(0) and h(1):
+    //     h(0) = c0
+    //     h(1) = c0 + c1 + c2
+    // Therefore:
+    //     sum = c0 + (c0 + c1 + c2) = 2*c0 + c1 + c2
+    //
+    // Rearranging for c1 gives:
+    //     c1 = sum - 2*c0 - c2
+    let c1 = sum - c0.double() - c2;
+
+    // Evaluate the quadratic polynomial at points 0, 1, 2
+    //
+    // Evaluate:
+    //     h(0) = c0
+    //     h(1) = c0 + c1 + c2
+    //     h(2) = c0 + 2*c1 + 4*c2
+    //
+    // To compute h(2) efficiently, observe:
+    //     h(2) = h(1) + (c1 + 2*c2)
+    let eval_0 = c0;
+    let eval_1 = c0 + c1 + c2;
+    let eval_2 = eval_1 + c1 + c2 + c2.double();
+
+    SumcheckPolynomial::new(vec![eval_0, eval_1, eval_2], 1)
+}
 
 /// Implements the single-round sumcheck protocol for verifying a multilinear polynomial evaluation.
 ///
@@ -40,7 +318,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct SumcheckSingle<F, EF> {
     /// Evaluations of the polynomial `p(X)`.
-    pub(crate) evaluation_of_p: EvaluationStorage<F, EF>,
+    pub(crate) evals: EvaluationsList<EF>,
     /// Evaluations of the equality polynomial used for enforcing constraints.
     pub(crate) weights: EvaluationsList<EF>,
     /// Accumulated sum incorporating equality constraints.
@@ -54,73 +332,6 @@ where
     F: Field,
     EF: ExtensionField<F>,
 {
-    /// Constructs a new `SumcheckSingle` instance from polynomial coefficients in base field.
-    ///
-    /// This function:
-    /// - Converts `coeffs` into evaluation form.
-    /// - Initializes an empty constraint table.
-    /// - Applies weighted constraints if provided.
-    ///
-    /// The provided `Statement` encodes constraints that contribute to the final sumcheck equation.
-    pub fn from_base_coeffs(
-        coeffs: CoefficientList<F>,
-        statement: &Statement<EF>,
-        combination_randomness: EF,
-    ) -> Self {
-        let (weights, sum) = statement.combine::<F>(combination_randomness);
-        Self {
-            evaluation_of_p: EvaluationStorage::Base(coeffs.to_evaluations()),
-            weights,
-            sum,
-            phantom: std::marker::PhantomData,
-        }
-    }
-
-    /// Constructs a new `SumcheckSingle` instance from evaluations in the base field.
-    ///
-    /// This function:
-    /// - Uses precomputed evaluations of the polynomial `p` over the Boolean hypercube.
-    /// - Applies the given constraint `Statement` using a random linear combination.
-    /// - Initializes internal sumcheck state with weights and expected sum.
-    ///
-    /// The base field evaluations are stored without transformation.
-    #[instrument(skip_all)]
-    pub fn from_base_evals(
-        evals: EvaluationsList<F>,
-        statement: &Statement<EF>,
-        combination_randomness: EF,
-    ) -> Self {
-        let (weights, sum) = statement.combine::<F>(combination_randomness);
-        Self {
-            evaluation_of_p: EvaluationStorage::Base(evals),
-            weights,
-            sum,
-            phantom: std::marker::PhantomData,
-        }
-    }
-
-    /// Constructs a new `SumcheckSingle` instance from polynomial coefficients in extension field.
-    ///
-    /// This function:
-    /// - Converts `coeffs` into evaluation form.
-    /// - Initializes an empty constraint table.
-    /// - Applies weighted constraints if provided.
-    ///
-    /// The provided `Statement` encodes constraints that contribute to the final sumcheck equation.
-    pub fn from_extension_coeffs(
-        coeffs: CoefficientList<EF>,
-        statement: &Statement<EF>,
-        combination_randomness: EF,
-    ) -> Self {
-        let (weights, sum) = statement.combine::<F>(combination_randomness);
-        Self {
-            evaluation_of_p: EvaluationStorage::Extension(coeffs.to_evaluations::<F>()),
-            weights,
-            sum,
-            phantom: std::marker::PhantomData,
-        }
-    }
-
     /// Constructs a new `SumcheckSingle` instance from evaluations in the extension field.
     ///
     /// This function:
@@ -136,17 +347,146 @@ where
         combination_randomness: EF,
     ) -> Self {
         let (weights, sum) = statement.combine::<F>(combination_randomness);
+
         Self {
-            evaluation_of_p: EvaluationStorage::Extension(evals),
+            evals,
             weights,
             sum,
             phantom: std::marker::PhantomData,
         }
     }
 
+    /// Constructs a new `SumcheckSingle` instance from evaluations in the base field.
+    ///
+    /// This function:
+    /// - Uses precomputed evaluations of the polynomial `p` over the Boolean hypercube.
+    /// - Applies the given constraint `Statement` using a random linear combination.
+    /// - Initializes internal sumcheck state with weights and expected sum.
+    /// - Applies first set of sumcheck rounds
+    #[instrument(skip_all)]
+    pub fn from_base_evals<Challenger>(
+        evals: &EvaluationsList<F>,
+        statement: &Statement<EF>,
+        combination_randomness: EF,
+
+        prover_state: &mut ProverState<F, EF, Challenger>,
+        folding_factor: usize,
+        pow_bits: usize,
+    ) -> (Self, MultilinearPoint<EF>)
+    where
+        F: TwoAdicField,
+        EF: TwoAdicField,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
+        assert_ne!(folding_factor, 0);
+        let mut res = Vec::with_capacity(folding_factor);
+
+        let (mut weights, mut sum) = statement.combine::<F>(combination_randomness);
+        // In the first round base field evaluations are folded into extension field elements
+        let (r, mut evals) = initial_round(prover_state, evals, &mut weights, &mut sum, pow_bits);
+        res.push(r);
+
+        // Apply rest of sumcheck rounds
+        res.extend(
+            (1..folding_factor)
+                .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits))
+                .collect::<Vec<_>>(),
+        );
+
+        // Reverse challenges to maintain order from X₀ to Xₙ.
+        res.reverse();
+
+        let sumcheck = Self {
+            evals,
+            weights,
+            sum,
+            phantom: std::marker::PhantomData,
+        };
+
+        (sumcheck, MultilinearPoint(res))
+    }
+
+    /// Constructs a new `SumcheckSingle` instance from evaluations in the base field.
+    ///
+    /// This function:
+    /// - Uses precomputed evaluations of the polynomial `p` over the Boolean hypercube.
+    /// - Applies the given constraint `Statement` using a random linear combination.
+    /// - Initializes internal sumcheck state with weights and expected sum.
+    /// - Applies first set of sumcheck rounds with univariate skip optimization.
+    #[instrument(skip_all)]
+    pub fn with_skip<Challenger>(
+        evals: &EvaluationsList<F>,
+        statement: &Statement<EF>,
+        combination_randomness: EF,
+
+        prover_state: &mut ProverState<F, EF, Challenger>,
+        folding_factor: usize,
+        pow_bits: usize,
+        k_skip: usize,
+    ) -> (Self, MultilinearPoint<EF>)
+    where
+        F: TwoAdicField,
+        EF: TwoAdicField,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
+        assert_ne!(folding_factor, 0);
+        let mut res = Vec::with_capacity(folding_factor);
+
+        assert!(k_skip > 1);
+        assert!(k_skip <= folding_factor);
+
+        let (weights, _sum) = statement.combine::<F>(combination_randomness);
+        // Collapse the first k variables via a univariate evaluation over a multiplicative coset.
+        let (sumcheck_poly, f_mat, w_mat) =
+            compute_skipping_sumcheck_polynomial(k_skip, evals, &weights);
+
+        prover_state.add_extension_scalars(sumcheck_poly.evaluations());
+
+        // Receive the verifier challenge for this entire collapsed round.
+        let r: EF = prover_state.sample();
+        res.push(r);
+
+        // Proof-of-work challenge to delay prover.
+        prover_state.pow_grinding(pow_bits);
+
+        // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
+        let new_p = interpolate_subgroup(&f_mat, r);
+        let new_w = interpolate_subgroup(&w_mat, r);
+
+        // Update polynomial and weights with reduced dimensionality.
+        let mut evals = EvaluationsList::new(new_p);
+        let mut weights = EvaluationsList::new(new_w);
+
+        // Compute the new target sum after folding.
+        let folded_poly_eval = interpolate_subgroup(
+            &RowMajorMatrix::new_col(sumcheck_poly.evaluations().to_vec()),
+            r,
+        );
+        let mut sum = folded_poly_eval[0];
+
+        // Apply rest of sumcheck rounds
+        res.extend(
+            (k_skip..folding_factor)
+                .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits))
+                .collect::<Vec<_>>(),
+        );
+
+        // Reverse challenges to maintain order from X₀ to Xₙ.
+        res.reverse();
+
+        let sumcheck = Self {
+            evals,
+            weights,
+            sum,
+            phantom: std::marker::PhantomData,
+        };
+
+        (sumcheck, MultilinearPoint(res))
+    }
+
     /// Returns the number of variables in the polynomial.
     pub const fn num_variables(&self) -> usize {
-        self.evaluation_of_p.num_variables()
+        self.evals.num_variables()
     }
 
     /// Adds new weighted constraints to the polynomial.
@@ -217,115 +557,6 @@ where
         }
     }
 
-    /// Computes the sumcheck polynomial `h(X)`, a quadratic polynomial resulting from the folding step.
-    ///
-    /// The sumcheck polynomial is computed as:
-    ///
-    /// \[
-    /// h(X) = \sum_b p(b, X) \cdot w(b, X)
-    /// \]
-    ///
-    /// where:
-    /// - `b` ranges over evaluation points in `{0,1,2}^1` (i.e., two points per fold).
-    /// - `p(b, X)` is the polynomial evaluation at `b` as a function of `X`.
-    /// - `w(b, X)` is the associated weight applied at `b` as a function of `X`.
-    ///
-    /// **Mathematical model:**
-    /// - Each chunk of two evaluations encodes a linear polynomial in `X`.
-    /// - The product `p(X) * w(X)` is a quadratic polynomial.
-    /// - We compute the constant and quadratic coefficients first, then infer the linear coefficient using:
-    ///
-    /// \[
-    /// \text{sum} = 2 \cdot c_0 + c_1 + c_2
-    /// \]
-    ///
-    /// where `sum` is the accumulated constraint sum.
-    ///
-    /// Returns a `SumcheckPolynomial` with evaluations at `X = 0, 1, 2`.
-    #[instrument(skip_all, level = "debug")]
-    pub fn compute_sumcheck_polynomial(&self) -> SumcheckPolynomial<EF> {
-        assert!(self.num_variables() >= 1);
-
-        #[cfg(feature = "parallel")]
-        let (c0, c2) = match &self.evaluation_of_p {
-            EvaluationStorage::Base(evals_f) => evals_f
-                .evals()
-                .par_chunks_exact(2)
-                .zip(self.weights.evals().par_chunks_exact(2))
-                .map(sumcheck_quadratic::<F, EF>)
-                .reduce(
-                    || (EF::ZERO, EF::ZERO),
-                    |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-                ),
-            EvaluationStorage::Extension(evals_ef) => evals_ef
-                .evals()
-                .par_chunks_exact(2)
-                .zip(self.weights.evals().par_chunks_exact(2))
-                .map(sumcheck_quadratic::<EF, EF>)
-                .reduce(
-                    || (EF::ZERO, EF::ZERO),
-                    |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-                ),
-        };
-
-        #[cfg(not(feature = "parallel"))]
-        let (c0, c2) = match &self.evaluation_of_p {
-            EvaluationStorage::Base(evals_f) => evals_f
-                .evals()
-                .chunks_exact(2)
-                .zip(self.weights.evals().chunks_exact(2))
-                .map(sumcheck_quadratic::<F, EF>)
-                .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
-                    (a0 + b0, a2 + b2)
-                }),
-
-            EvaluationStorage::Extension(evals_ef) => evals_ef
-                .evals()
-                .chunks_exact(2)
-                .zip(self.weights.evals().chunks_exact(2))
-                .map(sumcheck_quadratic::<EF, EF>)
-                .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
-                    (a0 + b0, a2 + b2)
-                }),
-        };
-
-        // Compute the middle (linear) coefficient
-        //
-        // The quadratic polynomial h(X) has the form:
-        //     h(X) = c0 + c1 * X + c2 * X^2
-        //
-        // We already computed:
-        // - c0: the constant coefficient (contribution at X=0)
-        // - c2: the quadratic coefficient (contribution at X^2)
-        //
-        // To recover c1 (linear term), we use the known sum rule:
-        //     sum = h(0) + h(1)
-        // Expand h(0) and h(1):
-        //     h(0) = c0
-        //     h(1) = c0 + c1 + c2
-        // Therefore:
-        //     sum = c0 + (c0 + c1 + c2) = 2*c0 + c1 + c2
-        //
-        // Rearranging for c1 gives:
-        //     c1 = sum - 2*c0 - c2
-        let c1 = self.sum - c0.double() - c2;
-
-        // Evaluate the quadratic polynomial at points 0, 1, 2
-        //
-        // Evaluate:
-        //     h(0) = c0
-        //     h(1) = c0 + c1 + c2
-        //     h(2) = c0 + 2*c1 + 4*c2
-        //
-        // To compute h(2) efficiently, observe:
-        //     h(2) = h(1) + (c1 + 2*c2)
-        let eval_0 = c0;
-        let eval_1 = c0 + c1 + c2;
-        let eval_2 = eval_1 + c1 + c2 + c2.double();
-
-        SumcheckPolynomial::new(vec![eval_0, eval_1, eval_2], 1)
-    }
-
     /// Executes the sumcheck protocol for a multilinear polynomial with optional **univariate skip**.
     ///
     /// This function performs `folding_factor` rounds of the sumcheck protocol:
@@ -357,2289 +588,412 @@ where
         prover_state: &mut ProverState<F, EF, Challenger>,
         folding_factor: usize,
         pow_bits: usize,
-        k_skip: Option<usize>,
-    ) -> ProofResult<MultilinearPoint<EF>>
+    ) -> MultilinearPoint<EF>
     where
         F: TwoAdicField,
         EF: TwoAdicField,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        // Will store the verifier's folding challenges for each round.
-        let mut res = Vec::with_capacity(folding_factor);
-
-        // Track number of rounds already skipped.
-        let mut skip = 0;
-
-        // Optional univariate skip
-        if let Some(k) = k_skip {
-            if k >= 2 && k <= folding_factor {
-                // Collapse the first k variables via a univariate evaluation over a multiplicative coset.
-                let (sumcheck_poly, f_mat, w_mat) = self.compute_skipping_sumcheck_polynomial(k);
-
-                prover_state.add_extension_scalars(sumcheck_poly.evaluations());
-
-                // Receive the verifier challenge for this entire collapsed round.
-                let folding_randomness: EF = prover_state.sample();
-                res.push(folding_randomness);
-
-                // Proof-of-work challenge to delay prover.
-                prover_state.pow_grinding(pow_bits);
-
-                // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
-                let new_p = interpolate_subgroup(&f_mat, folding_randomness);
-                let new_w = interpolate_subgroup(&w_mat, folding_randomness);
-
-                // Update polynomial and weights with reduced dimensionality.
-                self.evaluation_of_p = EvaluationStorage::Extension(EvaluationsList::new(new_p));
-                self.weights = EvaluationsList::new(new_w);
-
-                // Compute the new target sum after folding.
-                let folded_poly_eval = interpolate_subgroup(
-                    &RowMajorMatrix::new_col(sumcheck_poly.evaluations().to_vec()),
-                    folding_randomness,
-                );
-                self.sum = folded_poly_eval[0];
-
-                // We've skipped `k` variables with one univariate round.
-                skip = k;
-            }
-        }
-
         // Standard round-by-round folding
         // Proceed with one-variable-per-round folding for remaining variables.
-        for _ in skip..folding_factor {
-            // Compute the quadratic sumcheck polynomial for the current variable.
-            let sumcheck_poly = self.compute_sumcheck_polynomial();
-
-            prover_state.add_extension_scalars(sumcheck_poly.evaluations());
-
-            // Sample verifier challenge.
-            let folding_randomness: EF = prover_state.sample();
-            res.push(folding_randomness);
-
-            prover_state.pow_grinding(pow_bits);
-
-            // Fold the polynomial and weight evaluations over the new challenge.
-            self.compress(EF::ONE, &folding_randomness.into(), &sumcheck_poly);
-        }
+        let mut res = (0..folding_factor)
+            .map(|_| {
+                round(
+                    prover_state,
+                    &mut self.evals,
+                    &mut self.weights,
+                    &mut self.sum,
+                    pow_bits,
+                )
+            })
+            .collect::<Vec<_>>();
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
         res.reverse();
 
         // Return the full vector of verifier challenges as a multilinear point.
-        Ok(MultilinearPoint(res))
-    }
-
-    /// Compresses the polynomial and weight evaluations by reducing the number of variables.
-    ///
-    /// Given a multilinear polynomial `p(X1, ..., Xn)`, this function eliminates `X1` using the
-    /// folding randomness `r`:
-    /// \begin{equation}
-    ///     p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r
-    ///     + p(0, X_2, ...,X_n)
-    /// \end{equation}
-    ///
-    /// The same transformation applies to the weights `w(X)`, and the sum is updated as:
-    ///
-    /// \begin{equation}
-    ///     S' = \rho \cdot h(r)
-    /// \end{equation}
-    ///
-    /// where `h(r)` is the sumcheck polynomial evaluated at `r`, and `\rho` is
-    /// `combination_randomness`.
-    ///
-    /// # Effects
-    /// - Shrinks `p(X)` and `w(X)` by half.
-    /// - Updates `sum` using `sumcheck_poly`.
-    #[instrument(skip_all, fields(size = self.evaluation_of_p.num_variables()))]
-    pub fn compress(
-        &mut self,
-        combination_randomness: EF, // Scale the initial point
-        folding_randomness: &MultilinearPoint<EF>,
-        sumcheck_poly: &SumcheckPolynomial<EF>,
-    ) {
-        assert_eq!(folding_randomness.num_variables(), 1);
-        assert!(self.num_variables() >= 1);
-
-        let randomness = folding_randomness.0[0];
-
-        // Fold between extension field elements
-        let fold_extension = |slice: &[EF]| -> EF { randomness * (slice[1] - slice[0]) + slice[0] };
-        // Fold between base and extension field elements
-        let fold_base = |slice: &[F]| -> EF { randomness * (slice[1] - slice[0]) + slice[0] };
-
-        #[cfg(feature = "parallel")]
-        let (evaluations_of_p, evaluations_of_eq) = {
-            // Threshold below which sequential computation is faster
-            //
-            // This was chosen based on experiments with the `compress` function.
-            // It is possible that the threshold can be tuned further.
-            const PARALLEL_THRESHOLD: usize = 4096;
-
-            match &self.evaluation_of_p {
-                EvaluationStorage::Base(evals_f) => {
-                    if evals_f.evals().len() >= PARALLEL_THRESHOLD
-                        && self.weights.evals().len() >= PARALLEL_THRESHOLD
-                    {
-                        rayon::join(
-                            || evals_f.evals().par_chunks_exact(2).map(fold_base).collect(),
-                            || {
-                                self.weights
-                                    .evals()
-                                    .par_chunks_exact(2)
-                                    .map(fold_extension)
-                                    .collect()
-                            },
-                        )
-                    } else {
-                        (
-                            evals_f.evals().chunks_exact(2).map(fold_base).collect(),
-                            self.weights
-                                .evals()
-                                .chunks_exact(2)
-                                .map(fold_extension)
-                                .collect(),
-                        )
-                    }
-                }
-                EvaluationStorage::Extension(evals_ef) => {
-                    if evals_ef.evals().len() >= PARALLEL_THRESHOLD
-                        && self.weights.evals().len() >= PARALLEL_THRESHOLD
-                    {
-                        rayon::join(
-                            || {
-                                evals_ef
-                                    .evals()
-                                    .par_chunks_exact(2)
-                                    .map(fold_extension)
-                                    .collect()
-                            },
-                            || {
-                                self.weights
-                                    .evals()
-                                    .par_chunks_exact(2)
-                                    .map(fold_extension)
-                                    .collect()
-                            },
-                        )
-                    } else {
-                        (
-                            evals_ef
-                                .evals()
-                                .chunks_exact(2)
-                                .map(fold_extension)
-                                .collect(),
-                            self.weights
-                                .evals()
-                                .chunks_exact(2)
-                                .map(fold_extension)
-                                .collect(),
-                        )
-                    }
-                }
-            }
-        };
-
-        #[cfg(not(feature = "parallel"))]
-        let (evaluations_of_p, evaluations_of_eq) = match &self.evaluation_of_p {
-            EvaluationStorage::Base(evals_f) => (
-                evals_f.evals().chunks_exact(2).map(fold_base).collect(),
-                self.weights
-                    .evals()
-                    .chunks_exact(2)
-                    .map(fold_extension)
-                    .collect(),
-            ),
-            EvaluationStorage::Extension(evals_ef) => (
-                evals_ef
-                    .evals()
-                    .chunks_exact(2)
-                    .map(fold_extension)
-                    .collect(),
-                self.weights
-                    .evals()
-                    .chunks_exact(2)
-                    .map(fold_extension)
-                    .collect(),
-            ),
-        };
-
-        // Update internal state
-        self.evaluation_of_p = EvaluationStorage::Extension(EvaluationsList::new(evaluations_of_p));
-        self.weights = EvaluationsList::new(evaluations_of_eq);
-        self.sum = combination_randomness * sumcheck_poly.evaluate_at_point(folding_randomness);
+        MultilinearPoint(res)
     }
 }
 
 #[cfg(test)]
 mod tests {
+
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
-    use p3_field::{
-        BasedVectorSpace, PrimeCharacteristicRing, PrimeField64, extension::BinomialExtensionField,
-    };
-    use p3_interpolation::interpolate_subgroup;
-    use p3_matrix::dense::RowMajorMatrix;
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
-    use proptest::prelude::*;
-    use rand::{SeedableRng, rngs::SmallRng};
+    use rand::{Rng, SeedableRng, distr::StandardUniform, rngs::SmallRng};
 
     use super::*;
     use crate::{
-        fiat_shamir::domain_separator::{DomainSeparator, SumcheckParams},
-        poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
-        utils::eval_eq,
-        whir::statement::weights::Weights,
+        fiat_shamir::{domain_separator::DomainSeparator, verifier::VerifierState},
+        poly::multilinear::MultilinearPoint,
+        sumcheck::K_SKIP_SUMCHECK,
+        whir::{
+            statement::{constraint::Constraint, weights::Weights},
+            verifier::sumcheck::verify_sumcheck_rounds,
+        },
     };
 
     type F = BabyBear;
-    type EF4 = BinomialExtensionField<BabyBear, 4>;
+    type EF = BinomialExtensionField<BabyBear, 4>;
     type Perm = Poseidon2BabyBear<16>;
 
     type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
-    #[test]
-    fn test_sumcheck_single_initialization() {
-        // Define a multilinear polynomial with 2 variables:
-        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
-        let statement = Statement::new(2);
-
-        let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Expected evaluation table after wavelet transform
-        let expected_evaluation_of_p = vec![c1, c1 + c2, c1 + c3, c1 + c2 + c3 + c4];
-
-        assert_eq!(
-            match prover.evaluation_of_p {
-                EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-                EvaluationStorage::Extension(ref evals_ef) => evals_ef.evals(),
-            },
-            &expected_evaluation_of_p
-        );
-        assert_eq!(prover.weights.evals(), &vec![F::ZERO; 4]);
-        assert_eq!(prover.sum, F::ZERO);
-        assert_eq!(prover.num_variables(), 2);
-    }
-
-    #[test]
-    fn test_sumcheck_single_one_variable() {
-        // Polynomial with 1 variable: f(X1) = 1 + 3*X1
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(3);
-
-        // Convert the polynomial into coefficient form
-        let coeffs = CoefficientList::new(vec![c1, c2]);
-
-        // Create an empty statement (no equality constraints)
-        let statement = Statement::new(1);
-
-        // Instantiate the Sumcheck prover
-        let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Expected evaluations of the polynomial in evaluation form
-        let expected_evaluation_of_p = vec![c1, c1 + c2];
-
-        assert_eq!(
-            match prover.evaluation_of_p {
-                EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-                EvaluationStorage::Extension(ref evals_ef) => evals_ef.evals(),
-            },
-            &expected_evaluation_of_p
-        );
-        assert_eq!(prover.weights.evals(), &vec![F::ZERO; 2]);
-        assert_eq!(prover.sum, F::ZERO);
-        assert_eq!(prover.num_variables(), 1);
-    }
-
-    #[test]
-    fn test_sumcheck_single_three_variables() {
-        // Define a multilinear polynomial in 3 variables:
-        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
-        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let c5 = F::from_u64(5);
-        let c6 = F::from_u64(6);
-        let c7 = F::from_u64(7);
-        let c8 = F::from_u64(8);
-
-        // Convert the polynomial into coefficient form
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
-
-        // Create an empty statement (no equality constraints)
-        let statement = Statement::new(3);
-
-        // Instantiate the Sumcheck prover
-        let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Expected evaluations of the polynomial in evaluation form
-        let expected_evaluation_of_p = vec![
-            c1,
-            c1 + c2,
-            c1 + c3,
-            c1 + c2 + c3 + c4,
-            c1 + c5,
-            c1 + c2 + c5 + c6,
-            c1 + c3 + c5 + c7,
-            c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8,
-        ];
-
-        assert_eq!(
-            match prover.evaluation_of_p {
-                EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-                EvaluationStorage::Extension(ref evals_ef) => evals_ef.evals(),
-            },
-            &expected_evaluation_of_p
-        );
-        assert_eq!(prover.weights.evals(), &vec![F::ZERO; 8]);
-        assert_eq!(prover.sum, F::ZERO);
-        assert_eq!(prover.num_variables(), 3);
-    }
-
-    #[test]
-    fn test_sumcheck_single_with_equality_constraints() {
-        // Define a multilinear polynomial with 2 variables:
-        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-
-        let f = |x0: F, x1: F| c1 + c2 * x1 + c3 * x0 + c4 * x0 * x1;
-
-        // Convert the polynomial into coefficient form
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
-
-        // Create a statement and introduce an equality constraint at (X1, X2) = (1,0)
-        let mut statement = Statement::new(2);
-        statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![F::ONE, F::ZERO])),
-            f(F::ONE, F::ZERO),
-        );
-
-        // Instantiate the Sumcheck prover
-        let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Compute the expected sum manually
-        let dot_product = prover.weights.evals()[0] * f(F::ZERO, F::ZERO)
-            + prover.weights.evals()[1] * f(F::ZERO, F::ONE)
-            + prover.weights.evals()[2] * f(F::ONE, F::ZERO)
-            + prover.weights.evals()[3] * f(F::ONE, F::ONE);
-
-        // Expected sum update
-        assert_eq!(prover.sum, dot_product);
-
-        // Expected evaluation table after wavelet transform
-        let expected_evaluation_of_p = vec![c1, c1 + c2, c1 + c3, c1 + c2 + c3 + c4];
-        assert_eq!(
-            match prover.evaluation_of_p {
-                EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-                EvaluationStorage::Extension(ref evals_ef) => evals_ef.evals(),
-            },
-            &expected_evaluation_of_p
-        );
-        assert_eq!(prover.num_variables(), 2);
-    }
-
-    #[test]
-    fn test_sumcheck_single_multiple_constraints() {
-        // Define a multilinear polynomial in 3 variables:
-        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
-        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let c5 = F::from_u64(5);
-        let c6 = F::from_u64(6);
-        let c7 = F::from_u64(7);
-        let c8 = F::from_u64(8);
-
-        // Convert the polynomial into coefficient form
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
-
-        let f = |x0: F, x1: F, x2: F| {
-            c1 + c2 * x2
-                + c3 * x1
-                + c4 * x1 * x2
-                + c5 * x0
-                + c6 * x0 * x2
-                + c7 * x0 * x1
-                + c8 * x0 * x1 * x2
-        };
-
-        // Create a statement and introduce multiple equality constraints
-        let mut statement = Statement::new(3);
-
-        // Constraints: (X1, X2, X3) = (1,0,1) with weight 2, (0,1,0) with weight 3
-        let point1 = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE]);
-        let point2 = MultilinearPoint(vec![F::ZERO, F::ONE, F::ZERO]);
-
-        let weights1 = Weights::evaluation(point1);
-        let weights2 = Weights::evaluation(point2);
-
-        let eval1 = f(F::ONE, F::ZERO, F::ONE);
-        let eval2 = f(F::ZERO, F::ONE, F::ZERO);
-
-        statement.add_constraint(weights1, eval1);
-        statement.add_constraint(weights2, eval2);
-
-        // Instantiate the Sumcheck prover
-        let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Get the f evaluations
-        let eval_f = match prover.evaluation_of_p {
-            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
-        };
-
-        // Get the w evaluations
-        let eval_w = prover.weights.evals();
-
-        // Expected sum update = dot product of weights and evaluations
-        let expected_sum = eval_f[0] * eval_w[0]
-            + eval_f[1] * eval_w[1]
-            + eval_f[2] * eval_w[2]
-            + eval_f[3] * eval_w[3]
-            + eval_f[4] * eval_w[4]
-            + eval_f[5] * eval_w[5]
-            + eval_f[6] * eval_w[6]
-            + eval_f[7] * eval_w[7];
-        assert_eq!(prover.sum, expected_sum);
-    }
-
-    #[test]
-    fn test_compute_sumcheck_polynomial_basic() {
-        // Define a multilinear polynomial with 2 variables:
-        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-
-        // Convert the polynomial into coefficient form
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
-
-        // Create an empty statement (no constraints)
-        let statement = Statement::new(2);
-
-        // Instantiate the Sumcheck prover
-        let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-        let sumcheck_poly = prover.compute_sumcheck_polynomial();
-
-        // Since no equality constraints, sumcheck_poly should be **zero**
-        let expected_evaluations = vec![F::ZERO; 3];
-        assert_eq!(sumcheck_poly.evaluations(), &expected_evaluations);
-    }
-
-    #[test]
-    fn test_compute_sumcheck_polynomial_with_equality_constraints() {
-        // Define a multilinear polynomial with 2 variables:
-        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
-
-        let f = |x0: F, x1: F| c1 + c2 * x1 + c3 * x0 + c4 * x0 * x1;
-
-        // ----------------------------------------------------------------
-        // Step 1: Define an equality constraint
-        //
-        // Constraint: f(1,0) = 5
-        // Using a Weights::evaluation at the point (X₀, X₁) = (1,0).
-        // ----------------------------------------------------------------
-        let mut statement = Statement::new(2);
-        let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
-        let weights = Weights::evaluation(point);
-        let eval = f(F::ONE, F::ZERO);
-        statement.add_constraint(weights, eval);
-
-        // Instantiate prover
-        let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Compute the sumcheck polynomial h(X)
-        let sumcheck_poly = prover.compute_sumcheck_polynomial();
-
-        // Compute the expected sum manually
-        let dot_product = prover.weights.evals()[0] * f(F::ZERO, F::ZERO)
-            + prover.weights.evals()[1] * f(F::ZERO, F::ONE)
-            + prover.weights.evals()[2] * f(F::ONE, F::ZERO)
-            + prover.weights.evals()[3] * f(F::ONE, F::ONE);
-
-        // Check sum consistency
-        assert_eq!(prover.sum, dot_product);
-
-        // ----------------------------------------------------------------
-        // Step 2: Define the polynomials f and w manually
-        //
-        // - f(x₀,x₁) = c₁ + c₂·x₁ + c₃·x₀ + c₄·x₀·x₁
-        //
-        // - w(x₀,x₁) is the Lagrange interpolation enforcing (x₀,x₁) = (1,0):
-        //   w(x₀,x₁) = x₀ · (1 - x₁)
-        //
-        // This satisfies:
-        //  - w(1,0) = 1
-        //  - w(x) = 0 elsewhere
-        // ----------------------------------------------------------------
-        let f = |x0: F, x1: F| c1 + c2 * x1 + c3 * x0 + c4 * x0 * x1;
-        let w = |x0: F, x1: F| x0 * (F::ONE - x1);
-
-        // ----------------------------------------------------------------
-        // Step 3: Evaluate f and w at all binary points (0/1 for x₀, x₁)
-        // ----------------------------------------------------------------
-        let f_00 = f(F::ZERO, F::ZERO);
-        let f_01 = f(F::ZERO, F::ONE);
-        let f_10 = f(F::ONE, F::ZERO);
-        let f_11 = f(F::ONE, F::ONE);
-
-        let w_00 = w(F::ZERO, F::ZERO);
-        let w_01 = w(F::ZERO, F::ONE);
-        let w_10 = w(F::ONE, F::ZERO);
-        let w_11 = w(F::ONE, F::ONE);
-
-        // ----------------------------------------------------------------
-        // Step 4: Manually reconstruct the quadratic sumcheck polynomial
-        //
-        // We want h(X) = quadratic polynomial satisfying:
-        //
-        //      h(X₀) = ∑_{X₁ ∈ {0,1}} f(X₀,X₁) · w(X₀,X₁)
-        //
-        // which can be interpolated from:
-        //
-        // - c₀ = constant coefficient
-        // - c₂ = quadratic coefficient
-        // - c₁ = determined from sum rule: prover.sum = 2·c₀ + c₁ + c₂
-        //
-        // More precisely:
-        //
-        // \[
-        // c₀ = (f₀₀ × w₀₀) + (f₁₀ × w₁₀)
-        // \]
-        //
-        // \[
-        // c₂ = (f₀₁ - f₀₀) × (w₀₁ - w₀₀) + (f₁₁ - f₁₀) × (w₁₁ - w₁₀)
-        // \]
-        //
-        // \[
-        // c₁ = sum - 2·c₀ - c₂
-        // \]
-        // ----------------------------------------------------------------
-
-        let e0 = f_00 * w_00 + f_10 * w_10; // Constant term
-        let e2 = (f_01 - f_00) * (w_01 - w_00) + (f_11 - f_10) * (w_11 - w_10); // Quadratic term
-        let e1 = prover.sum - e0.double() - e2; // Middle coefficient using sum rule
-
-        // ----------------------------------------------------------------
-        // Step 5: Evaluate the quadratic polynomial at {0,1,2}
-        //
-        // - h(0) = c₀
-        // - h(1) = c₀ + c₁ + c₂
-        // - h(2) = h(1) + c₁ + c₂ + 2c₂
-        // ----------------------------------------------------------------
-
-        let eval_0 = e0;
-        let eval_1 = e0 + e1 + e2;
-        let eval_2 = eval_1 + e1 + e2 + e2.double();
-
-        let expected_evaluations = vec![eval_0, eval_1, eval_2];
-
-        // ----------------------------------------------------------------
-        // Step 6: Assert final match
-        // ----------------------------------------------------------------
-        assert_eq!(sumcheck_poly.evaluations(), &expected_evaluations);
-    }
-
-    #[test]
-    fn test_compute_sumcheck_polynomial_with_equality_constraints_3vars() {
-        // Define a multilinear polynomial with three variables:
-        //
-        //   f(X₀, X₁, X₂) = c₀
-        //                 + c₁·X₂
-        //                 + c₂·X₁
-        //                 + c₃·X₁·X₂
-        //                 + c₄·X₀
-        //                 + c₅·X₀·X₂
-        //                 + c₆·X₀·X₁
-        //                 + c₇·X₀·X₁·X₂
-        //
-        // Coefficients:
-        //   - c₀ = 1
-        //   - c₁ = 2
-        //   - c₂ = 3
-        //   - c₃ = 4
-        //   - c₄ = 5
-        //   - c₅ = 6
-        //   - c₆ = 7
-        //   - c₇ = 8
-        let c0 = F::from_u64(1);
-        let c1 = F::from_u64(2);
-        let c2 = F::from_u64(3);
-        let c3 = F::from_u64(4);
-        let c4 = F::from_u64(5);
-        let c5 = F::from_u64(6);
-        let c6 = F::from_u64(7);
-        let c7 = F::from_u64(8);
-
-        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
-
-        // Define f(x₀,x₁,x₂) explicitly as a function
-        let f = |x0: F, x1: F, x2: F| {
-            c0 + c1 * x2
-                + c2 * x1
-                + c3 * x1 * x2
-                + c4 * x0
-                + c5 * x0 * x2
-                + c6 * x0 * x1
-                + c7 * x0 * x1 * x2
-        };
-
-        // Set up a sumcheck statement with a **single equality constraint**.
-        //
-        // The constraint is at the point (X₀,X₁,X₂) = (1,0,1),
-        // with expected evaluation value = 5.
-        let mut statement = Statement::new(3);
-        let point = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE]);
-        let weights = Weights::evaluation(point);
-
-        let expected_sum = f(F::ONE, F::ZERO, F::ONE);
-        statement.add_constraint(weights, expected_sum);
-
-        // Build prover and compute sumcheck polynomial.
-        let prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-        let sumcheck_poly = prover.compute_sumcheck_polynomial();
-
-        // Get the f evaluations
-        let evals_f = match prover.evaluation_of_p {
-            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
-        };
-        // Get the w evaluations
-        let evals_w = prover.weights.evals();
-
-        // Compute the dot product of the evaluations
-        let dot_product = evals_w[0] * evals_f[0]
-            + evals_w[1] * evals_f[1]
-            + evals_w[2] * evals_f[2]
-            + evals_w[3] * evals_f[3]
-            + evals_w[4] * evals_f[4]
-            + evals_w[5] * evals_f[5]
-            + evals_w[6] * evals_f[6]
-            + evals_w[7] * evals_f[7];
-
-        // Sanity check: sum must match the constraint
-        assert_eq!(prover.sum, dot_product);
-
-        // Manually compute f at all 8 binary points (0,1)^3
-        let ep_000 = f(F::ZERO, F::ZERO, F::ZERO);
-        let ep_001 = f(F::ZERO, F::ZERO, F::ONE);
-        let ep_010 = f(F::ZERO, F::ONE, F::ZERO);
-        let ep_011 = f(F::ZERO, F::ONE, F::ONE);
-        let ep_100 = f(F::ONE, F::ZERO, F::ZERO);
-        let ep_101 = f(F::ONE, F::ZERO, F::ONE);
-        let ep_110 = f(F::ONE, F::ONE, F::ZERO);
-        let ep_111 = f(F::ONE, F::ONE, F::ONE);
-
-        // Compute the evaluations of the **equality constraint polynomial**.
-        //
-        // The equality constraint enforces X = (1,0,1).
-        // The equality polynomial eq_{(1,0,1)}(X₀,X₁,X₂) evaluates to:
-        //   - 1 when (X₀,X₁,X₂) == (1,0,1)
-        //   - 0 elsewhere
-        //
-        // Thus:
-        //   - Only point (1,0,1) gets a 1
-        //   - All other 7 points are 0
-        let w_000 = F::ZERO; // eq(0,0,0) = 0
-        let w_001 = F::ZERO; // eq(0,0,1) = 0
-        let w_010 = F::ZERO; // eq(0,1,0) = 0
-        let w_011 = F::ZERO; // eq(0,1,1) = 0
-        let w_100 = F::ZERO; // eq(1,0,0) = 0
-        let w_101 = F::ONE; // eq(1,0,1) = 1 (this is the constraint point)
-        let w_110 = F::ZERO; // eq(1,1,0) = 0
-        let w_111 = F::ZERO; // eq(1,1,1) = 0
-
-        // ----------------------------------------------------------------
-        // Manually compute the coefficients (e₀, e₁, e₂) of the sumcheck polynomial
-        //
-        // Recall:
-        // - e₀ = sum of f(x)·w(x) where x₀ = 0
-        // - e₁ and e₂ derived from interpolation using prover.sum
-        //
-        // Detailed formulas:
-        //   e₀ = (ep_000 * w_000) + (ep_010 * w_010) + (ep_100 * w_100) + (ep_110 * w_110)
-        //       = 0
-        //
-        //   e₂ = (ep_001 - ep_000) * (w_001 - w_000)
-        //       + (ep_011 - ep_010) * (w_011 - w_010)
-        //       + (ep_101 - ep_100) * (w_101 - w_100)
-        //       + (ep_111 - ep_110) * (w_111 - w_110)
-        //
-        //   e₁ = sum - 2*e₀ - e₂
-        // ----------------------------------------------------------------
-        let e0 = ep_000 * w_000 + ep_010 * w_010 + ep_100 * w_100 + ep_110 * w_110; // = 0
-        let e2 = (ep_001 - ep_000) * (w_001 - w_000)
-            + (ep_011 - ep_010) * (w_011 - w_010)
-            + (ep_101 - ep_100) * (w_101 - w_100)
-            + (ep_111 - ep_110) * (w_111 - w_110);
-        let e1 = prover.sum - e0.double() - e2;
-
-        // ----------------------------------------------------------------
-        // Manually compute evaluations of sumcheck polynomial at {0,1,2}
-        //
-        // Recall:
-        //   h(0) = e₀
-        //   h(1) = e₀ + e₁ + e₂
-        //   h(2) = h(1) + e₁ + e₂ + 2e₂
-        // ----------------------------------------------------------------
-        let eval_0 = e0;
-        let eval_1 = e0 + e1 + e2;
-        let eval_2 = eval_1 + e1 + e2 + e2.double();
-
-        let expected_evaluations = vec![eval_0, eval_1, eval_2];
-
-        // Final assertion: check that the computed polynomial matches manual expansion
-        assert_eq!(sumcheck_poly.evaluations(), &expected_evaluations);
-    }
-
-    #[test]
-    fn test_add_new_equality_single_constraint() {
-        // Define a multilinear polynomial with 2 variables:
-        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
-
-        let f = |x0: F, x1: F| c1 + c2 * x1 + c3 * x0 + c4 * x0 * x1;
-
-        // Create an empty statement (no constraints initially)
-        let statement = Statement::new(2);
-
-        // Instantiate the Sumcheck prover
-        let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Add a single constraint at (X1, X2) = (1,0) with weight 2
-        let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
-        let weight = F::from_u64(2);
-
-        // Compute f(1,0)
-        let eval = f(F::ONE, F::ZERO);
-
-        prover.add_new_equality(std::slice::from_ref(&point), &[eval], &[weight]);
-
-        // Compute expected sum explicitly via dot product
-        let expected_sum = prover.weights.evals()[0] * f(F::ZERO, F::ZERO)
-            + prover.weights.evals()[1] * f(F::ZERO, F::ONE)
-            + prover.weights.evals()[2] * f(F::ONE, F::ZERO)
-            + prover.weights.evals()[3] * f(F::ONE, F::ONE);
-        assert_eq!(prover.sum, expected_sum);
-
-        // Compute the expected weight updates:
-        // The equality function at point (X1, X2) = (1,0) updates the weights.
-        let mut expected_weights = vec![F::ZERO; 4];
-        eval_eq::<_, _, true>(&point.0, &mut expected_weights, weight);
-
-        assert_eq!(prover.weights.evals(), &expected_weights);
-    }
-
-    #[test]
-    fn test_add_new_equality_multiple_constraints() {
-        // Define a multilinear polynomial in 3 variables:
-        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
-        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let c5 = F::from_u64(5);
-        let c6 = F::from_u64(6);
-        let c7 = F::from_u64(7);
-        let c8 = F::from_u64(8);
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
-
-        let f = |x0: F, x1: F, x2: F| {
-            c1 + c2 * x2
-                + c3 * x1
-                + c4 * x1 * x2
-                + c5 * x0
-                + c6 * x0 * x2
-                + c7 * x0 * x1
-                + c8 * x0 * x1 * x2
-        };
-
-        // Create an empty statement (no constraints initially)
-        let statement = Statement::new(3);
-
-        // Instantiate the Sumcheck prover
-        let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Add constraints at (X1, X2, X3) = (1,0,1) with weight 2 and (0,1,0) with weight 3
-        let point1 = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE]);
-        let point2 = MultilinearPoint(vec![F::ZERO, F::ONE, F::ZERO]);
-
-        let weight1 = F::from_u64(2);
-        let weight2 = F::from_u64(3);
-
-        let f_101 = f(F::ONE, F::ZERO, F::ONE);
-        let f_010 = f(F::ZERO, F::ONE, F::ZERO);
-
-        prover.add_new_equality(
-            &[point1.clone(), point2.clone()],
-            &[f_101, f_010],
-            &[weight1, weight2],
-        );
-
-        // Get the f evaluations
-        let evals_f = match prover.evaluation_of_p {
-            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
-        };
-        // Get the w evaluations
-        let evals_w = prover.weights.evals();
-
-        // Compute the expected sum manually via dot product
-        let expected_sum = evals_w[0] * evals_f[0]
-            + evals_w[1] * evals_f[1]
-            + evals_w[2] * evals_f[2]
-            + evals_w[3] * evals_f[3]
-            + evals_w[4] * evals_f[4]
-            + evals_w[5] * evals_f[5]
-            + evals_w[6] * evals_f[6]
-            + evals_w[7] * evals_f[7];
-        assert_eq!(prover.sum, expected_sum);
-
-        // Expected weight updates
-        let mut expected_weights = vec![F::ZERO; 8];
-        eval_eq::<_, _, true>(&point1.0, &mut expected_weights, weight1);
-        eval_eq::<_, _, true>(&point2.0, &mut expected_weights, weight2);
-
-        assert_eq!(prover.weights.evals(), &expected_weights);
-    }
-
-    #[test]
-    fn test_add_new_equality_with_zero_weight() {
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let coeffs = CoefficientList::new(vec![c1, c2]);
-
-        let f = |x0: F| c1 + c2 * x0;
-
-        let statement = Statement::new(1);
-        let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        let point = MultilinearPoint(vec![F::ONE]);
-        let weight = F::ZERO;
-        let eval = f(F::ONE);
-
-        prover.add_new_equality(&[point], &[eval], &[weight]);
-
-        // The sum should remain unchanged since the weight is zero
-        assert_eq!(prover.sum, F::ZERO);
-
-        // The weights should remain unchanged
-        let expected_weights = vec![F::ZERO; 2];
-        assert_eq!(prover.weights.evals(), &expected_weights);
-    }
-
-    #[test]
-    fn test_compress_basic() {
-        // Define a multilinear polynomial with 2 variables:
-        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
-
-        // Create an empty statement (no constraints initially)
-        let statement = Statement::new(2);
-
-        // Instantiate the Sumcheck prover
-        let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Define random values for compression
-        let combination_randomness = F::from_u64(3);
-        let folding_randomness = MultilinearPoint(vec![F::from_u64(2)]);
-
-        // Compute sumcheck polynomial manually:
-        let sumcheck_poly = prover.compute_sumcheck_polynomial();
-
-        // Apply compression
-        prover.compress(combination_randomness, &folding_randomness, &sumcheck_poly);
-
-        // Compute expected evaluations after compression
-        //
-        // Compression follows the formula:
-        //
-        // p'(X2) = (p(X1=1, X2) - p(X1=0, X2)) * r + p(X1=0, X2)
-        //
-        // where r = folding_randomness
-        let r = folding_randomness.0[0];
-
-        let eval_00 = c1; // f(0,0) = c1
-        let eval_01 = c1 + c3; // f(0,1) = c1 + c3
-        let eval_10 = c1 + c2; // f(1,0) = c1 + c2
-        let eval_11 = c1 + c2 + c3 + c4; // f(1,1) = c1 + c2 + c3 + c4
-
-        // Compute new evaluations after compression:
-        let compressed_eval_0 = (eval_10 - eval_00) * r + eval_00;
-        let compressed_eval_1 = (eval_11 - eval_01) * r + eval_01;
-
-        let expected_compressed_evaluations = vec![compressed_eval_0, compressed_eval_1];
-
-        assert_eq!(
-            match prover.evaluation_of_p {
-                EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-                EvaluationStorage::Extension(ref evals_ef) => evals_ef.evals(),
-            },
-            &expected_compressed_evaluations
-        );
-
-        // Compute the expected sum update:
-        //
-        // sum' = combination_randomness * sumcheck_poly.evaluate_at_point(folding_randomness)
-        let expected_sum =
-            combination_randomness * sumcheck_poly.evaluate_at_point(&folding_randomness);
-        assert_eq!(prover.sum, expected_sum);
-
-        // Check weights after compression
-        let weight_0 = prover.weights.evals()[0]; // w(X1=0, X2=0)
-        let weight_1 = prover.weights.evals()[1]; // w(X1=0, X2=1)
-
-        // Compute compressed weights
-        let compressed_weight_0 = weight_0; // No change as X1=0 remains
-        let compressed_weight_1 = weight_1; // No change as X1=0 remains
-
-        // The expected compressed weights after applying the transformation
-        let expected_compressed_weights = vec![compressed_weight_0, compressed_weight_1];
-
-        assert_eq!(prover.weights.evals(), &expected_compressed_weights);
-    }
-
-    #[test]
-    fn test_compress_three_variables() {
-        // Define a multilinear polynomial in 3 variables:
-        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
-        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let c5 = F::from_u64(5);
-        let c6 = F::from_u64(6);
-        let c7 = F::from_u64(7);
-        let c8 = F::from_u64(8);
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
-
-        // Create an empty statement (no constraints initially)
-        let statement = Statement::new(3);
-
-        // Instantiate the Sumcheck prover
-        let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Define random values for compression
-        let combination_randomness = F::from_u64(2);
-        let folding_randomness = MultilinearPoint(vec![F::from_u64(3)]);
-
-        // Compute sumcheck polynomial manually:
-        let sumcheck_poly = prover.compute_sumcheck_polynomial();
-
-        // Apply compression
-        prover.compress(combination_randomness, &folding_randomness, &sumcheck_poly);
-
-        // Compute expected evaluations after compression
-        //
-        // Compression formula:
-        //
-        // p'(X2, X3) = (p(X1=1, X2, X3) - p(X1=0, X2, X3)) * r + p(X1=0, X2, X3)
-        //
-        // where r = folding_randomness
-        let r = folding_randomness.0[0];
-
-        let eval_000 = c1;
-        let eval_001 = c1 + c5;
-        let eval_010 = c1 + c3;
-        let eval_011 = c1 + c3 + c5 + c7;
-        let eval_100 = c1 + c2;
-        let eval_101 = c1 + c2 + c5 + c6;
-        let eval_110 = c1 + c2 + c3 + c4;
-        let eval_111 = c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8;
-
-        // Compute compressed evaluations
-        let compressed_eval_00 = (eval_100 - eval_000) * r + eval_000;
-        let compressed_eval_01 = (eval_101 - eval_001) * r + eval_001;
-        let compressed_eval_10 = (eval_110 - eval_010) * r + eval_010;
-        let compressed_eval_11 = (eval_111 - eval_011) * r + eval_011;
-
-        let expected_compressed_evaluations = vec![
-            compressed_eval_00,
-            compressed_eval_10,
-            compressed_eval_01,
-            compressed_eval_11,
-        ];
-
-        assert_eq!(
-            match prover.evaluation_of_p {
-                EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-                EvaluationStorage::Extension(ref evals_ef) => evals_ef.evals(),
-            },
-            &expected_compressed_evaluations
-        );
-
-        // Compute the expected sum update:
-        let expected_sum =
-            combination_randomness * sumcheck_poly.evaluate_at_point(&folding_randomness);
-        assert_eq!(prover.sum, expected_sum);
-
-        // Check weights after compression
-        //
-        // Compression formula:
-        //
-        // w'(X2, X3) = (w(X1=1, X2, X3) - w(X1=0, X2, X3)) * r + w(X1=0, X2, X3)
-        //
-        let r = folding_randomness.0[0];
-
-        let weight_00 = prover.weights.evals()[0];
-        let weight_01 = prover.weights.evals()[1];
-        let weight_10 = prover.weights.evals()[2];
-        let weight_11 = prover.weights.evals()[3];
-
-        // Apply the same compression rule
-        let compressed_weight_00 = (weight_10 - weight_00) * r + weight_00;
-        let compressed_weight_01 = (weight_11 - weight_01) * r + weight_01;
-
-        // The compressed weights should match expected values
-        let expected_compressed_weights = vec![
-            compressed_weight_00,
-            compressed_weight_01,
-            compressed_weight_00,
-            compressed_weight_01,
-        ];
-
-        assert_eq!(prover.weights.evals(), &expected_compressed_weights);
-    }
-
-    #[test]
-    fn test_compress_with_zero_randomness() {
-        // Define a multilinear polynomial with 2 variables:
-        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
-
-        // Create an empty statement (no constraints initially)
-        let statement = Statement::new(2);
-
-        // Instantiate the Sumcheck prover
-        let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Define zero folding randomness
-        let combination_randomness = F::from_u64(2);
-        let folding_randomness = MultilinearPoint(vec![F::ZERO]);
-
-        // Compute sumcheck polynomial manually:
-        let sumcheck_poly = prover.compute_sumcheck_polynomial();
-
-        // Apply compression
-        prover.compress(combination_randomness, &folding_randomness, &sumcheck_poly);
-
-        // Since folding randomness is zero, the compressed evaluations should be:
-        //
-        // p'(X2) = (p(X1=1, X2) - p(X1=0, X2)) * 0 + p(X1=0, X2)
-        //        = p(X1=0, X2)
-        let expected_compressed_evaluations = vec![c1, c1 + c3];
-
-        assert_eq!(
-            match prover.evaluation_of_p {
-                EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-                EvaluationStorage::Extension(ref evals_ef) => evals_ef.evals(),
-            },
-            &expected_compressed_evaluations
-        );
-
-        // Compute the expected sum update:
-        let expected_sum =
-            combination_randomness * sumcheck_poly.evaluate_at_point(&folding_randomness);
-        assert_eq!(prover.sum, expected_sum);
-
-        // Check weights after compression
-        //
-        // Compression formula:
-        //
-        // w'(X2) = (w(X1=1, X2) - w(X1=0, X2)) * 0 + w(X1=0, X2)
-        //        = w(X1=0, X2)
-        //
-        // Since `r = 0`, this means the weights remain the same as `X1=0` slice.
-
-        let weight_0 = prover.weights.evals()[0]; // w(X1=0, X2=0)
-        let weight_1 = prover.weights.evals()[1]; // w(X1=0, X2=1)
-
-        let expected_compressed_weights = vec![weight_0, weight_1];
-
-        assert_eq!(prover.weights.evals(), &expected_compressed_weights);
-    }
-
-    #[test]
-    fn test_compute_sumcheck_polynomials_basic_case() {
-        // Polynomial with 1 variable: f(X1) = 1 + 2*X1
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let coeffs = CoefficientList::new(vec![c1, c2]);
-
-        let f = |x0: F| c1 + c2 * x0;
-
-        // Create a statement with a single equality constraint: f(1) = 5
-        let mut statement = Statement::new(1);
-        let point = MultilinearPoint(vec![F::ONE]);
-        let weights = Weights::evaluation(point);
-        let eval = f(F::ONE);
-        statement.add_constraint(weights, eval);
-
-        // Instantiate the Sumcheck prover
-        let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        let folding_factor = 1; // Minimum folding factor
-        let pow_bits = 0; // No grinding
-
-        // Domain separator setup
-        // - Initialize domain separator with a context label
-        // - Add sumcheck
-        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
-        domsep.add_sumcheck(&SumcheckParams {
-            rounds: folding_factor,
-            pow_bits,
-            univariate_skip: None,
-        });
-
-        // Convert the domain separator to a prover state
+    /// Creates a fresh domain separator and challenger with fixed RNG seed.
+    fn domainsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
         let challenger = MyChallenger::new(perm);
-
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
-
-        // Check sum BEFORE running protocol via dot product
-        let expected_sum =
-            prover.weights.evals()[0] * f(F::ZERO) + prover.weights.evals()[1] * f(F::ONE);
-        assert_eq!(prover.sum, expected_sum);
-
-        // Compute sumcheck polynomials
-        let result = prover
-            .compute_sumcheck_polynomials(&mut prover_state, folding_factor, pow_bits, None)
-            .unwrap();
-
-        // The result should contain `folding_factor` elements
-        assert_eq!(result.0.len(), folding_factor);
-
-        // Reconstruct verifier state to manually validate the sumcheck round
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
-
-        // Read the sumcheck polynomial evaluations: h(0), h(1), h(2)
-        let sumcheck_poly_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
-
-        let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec(), 1);
-
-        // Read the folding randomness challenge
-        let folding_randomness: F = verifier_state.sample();
-
-        // Check that sumcheck polynomial satisfies the sum rule:
-        //  h(0) + h(1) = claimed initial sum = eval
-        let sum = sumcheck_poly_evals[0] + sumcheck_poly_evals[1];
-        assert_eq!(sum, eval);
-
-        // Check that the folded sum stored in prover matches h(r)
-        let expected_folded_sum = sumcheck_poly.evaluate_at_point(&folding_randomness.into());
-        assert_eq!(prover.sum, expected_folded_sum);
+        (DomainSeparator::new(vec![]), challenger)
     }
 
-    #[test]
-    fn test_compute_sumcheck_polynomials_with_multiple_folding_factors() {
-        // Polynomial with 2 variables: f(X1, X2) = 1 + 2*X1 + 3*X2 + 4*X1*X2
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(3);
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
-
-        // Add two equality constraints:
-        //  - f(0, 1) = 4
-        //  - f(1, 0) = 5
-        let mut statement = Statement::new(2);
-        let point1 = MultilinearPoint(vec![F::ZERO, F::ONE]); // (X1=0, X2=1)
-        let point2 = MultilinearPoint(vec![F::ONE, F::ZERO]); // (X1=1, X2=0)
-        let eval1 = F::from_u64(4);
-        let eval2 = F::from_u64(5);
-        statement.add_constraint(Weights::evaluation(point1), eval1);
-        statement.add_constraint(Weights::evaluation(point2), eval2);
-
-        // Instantiate prover
-        let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Record the initial sum = expected combination of constraints
-        let expected_initial_sum = eval1 + eval2;
-        assert_eq!(prover.sum, expected_initial_sum);
-
-        let folding_factor = 2; // Increase folding factor
-        let pow_bits = 0; // Minimal grinding
-
-        // Setup the domain separator
-        // - Add sumcheck
-        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
-        domsep.add_sumcheck(&SumcheckParams {
-            rounds: folding_factor,
-            pow_bits,
-            univariate_skip: None,
-        });
-
-        // Convert the domain separator to a prover state
-        let mut rng = SmallRng::seed_from_u64(1);
-        let perm = Perm::new_from_rng_128(&mut rng);
-        let challenger = MyChallenger::new(perm);
-
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
-
-        let result = prover
-            .compute_sumcheck_polynomials(&mut prover_state, folding_factor, pow_bits, None)
-            .unwrap();
-
-        // Ensure we get `folding_factor` sampled randomness values
-        assert_eq!(result.0.len(), folding_factor);
-
-        // Reconstruct verifier state for round-by-round checks
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
-
-        // Initialize claimed sum with the expected initial value from constraints (before any folding)
-        let mut current_sum = expected_initial_sum;
-
-        for i in 0..folding_factor {
-            // Step 1: Read the polynomial sent in this round
-
-            // The prover sends 3 evaluations of a degree-1 polynomial h_i over {0,1,2}
-            // These are evaluations at points 0, 1, 2, stored in lexicographic ternary order
-            let sumcheck_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
-
-            // Create a SumcheckPolynomial over 1 variable with those 3 values
-            let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
-
-            // Step 2: Verifier checks sum over Boolean hypercube {0,1}^1
-            // This ensures that:
-            //     h_i(0) + h_i(1) == current_sum
-            // where h_i is evaluated at x = 0 and x = 1 (not 2!)
-            let sum = poly.evaluations()[0] + poly.evaluations()[1];
-            assert_eq!(
-                sum, current_sum,
-                "Sumcheck round {i}: sum rule failed (h(0) + h(1) != current_sum)"
-            );
-
-            // Step 3: Verifier samples next challenge r_i ∈ F to fold
-            let r: F = verifier_state.sample();
-
-            // Step 4: Evaluate the sumcheck polynomial at r_i to compute new folded sum
-            // The polynomial h_i is evaluated at x = r_i ∈ F (can be non-{0,1,2})
-            current_sum = poly.evaluate_at_point(&r.into());
-
-            // Step 5: Optional proof-of-work grinding
-            // If `pow_bits > 0`, we enforce entropy in Fiat-Shamir via grinding
-            // For now, we don't enforce grinding in the sumcheck protocol for tests
-            // let _ = verifier_state.challenger.grind(pow_bits);
-
-            // End of round i
-        }
-
-        // Final check: the sum stored by the prover must match the last folded sum value
-        assert_eq!(
-            prover.sum, current_sum,
-            "Final folded sum does not match prover's claimed value"
-        );
+    fn prover() -> ProverState<F, EF, MyChallenger> {
+        let (domsep, challenger) = domainsep_and_challenger();
+        domsep.to_prover_state(challenger)
     }
 
-    #[test]
-    fn test_compute_sumcheck_polynomials_with_three_variables() {
-        // Define a multilinear polynomial in 3 variables:
-        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
-        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let c5 = F::from_u64(5);
-        let c6 = F::from_u64(6);
-        let c7 = F::from_u64(7);
-        let c8 = F::from_u64(8);
-
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
-
-        let f = |x0: F, x1: F, x2: F| {
-            c1 + c2 * x2
-                + c3 * x1
-                + c4 * x1 * x2
-                + c5 * x0
-                + c6 * x0 * x2
-                + c7 * x0 * x1
-                + c8 * x0 * x1 * x2
-        };
-
-        // Add two equality constraints:
-        // - f(0, 0, 1) = 4
-        // - f(1, 1, 0) = 25
-        let mut statement = Statement::new(3);
-        let point1 = MultilinearPoint(vec![F::ZERO, F::ZERO, F::ONE]); // (0,0,1)
-        let point2 = MultilinearPoint(vec![F::ONE, F::ONE, F::ZERO]); // (1,1,0)
-        let eval1 = f(F::ZERO, F::ZERO, F::ONE);
-        let eval2 = f(F::ONE, F::ONE, F::ZERO);
-        statement.add_constraint(Weights::evaluation(point1), eval1);
-        statement.add_constraint(Weights::evaluation(point2), eval2);
-
-        // Instantiate prover
-        let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // Get the f evaluations
-        let evals_f = match prover.evaluation_of_p {
-            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
-        };
-        // Get the w evaluations
-        let evals_w = prover.weights.evals();
-
-        // Compute the expected sum manually via dot product
-        let expected_initial_sum = evals_w[0] * evals_f[0]
-            + evals_w[1] * evals_f[1]
-            + evals_w[2] * evals_f[2]
-            + evals_w[3] * evals_f[3]
-            + evals_w[4] * evals_f[4]
-            + evals_w[5] * evals_f[5]
-            + evals_w[6] * evals_f[6]
-            + evals_w[7] * evals_f[7];
-        assert_eq!(prover.sum, expected_initial_sum);
-
-        let folding_factor = 3;
-        let pow_bits = 0;
-
-        // Setup the domain separator
-        // - Add sumcheck (register interactions with the transcript for each round)
-        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
-        domsep.add_sumcheck(&SumcheckParams {
-            rounds: folding_factor,
-            pow_bits,
-            univariate_skip: None,
-        });
-
-        // Convert the domain separator to a prover state
-        let mut rng = SmallRng::seed_from_u64(1);
-        let perm = Perm::new_from_rng_128(&mut rng);
-        let challenger = MyChallenger::new(perm);
-
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
-
-        let result = prover
-            .compute_sumcheck_polynomials(&mut prover_state, folding_factor, pow_bits, None)
-            .unwrap();
-
-        // There should be exactly `folding_factor` sumcheck polynomials
-        assert_eq!(result.0.len(), folding_factor);
-
-        // Initialize the verifier state for checking round-by-round
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
-
-        // Initialize the sum to be verified round-by-round
-        let mut current_sum = expected_initial_sum;
-
-        for i in 0..folding_factor {
-            // Read the 3 evaluations of the sumcheck polynomial for this round
-            let sumcheck_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
-
-            // Construct the polynomial h_i(X) over 1 variable with those evaluations
-            let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
-
-            // Check that h_i(0) + h_i(1) equals the claimed current sum
-            let sum = poly.evaluations()[0] + poly.evaluations()[1];
-            assert_eq!(
-                sum, current_sum,
-                "Sumcheck round {i}: sum rule failed (h(0) + h(1) != current_sum)"
-            );
-
-            // Sample the next folding challenge r_i ∈ F
-            let r: F = verifier_state.sample();
-
-            // Fold the polynomial at r_i to get new claimed sum
-            current_sum = poly.evaluate_at_point(&r.into());
-
-            // Perform proof-of-work grinding check
-            // For now, we don't enforce grinding in the sumcheck protocol for tests
-            // let _ = verifier_state.challenger.grind(pow_bits);
-        }
-
-        // After all rounds, the prover’s stored folded sum must match what verifier has
-        assert_eq!(
-            prover.sum, current_sum,
-            "Final folded sum does not match prover's claimed value"
-        );
+    fn verifier(proof: Vec<F>) -> VerifierState<F, EF, MyChallenger> {
+        let (domsep, challenger) = domainsep_and_challenger();
+        domsep.to_verifier_state(proof, challenger)
     }
 
-    #[test]
-    fn test_compute_sumcheck_polynomials_edge_case_zero_folding() {
-        // Define a multilinear polynomial with 2 variables:
-        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
-
-        let f = |x0: F, x1: F| c1 + c2 * x1 + c3 * x0 + c4 * x0 * x1;
-
-        // Construct a statement with two equality constraints:
-        // f(0, 1) = 1 + 0 + 3*1 + 0 = 4
-        // f(1, 1) = 1 + 2*1 + 3*1 + 4*1 = 10
-        let mut statement = Statement::new(2);
-        let point1 = MultilinearPoint(vec![F::ZERO, F::ONE]);
-        let point2 = MultilinearPoint(vec![F::ONE, F::ONE]);
-        let eval1 = f(F::ZERO, F::ONE);
-        let eval2 = f(F::ONE, F::ONE);
-        statement.add_constraint(Weights::evaluation(point1), eval1);
-        statement.add_constraint(Weights::evaluation(point2), eval2);
-
-        // Instantiate the prover with the polynomial and constraint statement
-        let mut prover = SumcheckSingle::from_base_coeffs(coeffs, &statement, F::ONE);
-
-        // With 0 folding rounds, this is an edge case: no polynomial rounds will be generated
-        let folding_factor = 0;
-        let pow_bits = 1;
-
-        let mut rng = SmallRng::seed_from_u64(1);
-        let perm = Perm::new_from_rng_128(&mut rng);
-        let challenger = MyChallenger::new(perm);
-
-        // No domain separator logic needed since we don't fold
-        // - Add sumcheck (register interactions with the transcript for each round)
-        let mut domsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
-        domsep.add_sumcheck(&SumcheckParams {
-            rounds: folding_factor,
-            pow_bits,
-            univariate_skip: None,
-        });
-
-        let mut prover_state = domsep.to_prover_state(challenger);
-
-        let result = prover
-            .compute_sumcheck_polynomials(&mut prover_state, folding_factor, pow_bits, None)
-            .unwrap();
-
-        assert_eq!(result.0.len(), 0);
-
-        // Verify that the prover's initial sum equals the expected constraint sum:
-        // Since the two constraints are independent, the expected sum is:
-        let expected_sum = prover.weights.evals()[0] * f(F::ZERO, F::ZERO)
-            + prover.weights.evals()[1] * f(F::ZERO, F::ONE)
-            + prover.weights.evals()[2] * f(F::ONE, F::ZERO)
-            + prover.weights.evals()[3] * f(F::ONE, F::ONE);
-        assert_eq!(
-            prover.sum, expected_sum,
-            "Prover's initial sum does not match expected constraint sum"
-        );
+    fn rand_vec<F>(mut rng: impl Rng, n: usize) -> Vec<F>
+    where
+        StandardUniform: rand::distr::Distribution<F>,
+    {
+        (0..n).map(|_| rng.random()).collect()
     }
 
-    #[test]
-    fn test_sumcheck_single_extension_coeffs_basic() {
-        // Define a polynomial f(X1) = 1 + 2·X1 in EF4
-        let c1 = EF4::from(F::from_u64(1)); // Constant term
-        let c2 = EF4::from(F::from_u64(2)); // Coefficient of X1
-
-        // Coefficients in multilinear form: [c1, c2]
-        let coeffs = CoefficientList::new(vec![c1, c2]);
-
-        // Empty statement with no constraints
-        let statement = Statement::new(1);
-
-        // Initialize the sumcheck prover with extension field coefficients
-        let prover = SumcheckSingle::<F, EF4>::from_extension_coeffs(coeffs, &statement, EF4::ONE);
-
-        // The polynomial has 1 variable
-        assert_eq!(prover.num_variables(), 1);
-
-        // No constraints means the initial sum should be 0
-        assert_eq!(prover.sum, EF4::ZERO);
-
-        // The wavelet transform of [c1, c2] gives [c1, c1 + c2]
-        match &prover.evaluation_of_p {
-            EvaluationStorage::Extension(evals) => {
-                assert_eq!(evals.evals(), &vec![c1, c1 + c2]);
-            }
-            EvaluationStorage::Base(_) => panic!("Expected extension evaluations"),
-        }
+    fn rand_point<F>(rng: impl Rng, k: usize) -> MultilinearPoint<F>
+    where
+        StandardUniform: rand::distr::Distribution<F>,
+    {
+        MultilinearPoint(rand_vec(rng, k))
     }
 
-    #[test]
-    fn test_add_new_equality_mixed_inputs() {
-        // Define a base field polynomial f(X1) = 1 + 2·X1
-        let c1 = F::from_u64(1); // Constant term
-        let c2 = F::from_u64(2); // Coefficient of X1
-
-        let f = |x0: EF4| x0 * c2 + c1;
-
-        // Coefficients in base field
-        let coeffs = CoefficientList::new(vec![c1, c2]);
-
-        // No equality constraints at the start
-        let statement = Statement::new(1);
-
-        // Initialize the sumcheck prover with base field coefficients
-        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
-
-        // Add an equality constraint at point X1 = 1 with weight 2 and expected value 5
-        let point = MultilinearPoint(vec![EF4::from(F::ONE)]); // (X1 = 1)
-        let eval = f(EF4::from(F::ONE)); // f(1)
-        let weight = EF4::from(F::from_u64(2)); // Constraint applied with weight 2
-
-        // Apply the equality constraint
-        prover.add_new_equality(std::slice::from_ref(&point), &[eval], &[weight]);
-
-        // Check the expected sum via dot product
-        let expected_sum = prover.weights.evals()[0] * f(EF4::from(F::ZERO))
-            + prover.weights.evals()[1] * f(EF4::from(F::ONE));
-        assert_eq!(prover.sum, expected_sum);
-
-        // Expected weight table updated using eq(X) = weight × eq_at_point(point)
-        let mut expected_weights = vec![EF4::ZERO; 2];
-        eval_eq::<F, EF4, true>(&point.0, &mut expected_weights, weight);
-        assert_eq!(prover.weights.evals(), &expected_weights);
-    }
-
-    #[test]
-    fn test_compress_mixed_fields() {
-        // Define a multilinear polynomial with 2 variables:
-        // f(X0, X1) = 1 + 2*X1 + 3*X0 + 4*X0*X1
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4]);
-
-        // Create a statement with no equality constraints
-        let statement = Statement::new(2);
-
-        // Create a Sumcheck prover using base field coefficients and EF4 as extension
-        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
-
-        // Define combination randomness for compress (scaling the new sum)
-        let combination_randomness = EF4::from(F::from_u64(5));
-
-        // Define folding randomness used to eliminate the first variable X1
-        let folding_randomness = MultilinearPoint(vec![EF4::from(F::from_u64(2))]);
-
-        // Compute the sumcheck polynomial h(X) = a + b*X + c*X^2
-        let sumcheck_poly = prover.compute_sumcheck_polynomial();
-
-        // Apply the compress function which reduces number of variables by 1
-        prover.compress(combination_randomness, &folding_randomness, &sumcheck_poly);
-
-        // Evaluate the original polynomial at all binary points to get expected evaluations
-        // Wavelet transform yields: [f(0,0), f(1,0), f(0,1), f(1,1)]
-        let eval_00 = EF4::from(c1); // f(0,0)
-        let eval_10 = EF4::from(c1 + c2); // f(1,0)
-        let eval_01 = EF4::from(c1 + c3); // f(0,1)
-        let eval_11 = EF4::from(c1 + c2 + c3 + c4); // f(1,1)
-
-        // Folding randomness r
-        let r = folding_randomness.0[0];
-
-        // Compute expected compressed evaluations using:
-        // f'(X2) = (f(1, X2) - f(0, X2)) * r + f(0, X2)
-        let compressed_0 = (eval_10 - eval_00) * r + eval_00;
-        let compressed_1 = (eval_11 - eval_01) * r + eval_01;
-        let expected_compressed_evals = vec![compressed_0, compressed_1];
-
-        // Check that the evaluations after compression are correct
-        assert_eq!(
-            match prover.evaluation_of_p {
-                EvaluationStorage::Base(_) => panic!("Should be extension after compression"),
-                EvaluationStorage::Extension(ref evals) => evals.evals(),
-            },
-            &expected_compressed_evals
-        );
-
-        // The new sum should be combination_randomness * h(r)
-        let expected_sum =
-            combination_randomness * sumcheck_poly.evaluate_at_point(&folding_randomness);
-        assert_eq!(prover.sum, expected_sum);
-
-        // Initial weights were all zero, so folded weights should remain zero
-        let expected_weights = vec![EF4::ZERO, EF4::ZERO];
-        assert_eq!(prover.weights.evals(), &expected_weights);
-    }
-
-    #[test]
-    fn test_compute_sumcheck_polynomials_mixed_fields_three_vars() {
-        // Define a multilinear polynomial in 3 variables:
-        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
-        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let c5 = F::from_u64(5);
-        let c6 = F::from_u64(6);
-        let c7 = F::from_u64(7);
-        let c8 = F::from_u64(8);
-
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
-
-        let f = |x0: EF4, x1: EF4, x2: EF4| {
-            x2 * c2
-                + x1 * c3
-                + x1 * x2 * c4
-                + x0 * c5
-                + x0 * x2 * c6
-                + x0 * x1 * c7
-                + x0 * x1 * x2 * c8
-                + c1
-        };
-
-        // Create a statement with 5 equality constraints
-        let mut statement = Statement::new(3);
-
-        let x_000 = MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]);
-        let x_100 = MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ZERO]);
-        let x_110 = MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ZERO]);
-        let x_111 = MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ONE]);
-        let x_011 = MultilinearPoint(vec![EF4::ZERO, EF4::ONE, EF4::ONE]);
-
-        let f_000 = f(EF4::ZERO, EF4::ZERO, EF4::ZERO);
-        let f_100 = f(EF4::ONE, EF4::ZERO, EF4::ZERO);
-        let f_110 = f(EF4::ONE, EF4::ONE, EF4::ZERO);
-        let f_111 = f(EF4::ONE, EF4::ONE, EF4::ONE);
-        let f_011 = f(EF4::ZERO, EF4::ONE, EF4::ONE);
-
-        statement.add_constraint(Weights::evaluation(x_000), f_000);
-        statement.add_constraint(Weights::evaluation(x_100), f_100);
-        statement.add_constraint(Weights::evaluation(x_110), f_110);
-        statement.add_constraint(Weights::evaluation(x_111), f_111);
-        statement.add_constraint(Weights::evaluation(x_011), f_011);
-
-        // Instantiate the Sumcheck prover using base field coefficients and extension field EF4
-        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
-
-        // Get the f evaluations
-        let evals_f = match prover.evaluation_of_p {
-            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
-        };
-        // Get the w evaluations
-        let evals_w = prover.weights.evals();
-
-        // Compute expected sum of evaluations via dot product
-        let expected_initial_sum = evals_w[0] * evals_f[0]
-            + evals_w[1] * evals_f[1]
-            + evals_w[2] * evals_f[2]
-            + evals_w[3] * evals_f[3]
-            + evals_w[4] * evals_f[4]
-            + evals_w[5] * evals_f[5]
-            + evals_w[6] * evals_f[6]
-            + evals_w[7] * evals_f[7];
-        assert_eq!(prover.sum, expected_initial_sum);
-
-        // Number of folding rounds (equal to number of variables)
-        let folding_factor = 3;
-
-        // PoW challenge difficulty (controls grinding)
-        let pow_bits = 0;
-
-        // Create domain separator for Fiat-Shamir transcript simulation
-        // - Add sumcheck (register expected Fiat-Shamir interactions for each round)
-        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
-        domsep.add_sumcheck(&SumcheckParams {
-            rounds: folding_factor,
-            pow_bits,
-            univariate_skip: None,
-        });
-
-        let mut rng = SmallRng::seed_from_u64(1);
-        let perm = Perm::new_from_rng_128(&mut rng);
-        let challenger = MyChallenger::new(perm);
-
-        // Convert domain separator into prover state object
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
-
-        // Perform sumcheck folding using Fiat-Shamir-derived randomness and PoW
-        let result = prover
-            .compute_sumcheck_polynomials(&mut prover_state, folding_factor, pow_bits, None)
-            .unwrap();
-
-        // Ensure we received the expected number of folding randomness values
-        assert_eq!(result.0.len(), folding_factor);
-
-        // Reconstruct verifier state to simulate the rounds
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
-
-        // Start with the claimed sum before folding
-        let mut current_sum = expected_initial_sum;
-
-        for i in 0..folding_factor {
-            // Get the 3 evaluations of sumcheck polynomial h_i(X) at X = 0, 1, 2
-            let sumcheck_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
-            let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
-
-            // Verify sum over Boolean points {0,1} matches current sum
-            let sum = poly.evaluations()[0] + poly.evaluations()[1];
-            assert_eq!(
-                sum, current_sum,
-                "Sumcheck round {i}: sum rule failed (h(0) + h(1) != current_sum)"
-            );
-
-            // Sample random challenge r_i ∈ F and evaluate h_i(r_i)
-            let r: EF4 = verifier_state.sample();
-            current_sum = poly.evaluate_at_point(&r.into());
-
-            // Apply grinding check if required
-            // For now, we don't enforce grinding in the sumcheck protocol for tests
-            // let _ = verifier_state.challenger.grind(pow_bits);
-        }
-
-        // Final consistency check: last folded sum must match prover's final claimed sum
-        assert_eq!(
-            prover.sum, current_sum,
-            "Final folded sum does not match prover's claimed value"
-        );
-    }
-
-    proptest! {
-        #[test]
-        fn prop_compute_sumcheck_polynomial_consistency(
-            // Ensure at least 8 base coefficients (2 EF4 elements)
-            raw_coeffs in prop::collection::vec(0u64..F::ORDER_U64, 8..=64)
-                .prop_filter("len must be power of two and at least 8", |v| v.len().is_power_of_two()),
-
-            // Random coefficients to form a true EF4 combination randomness
-            rand_scalars in prop::array::uniform4(0u64..F::ORDER_U64),
-        ) {
-            // Convert u64s into base field elements
-            let coeffs: Vec<F> = raw_coeffs.iter().map(|&x| F::from_u64(x)).collect();
-
-            // Convert base field coeffs into true EF4 elements (4 base elems → 1 EF4)
-            let coeffs_ext: Vec<EF4> = coeffs
-                .chunks_exact(4)
-                .map(|chunk| {
-                    let basis = [chunk[0], chunk[1], chunk[2], chunk[3]];
-                    EF4::from_basis_coefficients_iter(basis.into_iter()).unwrap()
-                })
-                .collect();
-
-            // Build coefficient lists
-            let base_cl = CoefficientList::new(coeffs);
-            let ext_cl = CoefficientList::new(coeffs_ext);
-
-            // Determine number of variables (log₂(length))
-            let n_vars = base_cl.num_variables();
-            prop_assume!(n_vars >= 1); // Safeguard for edge cases
-
-            // Build empty constraint system
-            let statement = Statement::new(n_vars);
-
-            // Construct random combination EF4 element from 4 base values
-            let combination_randomness = EF4::from_basis_coefficients_iter(
-                rand_scalars.map(F::from_u64).into_iter()
-            ).unwrap();
-
-            // Initialize sumcheck provers for both base and extension representations
-            let base_prover = SumcheckSingle::<F, EF4>::from_base_coeffs(base_cl, &statement, combination_randomness);
-            let ext_prover = SumcheckSingle::<F, EF4>::from_extension_coeffs(ext_cl, &statement, combination_randomness);
-
-            // Compute the sumcheck polynomial in both cases
-            let poly_base = base_prover.compute_sumcheck_polynomial();
-            let poly_ext = ext_prover.compute_sumcheck_polynomial();
-
-            // Assert consistency between both representations
-            prop_assert_eq!(poly_base.evaluations(), poly_ext.evaluations());
-        }
-
-        #[test]
-        fn prop_compress_consistency(
-            // Generate a longer list (at least 4, and power of two) for testing compression
-            raw_coeffs in prop::collection::vec(0u64..F::ORDER_U64, 4_usize..=64)
-                .prop_filter("len must be power of two and >= 4", |v| v.len().is_power_of_two() && v.len() >= 4),
-            // Random folding randomness value
-            fold_scalar in 0u64..F::ORDER_U64,
-            // Random scalar for compression scaling
-            rand_scalar in 0u64..F::ORDER_U64,
-            // Random scalar for combination randomness
-            combo_scalar in 0u64..F::ORDER_U64,
-        ) {
-            // Convert to base and extension field representations
-            let coeffs: Vec<F> = raw_coeffs.iter().map(|&x| F::from_u64(x)).collect();
-            let coeffs_ext: Vec<EF4> = coeffs.iter().copied().map(EF4::from).collect();
-
-            // Wrap as coefficient lists
-            let base_cl = CoefficientList::new(coeffs);
-            let ext_cl = CoefficientList::new(coeffs_ext);
-
-            // Determine number of variables
-            let n_vars = base_cl.num_variables();
-
-            // Create a dummy statement (no constraints)
-            let statement = Statement::new(n_vars);
-
-            // Use a random combination randomness for initializing the provers
-            let init_randomness = EF4::from(F::from_u64(combo_scalar));
-            let mut base_prover = SumcheckSingle::<F, EF4>::from_base_coeffs(base_cl, &statement, init_randomness);
-            let mut ext_prover = SumcheckSingle::<F, EF4>::from_extension_coeffs(ext_cl, &statement, init_randomness);
-
-            // Construct folding point and compression randomness
-            let fold_point = MultilinearPoint(vec![EF4::from(F::from_u64(fold_scalar))]);
-            let combination_randomness = EF4::from(F::from_u64(rand_scalar));
-
-            // Compute the sumcheck polynomials for both
-            let poly_base = base_prover.compute_sumcheck_polynomial();
-            let poly_ext = ext_prover.compute_sumcheck_polynomial();
-
-            // Apply compression step to both provers
-            base_prover.compress(combination_randomness, &fold_point, &poly_base);
-            ext_prover.compress(combination_randomness, &fold_point, &poly_ext);
-
-            // Assert that the sum is identical post-compression
-            prop_assert_eq!(base_prover.sum, ext_prover.sum);
-
-            // Assert that the evaluations match
-            prop_assert_eq!(
-                match base_prover.evaluation_of_p {
-                    EvaluationStorage::Extension(ref evals_b) => evals_b.evals(),
-                    EvaluationStorage::Base(_) => panic!("Expected extension evaluations"),
-                },
-                match ext_prover.evaluation_of_p {
-                    EvaluationStorage::Extension(ref evals_e) => evals_e.evals(),
-                    EvaluationStorage::Base(_) => panic!("Expected extension evaluations"),
-                }
-            );
-
-            // Assert that the weights match
-            prop_assert_eq!(base_prover.weights.evals(), ext_prover.weights.evals());
-        }
-
-        #[test]
-        fn prop_compute_sumcheck_polynomials_roundtrip(
-            raw_coeffs in prop::collection::vec(0u64..F::ORDER_U64, 8..=64)
-                .prop_filter("len must be power of two and >= 8", |v| v.len().is_power_of_two()),
-            combo_scalars in prop::array::uniform4(0u64..F::ORDER_U64),
-        ) {
-            // Convert base coefficients from u64 to BabyBear elements
-            let coeffs: Vec<F> = raw_coeffs.iter().copied().map(F::from_u64).collect();
-
-            // Convert base field coeffs into EF4 (element by element)
-            let coeffs_ext: Vec<EF4> = coeffs.clone()
-                .into_iter()
-                .map(EF4::from)
-                .collect();
-
-            //  Wrap both coefficient representations
-            let base_cl = CoefficientList::new(coeffs);
-            let ext_cl = CoefficientList::new(coeffs_ext);
-
-            // Determine how many variables exist (log₂ of length)
-            let n_vars = base_cl.num_variables();
-            prop_assume!(n_vars >= 1);
-            let folding_rounds = n_vars;
-
-            // Construct an empty constraint system
-            let statement= Statement::new(n_vars);
-
-            // Construct EF4 combination randomness from 4 base field values
-            let combination_randomness = EF4::from_basis_coefficients_iter(
-                combo_scalars.map(F::from_u64).into_iter()
-            ).unwrap();
-
-            // Create both provers
-            let mut prover_base = SumcheckSingle::<F, EF4>::from_base_coeffs(base_cl, &statement, combination_randomness);
-            let mut prover_ext = SumcheckSingle::<F, EF4>::from_extension_coeffs(ext_cl, &statement, combination_randomness);
-
-            // Use a single shared DomainSeparator and clone it (identical transcript!)
-            let mut domsep_base: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
-            domsep_base.add_sumcheck(&SumcheckParams {
-                rounds: folding_rounds,
-                pow_bits: 0,
-                univariate_skip: None,
-            });
-
-            let mut domsep_ext:DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
-            domsep_ext.add_sumcheck(&SumcheckParams {
-                rounds: folding_rounds,
-                pow_bits: 0,
-                univariate_skip: None,
-            });
-
-            // Convert into prover states
-            let mut rng = SmallRng::seed_from_u64(1);
-            let perm = Perm::new_from_rng_128(&mut rng);
-            let challenger_base = MyChallenger::new(perm);
-            let mut state_base = domsep_base.to_prover_state(challenger_base);
-
-            let mut rng = SmallRng::seed_from_u64(1);
-            let perm = Perm::new_from_rng_128(&mut rng);
-            let challenger_ext = MyChallenger::new(perm);
-            let mut state_ext = domsep_ext.to_prover_state(challenger_ext);
-
-            // Run sumcheck with zero grinding (no challenge_pow)
-            let final_point_base = prover_base
-                .compute_sumcheck_polynomials(&mut state_base, folding_rounds, 0, None)
-                .unwrap();
-
-            let final_point_ext = prover_ext
-                .compute_sumcheck_polynomials(&mut state_ext, folding_rounds, 0, None)
-                .unwrap();
-
-            // Ensure roundtrip consistency
-            prop_assert_eq!(final_point_base.0, final_point_ext.0);
-        }
-    }
-
-    #[test]
-    #[allow(clippy::too_many_lines)]
-    fn test_compute_sumcheck_polynomials_mixed_fields_three_vars_with_skip() {
-        // -------------------------------------------------------------
-        // Define a multilinear polynomial in 3 variables:
-        // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
-        //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
-        // -------------------------------------------------------------
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let c5 = F::from_u64(5);
-        let c6 = F::from_u64(6);
-        let c7 = F::from_u64(7);
-        let c8 = F::from_u64(8);
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
-
-        // A closure representing the polynomial for evaluation at points
-        let f_extension = |x0: EF4, x1: EF4, x2: EF4| {
-            x2 * c2
-                + x1 * c3
-                + x1 * x2 * c4
-                + x0 * c5
-                + x0 * x2 * c6
-                + x0 * x1 * c7
-                + x0 * x1 * x2 * c8
-                + c1
-        };
-
-        let f_base = |x0: F, x1: F, x2: F| {
-            c1 + c2 * x2
-                + c3 * x1
-                + c4 * x1 * x2
-                + c5 * x0
-                + c6 * x0 * x2
-                + c7 * x0 * x1
-                + c8 * x0 * x1 * x2
-        };
-
-        // -------------------------------------------------------------
-        // Construct an evaluation statement by specifying equality constraints
-        // Each constraint is of the form f(x) = value for x in {0,1}^3
-        // -------------------------------------------------------------
-        let mut statement = Statement::new(3);
-        statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO])),
-            f_extension(EF4::ZERO, EF4::ZERO, EF4::ZERO),
-        );
-        statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ONE])),
-            f_extension(EF4::ZERO, EF4::ZERO, EF4::ONE),
-        );
-        statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ONE, EF4::ZERO])),
-            f_extension(EF4::ZERO, EF4::ONE, EF4::ZERO),
-        );
-        statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ONE, EF4::ONE])),
-            f_extension(EF4::ZERO, EF4::ONE, EF4::ONE),
-        );
-        statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ZERO])),
-            f_extension(EF4::ONE, EF4::ZERO, EF4::ZERO),
-        );
-        statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ONE])),
-            f_extension(EF4::ONE, EF4::ZERO, EF4::ONE),
-        );
-        statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ZERO])),
-            f_extension(EF4::ONE, EF4::ONE, EF4::ZERO),
-        );
-        statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ONE])),
-            f_extension(EF4::ONE, EF4::ONE, EF4::ONE),
-        );
-
-        // -------------------------------------------------------------
-        // Create the prover instance using the coefficients and constraints
-        // The prover evaluates the polynomial at all 8 Boolean points and stores results
-        // -------------------------------------------------------------
-        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
-
-        // -------------------------------------------------------------
-        // Evaluate the polynomial manually at all 8 input points
-        // -------------------------------------------------------------
-        let f_000 = f_base(F::ZERO, F::ZERO, F::ZERO);
-        let f_001 = f_base(F::ZERO, F::ZERO, F::ONE);
-        let f_010 = f_base(F::ZERO, F::ONE, F::ZERO);
-        let f_011 = f_base(F::ZERO, F::ONE, F::ONE);
-        let f_100 = f_base(F::ONE, F::ZERO, F::ZERO);
-        let f_101 = f_base(F::ONE, F::ZERO, F::ONE);
-        let f_110 = f_base(F::ONE, F::ONE, F::ZERO);
-        let f_111 = f_base(F::ONE, F::ONE, F::ONE);
-
-        // -------------------------------------------------------------
-        // Check that prover internally stores evaluations correctly and weights are consistent
-        // Each evaluation f(b) is scaled by its weight to enforce a constraint
-        // -------------------------------------------------------------
-        match prover.evaluation_of_p {
-            EvaluationStorage::Base(ref eval_f) => {
-                let f_evals = eval_f.evals();
-                let weights_evals = prover.weights.evals();
-
-                assert_eq!(
-                    f_evals,
-                    vec![f_000, f_001, f_010, f_011, f_100, f_101, f_110, f_111]
-                );
-
-                for i in 0..8 {
-                    assert_eq!(weights_evals[i] * f_evals[i], EF4::from(f_evals[i]));
-                }
-            }
-            EvaluationStorage::Extension(_) => {
-                panic!("We should be in base field here");
-            }
-        }
-
-        // -------------------------------------------------------------
-        // Manually compute the expected weighted sum (constraint enforcement)
-        // The sumcheck protocol must maintain this sum across folds
-        // -------------------------------------------------------------
-
-        // Get the f evaluations
-        let evals_f = match prover.evaluation_of_p {
-            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
-        };
-        // Get the w evaluations
-        let evals_w = prover.weights.evals();
-
-        // Compute the expected sum manually via dot product
-        let expected_sum = evals_w[0] * evals_f[0]
-            + evals_w[1] * evals_f[1]
-            + evals_w[2] * evals_f[2]
-            + evals_w[3] * evals_f[3]
-            + evals_w[4] * evals_f[4]
-            + evals_w[5] * evals_f[5]
-            + evals_w[6] * evals_f[6]
-            + evals_w[7] * evals_f[7];
-
-        assert_eq!(prover.sum, expected_sum);
-
-        // -------------------------------------------------------------
-        // Set up sumcheck protocol with:
-        // - 3 rounds of folding (equal to 3 variables)
-        // - 2-round univariate skip enabled
-        // -------------------------------------------------------------
-        let folding_factor = 3;
-        let pow_bits = 0;
-
-        // Create domain separator for Fiat-Shamir transcript simulation
-        // - Add sumcheck
-        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
-        domsep.add_sumcheck(&SumcheckParams {
-            rounds: folding_factor,
-            pow_bits,
-            univariate_skip: Some(2),
-        });
-
-        // Convert domain separator into prover state object
-        let mut rng = SmallRng::seed_from_u64(1);
-        let perm = Perm::new_from_rng_128(&mut rng);
-        let challenger = MyChallenger::new(perm);
-
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
-
-        // Run sumcheck with k = 2 skipped rounds and 1 regular round
-        let result = prover
-            .compute_sumcheck_polynomials(
-                &mut prover_state,
-                folding_factor,
-                pow_bits,
-                Some(2), // skip 2 variables at once
-            )
-            .unwrap();
-
-        // -------------------------------------------------------------
-        // Ensure we received exactly 2 challenge points:
-        // - 1 challenge for the first two skipped rounds
-        // - 1 challenge for the final regular round
-        // -------------------------------------------------------------
-        assert_eq!(result.0.len(), 2);
-
-        // -------------------------------------------------------------
-        // Replay verifier's side using same Fiat-Shamir transcript
-        // -------------------------------------------------------------
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
-        let mut current_sum = expected_sum;
-
-        // Get the 8 evaluations of the skipping polynomial h₀(X)
-        let sumcheck_evals: [_; 8] = verifier_state.next_extension_scalars_const().unwrap();
-        let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
-
-        // Check the sum of the polynomial evaluations is correct
-        assert_eq!(
-            poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
-            current_sum
-        );
-
-        // Interpolate h₀(X) and update current sum using first challenge r₀
-        let evals_mat = RowMajorMatrix::new(poly.evaluations().to_vec(), 1);
-        let r: EF4 = verifier_state.sample();
-
-        current_sum = interpolate_subgroup(&evals_mat, r)[0];
-
-        // -------------------------------------------------------------
-        // Continue with round 2: regular quadratic sumcheck step
-        // h₁(X) must satisfy h₁(0) + h₁(1) == current_sum
-        // -------------------------------------------------------------
-        for i in 2..folding_factor {
-            let sumcheck_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
-            let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
-
-            let sum = poly.evaluations()[0] + poly.evaluations()[1];
-
-            assert_eq!(
-                sum, current_sum,
-                "Sumcheck round {i}: h(0) + h(1) != current_sum"
-            );
-
-            let r: EF4 = verifier_state.sample();
-            current_sum = poly.evaluate_at_point(&r.into());
-        }
-
-        // Final consistency check: does prover's internal `sum` match verifier’s result?
-        assert_eq!(
-            prover.sum, current_sum,
-            "Final prover sum doesn't match verifier folding result"
-        );
-    }
-
-    #[test]
-    #[allow(clippy::too_many_lines)]
-    fn test_compute_sumcheck_polynomials_mixed_fields_ten_vars_skip_7() {
-        // -------------------------------------------------------------
-        // Define a multilinear polynomial in 10 variables:
-        // f(X0..X9) = sum_{i=0..1023} c_i * monomial_i(X0..X9)
-        // -------------------------------------------------------------
-        let coeffs = CoefficientList::new((0..1024).map(|i| F::from_u64(i as u64 + 1)).collect());
-
-        // Define a closure for evaluation in EF4
-        let f_extension = |point: &[EF4]| {
-            assert_eq!(point.len(), 10);
-            let mut acc = EF4::ZERO;
-            for i in 0..1024 {
-                let mut term = EF4::ONE;
-                for (b, &p) in point.iter().enumerate().take(10) {
-                    let bit = (i >> b) & 1;
-                    term *= if bit == 1 { p } else { EF4::ONE - p };
-                }
-                acc += EF4::from(F::from_u64(i as u64 + 1)) * term;
-            }
-            acc
-        };
-
-        // Construct all 2^10 = 1024 input points in {0,1}^10 and their evaluations
-        let inputs = (0..1024)
-            .map(|i| {
-                let bits: Vec<_> = (0..10)
-                    .map(|j| {
-                        if (i >> j) & 1 == 1 {
-                            EF4::ONE
-                        } else {
-                            EF4::ZERO
-                        }
-                    })
-                    .collect();
-                (MultilinearPoint(bits.clone()), f_extension(&bits))
+    fn make_initial_statement<Challenger>(
+        prover: &mut ProverState<F, EF, Challenger>,
+        num_vars: usize,
+        num_points: usize,
+        poly: &EvaluationsList<F>,
+    ) -> Statement<EF>
+    where
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
+        let (points, evals): (Vec<_>, Vec<_>) = (0..num_points)
+            .map(|_| {
+                let point = prover.sample();
+                let point = MultilinearPoint::expand_from_univariate(point, num_vars);
+                let eval = poly.evaluate(&point);
+                prover.add_extension_scalar(eval);
+                (point, eval)
             })
-            .collect::<Vec<_>>();
+            .unzip();
 
-        // -------------------------------------------------------------
-        // Construct the evaluation statement with all equality constraints
-        // -------------------------------------------------------------
-        let mut statement = Statement::new(10);
-        for (pt, val) in &inputs {
-            statement.add_constraint(Weights::evaluation(pt.clone()), *val);
-        }
-
-        // Create prover from base coefficients and constraints
-        let mut prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
-
-        // Ensure prover has correct internal evaluations and sum
-        match prover.evaluation_of_p {
-            EvaluationStorage::Base(ref evals_f) => {
-                let f_evals = evals_f.evals();
-                let w_evals = prover.weights.evals();
-                assert_eq!(f_evals.len(), 1024);
-                assert_eq!(f_evals.len(), w_evals.len());
-
-                for i in 0..1024 {
-                    assert_eq!(
-                        EF4::from(f_evals[i]) * w_evals[i],
-                        w_evals[i] * EF4::from(f_evals[i])
-                    );
-                }
-            }
-            EvaluationStorage::Extension(_) => panic!("Expected base field evaluation"),
-        }
-
-        // -------------------------------------------------------------
-        // Run sumcheck with 7 skipped rounds (fold over 7 vars at once)
-        // -------------------------------------------------------------
-        let folding_factor = 10;
-        let pow_bits = 0;
-
-        let mut domsep = DomainSeparator::new(vec![]);
-        domsep.add_sumcheck(&SumcheckParams {
-            rounds: folding_factor,
-            pow_bits,
-            univariate_skip: Some(7),
+        let mut statement = Statement::new(num_vars);
+        points.iter().zip(evals.iter()).for_each(|(point, &eval)| {
+            statement.add_constraint(Weights::evaluation(point.clone()), eval);
         });
+        statement
+    }
 
-        let mut rng = SmallRng::seed_from_u64(1);
-        let perm = Perm::new_from_rng_128(&mut rng);
-        let challenger = MyChallenger::new(perm);
+    fn make_inter_statement<Challenger>(
+        prover: &mut ProverState<F, EF, Challenger>,
+        num_points: usize,
+        sumcheck: &mut SumcheckSingle<F, EF>,
+    ) -> (Statement<EF>, EF)
+    where
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
+        let num_vars = sumcheck.num_variables();
 
-        let mut prover_state = domsep.to_prover_state(challenger);
+        let mut statement = Statement::new(num_vars);
+        let (points, evals): (Vec<_>, Vec<_>) = (0..num_points)
+            .map(|_| {
+                let point = prover.sample();
+                let point = MultilinearPoint::expand_from_univariate(point, num_vars);
+                let eval = sumcheck.evals.evaluate(&point);
+                prover.add_extension_scalar(eval);
+                statement.add_constraint(Weights::evaluation(point.clone()), eval);
+                (point, eval)
+            })
+            .unzip();
 
-        let _ = prover
-            .compute_sumcheck_polynomials(
-                &mut prover_state,
-                folding_factor,
-                pow_bits,
-                Some(7), // Skip first 7 variables
+        // Draw combination randomness `alpha` and add new equality constraints
+        let alpha: EF = prover.sample();
+        sumcheck.add_new_equality(&points, &evals, &alpha.powers().take(num_points).collect());
+
+        (statement, alpha)
+    }
+
+    fn read_statement<Challenger>(
+        verifier: &mut VerifierState<F, EF, Challenger>,
+        num_vars: usize,
+        num_points: usize,
+    ) -> Statement<EF>
+    where
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
+        let mut statement = Statement::new(num_vars);
+        (0..num_points).for_each(|_| {
+            let point = verifier.sample();
+            let point = MultilinearPoint::expand_from_univariate(point, num_vars);
+            let eval = verifier.next_extension_scalar().unwrap();
+            statement.add_constraint(Weights::evaluation(point), eval);
+        });
+        statement
+    }
+
+    impl<F> MultilinearPoint<F>
+    where
+        F: Field,
+    {
+        fn extend(&mut self, rest: &Self) {
+            self.0 = rest
+                .0
+                .iter()
+                .chain(self.0.iter())
+                .copied()
+                .collect::<Vec<_>>();
+        }
+    }
+
+    fn combine_constraints<EF: Field>(
+        claimed_sum: &mut EF,
+        constraints: &[Constraint<EF>],
+        alpha: EF,
+    ) -> Vec<EF> {
+        let alpha: Vec<_> = alpha.powers().take(constraints.len()).collect();
+        *claimed_sum += constraints
+            .iter()
+            .zip(&alpha)
+            .map(|(c, &rand)| rand * c.sum)
+            .sum::<EF>();
+        alpha
+    }
+
+    fn eval_constraints_poly<EF: Field>(
+        mut num_variables: usize,
+        folding_factor: &[usize],
+        constraints: &[Vec<Constraint<EF>>],
+        alphas: &[EF],
+        mut point: MultilinearPoint<EF>,
+    ) -> EF {
+        let mut value = EF::ZERO;
+        assert_eq!(alphas.len(), constraints.len());
+
+        for (round, (alphas, constraints)) in alphas.iter().zip(constraints.iter()).enumerate() {
+            let alphas: Vec<_> = alphas.powers().take(constraints.len()).collect();
+            assert_eq!(alphas.len(), constraints.len());
+            if round > 0 {
+                num_variables -= folding_factor[round - 1];
+                point = MultilinearPoint(point.0[..num_variables].to_vec());
+            }
+            value += constraints
+                .iter()
+                .zip(alphas)
+                .map(|(constraint, alpha)| alpha * constraint.weights.compute(&point))
+                .sum::<EF>();
+        }
+        value
+    }
+
+    fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
+        assert_eq!(folding_factors.len(), num_points.len() + 1);
+        let num_vars = folding_factors.iter().sum::<usize>();
+
+        let poly = {
+            let mut rng = SmallRng::seed_from_u64(1);
+            EvaluationsList::new(
+                (0..1 << num_vars)
+                    .map(|_| rng.random::<F>())
+                    .collect::<Vec<_>>(),
             )
-            .unwrap();
+        };
+
+        let proof = {
+            let prover = &mut prover();
+            let statement = make_initial_statement(prover, num_vars, num_points[0], &poly);
+            let alpha: EF = prover.sample();
+
+            let folding = folding_factors[0];
+
+            // Run first set of rounds
+            let (mut sumcheck, mut r) =
+                SumcheckSingle::from_base_evals(&poly, &statement, alpha, prover, folding, 0);
+            let mut num_vars_inter = num_vars - folding;
+
+            // Run intermediate rounds
+            // With intermediate statements
+            for (&folding, &num_points) in folding_factors
+                .iter()
+                .skip(1)
+                .zip(num_points.iter().skip(1))
+            {
+                make_inter_statement(prover, num_points, &mut sumcheck);
+
+                r.extend(&sumcheck.compute_sumcheck_polynomials(prover, folding_factors[1], 0));
+                num_vars_inter -= folding;
+
+                assert_eq!(sumcheck.evals.num_variables(), num_vars_inter);
+                assert_eq!(sumcheck.evals.num_evals(), 1 << num_vars_inter);
+            }
+
+            // Run final rounds
+            // No new statements
+            let final_rounds = *folding_factors.last().unwrap();
+            r.extend(&sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0));
+            assert_eq!(num_vars_inter, final_rounds);
+            assert_eq!(sumcheck.evals.num_variables(), 0);
+            assert_eq!(sumcheck.evals.num_evals(), 1);
+
+            // Final constant must be the evalaution of input poly F(x) at r
+            let constant = sumcheck.evals[0];
+            assert_eq!(poly.evaluate(&r), constant);
+            prover.add_extension_scalar(constant);
+
+            // Return proof data
+            prover.proof_data().to_vec()
+        };
+
+        {
+            let verifier = &mut verifier(proof);
+            let mut sum = EF::ZERO;
+            let mut r = MultilinearPoint(vec![]);
+            let mut alphas = vec![];
+            let mut constraints = vec![];
+            let mut num_vars_inter = num_vars;
+
+            for (&folding, &num_points) in folding_factors.iter().zip(num_points.iter()) {
+                let statement = read_statement(verifier, num_vars_inter, num_points);
+                alphas.push(verifier.sample());
+                constraints.push(statement.constraints.clone());
+                combine_constraints(&mut sum, &statement.constraints, *alphas.last().unwrap());
+                r.extend(&verify_sumcheck_rounds(verifier, &mut sum, folding, 0, false).unwrap());
+                num_vars_inter -= folding;
+            }
+
+            let final_rounds = *folding_factors.last().unwrap();
+            r.extend(&verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, false).unwrap());
+            let constant = verifier.next_extension_scalar().unwrap();
+
+            // Check if `sum == f(r) * eq(z, r)`
+            let eq_eval =
+                eval_constraints_poly(num_vars, folding_factors, &constraints, &alphas, r);
+            assert_eq!(sum, constant * eq_eval);
+        }
+    }
+
+    fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
+        assert_eq!(folding_factors.len(), num_points.len() + 1);
+        let num_vars = folding_factors.iter().sum::<usize>();
+
+        let poly = {
+            let mut rng = SmallRng::seed_from_u64(1);
+            EvaluationsList::new(
+                (0..1 << num_vars)
+                    .map(|_| rng.random::<F>())
+                    .collect::<Vec<_>>(),
+            )
+        };
+
+        let proof = {
+            let prover = &mut prover();
+            let statement = make_initial_statement(prover, num_vars, num_points[0], &poly);
+            let alpha: EF = prover.sample();
+
+            let folding = folding_factors[0];
+
+            // Run first set of rounds
+            let (mut sumcheck, mut r) = SumcheckSingle::with_skip(
+                &poly,
+                &statement,
+                alpha,
+                prover,
+                folding,
+                0,
+                K_SKIP_SUMCHECK,
+            );
+            let mut num_vars_inter = num_vars - folding;
+
+            // Run intermediate rounds
+            // With intermediate statements
+            for (&folding, &num_points) in folding_factors
+                .iter()
+                .skip(1)
+                .zip(num_points.iter().skip(1))
+            {
+                make_inter_statement(prover, num_points, &mut sumcheck);
+
+                r.extend(&sumcheck.compute_sumcheck_polynomials(prover, folding_factors[1], 0));
+                num_vars_inter -= folding;
+
+                assert_eq!(sumcheck.evals.num_variables(), num_vars_inter);
+                assert_eq!(sumcheck.evals.num_evals(), 1 << num_vars_inter);
+            }
+
+            // Run final rounds
+            // No new statements
+            let final_rounds = *folding_factors.last().unwrap();
+            r.extend(&sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0));
+            assert_eq!(num_vars_inter, final_rounds);
+            assert_eq!(sumcheck.evals.num_variables(), 0);
+            assert_eq!(sumcheck.evals.num_evals(), 1);
+
+            // Final constant must be the evalaution of input poly F(x) at r
+            let constant = sumcheck.evals[0];
+            assert_eq!(poly.evaluate(&r), constant);
+            prover.add_extension_scalar(constant);
+
+            // Return proof data
+            prover.proof_data().to_vec()
+        };
+
+        {
+            let verifier = &mut verifier(proof);
+            let mut sum = EF::ZERO;
+            let mut r = MultilinearPoint(vec![]);
+            let mut alphas = vec![];
+            let mut constraints = vec![];
+            let mut num_vars_inter = num_vars;
+
+            for (&folding, &num_points) in folding_factors.iter().zip(num_points.iter()) {
+                let statement = read_statement(verifier, num_vars_inter, num_points);
+                alphas.push(verifier.sample());
+                constraints.push(statement.constraints.clone());
+                combine_constraints(&mut sum, &statement.constraints, *alphas.last().unwrap());
+                r.extend(&verify_sumcheck_rounds(verifier, &mut sum, folding, 0, true).unwrap());
+                num_vars_inter -= folding;
+            }
+
+            let final_rounds = *folding_factors.last().unwrap();
+            r.extend(&verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, true).unwrap());
+            let constant = verifier.next_extension_scalar().unwrap();
+
+            // Check if `sum == f(r) * eq(z, r)`
+            let eq_eval =
+                eval_constraints_poly(num_vars, folding_factors, &constraints, &alphas, r);
+            assert_eq!(sum, constant * eq_eval);
+        }
+    }
+
+    #[test]
+    fn test_sumcheck_prover() {
+        run_sumcheck_test(&[1, 0], &[1]);
+        run_sumcheck_test(&[1, 1], &[1]);
+        run_sumcheck_test(&[1, 1], &[9]);
+        run_sumcheck_test(&[4, 1], &[9]);
+        run_sumcheck_test(&[1, 4], &[9]);
+        run_sumcheck_test(&[1, 1, 1], &[1, 1]);
+        run_sumcheck_test(&[4, 1, 4], &[9, 9]);
+        run_sumcheck_test(&[4, 4, 1], &[9, 9]);
+        run_sumcheck_test(&[1, 4, 4], &[9, 9]);
+
+        // run_sumcheck_test_skips(&[6, 1], &[1]);
     }
 }

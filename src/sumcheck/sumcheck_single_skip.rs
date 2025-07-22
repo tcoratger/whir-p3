@@ -4,124 +4,88 @@ use p3_matrix::{Matrix, dense::RowMajorMatrix};
 #[cfg(feature = "parallel")]
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 
-use super::{sumcheck_polynomial::SumcheckPolynomial, sumcheck_single::SumcheckSingle};
-use crate::poly::evals::EvaluationStorage;
+use super::sumcheck_polynomial::SumcheckPolynomial;
+use crate::poly::evals::EvaluationsList;
 
-impl<F, EF> SumcheckSingle<F, EF>
-where
-    F: TwoAdicField,
-    EF: ExtensionField<F>,
-{
-    /// Computes the sumcheck polynomial using the **univariate skip** optimization,
-    /// folding the first `k` variables in a single step, and returns intermediate matrices for reuse.
-    ///
-    /// This method skips `k` rounds of classical sumcheck by evaluating the polynomial over
-    /// a structured domain of the form `D × H^{n-k}`, where `D` is a multiplicative coset of size `2^{k+1}`.
-    ///
-    /// It returns a univariate polynomial `h(X)` of degree ≤ `2^k - 1`, defined as:
-    ///
-    /// \begin{equation}
-    /// h(X) = \sum_{b \in \{0,1\}^{n-k}} p(X, b) \cdot w(X, b)
-    /// \end{equation}
-    ///
-    /// where `X` ranges over the coset and each `b` represents an assignment to the remaining variables.
-    ///
-    /// # Inputs
-    /// - `dft`: A two-adic DFT backend used to perform low-degree extension over a coset domain.
-    /// - `k`: Number of initial variables to skip via univariate folding.
-    ///
-    /// # Output
-    /// - A tuple:
-    ///   - `SumcheckPolynomial<EF>`: The folded univariate polynomial evaluated over the coset.
-    ///   - `RowMajorMatrix<F>`: Matrix view of base field evaluations reshaped as `(2^k, 2^{n-k})`.
-    ///   - `RowMajorMatrix<EF>`: Matrix view of extension field weights, reshaped similarly.
-    ///
-    /// # Constraints
-    /// - This method requires base field evaluations (`EvaluationStorage::Base`).
-    ///   It panics if the polynomial is already stored in the extension field.
-    pub fn compute_skipping_sumcheck_polynomial(
-        &self,
-        k: usize,
-    ) -> (
-        SumcheckPolynomial<EF>,
-        RowMajorMatrix<F>,
-        RowMajorMatrix<EF>,
-    ) {
-        // Ensure we have enough variables to perform k-fold skipping.
-        assert!(
-            self.num_variables() >= k,
-            "Need at least k variables to apply univariate skip on k variables"
-        );
+#[must_use]
+pub(crate) fn compute_skipping_sumcheck_polynomial<F: TwoAdicField, EF: ExtensionField<F>>(
+    k: usize,
+    evals: &EvaluationsList<F>,
+    weights: &EvaluationsList<EF>,
+) -> (
+    SumcheckPolynomial<EF>,
+    RowMajorMatrix<F>,
+    RowMajorMatrix<EF>,
+) {
+    // Ensure we have enough variables to perform k-fold skipping.
+    assert!(
+        evals.num_variables() >= k,
+        "Need at least k variables to apply univariate skip on k variables"
+    );
 
-        // Evaluate based on the storage format of the polynomial:
-        // Only base field evaluations are supported for skipping.
-        let (out_vec, f, w) = match &self.evaluation_of_p {
-            EvaluationStorage::Base(evals_f) => {
-                // Reinterpret the flat evaluation vector as a matrix of shape:
-                // - Rows: 2^k (assignments to the first k variables, which we skip)
-                // - Columns: 2^{n-k} (assignments to the remaining variables)
-                //
-                // The transpose operation converts from row-major evaluations over {0,1}^n
-                // into a layout where each row corresponds to a fixed setting of the remaining variables.
-                let f_mat = RowMajorMatrix::new(evals_f.evals().to_vec(), 1 << k).transpose();
-                // Similarly reshape weights to align with p
-                let weights_mat =
-                    RowMajorMatrix::new(self.weights.evals().to_vec(), 1 << k).transpose();
+    // Evaluate based on the storage format of the polynomial:
+    // Only base field evaluations are supported for skipping.
+    let (out_vec, f, w) = {
+        // Reinterpret the flat evaluation vector as a matrix of shape:
+        // - Rows: 2^k (assignments to the first k variables, which we skip)
+        // - Columns: 2^{n-k} (assignments to the remaining variables)
+        //
+        // The transpose operation converts from row-major evaluations over {0,1}^n
+        // into a layout where each row corresponds to a fixed setting of the remaining variables.
+        let f_mat = RowMajorMatrix::new(evals.evals().to_vec(), 1 << k).transpose();
+        // Similarly reshape weights to align with p
+        let weights_mat = RowMajorMatrix::new(weights.evals().to_vec(), 1 << k).transpose();
 
-                // Apply low-degree extension (LDE) over a multiplicative coset of size 2^{k+1}
-                // to both the function and weights matrices:
-                // - Each row in f_mat is extended from size 2^k to 2^{k+1} over the coset domain.
-                // - The same is done for weights_mat, but with values in the extension field EF.
-                let dft = NaiveDft;
-                let f_on_coset = dft.lde_batch(f_mat.clone(), 1).to_row_major_matrix();
-                let weights_on_coset = dft
-                    .lde_algebra_batch(weights_mat.clone(), 1)
-                    .to_row_major_matrix();
+        // Apply low-degree extension (LDE) over a multiplicative coset of size 2^{k+1}
+        // to both the function and weights matrices:
+        // - Each row in f_mat is extended from size 2^k to 2^{k+1} over the coset domain.
+        // - The same is done for weights_mat, but with values in the extension field EF.
+        let dft = NaiveDft;
+        let f_on_coset = dft.lde_batch(f_mat.clone(), 1).to_row_major_matrix();
+        let weights_on_coset = dft
+            .lde_algebra_batch(weights_mat.clone(), 1)
+            .to_row_major_matrix();
 
-                // After LDE, each row corresponds to a fixed assignment to the remaining variables,
-                // and contains the univariate evaluations over the coset (length 2^{k+1}).
-                //
-                // We now compute the sumcheck polynomial:
-                // - For each row, compute the pointwise product f(x) * w(x)
-                // - Then sum across x in the coset to collapse that row into a scalar
-                //
-                // This yields one evaluation of the final univariate sumcheck polynomial per row.
-                let result: Vec<EF> = f_on_coset
-                    .par_row_slices()
-                    .zip(weights_on_coset.par_row_slices())
-                    .map(|(coeffs_row, weights_row)| {
-                        coeffs_row
-                            .iter()
-                            .zip(weights_row.iter())
-                            .map(|(&c, &w)| w * c)
-                            .sum()
-                    })
-                    .collect();
+        // After LDE, each row corresponds to a fixed assignment to the remaining variables,
+        // and contains the univariate evaluations over the coset (length 2^{k+1}).
+        //
+        // We now compute the sumcheck polynomial:
+        // - For each row, compute the pointwise product f(x) * w(x)
+        // - Then sum across x in the coset to collapse that row into a scalar
+        //
+        // This yields one evaluation of the final univariate sumcheck polynomial per row.
+        let result: Vec<EF> = f_on_coset
+            .par_row_slices()
+            .zip(weights_on_coset.par_row_slices())
+            .map(|(coeffs_row, weights_row)| {
+                coeffs_row
+                    .iter()
+                    .zip(weights_row.iter())
+                    .map(|(&c, &w)| w * c)
+                    .sum()
+            })
+            .collect();
 
-                (result, f_mat, weights_mat)
-            }
+        (result, f_mat, weights_mat)
+    };
 
-            // If the polynomial is already in extension form, univariate skip is not valid.
-            EvaluationStorage::Extension(_) => {
-                panic!("The univariate skip optimization should only occur in base field")
-            }
-        };
+    // Return the sumcheck polynomial and the intermediate pre-LDE matrices
 
-        // Return the sumcheck polynomial and the intermediate pre-LDE matrices
-
-        (SumcheckPolynomial::new(out_vec, 1), f, w)
-    }
+    (SumcheckPolynomial::new(out_vec, 1), f, w)
 }
 
 #[cfg(test)]
 #[allow(clippy::erasing_op, clippy::identity_op)]
 mod tests {
-    use p3_baby_bear::BabyBear;
+    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
+    use p3_challenger::DuplexChallenger;
     use p3_dft::NaiveDft;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
     use crate::{
+        fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
         whir::statement::{Statement, weights::Weights},
     };
@@ -129,6 +93,21 @@ mod tests {
     type F = BabyBear;
     type EF4 = BinomialExtensionField<BabyBear, 4>;
     type Dft = NaiveDft;
+    type Perm = Poseidon2BabyBear<16>;
+    type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
+
+    /// Creates a fresh domain separator and challenger with fixed RNG seed.
+    fn domainsep_and_challenger() -> (DomainSeparator<EF4, F>, MyChallenger) {
+        let mut rng = SmallRng::seed_from_u64(1);
+        let perm = Perm::new_from_rng_128(&mut rng);
+        let challenger = MyChallenger::new(perm);
+        (DomainSeparator::new(vec![]), challenger)
+    }
+
+    fn prover() -> ProverState<F, EF4, MyChallenger> {
+        let (domsep, challenger) = domainsep_and_challenger();
+        domsep.to_prover_state(challenger)
+    }
 
     #[test]
     fn test_skipping_sumcheck_polynomial_k1() {
@@ -155,7 +134,7 @@ mod tests {
         // That means f(X) · w(X) = 0 everywhere → result is the zero polynomial.
         // ----------------------------------------------------------------
         let statement = Statement::<EF4>::new(2);
-        let prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+        let (weights, _sum) = statement.combine::<F>(EF4::ONE);
 
         // ----------------------------------------------------------------
         // We perform the univariate skip with k = 1:
@@ -165,7 +144,8 @@ mod tests {
         // we extend the evaluation domain to a **multiplicative coset of size 4**
         // using `coset_lde_batch` (low-degree extension via DFT).
         // ----------------------------------------------------------------
-        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(1);
+        let (poly, _, _) =
+            compute_skipping_sumcheck_polynomial::<F, EF4>(1, &coeffs.to_evaluations(), &weights);
 
         // ----------------------------------------------------------------
         // Sum over the Boolean hypercube {0,1}:
@@ -215,7 +195,7 @@ mod tests {
         // So the resulting sumcheck polynomial must be identically zero.
         // ----------------------------------------------------------------
         let statement = Statement::<EF4>::new(3);
-        let prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+        let (weights, _sum) = statement.combine::<F>(EF4::ONE);
 
         // ----------------------------------------------------------------
         // Apply the univariate skip optimization with k = 2:
@@ -226,27 +206,14 @@ mod tests {
         // To evaluate this polynomial, we perform a low-degree extension
         // using DFT on a multiplicative coset of size 2^{k+1} = 8.
         // ----------------------------------------------------------------
-        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(2);
+        let (poly, _, _) =
+            compute_skipping_sumcheck_polynomial::<F, EF4>(2, &coeffs.to_evaluations(), &weights);
 
         // ----------------------------------------------------------------
         // Finally, the sum over {0,1} values of X2 must also be zero
         // because the polynomial is identically zero on the full domain.
         // ----------------------------------------------------------------
         assert_eq!(poly.sum_over_boolean_hypercube(), EF4::ZERO);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_skipping_sumcheck_polynomial_panics_on_extension_input() {
-        let ef1 = EF4::from(F::from_u64(1));
-        let ef2 = EF4::from(F::from_u64(2));
-
-        let coeffs = CoefficientList::new(vec![ef1, ef2]);
-        let statement = Statement::<EF4>::new(1);
-        let prover = SumcheckSingle::<F, EF4>::from_extension_coeffs(coeffs, &statement, EF4::ONE);
-
-        // This should panic because the input is not in the base field
-        let _ = prover.compute_skipping_sumcheck_polynomial(1);
     }
 
     #[test]
@@ -258,12 +225,13 @@ mod tests {
         let coeffs = CoefficientList::new(vec![c0, c1]);
 
         let statement = Statement::<EF4>::new(1);
-        let prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+        let (weights, _sum) = statement.combine::<F>(EF4::ONE);
 
         // This should panic because:
         // - the polynomial has only 1 variable
         // - we try to skip 2 variables
-        let _ = prover.compute_skipping_sumcheck_polynomial(2);
+        let _ =
+            compute_skipping_sumcheck_polynomial::<F, EF4>(2, &coeffs.to_evaluations(), &weights);
     }
 
     #[test]
@@ -330,25 +298,10 @@ mod tests {
             f_extension(EF4::ONE, EF4::ZERO, EF4::ONE),
         );
 
-        let prover = SumcheckSingle::<F, EF4>::from_base_coeffs(coeffs, &statement, EF4::ONE);
+        let (weights, expected_sum) = statement.combine::<F>(EF4::ONE);
 
         // Get the f evaluations
-        let evals_f = match prover.evaluation_of_p {
-            EvaluationStorage::Base(ref evals_f) => evals_f.evals(),
-            EvaluationStorage::Extension(_) => panic!("We should be in the base field"),
-        };
-        // Get the w evaluations
-        let evals_w = prover.weights.evals();
-
-        // Compute the expected sum manually via dot product
-        let expected_sum = evals_w[0] * evals_f[0]
-            + evals_w[1] * evals_f[1]
-            + evals_w[2] * evals_f[2]
-            + evals_w[3] * evals_f[3]
-            + evals_w[4] * evals_f[4]
-            + evals_w[5] * evals_f[5]
-            + evals_w[6] * evals_f[6]
-            + evals_w[7] * evals_f[7];
+        let evals_f = coeffs.to_evaluations();
 
         // ------------------------------------------------------------
         // Apply univariate skip optimization with k = 2:
@@ -360,7 +313,7 @@ mod tests {
         let dft = Dft::default();
         // Skip first 2 variables (X0, X1)
         let k = 2;
-        let n = prover.num_variables();
+        let n = evals_f.num_variables();
         assert_eq!(n, 3);
         // j = 1 (remaining variables X2)
         let j = n - k;
@@ -370,7 +323,7 @@ mod tests {
         // ------------------------------------------------------------
         // Compute the polynomial using the function under test
         // ------------------------------------------------------------
-        let (poly, _, _) = prover.compute_skipping_sumcheck_polynomial(k);
+        let (poly, _, _) = compute_skipping_sumcheck_polynomial(k, &evals_f, &weights);
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3
