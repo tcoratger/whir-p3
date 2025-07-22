@@ -135,16 +135,6 @@ mod tests {
         let statement = Statement::<EF4>::new(2);
         let (weights, _sum) = statement.combine::<F>(EF4::ONE);
 
-        // let (prover, _) = SumcheckSingle::<F, EF4>::new(
-        //     &coeffs.to_evaluations(),
-        //     &statement,
-        //     EF4::ONE,
-        //     &mut prover(),
-        //     1,
-        //     0,
-        //     Some(1),
-        // );
-
         // ----------------------------------------------------------------
         // We perform the univariate skip with k = 1:
         // This skips 1 variable (X0), leaving a univariate polynomial in X1.
@@ -307,7 +297,6 @@ mod tests {
             f_extension(EF4::ONE, EF4::ZERO, EF4::ONE),
         );
 
-        // let prover = SumcheckSingle::<F, EF4>::new(coeffs, &statement, EF4::ONE,&mut);
         let (weights, expected_sum) = statement.combine::<F>(EF4::ONE);
 
         // Get the f evaluations

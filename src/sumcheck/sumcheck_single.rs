@@ -19,6 +19,25 @@ use crate::{
 #[cfg(feature = "parallel")]
 const PARALLEL_THRESHOLD: usize = 4096;
 
+/// Folds a list of evaluations from a base field `F` into an extension field `EF`.
+///
+/// This function performs an out-of-place compression of a polynomial's evaluations. It takes evaluations
+/// over a base field `F`, folds them using a random value `r` from an extension field `EF`, and returns a new
+/// list of evaluations in `EF`. This operation effectively reduces the number of variables in the
+/// represented multilinear polynomial by one.
+///
+/// ## Arguments
+/// * `evals`: A reference to an `EvaluationsList<F>` containing the evaluations of a multilinear
+///   polynomial over the boolean hypercube in the base field `F`.
+/// * `r`: A value `r` from the extension field `EF`, used as the random challenge for folding.
+///
+/// ## Returns
+/// A new `EvaluationsList<EF>` containing the compressed evaluations in the extension field.
+///
+/// The compression is achieved by applying the following formula to pairs of evaluations:
+///
+/// The compression is achieved by applying the following formula to pairs of evaluations:
+/// $p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)$
 #[instrument(skip_all)]
 pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
     evals: &EvaluationsList<F>,
@@ -33,16 +52,11 @@ pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
     //
     // This was chosen based on experiments with the `compress` function.
     // It is possible that the threshold can be tuned further.
-
     #[cfg(feature = "parallel")]
     let folded = if evals.evals().len() >= PARALLEL_THRESHOLD {
-        evals
-            .evals()
-            .par_chunks_exact(2)
-            .map(fold)
-            .collect::<Vec<_>>()
+        evals.evals().par_chunks_exact(2).map(fold).collect()
     } else {
-        evals.evals().chunks_exact(2).map(fold).collect::<Vec<_>>()
+        evals.evals().chunks_exact(2).map(fold).collect()
     };
 
     #[cfg(not(feature = "parallel"))]
@@ -50,6 +64,23 @@ pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
     EvaluationsList::new(folded)
 }
 
+/// Compresses a list of evaluations in-place.
+///
+/// This function performs an in-place compression of a polynomial's evaluations. It takes a mutable
+/// list of evaluations and a random challenge `r` from the same field, and updates the list with
+/// the compressed evaluations. This is the step in the sumcheck protocol where we reduce the polynomial's
+/// variable count by one in each round.
+///
+/// ## Arguments
+/// * `evals`: A mutable reference to an `EvaluationsList<F>`, which will be updated with the
+///   compressed evaluations.
+/// * `r`: A value from the field `F`, used as the random folding challenge.
+///
+/// This function modifies `evals` in-place, halving the number of evaluations and thus reducing the
+/// polynomial's variable count.
+///
+/// The compression formula is the same as for `compress_ext`:
+/// $p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)$
 #[instrument(skip_all)]
 pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
     assert_ne!(evals.num_variables(), 0);
@@ -63,13 +94,9 @@ pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
     // It is possible that the threshold can be tuned further.
     #[cfg(feature = "parallel")]
     let folded = if evals.evals().len() >= PARALLEL_THRESHOLD {
-        evals
-            .evals()
-            .par_chunks_exact(2)
-            .map(fold)
-            .collect::<Vec<_>>()
+        evals.evals().par_chunks_exact(2).map(fold).collect()
     } else {
-        evals.evals().chunks_exact(2).map(fold).collect::<Vec<_>>()
+        evals.evals().chunks_exact(2).map(fold).collect()
     };
 
     #[cfg(not(feature = "parallel"))]
@@ -78,7 +105,25 @@ pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
     *evals = EvaluationsList::new(folded);
 }
 
-fn round_ext<Challenger, F: Field, EF: ExtensionField<F>>(
+/// Executes the initial round of the sumcheck protocol.
+///
+/// This function executes the initial round of the sumcheck protocol, which is unique because it
+/// transitions the polynomial evaluations from the base field `F` to the extension field `EF`.
+/// It computes the sumcheck polynomial, incorporates it into the prover's state, derives a challenge,
+/// and then uses that challenge to compress both the polynomial evaluations and the constraint weights.
+///
+/// ## Arguments
+/// * `prover_state`: A mutable reference to the `ProverState`, which manages the Fiat-Shamir transcript.
+/// * `evals`: A reference to the polynomial's evaluations in the base field `F`.
+/// * `weights`: A mutable reference to the weight evaluations in the extension field `EF`.
+/// * `sum`: A mutable reference to the claimed sum, which is updated with the new value after folding.
+/// * `pow_bits`: The number of proof-of-work bits for the grinding protocol.
+///
+/// ## Returns
+/// A tuple containing:
+/// * The verifier's challenge `r` as an `EF` element.
+/// * The new, compressed polynomial evaluations as an `EvaluationsList<EF>`.
+fn initial_round<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     evals: &EvaluationsList<F>,
     weights: &mut EvaluationsList<EF>,
@@ -98,13 +143,29 @@ where
     prover_state.pow_grinding(pow_bits);
 
     // Compress polynomials and update the sum.
-    let evals = compress_ext(evals, r);
-    compress(weights, r);
+
+    let (evals, ()) = rayon::join(|| compress_ext(evals, r), || compress(weights, r));
     *sum = sumcheck_poly.evaluate_at_point(&r.into());
 
     (r, evals)
 }
 
+/// Executes a standard, intermediate round of the sumcheck protocol.
+///
+/// This function executes a standard, intermediate round of the sumcheck protocol. Unlike the initial round,
+/// it operates entirely within the extension field `EF`. It computes the sumcheck polynomial from the
+/// current evaluations and weights, adds it to the transcript, gets a new challenge from the verifier,
+/// and then compresses both the polynomial and weight evaluations in-place.
+///
+/// ## Arguments
+/// * `prover_state` - A mutable reference to the `ProverState`, managing the Fiat-Shamir transcript.
+/// * `evals` - A mutable reference to the polynomial's evaluations in `EF`, which will be compressed.
+/// * `weights` - A mutable reference to the weight evaluations in `EF`, which will also be compressed.
+/// * `sum` - A mutable reference to the claimed sum, updated after folding.
+/// * `pow_bits` - The number of proof-of-work bits for grinding.
+///
+/// ## Returns
+/// The verifier's challenge `r` as an `EF` element.
 fn round<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     evals: &mut EvaluationsList<EF>,
@@ -125,10 +186,8 @@ where
     prover_state.pow_grinding(pow_bits);
 
     // Compress polynomials and update the sum.
-    compress(evals, r);
-    compress(weights, r);
+    rayon::join(|| compress(evals, r), || compress(weights, r));
     *sum = sumcheck_poly.evaluate_at_point(&r.into());
-
     r
 }
 
@@ -310,7 +369,7 @@ where
 
         let (mut weights, mut sum) = statement.combine::<F>(combination_randomness);
         // In the first round base field evaluations are folded into extension field elements
-        let (r, mut evals) = round_ext(prover_state, evals, &mut weights, &mut sum, pow_bits);
+        let (r, mut evals) = initial_round(prover_state, evals, &mut weights, &mut sum, pow_bits);
         res.push(r);
 
         // Apply rest of sumcheck rounds
@@ -360,10 +419,10 @@ where
         let mut res = Vec::with_capacity(folding_factor);
 
         assert!(k_skip > 1);
+        assert!(k_skip <= folding_factor);
 
         let (weights, _sum) = statement.combine::<F>(combination_randomness);
         // Collapse the first k variables via a univariate evaluation over a multiplicative coset.
-        // let (sumcheck_poly, f_mat, w_mat) = self.compute_skipping_sumcheck_polynomial(k);
         let (sumcheck_poly, f_mat, w_mat) =
             compute_skipping_sumcheck_polynomial(k_skip, evals, &weights);
 
@@ -571,7 +630,8 @@ mod tests {
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
-    fn common() -> (DomainSeparator<EF, F>, MyChallenger) {
+    /// Creates a fresh domain separator and challenger with fixed RNG seed.
+    fn domainsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
         let challenger = MyChallenger::new(perm);
@@ -579,12 +639,12 @@ mod tests {
     }
 
     fn prover() -> ProverState<F, EF, MyChallenger> {
-        let (domsep, challenger) = common();
+        let (domsep, challenger) = domainsep_and_challenger();
         domsep.to_prover_state(challenger)
     }
 
     fn verifier(proof: Vec<F>) -> VerifierState<F, EF, MyChallenger> {
-        let (domsep, challenger) = common();
+        let (domsep, challenger) = domainsep_and_challenger();
         domsep.to_verifier_state(proof, challenger)
     }
 
@@ -594,25 +654,13 @@ mod tests {
     {
         (0..n).map(|_| rng.random()).collect()
     }
+
     fn rand_point<F>(rng: impl Rng, k: usize) -> MultilinearPoint<F>
     where
         StandardUniform: rand::distr::Distribution<F>,
     {
         MultilinearPoint(rand_vec(rng, k))
     }
-
-    // fn new_sumcheck<Challenger>(
-    //     prover: &mut ProverState<F, EF, Challenger>,
-    //     poly: &EvaluationsList<F>,
-    //     statement: &Statement<EF>,
-    //     folding_factor: usize,
-    //     alpha: EF,
-    // ) -> (SumcheckSingle<F, EF>, MultilinearPoint<EF>)
-    // where
-    //     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    // {
-    //     SumcheckSingle::from_base_evals(&poly, &statement, alpha, prover, folding_factor, 0, None)
-    // }
 
     fn make_initial_statement<Challenger>(
         prover: &mut ProverState<F, EF, Challenger>,
