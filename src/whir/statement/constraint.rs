@@ -3,7 +3,7 @@ use p3_field::Field;
 use crate::{poly::evals::EvaluationsList, whir::Weights};
 
 /// Represents a single constraint in a polynomial statement.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Constraint<F> {
     /// The weight function applied to the polynomial.
     ///
