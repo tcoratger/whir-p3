@@ -1023,4 +1023,54 @@ mod tests {
         assert_eq!(result.evals.len(), 4);
         assert_eq!(result.num_variables, 2);
     }
+
+    #[test]
+    fn test_truncate_halves_length() {
+        let evals = vec![F::ONE, F::from_u64(2), F::from_u64(3), F::from_u64(4)];
+        let mut list = EvaluationsList::new(evals.clone());
+
+        // Truncate to half
+        list.truncate(2);
+
+        // Only the first two elements should remain
+        assert_eq!(list.evals(), &evals[..2]);
+        assert_eq!(list.num_variables(), 1); // log2(2) = 1
+    }
+
+    #[test]
+    fn test_truncate_to_one() {
+        let evals = vec![
+            F::from_u64(7),
+            F::from_u64(8),
+            F::from_u64(9),
+            F::from_u64(10),
+        ];
+        let mut list = EvaluationsList::new(evals);
+
+        list.truncate(1);
+
+        assert_eq!(list.evals(), &[F::from_u64(7)]);
+        assert_eq!(list.num_variables(), 0); // log2(1) = 0
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_truncate_to_non_power_of_two_should_panic() {
+        let evals = vec![F::ONE, F::ONE, F::ONE, F::ONE];
+        let mut list = EvaluationsList::new(evals);
+
+        // Not a power of two — should panic
+        list.truncate(3);
+    }
+
+    #[test]
+    fn test_truncate_noop_when_length_unchanged() {
+        let evals = vec![F::from_u64(1), F::from_u64(2)];
+        let mut list = EvaluationsList::new(evals.clone());
+
+        list.truncate(2); // Same length, should remain unchanged
+
+        assert_eq!(list.evals(), &evals);
+        assert_eq!(list.num_variables(), 1);
+    }
 }
