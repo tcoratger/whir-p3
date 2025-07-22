@@ -1,6 +1,8 @@
 pub mod sumcheck_polynomial;
 pub mod sumcheck_single;
 pub mod sumcheck_single_skip;
+#[cfg(test)]
+mod tests;
 pub mod utils;
 
 /// Number of variables skipped in the first round of the Sumcheck protocol using univariate skip.
