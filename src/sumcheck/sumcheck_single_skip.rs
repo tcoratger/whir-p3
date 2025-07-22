@@ -7,6 +7,41 @@ use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::poly::evals::EvaluationsList;
 
+/// Computes the sumcheck polynomial using the **univariate skip** optimization,
+/// folding the first `k` variables in one step, and returns intermediate matrices for reuse.
+///
+/// This function evaluates a multilinear polynomial `f` and a weight polynomial `w` over a structured domain
+/// of the form $D \times \{0,1\}^{n-k}$, where:
+/// - $D$ is a multiplicative coset of size $2^{k+1}$ used to extend the folded variables.
+/// - The remaining $n - k$ variables remain in the Boolean domain.
+///
+/// It returns a univariate polynomial $h(X)$ of degree at most $2^k - 1$, defined as:
+///
+/// \begin{equation}
+/// h(X) = \sum_{b \in \{0,1\}^{n-k}} f(X, b) \cdot w(X, b)
+/// \end{equation}
+///
+/// where:
+/// - $X$ ranges over the coset $D$
+/// - $b$ is a Boolean assignment to the last $n - k$ variables
+///
+/// # Arguments
+/// - `k`: The number of initial variables to skip and fold via univariate extension.
+/// - `evals`: The evaluations of the multilinear polynomial `f` over the Boolean hypercube $\{0,1\}^n$.
+/// - `weights`: The evaluations of the weight polynomial `w` over $\{0,1\}^n`.
+///
+/// # Returns
+/// A tuple consisting of:
+/// - `SumcheckPolynomial<EF>`: The resulting univariate polynomial $h(X)$ evaluated over the coset domain $D$
+/// - `RowMajorMatrix<F>`: A `(2^k × 2^{n-k})` matrix of `f` values, before LDE
+/// - `RowMajorMatrix<EF>`: A `(2^k × 2^{n-k})` matrix of `w` values, before LDE
+///
+/// # Panics
+/// - Panics if `k > evals.num_variables()`
+///
+/// # Notes
+/// - This function assumes that `evals` are in the base field `F`, and `weights` are in the extension field `EF`.
+/// - The LDE step uses a DFT over a coset of size $2^{k+1}$ to evaluate each row of the matrix over a univariate domain.
 #[must_use]
 pub(crate) fn compute_skipping_sumcheck_polynomial<F: TwoAdicField, EF: ExtensionField<F>>(
     k: usize,
@@ -70,7 +105,6 @@ pub(crate) fn compute_skipping_sumcheck_polynomial<F: TwoAdicField, EF: Extensio
     };
 
     // Return the sumcheck polynomial and the intermediate pre-LDE matrices
-
     (SumcheckPolynomial::new(out_vec, 1), f, w)
 }
 
