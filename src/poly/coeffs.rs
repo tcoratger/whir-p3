@@ -78,13 +78,13 @@ where
         let coeffs = self
             .coeffs
             .chunks_exact(1 << folding_factor)
-            .map(|coeffs| eval_multivariate(coeffs, &folding_randomness.0))
+            .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
             .collect();
         #[cfg(feature = "parallel")]
         let coeffs = self
             .coeffs
             .par_chunks_exact(1 << folding_factor)
-            .map(|coeffs| eval_multivariate(coeffs, &folding_randomness.0))
+            .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
             .collect();
 
         CoefficientList {
@@ -100,7 +100,7 @@ where
     #[instrument(skip_all, fields(size = point.num_variables()), level = "debug")]
     pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables, point.num_variables());
-        eval_extension_par(&self.coeffs, &point.0)
+        eval_extension_par(&self.coeffs, point)
     }
 }
 

@@ -528,11 +528,7 @@ where
                     .iter()
                     .zip(combination_randomness.iter())
                     .for_each(|(point, &rand)| {
-                        crate::utils::eval_eq::<_, _, true>(
-                            &point.0,
-                            self.weights.evals_mut(),
-                            rand,
-                        );
+                        crate::utils::eval_eq::<_, _, true>(point, self.weights.evals_mut(), rand);
                     });
             });
 
@@ -551,7 +547,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter().zip(evaluations.iter()))
                 .for_each(|(point, (&rand, &eval))| {
-                    crate::utils::eval_eq::<F, EF, true>(&point.0, self.weights.evals_mut(), rand);
+                    crate::utils::eval_eq::<F, EF, true>(point, self.weights.evals_mut(), rand);
                     self.sum += rand * eval;
                 });
         }
@@ -754,12 +750,7 @@ mod tests {
         F: Field,
     {
         fn extend(&mut self, rest: &Self) {
-            self.0 = rest
-                .0
-                .iter()
-                .chain(self.0.iter())
-                .copied()
-                .collect::<Vec<_>>();
+            self.0 = rest.iter().chain(self.iter()).copied().collect::<Vec<_>>();
         }
     }
 
@@ -792,7 +783,7 @@ mod tests {
             assert_eq!(alphas.len(), constraints.len());
             if round > 0 {
                 num_variables -= folding_factor[round - 1];
-                point = MultilinearPoint(point.0[..num_variables].to_vec());
+                point = MultilinearPoint(point[..num_variables].to_vec());
             }
             value += constraints
                 .iter()

@@ -419,9 +419,9 @@ mod tests {
         // The value of f at the folding point should match the evaluation
         let eval_at_point = sumcheck.evals[0];
         let expected = f(
-            sumcheck_randomness.0[0],
-            sumcheck_randomness.0[1],
-            sumcheck_randomness.0[2],
+            sumcheck_randomness[0],
+            sumcheck_randomness[1],
+            sumcheck_randomness[2],
         );
         assert_eq!(eval_at_point, expected);
 
@@ -438,9 +438,9 @@ mod tests {
         assert_eq!(
             state.randomness_vec,
             vec![
-                sumcheck_randomness.0[2],
-                sumcheck_randomness.0[1],
-                sumcheck_randomness.0[0]
+                sumcheck_randomness[2],
+                sumcheck_randomness[1],
+                sumcheck_randomness[0]
             ]
         );
 
@@ -448,9 +448,9 @@ mod tests {
         assert_eq!(
             state.folding_randomness.0,
             vec![
-                sumcheck_randomness.0[0],
-                sumcheck_randomness.0[1],
-                sumcheck_randomness.0[2]
+                sumcheck_randomness[0],
+                sumcheck_randomness[1],
+                sumcheck_randomness[2]
             ]
         );
 
@@ -500,7 +500,7 @@ mod tests {
 
         // Extract the sumcheck prover and folding randomness
         let sumcheck = &state.sumcheck_prover;
-        let sumcheck_randomness = state.folding_randomness.0.clone();
+        let sumcheck_randomness = state.folding_randomness.clone();
 
         for (f, w) in sumcheck.evals.iter().zip(sumcheck.weights.evals()) {
             // Each evaluation should be 0
@@ -607,7 +607,7 @@ mod tests {
             f(
                 EF4::from_u64(32636),
                 EF4::from_u64(9876),
-                sumcheck_randomness.0[0]
+                sumcheck_randomness[0]
             )
         );
 
@@ -630,13 +630,13 @@ mod tests {
         // The randomness_vec must contain the sampled folding randomness, reversed and zero-padded
         assert_eq!(
             state.randomness_vec,
-            vec![sumcheck_randomness.0[0], EF4::ZERO, EF4::ZERO]
+            vec![sumcheck_randomness[0], EF4::ZERO, EF4::ZERO]
         );
 
         // The folding randomness must match what was sampled by the sumcheck
         assert_eq!(
             state.folding_randomness,
-            MultilinearPoint(vec![sumcheck_randomness.0[0]])
+            MultilinearPoint(vec![sumcheck_randomness[0]])
         );
     }
 }

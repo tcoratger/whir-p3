@@ -152,7 +152,7 @@ where
         }
 
         // In the final round we receive the full polynomial instead of a commitment.
-        let n_final_coeffs = 1 << self.0.n_vars_of_final_polynomial();
+        let n_final_coeffs = 1 << self.n_vars_of_final_polynomial();
         let final_coefficients = verifier_state.next_extension_scalars_vec(n_final_coeffs)?;
         let final_evaluations = EvaluationsList::new(final_coefficients);
 
@@ -494,7 +494,7 @@ where
             assert_eq!(randomness.len(), constraints.len());
             if round > 0 {
                 num_variables -= self.folding_factor.at_round(round - 1);
-                point = MultilinearPoint(point.0[..num_variables].to_vec());
+                point = MultilinearPoint(point[..num_variables].to_vec());
             }
             value += constraints
                 .iter()
