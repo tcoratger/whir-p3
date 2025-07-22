@@ -96,7 +96,8 @@ mod tests {
     type Perm = Poseidon2BabyBear<16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
-    fn common() -> (DomainSeparator<EF4, F>, MyChallenger) {
+    /// Creates a fresh domain separator and challenger with fixed RNG seed.
+    fn domainsep_and_challenger() -> (DomainSeparator<EF4, F>, MyChallenger) {
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
         let challenger = MyChallenger::new(perm);
@@ -104,7 +105,7 @@ mod tests {
     }
 
     fn prover() -> ProverState<F, EF4, MyChallenger> {
-        let (domsep, challenger) = common();
+        let (domsep, challenger) = domainsep_and_challenger();
         domsep.to_prover_state(challenger)
     }
 

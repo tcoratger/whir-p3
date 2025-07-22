@@ -144,7 +144,13 @@ where
 
     // Compress polynomials and update the sum.
 
-    let (evals, ()) = rayon::join(|| compress_ext(evals, r), || compress(weights, r));
+    #[cfg(feature = "parallel")]
+    let evals = { rayon::join(|| compress(weights, r), || compress_ext(evals, r)).1 };
+    #[cfg(not(feature = "parallel"))]
+    let evals = {
+        compress(weights, r);
+        compress_ext(evals, r)
+    };
     *sum = sumcheck_poly.evaluate_at_point(&r.into());
 
     (r, evals)
@@ -186,7 +192,15 @@ where
     prover_state.pow_grinding(pow_bits);
 
     // Compress polynomials and update the sum.
-    rayon::join(|| compress(evals, r), || compress(weights, r));
+    #[cfg(feature = "parallel")]
+    {
+        rayon::join(|| compress(evals, r), || compress(weights, r));
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        compress(evals, r);
+        compress(weights, r);
+    }
     *sum = sumcheck_poly.evaluate_at_point(&r.into());
     r
 }
