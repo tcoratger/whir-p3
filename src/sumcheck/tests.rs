@@ -450,6 +450,9 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     verifier_randomness
         .extend(&verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, false).unwrap());
 
+    // Check that the randomness vectors are the same
+    assert_eq!(prover_randomness, verifier_randomness);
+
     // Final folded constant from transcript
     let final_folded_value_transcript = verifier.next_extension_scalar().unwrap();
     assert_eq!(final_folded_value, final_folded_value_transcript);
@@ -509,7 +512,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     let folding = folding_factors[0];
 
     // Initialize sumcheck with univariate skip (skips K_SKIP_SUMCHECK variables)
-    let (mut sumcheck, mut r) = SumcheckSingle::with_skip(
+    let (mut sumcheck, mut prover_randomness) = SumcheckSingle::with_skip(
         &poly,
         &statement,
         alpha,
@@ -532,7 +535,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
         make_inter_statement(prover, num_pts, &mut sumcheck);
 
         // Fold the sumcheck polynomial again and extend randomness vector
-        r.extend(&sumcheck.compute_sumcheck_polynomials(prover, folding, 0));
+        prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(prover, folding, 0));
         num_vars_inter -= folding;
 
         // Sanity check: number of variables and evaluations should be correct
@@ -542,7 +545,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
 
     // FINAL ROUND
     let final_rounds = *folding_factors.last().unwrap();
-    r.extend(&sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0));
+    prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0));
 
     // After final round, polynomial must collapse to a constant
     assert_eq!(num_vars_inter, final_rounds);
@@ -567,7 +570,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     let mut sum = EF::ZERO;
 
     // Point `r` is constructed over rounds using verifier-chosen challenges
-    let mut r_verifier = MultilinearPoint(vec![]);
+    let mut verifier_randomness = MultilinearPoint(vec![]);
 
     // Track challenge alphas used for combining constraints in each round
     let mut alphas = vec![];
@@ -594,14 +597,19 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
         constraints.push(statement.constraints.clone());
 
         // Extend r with verifier's folding randomness
-        r_verifier.extend(&verify_sumcheck_rounds(verifier, &mut sum, folding, 0, true).unwrap());
+        verifier_randomness
+            .extend(&verify_sumcheck_rounds(verifier, &mut sum, folding, 0, true).unwrap());
 
         num_vars_inter -= folding;
     }
 
     // FINAL FOLDING
     let final_rounds = *folding_factors.last().unwrap();
-    r_verifier.extend(&verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, true).unwrap());
+    verifier_randomness
+        .extend(&verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, true).unwrap());
+
+    // Check that the randomness vectors are the same
+    assert_eq!(prover_randomness, verifier_randomness);
 
     // Final constant from transcript must match prover's
     let constant_verifier = verifier.next_extension_scalar().unwrap();
@@ -616,7 +624,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     //     folding_factors,
     //     &constraints,
     //     &alphas,
-    //     r_verifier.clone(),
+    //     verifier_randomness.clone(),
     // );
 
     // // FINAL SUMCHECK CHECK
