@@ -8,40 +8,46 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::poly::evals::EvaluationsList;
 
 /// Computes the sumcheck polynomial using the **univariate skip** optimization,
-/// folding the first `k` variables in one step, and returns intermediate matrices for reuse.
+/// which folds the first `k` variables in one step via low-degree extension (LDE).
 ///
-/// This function evaluates a multilinear polynomial `f` and a weight polynomial `w` over a structured domain
-/// of the form $D \times \{0,1\}^{n-k}$, where:
-/// - $D$ is a multiplicative coset of size $2^{k+1}$ used to extend the folded variables.
-/// - The remaining $n - k$ variables remain in the Boolean domain.
+/// The goal is to reduce a multilinear polynomial $f(x_1, \dots, x_n)$
+/// and a weight polynomial $w(x_1, \dots, x_n)$ defined over the Boolean hypercube
+/// $\{0,1\}^n$ into a univariate polynomial $h(X)$ via partial evaluation and DFT-based extension.
 ///
-/// It returns a univariate polynomial $h(X)$ of degree at most $2^k - 1$, defined as:
+/// This function interprets the original evaluations over $\{0,1\}^n$ as a matrix of shape
+/// $(2^k \times 2^{n-k})$, where:
+/// - Each row corresponds to a distinct assignment to the first $k$ variables (which we skip/fold),
+/// - Each column corresponds to a Boolean assignment to the remaining $n - k$ variables.
+///
+/// It then applies LDE to each row over a multiplicative coset $D$ of size $2^{k+1}$ and computes:
 ///
 /// \begin{equation}
 /// h(X) = \sum_{b \in \{0,1\}^{n-k}} f(X, b) \cdot w(X, b)
 /// \end{equation}
 ///
 /// where:
-/// - $X$ ranges over the coset $D$
-/// - $b$ is a Boolean assignment to the last $n - k$ variables
+/// - $X$ ranges over $D$, a multiplicative coset used to evaluate the first $k$ variables,
+/// - $b$ ranges over $\{0,1\}^{n-k}$, the Boolean values of the remaining variables.
 ///
 /// # Arguments
-/// - `k`: The number of initial variables to skip and fold via univariate extension.
-/// - `evals`: The evaluations of the multilinear polynomial `f` over the Boolean hypercube $\{0,1\}^n$.
-/// - `weights`: The evaluations of the weight polynomial `w` over $\{0,1\}^n`.
+/// - `k`: Number of initial variables to skip and fold into a univariate extension.
+/// - `evals`: Evaluations of the multilinear polynomial $f$ over $\{0,1\}^n$, in the base field `F`.
+/// - `weights`: Evaluations of the weight polynomial $w$ over $\{0,1\}^n$, in the extension field `EF`.
 ///
 /// # Returns
-/// A tuple consisting of:
-/// - `SumcheckPolynomial<EF>`: The resulting univariate polynomial $h(X)$ evaluated over the coset domain $D$
-/// - `RowMajorMatrix<F>`: A `(2^k × 2^{n-k})` matrix of `f` values, before LDE
-/// - `RowMajorMatrix<EF>`: A `(2^k × 2^{n-k})` matrix of `w` values, before LDE
+/// A tuple containing:
+/// - `SumcheckPolynomial<EF>`: The resulting univariate polynomial $h(X)$ evaluated over coset $D$.
+/// - `RowMajorMatrix<F>`: The original evaluations of $f$, reshaped to $(2^k \times 2^{n-k})$.
+/// - `RowMajorMatrix<EF>`: The original evaluations of $w$, reshaped to $(2^k \times 2^{n-k})$.
 ///
 /// # Panics
-/// - Panics if `k > evals.num_variables()`
+/// Panics if `k > evals.num_variables()`.
 ///
 /// # Notes
-/// - This function assumes that `evals` are in the base field `F`, and `weights` are in the extension field `EF`.
-/// - The LDE step uses a DFT over a coset of size $2^{k+1}$ to evaluate each row of the matrix over a univariate domain.
+/// - This method assumes that `f` is represented using base field values (`F`)
+///   and that `w` is represented using extension field values (`EF`).
+/// - The LDE step extends each row from $2^k$ to $2^{k+1}$ using a coset FFT,
+///   enabling efficient computation of the univariate sumcheck polynomial.
 #[must_use]
 pub(crate) fn compute_skipping_sumcheck_polynomial<F: TwoAdicField, EF: ExtensionField<F>>(
     k: usize,
@@ -52,43 +58,54 @@ pub(crate) fn compute_skipping_sumcheck_polynomial<F: TwoAdicField, EF: Extensio
     RowMajorMatrix<F>,
     RowMajorMatrix<EF>,
 ) {
-    // Ensure we have enough variables to perform k-fold skipping.
+    // Ensure we have enough variables to skip.
+    // We can only skip if the number of variables n ≥ k.
     assert!(
         evals.num_variables() >= k,
         "Need at least k variables to apply univariate skip on k variables"
     );
 
-    // Evaluate based on the storage format of the polynomial:
-    // Only base field evaluations are supported for skipping.
+    // Main logic block that computes the univariate sumcheck polynomial h(X)
+    // and returns intermediate matrices of shape (2^k × 2^{n-k}).
     let (out_vec, f, w) = {
-        // Reinterpret the flat evaluation vector as a matrix of shape:
-        // - Rows: 2^k (assignments to the first k variables, which we skip)
-        // - Columns: 2^{n-k} (assignments to the remaining variables)
-        //
-        // The transpose operation converts from row-major evaluations over {0,1}^n
-        // into a layout where each row corresponds to a fixed setting of the remaining variables.
-        let f_mat = RowMajorMatrix::new(evals.evals().to_vec(), 1 << k).transpose();
-        // Similarly reshape weights to align with p
-        let weights_mat = RowMajorMatrix::new(weights.evals().to_vec(), 1 << k).transpose();
+        // Number of variables for the multilinear polynomial f(X)
+        let n = evals.num_variables();
+        // Number of remaining variables after skipping k
+        let num_remaining_vars = n - k;
+        // Number of columns = 2^{n-k}
+        let width = 1 << num_remaining_vars;
 
-        // Apply low-degree extension (LDE) over a multiplicative coset of size 2^{k+1}
-        // to both the function and weights matrices:
-        // - Each row in f_mat is extended from size 2^k to 2^{k+1} over the coset domain.
-        // - The same is done for weights_mat, but with values in the extension field EF.
+        // Reshape the evaluation vector of f (over {0,1}^n) into a matrix:
+        // - Each row corresponds to one of the 2^k assignments to the skipped variables.
+        // - Each column corresponds to a Boolean assignment to the remaining n−k variables.
+        //
+        // This aligns with the goal of computing:
+        //   h(X) = ∑_{b ∈ {0,1}^{n−k}} f(X, b) · w(X, b)
+        let f_mat = RowMajorMatrix::new(evals.evals().to_vec(), width);
+
+        // Do the same for the weight polynomial w(X): shape = (2^k × 2^{n-k})
+        let weights_mat = RowMajorMatrix::new(weights.evals().to_vec(), width);
+
+        // Apply a low-degree extension (LDE) to each row of f_mat and weights_mat.
+        // The LDE maps each row of length 2^k to 2^{k+1} evaluations over a multiplicative coset.
+        //
+        // This gives us access to evaluations of f(X, b) and w(X, b)
+        // for non-Boolean values of X ∈ D (coset of size 2^{k+1}).
         let dft = NaiveDft;
+
+        // Apply base-field LDE to each row of f_mat: F^2^k → F^2^{k+1}
         let f_on_coset = dft.lde_batch(f_mat.clone(), 1).to_row_major_matrix();
+
+        // Apply extension-field LDE to each row of weights_mat: EF^2^k → EF^2^{k+1}
         let weights_on_coset = dft
             .lde_algebra_batch(weights_mat.clone(), 1)
             .to_row_major_matrix();
 
-        // After LDE, each row corresponds to a fixed assignment to the remaining variables,
-        // and contains the univariate evaluations over the coset (length 2^{k+1}).
+        // For each column (i.e., each value X in the coset domain),
+        // compute: sum over all b ∈ {0,1}^{n−k} of f(X, b) · w(X, b)
         //
-        // We now compute the sumcheck polynomial:
-        // - For each row, compute the pointwise product f(x) * w(x)
-        // - Then sum across x in the coset to collapse that row into a scalar
-        //
-        // This yields one evaluation of the final univariate sumcheck polynomial per row.
+        // This is done by pointwise multiplying the f and w values in each row,
+        // then summing across the row. Each output corresponds to one X in the coset.
         let result: Vec<EF> = f_on_coset
             .par_row_slices()
             .zip(weights_on_coset.par_row_slices())
@@ -101,10 +118,14 @@ pub(crate) fn compute_skipping_sumcheck_polynomial<F: TwoAdicField, EF: Extensio
             })
             .collect();
 
+        // Return:
+        // - result: evaluations of the univariate sumcheck polynomial h(X)
+        // - f_mat: original (2^k × 2^{n−k}) matrix of f(X) before LDE
+        // - weights_mat: original (2^k × 2^{n−k}) matrix of w(X) before LDE
         (result, f_mat, weights_mat)
     };
 
-    // Return the sumcheck polynomial and the intermediate pre-LDE matrices
+    // Return h(X) as a SumcheckPolynomial, along with the raw pre-LDE matrices
     (SumcheckPolynomial::new(out_vec, 1), f, w)
 }
 
@@ -357,7 +378,7 @@ mod tests {
         // ------------------------------------------------------------
         // Compute the polynomial using the function under test
         // ------------------------------------------------------------
-        let (poly, _, _) = compute_skipping_sumcheck_polynomial(k, &evals_f, &weights);
+        let (poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(k, &evals_f, &weights);
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3
@@ -402,35 +423,37 @@ mod tests {
         );
 
         // Construct a matrix representing f(X0, X1, X2) values.
-        // Each row corresponds to a fixed (X1, X2) pair,
-        // and each column to X0 = 0 and X0 = 1.
-        // The matrix is stored in row-major order, but transposed.
-        // This layout aligns with batch DFTs over the "folded" variable X0.
-        let f_mat_transpose = RowMajorMatrix::new(
+        // - Each row corresponds to a fixed (X0, X1) pair (variables we fold over),
+        // - Each column corresponds to a fixed X2 value (remaining variable).
+        let f_mat_expected = RowMajorMatrix::new(
             vec![
-                f_000, f_100, // X0 = 0, 1 | (X1, X2) = (0, 0)
-                f_001, f_101, // X0 = 0, 1 | (X1, X2) = (0, 1)
-                f_010, f_110, // X0 = 0, 1 | (X1, X2) = (1, 0)
-                f_011, f_111, // X0 = 0, 1 | (X1, X2) = (1, 1)
+                f_000, f_001, // (0, 0, 0) | (0, 0, 1)
+                f_010, f_011, // (0, 1, 0) | (0, 1, 1)
+                f_100, f_101, // (1, 0, 0) | (1, 0, 1)
+                f_110, f_111, // (1, 1, 0) | (1, 1, 1)
             ],
-            2, // num columns = 2 (X0=0, X0=1)
+            2, // num columns = 2 -> We want to fold over X0 and X1
         );
 
         // Do the same for the equality weights w(X0, X1, X2)
-        let weights_mat_transpose = RowMajorMatrix::new(
+        let weights_mat_expected = RowMajorMatrix::new(
             vec![
-                w_000, w_100, // X0 = 0, 1 | (X1, X2) = (0, 0)
-                w_001, w_101, // X0 = 0, 1 | (X1, X2) = (0, 1)
-                w_010, w_110, // X0 = 0, 1 | (X1, X2) = (1, 0)
-                w_011, w_111, // X0 = 0, 1 | (X1, X2) = (1, 1)
+                w_000, w_001, // (0, 0, 0) | (0, 0, 1)
+                w_010, w_011, // (0, 1, 0) | (0, 1, 1)
+                w_100, w_101, // (1, 0, 0) | (1, 0, 1)
+                w_110, w_111, // (1, 1, 0) | (1, 1, 1)
             ],
-            2,
+            2, // num columns = 2 -> We want to fold over X0 and X1
         );
+
+        // Verify the f and w matrices
+        assert_eq!(f_mat, f_mat_expected);
+        assert_eq!(w_mat, weights_mat_expected);
 
         // We recover the coefficients of f by doing the inverse DFT of each column.
         //
         // We do this to be able to calculate manually the LDE.
-        let f_coeffs_on_coset = dft.idft_batch(f_mat_transpose);
+        let f_coeffs_on_coset = dft.idft_batch(f_mat);
         let cf00 = f_coeffs_on_coset.get(0, 0).unwrap();
         let cf01 = f_coeffs_on_coset.get(1, 0).unwrap();
         let cf02 = f_coeffs_on_coset.get(2, 0).unwrap();
@@ -444,7 +467,7 @@ mod tests {
         // We recover the coefficients of w by doing the inverse DFT of each column.
         //
         // We do this to be able to calculate manually the LDE.
-        let w_coeffs_on_coset = dft.idft_batch(weights_mat_transpose);
+        let w_coeffs_on_coset = dft.idft_batch(w_mat);
         let cw00 = w_coeffs_on_coset.get(0, 0).unwrap();
         let cw01 = w_coeffs_on_coset.get(1, 0).unwrap();
         let cw02 = w_coeffs_on_coset.get(2, 0).unwrap();
