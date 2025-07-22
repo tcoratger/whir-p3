@@ -420,7 +420,6 @@ where
         evals: &EvaluationsList<F>,
         statement: &Statement<EF>,
         combination_randomness: EF,
-
         prover_state: &mut ProverState<F, EF, Challenger>,
         folding_factor: usize,
         pow_bits: usize,
