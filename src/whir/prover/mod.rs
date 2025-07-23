@@ -259,6 +259,21 @@ where
             |point| info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point)),
         );
 
+        // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
+        //
+        // This is a crucial security step to prevent a malicious prover from influencing the
+        // verifier's challenges.
+        //
+        // The verifier's query locations (the `stir_challenges`) are generated based on the
+        // current transcript state, which includes the prover's polynomial commitment (the Merkle
+        // root) for this round. Without grinding, a prover could repeatedly try different
+        // commitments until they find one that results in "easy" queries, breaking soundness.
+        //
+        // By forcing the prover to perform this expensive proof-of-work *after* committing but
+        // *before* receiving the queries, we make it computationally infeasible to "shop" for
+        // favorable challenges. The grinding effectively "locks in" the prover's commitment.
+        prover_state.pow_grinding(round_params.pow_bits);
+
         // STIR Queries
         let (stir_challenges, stir_challenges_indexes) = self.compute_stir_queries(
             round_index,
@@ -344,8 +359,6 @@ where
             }
         };
 
-        prover_state.pow_grinding(round_params.pow_bits);
-
         // Randomness for combination
         let combination_randomness_gen: EF = prover_state.sample();
         let combination_randomness: Vec<_> = combination_randomness_gen
@@ -402,6 +415,21 @@ where
     {
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_extension_scalars(&round_state.sumcheck_prover.evals);
+
+        // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
+        //
+        // This is a crucial security step to prevent a malicious prover from influencing the
+        // verifier's challenges.
+        //
+        // The verifier's query locations (the `stir_challenges`) are generated based on the
+        // current transcript state, which includes the prover's polynomial commitment (the Merkle
+        // root) for this round. Without grinding, a prover could repeatedly try different
+        // commitments until they find one that results in "easy" queries, breaking soundness.
+        //
+        // By forcing the prover to perform this expensive proof-of-work *after* committing but
+        // *before* receiving the queries, we make it computationally infeasible to "shop" for
+        // favorable challenges. The grinding effectively "locks in" the prover's commitment.
+        prover_state.pow_grinding(self.final_pow_bits);
 
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
@@ -467,8 +495,6 @@ where
                 }
             }
         }
-
-        prover_state.pow_grinding(self.final_pow_bits);
 
         // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
