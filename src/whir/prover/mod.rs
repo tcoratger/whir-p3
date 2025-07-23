@@ -403,6 +403,19 @@ where
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_extension_scalars(&round_state.sumcheck_prover.evals);
 
+        // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
+        //
+        // This is a crucial security step to prevent a malicious prover from influencing the
+        // verifier's challenges.
+        //
+        // The verifier's query locations (the `stir_challenges`) are generated based on the
+        // current transcript state, which includes the prover's polynomial commitment (the Merkle
+        // root) for this round. Without grinding, a prover could repeatedly try different
+        // commitments until they find one that results in "easy" queries, breaking soundness.
+        //
+        // By forcing the prover to perform this expensive proof-of-work *after* committing but
+        // *before* receiving the queries, we make it computationally infeasible to "shop" for
+        // favorable challenges. The grinding effectively "locks in" the prover's commitment.
         prover_state.pow_grinding(self.final_pow_bits);
 
         // Final verifier queries and answers. The indices are over the folded domain.
