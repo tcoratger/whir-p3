@@ -8,7 +8,6 @@ use tracing::{info_span, instrument};
 
 use super::Prover;
 use crate::{
-    domain::Domain,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::multilinear::MultilinearPoint,
     sumcheck::{K_SKIP_SUMCHECK, sumcheck_single::SumcheckSingle},
@@ -34,9 +33,9 @@ where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
 {
-    /// The domain used in this round, including the size and generator.
-    /// This is typically a scaled version of the previous round’s domain.
-    pub(crate) domain: Domain<EF>,
+    pub(crate) domain_size: usize,
+
+    pub(crate) next_domain_gen: F,
 
     /// The sumcheck prover responsible for managing constraint accumulation and sumcheck rounds.
     /// Initialized in the first round (if applicable), and reused/updated in each subsequent round.
@@ -174,7 +173,10 @@ where
         });
 
         Ok(Self {
-            domain: prover.starting_domain.clone(),
+            domain_size: prover.starting_domain_size(),
+            next_domain_gen: F::two_adic_generator(
+                prover.starting_domain_size().ilog2() as usize - prover.folding_factor.at_round(0),
+            ),
             sumcheck_prover,
             folding_randomness,
             merkle_prover_data: None,
@@ -343,12 +345,6 @@ mod tests {
         // Full randomness vector should be padded up to `num_variables`
         assert_eq!(state.randomness_vec.len(), num_variables);
 
-        // Domain should match the starting parameters
-        assert_eq!(
-            state.domain,
-            Domain::new(1 << num_variables, config.starting_log_inv_rate).unwrap()
-        );
-
         // Since this is the first round, no Merkle data for folded rounds should exist
         assert!(state.merkle_prover_data.is_none());
     }
@@ -454,12 +450,6 @@ mod tests {
             ]
         );
 
-        // Domain should match expected domain: 2^3 = 8 elements with inverse rate = 1
-        assert_eq!(
-            state.domain,
-            Domain::new(1 << num_variables, config.starting_log_inv_rate).unwrap()
-        );
-
         // No folded Merkle tree data should exist at this point
         assert!(state.merkle_prover_data.is_none());
     }
@@ -524,12 +514,6 @@ mod tests {
         assert_eq!(
             state.folding_randomness,
             MultilinearPoint(vec![sumcheck_randomness[0]])
-        );
-
-        // Domain must match the WHIR config's expected size
-        assert_eq!(
-            state.domain,
-            Domain::new(1 << num_variables, config.starting_log_inv_rate).unwrap()
         );
 
         // No Merkle commitment data for folded rounds yet
@@ -617,12 +601,6 @@ mod tests {
             + evals_f.evals()[2] * sumcheck.weights.evals()[2]
             + evals_f.evals()[3] * sumcheck.weights.evals()[3];
         assert_eq!(dot_product, sumcheck.sum);
-
-        // Domain should match expected size and rate
-        assert_eq!(
-            state.domain,
-            Domain::new(1 << num_variables, config.starting_log_inv_rate).unwrap()
-        );
 
         // No Merkle tree data has been created for folded rounds yet
         assert!(state.merkle_prover_data.is_none());

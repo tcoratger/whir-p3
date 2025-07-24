@@ -1,13 +1,10 @@
-use std::{any::TypeId, f64::consts::LOG2_10, marker::PhantomData};
+use std::{f64::consts::LOG2_10, marker::PhantomData};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use crate::{
-    domain::Domain,
-    parameters::{
-        FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
-    },
+use crate::parameters::{
+    FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
 };
 
 #[derive(Debug, Clone)]
@@ -20,8 +17,7 @@ pub struct RoundConfig<F> {
     pub num_variables: usize,
     pub folding_factor: usize,
     pub domain_size: usize,
-    pub domain_gen: F,
-    pub exp_domain_gen: F,
+    pub folded_domain_gen: F,
 }
 
 #[derive(Debug, Clone)]
@@ -42,13 +38,12 @@ where
     // 2. The commitment is a valid folded polynomial, and an additional polynomial evaluation
     //    statement. In that case, the initial statement is set to true.
     pub initial_statement: bool,
-    pub starting_domain: Domain<EF>,
     pub starting_log_inv_rate: usize,
     pub starting_folding_pow_bits: usize,
 
     pub folding_factor: FoldingFactor,
     pub rs_domain_initial_reduction_factor: usize,
-    pub round_parameters: Vec<RoundConfig<EF>>,
+    pub round_parameters: Vec<RoundConfig<F>>,
 
     pub final_queries: usize,
     pub final_pow_bits: usize,
@@ -97,23 +92,19 @@ where
         let mut log_inv_rate = whir_parameters.starting_log_inv_rate;
         let mut num_variables = mv_parameters.num_variables;
 
-        let starting_domain = Domain::new(1 << mv_parameters.num_variables, log_inv_rate)
-            .expect("Should have found an appropriate domain - check Field 2 adicity?");
+        let log_domain_size = num_variables + log_inv_rate;
+        let mut domain_size: usize = 1 << log_domain_size;
 
-        let mut domain_size = starting_domain.size();
-        let mut domain_gen: EF = starting_domain.backing_domain.group_gen();
-        let mut exp_domain_gen =
-            domain_gen.exp_power_of_2(whir_parameters.folding_factor.at_round(0));
-
-        if TypeId::of::<F>() != TypeId::of::<EF>() {
-            // We could theoritically tolerate FFT twiddles in the extension field, but this would signifcantly reduce performance.
-            let first_fft_size = mv_parameters.num_variables + log_inv_rate
-                - whir_parameters.folding_factor.at_round(0);
-            assert!(
-                first_fft_size <= F::TWO_ADICITY,
-                "Increase the initial folding factor, otherwise the FFT twiddles will be in the extension field"
-            );
-        }
+        // We could theorically tolerate a bigger `log_folded_domain_size` (up to EF::TWO_ADICITY), but this would reduce performance:
+        // 1) Because the FFT twiddle factors would be in the Extension Field
+        // 2) Because all the equality polynomials from WHIR queries would be in the Extension Field
+        //
+        // Note that this does not restrict the amount of data committed, as long as folding_factor_0 > EF::TWO_ADICITY - F::TWO_ADICITY
+        let log_folded_domain_size = log_domain_size - whir_parameters.folding_factor.at_round(0);
+        assert!(
+            log_folded_domain_size <= F::TWO_ADICITY,
+            "Increase folding_factor_0"
+        );
 
         let (num_rounds, final_sumcheck_rounds) = whir_parameters
             .folding_factor
@@ -196,6 +187,10 @@ where
                 num_variables,
                 next_rate,
             );
+            let folding_factor = whir_parameters.folding_factor.at_round(round);
+            let next_folding_factor = whir_parameters.folding_factor.at_round(round + 1);
+            let folded_domain_gen =
+                F::two_adic_generator(domain_size.ilog2() as usize - folding_factor);
 
             round_parameters.push(RoundConfig {
                 pow_bits: pow_bits as usize,
@@ -204,18 +199,14 @@ where
                 ood_samples,
                 log_inv_rate,
                 num_variables,
-                folding_factor: whir_parameters.folding_factor.at_round(round),
+                folding_factor,
                 domain_size,
-                domain_gen,
-                exp_domain_gen,
+                folded_domain_gen,
             });
 
-            num_variables -= whir_parameters.folding_factor.at_round(round + 1);
+            num_variables -= next_folding_factor;
             log_inv_rate = next_rate;
             domain_size >>= rs_reduction_factor;
-            domain_gen = domain_gen.exp_power_of_2(rs_reduction_factor);
-            exp_domain_gen =
-                domain_gen.exp_power_of_2(whir_parameters.folding_factor.at_round(round + 1));
         }
 
         let final_queries = whir_parameters
@@ -238,7 +229,6 @@ where
             initial_statement: whir_parameters.initial_statement,
             committment_ood_samples,
             mv_parameters,
-            starting_domain,
             soundness_type: whir_parameters.soundness_type,
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,
             starting_folding_pow_bits: starting_folding_pow_bits as usize,
@@ -257,6 +247,27 @@ where
             _extension_field: PhantomData,
             _challenger: PhantomData,
         }
+    }
+
+    /// Returns the size of the initial evaluation domain.
+    ///
+    /// This is the size of the domain used to evaluate the original multilinear polynomial
+    /// before any folding or reduction steps are applied in the WHIR protocol.
+    ///
+    /// It is computed as:
+    ///
+    /// \begin{equation}
+    /// 2^{\text{num\_variables} + \text{starting\_log\_inv\_rate}}
+    /// \end{equation}
+    ///
+    /// - `num_variables` is the number of variables in the original multivariate polynomial.
+    /// - `starting_log_inv_rate` is the initial inverse rate of the Reed–Solomon code,
+    ///   controlling redundancy relative to the degree.
+    ///
+    /// # Returns
+    /// A power-of-two value representing the number of evaluation points in the starting domain.
+    pub const fn starting_domain_size(&self) -> usize {
+        1 << (self.mv_parameters.num_variables + self.starting_log_inv_rate)
     }
 
     pub fn n_rounds(&self) -> usize {
@@ -393,7 +404,7 @@ where
     ///
     /// This is used by the verifier when verifying the final polynomial,
     /// ensuring consistent challenge selection and STIR constraint handling.
-    pub fn final_round_config(&self) -> RoundConfig<EF> {
+    pub fn final_round_config(&self) -> RoundConfig<F> {
         if self.round_parameters.is_empty() {
             // Fallback: no folding rounds, use initial domain setup
             RoundConfig {
@@ -401,33 +412,32 @@ where
                 folding_factor: self.folding_factor.at_round(self.n_rounds()),
                 num_queries: self.final_queries,
                 pow_bits: self.final_pow_bits,
-                domain_size: self.starting_domain.size(),
-                domain_gen: self.starting_domain.backing_domain.group_gen(),
-                exp_domain_gen: self
-                    .starting_domain
-                    .backing_domain
-                    .group_gen()
-                    .exp_power_of_2(self.folding_factor.at_round(0)),
+                domain_size: self.starting_domain_size(),
+                folded_domain_gen: F::two_adic_generator(
+                    self.starting_domain_size().ilog2() as usize - self.folding_factor.at_round(0),
+                ),
                 ood_samples: 0, // no OOD in synthetic final phase
                 folding_pow_bits: self.final_folding_pow_bits,
                 log_inv_rate: self.starting_log_inv_rate,
             }
         } else {
             let rs_reduction_factor = self.rs_reduction_factor(self.n_rounds() - 1);
+            let folding_factor = self.folding_factor.at_round(self.n_rounds());
 
             // Derive final round config from last round, adjusted for next fold
             let last = self.round_parameters.last().unwrap();
+            let domain_size = last.domain_size >> rs_reduction_factor;
+            let folded_domain_gen = F::two_adic_generator(
+                domain_size.ilog2() as usize - self.folding_factor.at_round(self.n_rounds()),
+            );
 
-            let domain_gen = last.domain_gen.exp_power_of_2(rs_reduction_factor);
             RoundConfig {
-                num_variables: last.num_variables - self.folding_factor.at_round(self.n_rounds()),
-                folding_factor: self.folding_factor.at_round(self.n_rounds()),
+                num_variables: last.num_variables - folding_factor,
+                folding_factor,
                 num_queries: self.final_queries,
                 pow_bits: self.final_pow_bits,
-                domain_size: last.domain_size >> rs_reduction_factor,
-                domain_gen,
-                exp_domain_gen: domain_gen
-                    .exp_power_of_2(self.folding_factor.at_round(self.n_rounds())),
+                domain_size,
+                folded_domain_gen,
                 ood_samples: last.ood_samples,
                 folding_pow_bits: self.final_folding_pow_bits,
                 log_inv_rate: last.log_inv_rate,
@@ -539,8 +549,7 @@ mod tests {
                 num_variables: 10,
                 folding_factor: 2,
                 domain_size: 10,
-                domain_gen: F::from_u64(2),
-                exp_domain_gen: F::from_u64(2),
+                folded_domain_gen: F::from_u64(2),
             },
             RoundConfig {
                 pow_bits: 18,
@@ -551,8 +560,7 @@ mod tests {
                 num_variables: 10,
                 folding_factor: 2,
                 domain_size: 10,
-                domain_gen: F::from_u64(2),
-                exp_domain_gen: F::from_u64(2),
+                folded_domain_gen: F::from_u64(2),
             },
         ];
 
@@ -626,8 +634,7 @@ mod tests {
             num_variables: 10,
             folding_factor: 2,
             domain_size: 10,
-            domain_gen: F::from_u64(2),
-            exp_domain_gen: F::from_u64(2),
+            folded_domain_gen: F::from_u64(2),
         }];
 
         assert!(
@@ -660,8 +667,7 @@ mod tests {
             num_variables: 10,
             folding_factor: 2,
             domain_size: 10,
-            domain_gen: F::from_u64(2),
-            exp_domain_gen: F::from_u64(2),
+            folded_domain_gen: F::from_u64(2),
         }];
 
         assert!(
@@ -693,8 +699,7 @@ mod tests {
             num_variables: 10,
             folding_factor: 2,
             domain_size: 10,
-            domain_gen: F::from_u64(2),
-            exp_domain_gen: F::from_u64(2),
+            folded_domain_gen: F::from_u64(2),
         }];
 
         assert!(
@@ -726,8 +731,7 @@ mod tests {
             num_variables: 10,
             folding_factor: 2,
             domain_size: 10,
-            domain_gen: F::from_u64(2),
-            exp_domain_gen: F::from_u64(2),
+            folded_domain_gen: F::from_u64(2),
         }];
 
         assert!(
