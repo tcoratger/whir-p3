@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 use rand::{
     Rng,
     distr::{Distribution, StandardUniform},
@@ -184,6 +184,11 @@ where
         }
 
         acc
+    }
+
+    #[must_use]
+    pub fn embed<EF: ExtensionField<F>>(&self) -> MultilinearPoint<EF> {
+        MultilinearPoint(self.0.iter().map(|&x| EF::from(x)).collect())
     }
 }
 

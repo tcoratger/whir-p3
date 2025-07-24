@@ -271,7 +271,7 @@ where
     pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<F, EF, Challenger>,
-        params: &RoundConfig<EF>,
+        params: &RoundConfig<F>,
         commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
@@ -327,10 +327,10 @@ where
 
         let stir_constraints = stir_challenges_indexes
             .iter()
-            .map(|&index| params.exp_domain_gen.exp_u64(index as u64))
+            .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
             .zip(&folds)
             .map(|(point, &value)| Constraint {
-                weights: Weights::univariate(point, params.num_variables),
+                weights: Weights::univariate(EF::from(point), params.num_variables),
                 sum: value,
                 defer_evaluation: false,
             })

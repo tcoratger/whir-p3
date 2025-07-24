@@ -168,7 +168,7 @@ where
             self.pow(params.starting_folding_pow_bits);
         }
 
-        let mut domain_size = params.starting_domain.size();
+        let mut domain_size = params.starting_domain_size();
         for (round, r) in params.round_parameters.iter().enumerate() {
             let folded_domain_size = domain_size >> params.folding_factor.at_round(round);
             let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);

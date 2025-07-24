@@ -222,8 +222,8 @@ where
 
         // Compute polynomial evaluations and build Merkle tree
         let domain_reduction = 1 << self.rs_reduction_factor(round_index);
-        let new_domain = round_state.domain.scale(domain_reduction);
-        let inv_rate = new_domain.size() / folded_evaluations.num_evals();
+        let new_domain_size = round_state.domain_size / domain_reduction;
+        let inv_rate = new_domain_size / folded_evaluations.num_evals();
         let folded_matrix = info_span!("fold matrix").in_scope(|| {
             let evals_repeated = info_span!("repeating evals")
                 .in_scope(|| parallel_repeat(folded_evaluations.evals(), inv_rate));
@@ -275,14 +275,15 @@ where
         prover_state.pow_grinding(round_params.pow_bits);
 
         // STIR Queries
-        let (stir_challenges, stir_challenges_indexes) = self.compute_stir_queries(
-            round_index,
-            prover_state,
-            round_state,
-            num_variables,
-            round_params,
-            ood_points,
-        )?;
+        let (ood_challenges, stir_challenges, stir_challenges_indexes) = self
+            .compute_stir_queries(
+                round_index,
+                prover_state,
+                round_state,
+                num_variables,
+                round_params,
+                &ood_points,
+            )?;
 
         // Collect Merkle proofs for stir queries
         let stir_evaluations = match &round_state.merkle_prover_data {
@@ -309,10 +310,7 @@ where
                 }
 
                 // Evaluate answers in the folding randomness.
-                let mut stir_evaluations = ood_answers;
-                // Exactly one growth
-                stir_evaluations.reserve_exact(answers.len());
-
+                let mut stir_evaluations = vec![];
                 for answer in &answers {
                     stir_evaluations.push(
                         EvaluationsList::new(answer.clone())
@@ -344,10 +342,7 @@ where
                 }
 
                 // Evaluate answers in the folding randomness.
-                let mut stir_evaluations = ood_answers;
-                // Exactly one growth
-                stir_evaluations.reserve_exact(answers.len());
-
+                let mut stir_evaluations = vec![];
                 for answer in &answers {
                     stir_evaluations.push(
                         EvaluationsList::new(answer.clone())
@@ -361,15 +356,29 @@ where
 
         // Randomness for combination
         let combination_randomness_gen: EF = prover_state.sample();
-        let combination_randomness: Vec<_> = combination_randomness_gen
+        let ood_combination_randomness: Vec<_> = combination_randomness_gen
             .powers()
+            .take(ood_challenges.len())
+            .collect();
+        round_state.sumcheck_prover.add_new_equality(
+            &ood_challenges,
+            &ood_answers,
+            &ood_combination_randomness,
+        );
+        let stir_combination_randomness: Vec<_> = combination_randomness_gen
+            .powers()
+            .skip(ood_challenges.len())
             .take(stir_challenges.len())
             .collect();
 
+        // TODO here we could gain performance by removing the embedding from F to EF
         round_state.sumcheck_prover.add_new_equality(
-            &stir_challenges,
+            &stir_challenges
+                .iter()
+                .map(MultilinearPoint::embed)
+                .collect::<Vec<_>>(),
             &stir_evaluations,
-            &combination_randomness,
+            &stir_combination_randomness,
         );
 
         let folding_randomness = round_state.sumcheck_prover.compute_sumcheck_polynomials(
@@ -390,7 +399,9 @@ where
         }
 
         // Update round state
-        round_state.domain = new_domain;
+        round_state.domain_size = new_domain_size;
+        round_state.next_domain_gen =
+            F::two_adic_generator(new_domain_size.ilog2() as usize - folding_factor_next);
         round_state.folding_randomness = folding_randomness;
         round_state.merkle_prover_data = Some(prover_data);
 
@@ -434,7 +445,7 @@ where
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
             // The size of the original domain before folding
-            round_state.domain.size(),
+            round_state.domain_size,
             // The folding factor we used to fold the previous polynomial
             self.folding_factor.at_round(round_index),
             self.final_queries,
@@ -520,37 +531,43 @@ where
     }
 
     #[instrument(skip_all, level = "debug")]
+    #[allow(clippy::type_complexity)]
     fn compute_stir_queries<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
         prover_state: &mut ProverState<F, EF, Challenger>,
         round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
         num_variables: usize,
-        round_params: &RoundConfig<EF>,
-        ood_points: Vec<EF>,
-    ) -> ProofResult<(Vec<MultilinearPoint<EF>>, Vec<usize>)> {
+        round_params: &RoundConfig<F>,
+        ood_points: &[EF],
+    ) -> ProofResult<(
+        Vec<MultilinearPoint<EF>>,
+        Vec<MultilinearPoint<F>>,
+        Vec<usize>,
+    )> {
         let stir_challenges_indexes = get_challenge_stir_queries(
-            round_state.domain.size(),
+            round_state.domain_size,
             self.folding_factor.at_round(round_index),
             round_params.num_queries,
             prover_state,
         )?;
 
         // Compute the generator of the folded domain, in the extension field
-        let domain_scaled_gen = round_state
-            .domain
-            .backing_domain
-            .element(1 << self.folding_factor.at_round(round_index));
-        let stir_challenges = ood_points
-            .into_iter()
-            .chain(
-                stir_challenges_indexes
-                    .iter()
-                    .map(|i| domain_scaled_gen.exp_u64(*i as u64)),
-            )
-            .map(|univariate| MultilinearPoint::expand_from_univariate(univariate, num_variables))
+        let domain_scaled_gen = round_state.next_domain_gen;
+        let ood_challenges = ood_points
+            .iter()
+            .map(|univariate| MultilinearPoint::expand_from_univariate(*univariate, num_variables))
+            .collect();
+        let stir_challenges = stir_challenges_indexes
+            .iter()
+            .map(|i| {
+                MultilinearPoint::expand_from_univariate(
+                    domain_scaled_gen.exp_u64(*i as u64),
+                    num_variables,
+                )
+            })
             .collect();
 
-        Ok((stir_challenges, stir_challenges_indexes))
+        Ok((ood_challenges, stir_challenges, stir_challenges_indexes))
     }
 }
