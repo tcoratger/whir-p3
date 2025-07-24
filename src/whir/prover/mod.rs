@@ -365,11 +365,10 @@ where
             &ood_answers,
             &ood_combination_randomness,
         );
-        let stir_combination_randomness: Vec<_> = combination_randomness_gen
+        let stir_combination_randomness = combination_randomness_gen
             .powers()
             .skip(ood_challenges.len())
-            .take(stir_challenges.len())
-            .collect();
+            .collect_n(stir_challenges.len());
 
         // TODO here we could gain performance by removing the embedding from F to EF
         round_state.sumcheck_prover.add_new_equality(
