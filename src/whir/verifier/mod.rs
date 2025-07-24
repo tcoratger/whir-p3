@@ -271,7 +271,7 @@ where
     pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<F, EF, Challenger>,
-        params: &RoundConfig<EF>,
+        params: &RoundConfig<F>,
         commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
@@ -282,6 +282,22 @@ where
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         let leafs_base_field = round_index == 0;
+
+        // CRITICAL: Verify the prover's proof-of-work before generating challenges.
+        //
+        // This is the verifier's counterpart to the prover's grinding step and is essential
+        // for protocol soundness.
+        //
+        // The query locations (`stir_challenges_indexes`) we are about to generate are derived
+        // from the transcript, which includes the prover's commitment for this round. To prevent
+        // a malicious prover from repeatedly trying different commitments until they find one that
+        // produces "easy" queries, the protocol forces the prover to perform an expensive
+        // proof-of-work (grinding) after they commit.
+        //
+        // By verifying that proof-of-work *now*, we confirm that the prover "locked in" their
+        // commitment at a significant computational cost. This gives us confidence that the
+        // challenges we generate are unpredictable and unbiased by a cheating prover.
+        verifier_state.check_pow_grinding(params.pow_bits)?;
 
         let stir_challenges_indexes = get_challenge_stir_queries(
             params.domain_size,
@@ -303,8 +319,6 @@ where
             round_index,
         )?;
 
-        verifier_state.check_pow_grinding(params.pow_bits)?;
-
         // Compute STIR Constraints
         let folds: Vec<_> = answers
             .into_iter()
@@ -313,10 +327,10 @@ where
 
         let stir_constraints = stir_challenges_indexes
             .iter()
-            .map(|&index| params.exp_domain_gen.exp_u64(index as u64))
+            .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
             .zip(&folds)
             .map(|(point, &value)| Constraint {
-                weights: Weights::univariate(point, params.num_variables),
+                weights: Weights::univariate(EF::from(point), params.num_variables),
                 sum: value,
                 defer_evaluation: false,
             })

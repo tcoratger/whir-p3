@@ -422,8 +422,7 @@ where
         // Apply rest of sumcheck rounds
         res.extend(
             (1..folding_factor)
-                .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits))
-                .collect::<Vec<_>>(),
+                .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
         );
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
@@ -499,8 +498,7 @@ where
         // Apply rest of sumcheck rounds
         res.extend(
             (k_skip..folding_factor)
-                .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits))
-                .collect::<Vec<_>>(),
+                .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
         );
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
