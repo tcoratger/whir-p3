@@ -262,7 +262,7 @@ where
     ///
     /// - `num_variables` is the number of variables in the original multivariate polynomial.
     /// - `starting_log_inv_rate` is the initial inverse rate of the Reed–Solomon code,
-    ///    controlling redundancy relative to the degree.
+    ///   controlling redundancy relative to the degree.
     ///
     /// # Returns
     /// A power-of-two value representing the number of evaluation points in the starting domain.
