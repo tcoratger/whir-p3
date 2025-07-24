@@ -342,7 +342,7 @@ where
                 }
 
                 // Evaluate answers in the folding randomness.
-                let mut stir_evaluations = vec![];
+                let mut stir_evaluations = Vec::with_capacity(answers.len());
                 for answer in &answers {
                     stir_evaluations.push(
                         EvaluationsList::new(answer.clone())
