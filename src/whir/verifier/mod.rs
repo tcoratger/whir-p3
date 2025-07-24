@@ -231,10 +231,9 @@ where
         constraints: &[Constraint<EF>],
     ) -> ProofResult<Vec<EF>> {
         let combination_randomness_gen: EF = verifier_state.sample();
-        let combination_randomness: Vec<_> = combination_randomness_gen
+        let combination_randomness = combination_randomness_gen
             .powers()
-            .take(constraints.len())
-            .collect();
+            .collect_n(constraints.len());
         *claimed_sum += constraints
             .iter()
             .zip(&combination_randomness)

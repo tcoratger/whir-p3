@@ -190,7 +190,7 @@ where
     // Compute powers of alpha up to `num_points` and register the new equality constraint.
     //
     // This enforces that the weighted sum of these evaluations equals the claimed value.
-    sumcheck.add_new_equality(&points, &evals, &alpha.powers().take(num_points).collect());
+    sumcheck.add_new_equality(&points, &evals, &alpha.powers().collect_n(num_points));
 
     // Return the constructed statement and the alpha used for linear combination.
     (statement, alpha)
@@ -275,7 +275,7 @@ fn combine_constraints<EF: Field>(
     alpha: EF,
 ) -> Vec<EF> {
     // Compute powers of alpha: [1, alpha, alpha², ..., alpha^{n-1}]
-    let alpha: Vec<_> = alpha.powers().take(constraints.len()).collect();
+    let alpha = alpha.powers().collect_n(constraints.len());
 
     // Compute the weighted sum of all constraints using the corresponding power of alpha
     let weighted_sum: EF = constraints
@@ -302,7 +302,7 @@ fn eval_constraints_poly<EF: Field>(
     assert_eq!(alphas.len(), constraints.len());
 
     for (round, (alphas, constraints)) in alphas.iter().zip(constraints.iter()).enumerate() {
-        let alphas: Vec<_> = alphas.powers().take(constraints.len()).collect();
+        let alphas = alphas.powers().collect_n(constraints.len());
         assert_eq!(alphas.len(), constraints.len());
         if round > 0 {
             num_variables -= folding_factor[round - 1];
