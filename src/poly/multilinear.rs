@@ -186,6 +186,7 @@ where
         acc
     }
 
+    /// Embeds the point into an extension field `EF`.
     #[must_use]
     pub fn embed<EF: ExtensionField<F>>(&self) -> MultilinearPoint<EF> {
         MultilinearPoint(self.0.iter().map(|&x| EF::from(x)).collect())
