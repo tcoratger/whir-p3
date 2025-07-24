@@ -249,6 +249,23 @@ where
         }
     }
 
+    /// Returns the size of the initial evaluation domain.
+    ///
+    /// This is the size of the domain used to evaluate the original multilinear polynomial
+    /// before any folding or reduction steps are applied in the WHIR protocol.
+    ///
+    /// It is computed as:
+    ///
+    /// \begin{equation}
+    /// 2^{\text{num\_variables} + \text{starting\_log\_inv\_rate}}
+    /// \end{equation}
+    ///
+    /// - `num_variables` is the number of variables in the original multivariate polynomial.
+    /// - `starting_log_inv_rate` is the initial inverse rate of the Reed–Solomon code,
+    ///    controlling redundancy relative to the degree.
+    ///
+    /// # Returns
+    /// A power-of-two value representing the number of evaluation points in the starting domain.
     pub const fn starting_domain_size(&self) -> usize {
         1 << (self.mv_parameters.num_variables + self.starting_log_inv_rate)
     }
