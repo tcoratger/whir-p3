@@ -358,8 +358,7 @@ where
         let combination_randomness_gen: EF = prover_state.sample();
         let ood_combination_randomness: Vec<_> = combination_randomness_gen
             .powers()
-            .take(ood_challenges.len())
-            .collect();
+            .collect_n(ood_challenges.len());
         round_state.sumcheck_prover.add_new_equality(
             &ood_challenges,
             &ood_answers,
@@ -368,7 +367,8 @@ where
         let stir_combination_randomness = combination_randomness_gen
             .powers()
             .skip(ood_challenges.len())
-            .collect_n(stir_challenges.len());
+            .take(stir_challenges.len())
+            .collect::<Vec<_>>();
 
         // TODO here we could gain performance by removing the embedding from F to EF
         round_state.sumcheck_prover.add_new_equality(
