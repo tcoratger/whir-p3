@@ -134,6 +134,20 @@ where
         eval_multilinear(&self.evals, point)
     }
 
+    /// Evaluates the polynomial as a constant.
+    /// This is only valid for constant polynomials (i.e., when `num_variables` is 0).
+    ///
+    /// # Panics
+    /// Panics if `num_variables` is not 0.
+    #[must_use]
+    pub fn as_constant(&self) -> F {
+        assert_eq!(
+            self.num_variables, 0,
+            "`as_constant` is only valid for constant polynomials."
+        );
+        self.evals[0]
+    }
+
     /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
     ///
     /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
