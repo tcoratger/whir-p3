@@ -172,8 +172,8 @@ where
     #[must_use]
     #[instrument(skip_all)]
     pub fn parallel_clone(&self) -> Self {
-        let mut evals = unsafe { uninitialized_vec(self.0.len()) };
-        parallel_clone(&self.0, &mut evals);
+        let mut evals = unsafe { uninitialized_vec(self.len()) };
+        parallel_clone(self, &mut evals);
         Self(evals)
     }
 
@@ -181,9 +181,9 @@ where
     #[must_use]
     pub fn scale<EF: ExtensionField<F>>(&self, factor: EF) -> EvaluationsList<EF> {
         #[cfg(not(feature = "parallel"))]
-        let evals = self.0.iter().map(|&e| factor * e).collect();
+        let evals = self.iter().map(|&e| factor * e).collect();
         #[cfg(feature = "parallel")]
-        let evals = self.0.par_iter().map(|&e| factor * e).collect();
+        let evals = self.par_iter().map(|&e| factor * e).collect();
         EvaluationsList(evals)
     }
 
