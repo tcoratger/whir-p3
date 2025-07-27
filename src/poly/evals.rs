@@ -65,8 +65,8 @@ where
     /// num_evals = 2^{num_variables}
     /// ```
     #[must_use]
-    pub fn num_evals(&self) -> usize {
-        self.len()
+    pub const fn num_evals(&self) -> usize {
+        self.evals.len()
     }
 
     /// Returns the number of variables in the multilinear polynomial.

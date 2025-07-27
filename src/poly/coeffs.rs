@@ -209,7 +209,7 @@ impl<F> CoefficientList<F> {
 
     /// Returns the total number of coefficients (`2^n`).
     #[must_use]
-    pub fn num_coeffs(&self) -> usize {
+    pub const fn num_coeffs(&self) -> usize {
         self.coeffs.len()
     }
 

@@ -270,7 +270,7 @@ where
         1 << (self.mv_parameters.num_variables + self.starting_log_inv_rate)
     }
 
-    pub fn n_rounds(&self) -> usize {
+    pub const fn n_rounds(&self) -> usize {
         self.round_parameters.len()
     }
 
