@@ -66,7 +66,7 @@ where
     /// ```
     #[must_use]
     pub const fn num_evals(&self) -> usize {
-        self.evals.len()
+        self.0.len()
     }
 
     /// Returns the number of variables in the multilinear polynomial.
