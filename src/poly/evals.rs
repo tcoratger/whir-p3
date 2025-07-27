@@ -77,7 +77,7 @@ where
     /// ```
     #[must_use]
     pub fn num_evals(&self) -> usize {
-        self.0.len()
+        self.len()
     }
 
     /// Returns the number of variables in the multilinear polynomial.
@@ -114,9 +114,9 @@ where
         EF: ExtensionField<F>,
     {
         if let Some(point) = point.to_hypercube() {
-            return self.0[point.0].into();
+            return self[point.0].into();
         }
-        eval_multilinear(&self.0, point)
+        eval_multilinear(self, point)
     }
 
     /// Evaluates the polynomial as a constant.
@@ -963,9 +963,9 @@ mod tests {
 
         let result = list.scale(EF4::ONE);
 
-        assert_eq!(result.0.len(), 3);
-        for (i, val) in result.0.iter().enumerate() {
-            assert_eq!(*val, EF4::from(list.0[i]));
+        assert_eq!(result.len(), 3);
+        for (i, val) in result.iter().enumerate() {
+            assert_eq!(*val, EF4::from(list[i]));
         }
         assert_eq!(result.num_variables(), 1);
     }
@@ -977,9 +977,9 @@ mod tests {
         let factor = EF4::from_u64(9);
         let result = list.scale(factor);
 
-        assert_eq!(result.0.len(), 3);
-        for (i, val) in result.0.iter().enumerate() {
-            assert_eq!(*val, EF4::from(list.0[i]) * factor);
+        assert_eq!(result.len(), 3);
+        for (i, val) in result.iter().enumerate() {
+            assert_eq!(*val, EF4::from(list[i]) * factor);
         }
         assert_eq!(result.num_variables(), 2);
     }
@@ -995,7 +995,7 @@ mod tests {
 
         let result = list.scale(EF4::from_u64(7));
 
-        assert_eq!(result.0.len(), 4);
+        assert_eq!(result.len(), 4);
         assert_eq!(result.num_variables(), 2);
     }
 
