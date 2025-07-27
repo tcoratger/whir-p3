@@ -87,7 +87,7 @@ where
     /// num_evals = 2^{num_variables}
     /// ```
     #[must_use]
-    pub fn num_evals(&self) -> usize {
+    pub const fn num_evals(&self) -> usize {
         self.evals.len()
     }
 
