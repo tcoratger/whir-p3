@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use p3_field::{ExtensionField, Field};
 #[cfg(feature = "parallel")]
@@ -56,17 +56,6 @@ where
         }
         eval_eq::<_, _, false>(eval, &mut out, F::ONE);
         Self(out)
-    }
-
-    /// Returns an immutable reference to the evaluations vector.
-    #[must_use]
-    pub fn evals(&self) -> &[F] {
-        &self.0
-    }
-
-    /// Returns a mutable reference to the evaluations vector.
-    pub fn evals_mut(&mut self) -> &mut [F] {
-        &mut self.0
     }
 
     /// Returns the total number of stored evaluations.
@@ -219,6 +208,12 @@ impl<F> Deref for EvaluationsList<F> {
     }
 }
 
+impl<F> DerefMut for EvaluationsList<F> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 /// Evaluates a multilinear polynomial at `point ∈ [0,1]^n` using fast interpolation.
 ///
 /// - Given evaluations `evals` over `{0,1}^n`, computes `f(point)` via iterative interpolation.
@@ -320,7 +315,7 @@ mod tests {
 
         assert_eq!(evaluations_list.num_evals(), evals.len());
         assert_eq!(evaluations_list.num_variables(), 2);
-        assert_eq!(evaluations_list.evals(), &evals);
+        assert_eq!(&*evaluations_list, &evals);
     }
 
     #[test]
@@ -359,11 +354,11 @@ mod tests {
     fn test_mutability_of_evals() {
         let mut evals = EvaluationsList::new(vec![F::ZERO, F::ONE, F::ZERO, F::ONE]);
 
-        assert_eq!(evals.evals()[1], F::ONE);
+        assert_eq!(evals[1], F::ONE);
 
-        evals.evals_mut()[1] = F::from_u64(5);
+        evals[1] = F::from_u64(5);
 
-        assert_eq!(evals.evals()[1], F::from_u64(5));
+        assert_eq!(evals[1], F::from_u64(5));
     }
 
     #[test]
@@ -442,7 +437,7 @@ mod tests {
         let result = evals.evaluate(&point);
 
         // Expected result using `eval_multilinear`
-        let expected = eval_multilinear(evals.evals(), &point);
+        let expected = eval_multilinear(&evals, &point);
 
         assert_eq!(result, expected);
     }
@@ -889,10 +884,10 @@ mod tests {
         let c1 = F::from_u64(22);
         let evals = [c0, c1];
         let poly = EvaluationsList::eval_eq(&evals);
-        assert_eq!(poly.evals()[0], (F::ONE - c0) * (F::ONE - c1));
-        assert_eq!(poly.evals()[1], (F::ONE - c0) * c1);
-        assert_eq!(poly.evals()[2], c0 * (F::ONE - c1));
-        assert_eq!(poly.evals()[3], c0 * c1);
+        assert_eq!(poly[0], (F::ONE - c0) * (F::ONE - c1));
+        assert_eq!(poly[1], (F::ONE - c0) * c1);
+        assert_eq!(poly[2], c0 * (F::ONE - c1));
+        assert_eq!(poly[3], c0 * c1);
     }
 
     proptest! {
@@ -1008,7 +1003,7 @@ mod tests {
         list.truncate(2);
 
         // Only the first two elements should remain
-        assert_eq!(list.evals(), &evals[..2]);
+        assert_eq!(&*list, &evals[..2]);
         assert_eq!(list.num_variables(), 1); // log2(2) = 1
     }
 
@@ -1024,7 +1019,7 @@ mod tests {
 
         list.truncate(1);
 
-        assert_eq!(list.evals(), &[F::from_u64(7)]);
+        assert_eq!(&*list, &[F::from_u64(7)]);
         assert_eq!(list.num_variables(), 0); // log2(1) = 0
     }
 
@@ -1045,7 +1040,7 @@ mod tests {
 
         list.truncate(2); // Same length, should remain unchanged
 
-        assert_eq!(list.evals(), &evals);
+        assert_eq!(&*list, &evals);
         assert_eq!(list.num_variables(), 1);
     }
 }

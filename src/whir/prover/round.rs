@@ -425,7 +425,7 @@ mod tests {
         let dot_product: EF4 = sumcheck
             .evals
             .iter()
-            .zip(sumcheck.weights.evals())
+            .zip(sumcheck.weights.as_ref())
             .map(|(f, w)| *f * *w)
             .sum();
         assert_eq!(dot_product, sumcheck.sum);
@@ -492,7 +492,7 @@ mod tests {
         let sumcheck = &state.sumcheck_prover;
         let sumcheck_randomness = state.folding_randomness.clone();
 
-        for (f, w) in sumcheck.evals.iter().zip(sumcheck.weights.evals()) {
+        for (f, w) in sumcheck.evals.iter().zip(sumcheck.weights.as_ref()) {
             // Each evaluation should be 0
             assert_eq!(*f, EF4::ZERO);
             // Their contribution to the weighted sum should also be 0
@@ -596,10 +596,10 @@ mod tests {
         );
 
         // Manually verify that ⟨f, w⟩ = claimed sum
-        let dot_product = evals_f.evals()[0] * sumcheck.weights.evals()[0]
-            + evals_f.evals()[1] * sumcheck.weights.evals()[1]
-            + evals_f.evals()[2] * sumcheck.weights.evals()[2]
-            + evals_f.evals()[3] * sumcheck.weights.evals()[3];
+        let dot_product = evals_f[0] * sumcheck.weights[0]
+            + evals_f[1] * sumcheck.weights[1]
+            + evals_f[2] * sumcheck.weights[2]
+            + evals_f[3] * sumcheck.weights[3];
         assert_eq!(dot_product, sumcheck.sum);
 
         // No Merkle tree data has been created for folded rounds yet

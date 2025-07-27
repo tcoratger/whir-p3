@@ -222,7 +222,7 @@ mod tests {
         // Expected sum remains unchanged since there is only one constraint
         let expected_combined_sum = sum;
 
-        assert_eq!(combined_evals.evals(), &expected_combined_evals);
+        assert_eq!(&*combined_evals, &expected_combined_evals);
         assert_eq!(combined_sum, expected_combined_sum);
     }
 
@@ -284,7 +284,7 @@ mod tests {
         // \end{equation}
         let expected_combined_sum = sum1 + challenge * sum2; // 5 + 2 * 7 = 19
 
-        assert_eq!(combined_evals.evals(), &expected_combined_evals);
+        assert_eq!(&*combined_evals, &expected_combined_evals);
         assert_eq!(combined_sum, expected_combined_sum);
     }
 

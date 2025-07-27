@@ -226,7 +226,7 @@ where
         let inv_rate = new_domain_size / folded_evaluations.num_evals();
         let folded_matrix = info_span!("fold matrix").in_scope(|| {
             let evals_repeated = info_span!("repeating evals")
-                .in_scope(|| parallel_repeat(folded_evaluations.evals(), inv_rate));
+                .in_scope(|| parallel_repeat(folded_evaluations, inv_rate));
             // Do DFT on only interleaved polys to be folded.
             info_span!(
                 "dft",
