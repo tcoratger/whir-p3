@@ -94,17 +94,14 @@ pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
         // Calculate the new length of the evaluations list after folding.
         let mid = evals.len() / 2;
 
-        // Get a mutable slice to the underlying vector of evaluations.
-        let evals_slice = evals.evals_mut();
-
         // Sequentially fold pairs of evaluations and write the result to the first half of the slice.
         for i in 0..mid {
             // Read the pair of evaluations, p(..., 0) and p(..., 1), for the last variable.
-            let p0 = evals_slice[2 * i];
-            let p1 = evals_slice[2 * i + 1];
+            let p0 = evals[2 * i];
+            let p1 = evals[2 * i + 1];
 
             // Apply the folding formula and overwrite the entry at the current write position.
-            evals_slice[i] = r * (p1 - p0) + p0;
+            evals[i] = r * (p1 - p0) + p0;
         }
 
         // Truncate the evaluations list to its new, smaller size.
@@ -574,7 +571,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter().zip(evaluations.iter()))
                 .for_each(|(point, (&rand, &eval))| {
-                    crate::utils::eval_eq::<F, EF, true>(point, self.weights.evals_mut(), rand);
+                    crate::utils::eval_eq::<F, EF, true>(point, &mut self.weights, rand);
                     self.sum += rand * eval;
                 });
         }
