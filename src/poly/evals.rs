@@ -929,23 +929,17 @@ mod tests {
     }
 
     #[test]
-    fn test_scale_empty() {
-        let list = EvaluationsList::<F>(vec![]);
-
-        let factor = EF4::from_u64(3);
-        let result = list.scale(factor);
-
-        assert_eq!(result.0, vec![]);
-        assert_eq!(result.num_variables(), 0);
-    }
-
-    #[test]
     fn test_scale_by_zero() {
-        let list = EvaluationsList::<F>(vec![F::from_u64(1), F::from_u64(2), F::from_u64(3)]);
+        let list = EvaluationsList::<F>::new(vec![
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(4),
+        ]);
 
         let result = list.scale(EF4::ZERO);
 
-        assert_eq!(result.0.len(), 3);
+        assert_eq!(result.0.len(), 4);
         for val in &result.0 {
             assert_eq!(val.clone(), EF4::ZERO);
         }
@@ -954,25 +948,35 @@ mod tests {
 
     #[test]
     fn test_scale_by_one() {
-        let list = EvaluationsList::<F>(vec![F::from_u64(10), F::from_u64(20), F::from_u64(30)]);
+        let list = EvaluationsList::<F>::new(vec![
+            F::from_u64(10),
+            F::from_u64(20),
+            F::from_u64(30),
+            F::from_u64(40),
+        ]);
 
         let result = list.scale(EF4::ONE);
 
-        assert_eq!(result.len(), 3);
+        assert_eq!(result.len(), 4);
         for (i, val) in result.iter().enumerate() {
             assert_eq!(*val, EF4::from(list[i]));
         }
-        assert_eq!(result.num_variables(), 1);
+        assert_eq!(result.num_variables(), 2);
     }
 
     #[test]
     fn test_scale_by_nontrivial_scalar() {
-        let list = EvaluationsList::<F>(vec![F::from_u64(2), F::from_u64(5), F::from_u64(7)]);
+        let list = EvaluationsList::<F>::new(vec![
+            F::from_u64(2),
+            F::from_u64(5),
+            F::from_u64(7),
+            F::from_u64(8),
+        ]);
 
         let factor = EF4::from_u64(9);
         let result = list.scale(factor);
 
-        assert_eq!(result.len(), 3);
+        assert_eq!(result.len(), 4);
         for (i, val) in result.iter().enumerate() {
             assert_eq!(*val, EF4::from(list[i]) * factor);
         }
