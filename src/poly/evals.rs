@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use p3_field::{ExtensionField, Field};
 #[cfg(feature = "parallel")]
@@ -8,34 +8,29 @@ use tracing::instrument;
 use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
 use crate::utils::{eval_eq, parallel_clone, uninitialized_vec};
 
-/// Represents a multilinear polynomial `f` in `num_variables` unknowns, stored via its evaluations
-/// over the hypercube `{0,1}^{num_variables}`.
+/// Represents a multilinear polynomial `f` in `n` variables, stored by its evaluations
+/// over the boolean hypercube `{0,1}^n`.
 ///
-/// The vector `evals` contains function evaluations at **lexicographically ordered** points.
+/// The inner vector stores function evaluations at points of the hypercube in lexicographic
+/// order. The number of variables `n` is inferred from the length of this vector, where
+/// `self.len() = 2^n`.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct EvaluationsList<F> {
-    /// Stores evaluations in **lexicographic order**.
-    evals: Vec<F>,
-    /// Number of variables in the multilinear polynomial.
-    /// Ensures `evals.len() = 2^{num_variables}`.
-    num_variables: usize,
-}
+pub struct EvaluationsList<F>(Vec<F>);
 
 impl<F> EvaluationsList<F>
 where
     F: Field,
 {
-    /// Constructs an `EvaluationsList` from a given vector of evaluations.
+    /// Constructs an `EvaluationsList` from a vector of evaluations.
     ///
-    /// - The `evals` vector must have a **length that is a power of two** since it represents
-    ///   evaluations over an `n`-dimensional binary hypercube.
-    /// - The ordering of evaluation points follows **lexicographic order**.
+    /// The `evals` vector must adhere to the following constraints:
+    /// - Its length must be a power of two, as it represents evaluations over a
+    ///   binary hypercube of some dimension `n`.
+    /// - The evaluations must be ordered lexicographically corresponding to the points
+    ///   on the hypercube.
     ///
-    /// **Mathematical Constraint:**
-    /// If `evals.len() = 2^n`, then `num_variables = n`, ensuring correct indexing.
-    ///
-    /// **Panics:**
-    /// - If `evals.len()` is **not** a power of two.
+    /// # Panics
+    /// Panics if `evals.len()` is not a power of two.
     #[must_use]
     pub fn new(evals: Vec<F>) -> Self {
         let len = evals.len();
@@ -44,16 +39,13 @@ where
             "Evaluation list length must be a power of two."
         );
 
-        Self {
-            evals,
-            num_variables: len.ilog2() as usize,
-        }
+        Self(evals)
     }
 
-    /// Given `evals` = (α_1, ..., α_n), returns a multilinear polynomial P in n variables,
-    /// defined on the boolean hypercube by: ∀ (x_1, ..., x_n) ∈ {0, 1}^n,
-    /// P(x_1, ..., x_n) = Π_{i=1}^{n} (x_i.α_i + (1 - x_i).(1 - α_i))
-    /// (often denoted as P(x) = eq(x, evals))
+    /// Creates an `EvaluationsList` for the `eq` polynomial from a given point.
+    ///
+    /// Given a point `p = (p_1, ..., p_n)`, this computes the evaluations of the polynomial
+    /// `eq(x, p) = Π_{i=1}^{n} (x_i * p_i + (1 - x_i) * (1 - p_i))` over the boolean hypercube.
     pub fn eval_eq(eval: &[F]) -> Self {
         // Alloc memory without initializing it to zero.
         // This is safe because we overwrite it inside `eval_eq`.
@@ -63,21 +55,7 @@ where
             out.set_len(1 << eval.len());
         }
         eval_eq::<_, _, false>(eval, &mut out, F::ONE);
-        Self {
-            evals: out,
-            num_variables: eval.len(),
-        }
-    }
-
-    /// Returns an immutable reference to the evaluations vector.
-    #[must_use]
-    pub fn evals(&self) -> &[F] {
-        &self.evals
-    }
-
-    /// Returns a mutable reference to the evaluations vector.
-    pub fn evals_mut(&mut self) -> &mut [F] {
-        &mut self.evals
+        Self(out)
     }
 
     /// Returns the total number of stored evaluations.
@@ -88,13 +66,14 @@ where
     /// ```
     #[must_use]
     pub const fn num_evals(&self) -> usize {
-        self.evals.len()
+        self.0.len()
     }
 
     /// Returns the number of variables in the multilinear polynomial.
     #[must_use]
     pub const fn num_variables(&self) -> usize {
-        self.num_variables
+        // Safety: The length is guaranteed to be a power of two.
+        self.0.len().ilog2() as usize
     }
 
     /// Truncates the list of evaluations to a new length.
@@ -109,12 +88,7 @@ where
             new_len.is_power_of_two(),
             "New evaluation list length must be a power of two."
         );
-        self.evals.truncate(new_len);
-        self.num_variables = if new_len == 0 {
-            0
-        } else {
-            new_len.ilog2() as usize
-        };
+        self.0.truncate(new_len);
     }
 
     /// Evaluates the multilinear polynomial at `point ∈ [0,1]^n`.
@@ -129,9 +103,9 @@ where
         EF: ExtensionField<F>,
     {
         if let Some(point) = point.to_hypercube() {
-            return self.evals[point.0].into();
+            return self[point.0].into();
         }
-        eval_multilinear(&self.evals, point)
+        eval_multilinear(self, point)
     }
 
     /// Evaluates the polynomial as a constant.
@@ -142,10 +116,11 @@ where
     #[must_use]
     pub fn as_constant(&self) -> F {
         assert_eq!(
-            self.num_variables, 0,
+            self.num_variables(),
+            0,
             "`as_constant` is only valid for constant polynomials."
         );
-        self.evals[0]
+        self.0[0]
     }
 
     /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
@@ -180,49 +155,39 @@ where
         let folding_factor = folding_randomness.num_variables();
         #[cfg(not(feature = "parallel"))]
         let evals = self
-            .evals
+            .0
             .chunks_exact(1 << folding_factor)
             .map(|ev| eval_multilinear(ev, folding_randomness))
             .collect();
         #[cfg(feature = "parallel")]
         let evals = self
-            .evals
+            .0
             .par_chunks_exact(1 << folding_factor)
             .map(|ev| eval_multilinear(ev, folding_randomness))
             .collect();
 
-        EvaluationsList {
-            evals,
-            num_variables: self.num_variables() - folding_factor,
-        }
+        EvaluationsList(evals)
     }
 
     #[must_use]
     #[instrument(skip_all)]
     pub fn parallel_clone(&self) -> Self {
-        let mut evals = unsafe { uninitialized_vec(self.evals.len()) };
-        parallel_clone(&self.evals, &mut evals);
-        Self {
-            evals,
-            num_variables: self.num_variables,
-        }
+        let mut evals = unsafe { uninitialized_vec(self.len()) };
+        parallel_clone(self, &mut evals);
+        Self(evals)
     }
 
     /// Multiply the polynomial by a scalar factor.
     #[must_use]
     pub fn scale<EF: ExtensionField<F>>(&self, factor: EF) -> EvaluationsList<EF> {
         #[cfg(not(feature = "parallel"))]
-        let evals = self.evals.iter().map(|&e| factor * e).collect();
+        let evals = self.iter().map(|&e| factor * e).collect();
         #[cfg(feature = "parallel")]
-        let evals = self.evals.par_iter().map(|&e| factor * e).collect();
-        EvaluationsList {
-            evals,
-            num_variables: self.num_variables(),
-        }
+        let evals = self.par_iter().map(|&e| factor * e).collect();
+        EvaluationsList(evals)
     }
 
-    /// Convert from a list of evaluations to a list of
-    /// multilinear coefficients.
+    /// Convert from a list of evaluations to a list of multilinear coefficients.
     #[must_use]
     #[instrument(skip_all)]
     pub fn to_coefficients<B: Field>(self) -> CoefficientList<F>
@@ -230,7 +195,7 @@ where
         F: ExtensionField<B>,
     {
         let kernel = Radix2WaveletKernel::<B>::default();
-        let evals = kernel.inverse_wavelet_transform_algebra(self.evals);
+        let evals = kernel.inverse_wavelet_transform_algebra(self.0);
         CoefficientList::new(evals)
     }
 }
@@ -239,7 +204,13 @@ impl<F> Deref for EvaluationsList<F> {
     type Target = [F];
 
     fn deref(&self) -> &Self::Target {
-        &self.evals
+        &self.0
+    }
+}
+
+impl<F> DerefMut for EvaluationsList<F> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -344,7 +315,7 @@ mod tests {
 
         assert_eq!(evaluations_list.num_evals(), evals.len());
         assert_eq!(evaluations_list.num_variables(), 2);
-        assert_eq!(evaluations_list.evals(), &evals);
+        assert_eq!(&*evaluations_list, &evals);
     }
 
     #[test]
@@ -383,11 +354,11 @@ mod tests {
     fn test_mutability_of_evals() {
         let mut evals = EvaluationsList::new(vec![F::ZERO, F::ONE, F::ZERO, F::ONE]);
 
-        assert_eq!(evals.evals()[1], F::ONE);
+        assert_eq!(evals[1], F::ONE);
 
-        evals.evals_mut()[1] = F::from_u64(5);
+        evals[1] = F::from_u64(5);
 
-        assert_eq!(evals.evals()[1], F::from_u64(5));
+        assert_eq!(evals[1], F::from_u64(5));
     }
 
     #[test]
@@ -466,7 +437,7 @@ mod tests {
         let result = evals.evaluate(&point);
 
         // Expected result using `eval_multilinear`
-        let expected = eval_multilinear(evals.evals(), &point);
+        let expected = eval_multilinear(&evals, &point);
 
         assert_eq!(result, expected);
     }
@@ -913,10 +884,10 @@ mod tests {
         let c1 = F::from_u64(22);
         let evals = [c0, c1];
         let poly = EvaluationsList::eval_eq(&evals);
-        assert_eq!(poly.evals()[0], (F::ONE - c0) * (F::ONE - c1));
-        assert_eq!(poly.evals()[1], (F::ONE - c0) * c1);
-        assert_eq!(poly.evals()[2], c0 * (F::ONE - c1));
-        assert_eq!(poly.evals()[3], c0 * c1);
+        assert_eq!(poly[0], (F::ONE - c0) * (F::ONE - c1));
+        assert_eq!(poly[1], (F::ONE - c0) * c1);
+        assert_eq!(poly[2], c0 * (F::ONE - c1));
+        assert_eq!(poly[3], c0 * c1);
     }
 
     proptest! {
@@ -958,84 +929,73 @@ mod tests {
     }
 
     #[test]
-    fn test_scale_empty() {
-        let list = EvaluationsList::<F> {
-            evals: vec![],
-            num_variables: 0,
-        };
-
-        let factor = EF4::from_u64(3);
-        let result = list.scale(factor);
-
-        assert_eq!(result.evals, vec![]);
-        assert_eq!(result.num_variables, 0);
-    }
-
-    #[test]
     fn test_scale_by_zero() {
-        let list = EvaluationsList::<F> {
-            evals: vec![F::from_u64(1), F::from_u64(2), F::from_u64(3)],
-            num_variables: 2,
-        };
+        let list = EvaluationsList::<F>::new(vec![
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(4),
+        ]);
 
         let result = list.scale(EF4::ZERO);
 
-        assert_eq!(result.evals.len(), 3);
-        for val in result.evals {
-            assert_eq!(val, EF4::ZERO);
+        assert_eq!(result.0.len(), 4);
+        for val in &result.0 {
+            assert_eq!(val.clone(), EF4::ZERO);
         }
-        assert_eq!(result.num_variables, 2);
+        assert_eq!(result.num_variables(), 2);
     }
 
     #[test]
     fn test_scale_by_one() {
-        let list = EvaluationsList::<F> {
-            evals: vec![F::from_u64(10), F::from_u64(20), F::from_u64(30)],
-            num_variables: 1,
-        };
+        let list = EvaluationsList::<F>::new(vec![
+            F::from_u64(10),
+            F::from_u64(20),
+            F::from_u64(30),
+            F::from_u64(40),
+        ]);
 
         let result = list.scale(EF4::ONE);
 
-        assert_eq!(result.evals.len(), 3);
-        for (i, val) in result.evals.iter().enumerate() {
-            assert_eq!(*val, EF4::from(list.evals[i]));
+        assert_eq!(result.len(), 4);
+        for (i, val) in result.iter().enumerate() {
+            assert_eq!(*val, EF4::from(list[i]));
         }
-        assert_eq!(result.num_variables, 1);
+        assert_eq!(result.num_variables(), 2);
     }
 
     #[test]
     fn test_scale_by_nontrivial_scalar() {
-        let list = EvaluationsList::<F> {
-            evals: vec![F::from_u64(2), F::from_u64(5), F::from_u64(7)],
-            num_variables: 2,
-        };
+        let list = EvaluationsList::<F>::new(vec![
+            F::from_u64(2),
+            F::from_u64(5),
+            F::from_u64(7),
+            F::from_u64(8),
+        ]);
 
         let factor = EF4::from_u64(9);
         let result = list.scale(factor);
 
-        assert_eq!(result.evals.len(), 3);
-        for (i, val) in result.evals.iter().enumerate() {
-            assert_eq!(*val, EF4::from(list.evals[i]) * factor);
+        assert_eq!(result.len(), 4);
+        for (i, val) in result.iter().enumerate() {
+            assert_eq!(*val, EF4::from(list[i]) * factor);
         }
-        assert_eq!(result.num_variables, 2);
+        assert_eq!(result.num_variables(), 2);
     }
 
     #[test]
     fn test_scale_preserves_length_and_variables() {
-        let list = EvaluationsList::<F> {
-            evals: vec![
-                F::from_u64(0),
-                F::from_u64(1),
-                F::from_u64(2),
-                F::from_u64(3),
-            ],
-            num_variables: 2,
-        };
+        let list = EvaluationsList::<F>(vec![
+            F::from_u64(0),
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+        ]);
 
         let result = list.scale(EF4::from_u64(7));
 
-        assert_eq!(result.evals.len(), 4);
-        assert_eq!(result.num_variables, 2);
+        assert_eq!(result.len(), 4);
+        assert_eq!(result.num_variables(), 2);
     }
 
     #[test]
@@ -1047,7 +1007,7 @@ mod tests {
         list.truncate(2);
 
         // Only the first two elements should remain
-        assert_eq!(list.evals(), &evals[..2]);
+        assert_eq!(&*list, &evals[..2]);
         assert_eq!(list.num_variables(), 1); // log2(2) = 1
     }
 
@@ -1063,7 +1023,7 @@ mod tests {
 
         list.truncate(1);
 
-        assert_eq!(list.evals(), &[F::from_u64(7)]);
+        assert_eq!(&*list, &[F::from_u64(7)]);
         assert_eq!(list.num_variables(), 0); // log2(1) = 0
     }
 
@@ -1084,7 +1044,7 @@ mod tests {
 
         list.truncate(2); // Same length, should remain unchanged
 
-        assert_eq!(list.evals(), &evals);
+        assert_eq!(&*list, &evals);
         assert_eq!(list.num_variables(), 1);
     }
 }

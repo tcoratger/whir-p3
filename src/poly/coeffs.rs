@@ -1003,7 +1003,7 @@ mod tests {
             F::from_u64(1 + 2 + 3 + 4 + 5 + 6 + 7 + 8),
         ];
 
-        assert_eq!(eval_list.evals(), &expected);
+        assert_eq!(&*eval_list, &expected);
     }
 
     proptest! {
@@ -1028,7 +1028,7 @@ mod tests {
             let roundtrip = evals.clone().to_coefficients().to_evaluations();
 
             // Final assertion: roundtrip must be exact
-            prop_assert_eq!(roundtrip.evals(), evals.evals());
+            prop_assert_eq!(roundtrip, evals);
         }
     }
 
@@ -1053,6 +1053,6 @@ mod tests {
         let roundtrip = original.clone().to_coefficients().to_evaluations();
 
         // The recovered evaluations must exactly match the original
-        assert_eq!(roundtrip.evals(), original.evals());
+        assert_eq!(roundtrip, original);
     }
 }

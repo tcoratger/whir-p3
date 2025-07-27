@@ -91,17 +91,12 @@ impl<F: Field> Weights<F> {
                 assert_eq!(poly.num_variables(), weight.num_variables());
                 #[cfg(not(feature = "parallel"))]
                 {
-                    poly.evals()
-                        .iter()
-                        .zip(weight.evals().iter())
-                        .map(|(p, w)| *w * *p)
-                        .sum()
+                    poly.iter().zip(weight.iter()).map(|(p, w)| *w * *p).sum()
                 }
                 #[cfg(feature = "parallel")]
                 {
-                    poly.evals()
-                        .par_iter()
-                        .zip(weight.evals().par_iter())
+                    poly.par_iter()
+                        .zip(weight.par_iter())
                         .map(|(p, w)| *w * *p)
                         .sum()
                 }
@@ -140,13 +135,13 @@ impl<F: Field> Weights<F> {
         assert_eq!(accumulator.num_variables(), self.num_variables());
         match self {
             Self::Evaluation { point } => {
-                eval_eq::<Base, F, INITIALIZED>(point, accumulator.evals_mut(), factor);
+                eval_eq::<Base, F, INITIALIZED>(point, accumulator, factor);
             }
             Self::Linear { weight } => {
                 #[cfg(feature = "parallel")]
-                let accumulator_iter = accumulator.evals_mut().par_iter_mut();
+                let accumulator_iter = accumulator.par_iter_mut();
                 #[cfg(not(feature = "parallel"))]
-                let accumulator_iter = accumulator.evals_mut().iter_mut();
+                let accumulator_iter = accumulator.iter_mut();
 
                 accumulator_iter.enumerate().for_each(|(corner, acc)| {
                     if INITIALIZED {
@@ -283,7 +278,7 @@ mod tests {
             w1 * factor, // 3 * 4 = 12
         ];
 
-        assert_eq!(accumulator.evals(), &expected);
+        assert_eq!(&*accumulator, &expected);
     }
 
     #[test]
@@ -305,7 +300,7 @@ mod tests {
         let mut expected = vec![F::ZERO, F::ZERO];
         eval_eq::<_, _, true>(&point, &mut expected, factor);
 
-        assert_eq!(accumulator.evals(), &expected);
+        assert_eq!(&*accumulator, &expected);
     }
 
     #[test]

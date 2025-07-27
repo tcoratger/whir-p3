@@ -53,14 +53,14 @@ pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
     // This was chosen based on experiments with the `compress` function.
     // It is possible that the threshold can be tuned further.
     #[cfg(feature = "parallel")]
-    let folded = if evals.evals().len() >= PARALLEL_THRESHOLD {
-        evals.evals().par_chunks_exact(2).map(fold).collect()
+    let folded = if evals.len() >= PARALLEL_THRESHOLD {
+        evals.par_chunks_exact(2).map(fold).collect()
     } else {
-        evals.evals().chunks_exact(2).map(fold).collect()
+        evals.chunks_exact(2).map(fold).collect()
     };
 
     #[cfg(not(feature = "parallel"))]
-    let folded = evals.evals().chunks_exact(2).map(fold).collect();
+    let folded = evals.chunks_exact(2).map(fold).collect();
     EvaluationsList::new(folded)
 }
 
@@ -94,17 +94,14 @@ pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
         // Calculate the new length of the evaluations list after folding.
         let mid = evals.len() / 2;
 
-        // Get a mutable slice to the underlying vector of evaluations.
-        let evals_slice = evals.evals_mut();
-
         // Sequentially fold pairs of evaluations and write the result to the first half of the slice.
         for i in 0..mid {
             // Read the pair of evaluations, p(..., 0) and p(..., 1), for the last variable.
-            let p0 = evals_slice[2 * i];
-            let p1 = evals_slice[2 * i + 1];
+            let p0 = evals[2 * i];
+            let p1 = evals[2 * i + 1];
 
             // Apply the folding formula and overwrite the entry at the current write position.
-            evals_slice[i] = r * (p1 - p0) + p0;
+            evals[i] = r * (p1 - p0) + p0;
         }
 
         // Truncate the evaluations list to its new, smaller size.
@@ -115,21 +112,20 @@ pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
     #[cfg(feature = "parallel")]
     {
         // For large inputs, we use the original parallel, out-of-place strategy for maximum speed.
-        if evals.evals().len() >= PARALLEL_THRESHOLD {
+        if evals.len() >= PARALLEL_THRESHOLD {
             // Define the folding operation for a pair of elements.
             let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
             // Execute the fold in parallel and collect into a new vector.
-            let folded = evals.evals().par_chunks_exact(2).map(fold).collect();
+            let folded = evals.par_chunks_exact(2).map(fold).collect();
             // Replace the old evaluations with the new, folded evaluations.
             *evals = EvaluationsList::new(folded);
         } else {
             // For smaller inputs, we use the sequential, in-place strategy to save memory.
             let mid = evals.len() / 2;
-            let evals_slice = evals.evals_mut();
             for i in 0..mid {
-                let p0 = evals_slice[2 * i];
-                let p1 = evals_slice[2 * i + 1];
-                evals_slice[i] = r * (p1 - p0) + p0;
+                let p0 = evals[2 * i];
+                let p1 = evals[2 * i + 1];
+                evals[i] = r * (p1 - p0) + p0;
             }
             evals.truncate(mid);
         }
@@ -273,9 +269,8 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
 
     #[cfg(feature = "parallel")]
     let (c0, c2) = evals
-        .evals()
         .par_chunks_exact(2)
-        .zip(weights.evals().par_chunks_exact(2))
+        .zip(weights.par_chunks_exact(2))
         .map(sumcheck_quadratic::<F, EF>)
         .reduce(
             || (EF::ZERO, EF::ZERO),
@@ -284,9 +279,8 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
 
     #[cfg(not(feature = "parallel"))]
     let (c0, c2) = evals
-        .evals()
         .chunks_exact(2)
-        .zip(weights.evals().chunks_exact(2))
+        .zip(weights.chunks_exact(2))
         .map(sumcheck_quadratic::<F, EF>)
         .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
             (a0 + b0, a2 + b2)
@@ -558,7 +552,7 @@ where
                     .iter()
                     .zip(combination_randomness.iter())
                     .for_each(|(point, &rand)| {
-                        crate::utils::eval_eq::<_, _, true>(point, self.weights.evals_mut(), rand);
+                        crate::utils::eval_eq::<_, _, true>(point, &mut self.weights, rand);
                     });
             });
 
@@ -577,7 +571,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter().zip(evaluations.iter()))
                 .for_each(|(point, (&rand, &eval))| {
-                    crate::utils::eval_eq::<F, EF, true>(point, self.weights.evals_mut(), rand);
+                    crate::utils::eval_eq::<F, EF, true>(point, &mut self.weights, rand);
                     self.sum += rand * eval;
                 });
         }

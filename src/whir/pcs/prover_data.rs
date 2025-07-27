@@ -616,7 +616,7 @@ mod tests {
 
         match weights {
             Weights::Linear { weight } => {
-                let full: &[F] = weight.evals();
+                let full: &[F] = weight.as_ref();
                 assert_eq!(full.len(), 1 << meta.log_b);
 
                 // query_mle for z=[7] produces [7, 2013265915].
@@ -811,7 +811,7 @@ mod tests {
 
         match weights {
             Weights::Linear { weight } => {
-                let full = weight.evals();
+                let full = weight;
                 assert_eq!(full.len(), 1 << meta.log_b);
 
                 // Pull out the weight range corresponding to matrix 0
