@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue};
 use p3_util::log2_strict_usize;
 use tracing::instrument;
@@ -10,30 +12,22 @@ use {
 use super::{dense::WhirDensePolynomial, evals::EvaluationsList, wavelet::Radix2WaveletKernel};
 use crate::poly::multilinear::MultilinearPoint;
 
-/// Represents a multilinear polynomial in coefficient form with `num_variables` variables.
+/// Represents a multilinear polynomial `f` in `n` variables, stored by its coefficients.
 ///
-/// The coefficients correspond to the **monomials** determined by the binary decomposition of their
-/// index. If `num_variables = n`, then `coeffs[j]` corresponds to the monomial:
+/// The inner vector stores the coefficients in lexicographic order of monomials. The number of
+/// variables `n` is inferred from the length of this vector, where `self.len() = 2^n`.
 ///
-/// ```ignore
-/// coeffs[j] * X_0^{b_0} * X_1^{b_1} * ... * X_{n-1}^{b_{n-1}}
-/// ```
-/// where `(b_0, b_1, ..., b_{n-1})` is the binary representation of `j`, with `b_{n-1}` being
-/// the most significant bit.
+/// The coefficient for the monomial `X_0^{b_{n-1}} * ... * X_{n-1}^{b_0}` is stored at index `j`
+/// where the binary representation of `j` is `(b_{n-1}, ..., b_0)`.
 ///
-/// **Example** (n = 3, variables X₀, X₁, X₂):
-/// - `coeffs[0]` → Constant term (1)
-/// - `coeffs[1]` → Coefficient of `X₂`
-/// - `coeffs[2]` → Coefficient of `X₁`
-/// - `coeffs[4]` → Coefficient of `X₀`
+/// ### Example (n = 3, variables X₀, X₁, X₂)
+///
+/// - `coeffs[0]` (binary 000) → Constant term (1)
+/// - `coeffs[1]` (binary 001) → Coefficient of `X₂`
+/// - `coeffs[2]` (binary 010) → Coefficient of `X₁`
+/// - `coeffs[4]` (binary 100) → Coefficient of `X₀`
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
-pub struct CoefficientList<F> {
-    /// List of coefficients, stored in **lexicographic order**.
-    /// For `n` variables, `coeffs.len() == 2^n`.
-    coeffs: Vec<F>,
-    /// Number of variables in the polynomial.
-    num_variables: usize,
-}
+pub struct CoefficientList<F>(Vec<F>);
 
 impl<F> CoefficientList<F>
 where
@@ -49,7 +43,7 @@ where
     pub fn evaluate_at_univariate(&self, points: &[F]) -> Vec<F> {
         // WhirDensePolynomial::from_coefficients_slice converts to a dense univariate polynomial.
         // The coefficient order is "coefficient of 1 first".
-        let univariate = WhirDensePolynomial::from_coefficients_slice(&self.coeffs);
+        let univariate = WhirDensePolynomial::from_coefficients_slice(self);
         points
             .iter()
             .map(|point| univariate.evaluate(*point))
@@ -76,21 +70,16 @@ where
         let folding_factor = folding_randomness.num_variables();
         #[cfg(not(feature = "parallel"))]
         let coeffs = self
-            .coeffs
             .chunks_exact(1 << folding_factor)
             .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
             .collect();
         #[cfg(feature = "parallel")]
         let coeffs = self
-            .coeffs
             .par_chunks_exact(1 << folding_factor)
             .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
             .collect();
 
-        CoefficientList {
-            coeffs,
-            num_variables: self.num_variables() - folding_factor,
-        }
+        CoefficientList(coeffs)
     }
 
     /// Evaluate self at `point`, where `point` is from a field extension extending the field over
@@ -99,8 +88,16 @@ where
     /// Note that we only support the case where F is a prime field.
     #[instrument(skip_all, fields(size = point.num_variables()), level = "debug")]
     pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
-        assert_eq!(self.num_variables, point.num_variables());
-        eval_extension_par(&self.coeffs, point)
+        assert_eq!(self.num_variables(), point.num_variables());
+        eval_extension_par(self, point)
+    }
+}
+
+impl<F> Deref for CoefficientList<F> {
+    type Target = [F];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -185,18 +182,7 @@ impl<F> CoefficientList<F> {
     pub fn new(coeffs: Vec<F>) -> Self {
         let len = coeffs.len();
         assert!(len.is_power_of_two());
-        let num_variables = len.ilog2();
-
-        Self {
-            coeffs,
-            num_variables: num_variables as usize,
-        }
-    }
-
-    /// Returns a reference to the stored coefficients.
-    #[must_use]
-    pub fn coeffs(&self) -> &[F] {
-        &self.coeffs
+        Self(coeffs)
     }
 
     /// Returns the number of variables (`n`).
@@ -204,13 +190,14 @@ impl<F> CoefficientList<F> {
     /// Since `coeffs.len() = 2^n`, this returns `log₂(coeffs.len())`.
     #[must_use]
     pub const fn num_variables(&self) -> usize {
-        self.num_variables
+        // Safety: The length is guaranteed to be a power of two.
+        self.0.len().ilog2() as usize
     }
 
     /// Returns the total number of coefficients (`2^n`).
     #[must_use]
     pub const fn num_coeffs(&self) -> usize {
-        self.coeffs.len()
+        self.0.len()
     }
 
     /// Convert from a list of multilinear coefficients to a list of
@@ -221,7 +208,7 @@ impl<F> CoefficientList<F> {
         F: ExtensionField<B>,
     {
         let kernel = Radix2WaveletKernel::<B>::default();
-        let evals = kernel.wavelet_transform_algebra(self.coeffs);
+        let evals = kernel.wavelet_transform_algebra(self.to_vec());
         EvaluationsList::new(evals)
     }
 }
@@ -408,7 +395,7 @@ mod tests {
         let coeff_list = CoefficientList::new(coeffs.clone());
 
         // Check that the coefficients are stored correctly
-        assert_eq!(coeff_list.coeffs(), &coeffs);
+        assert_eq!(&*coeff_list, &coeffs);
         // Since len = 4 = 2^2, we expect num_variables = 2
         assert_eq!(coeff_list.num_variables(), 2);
     }
