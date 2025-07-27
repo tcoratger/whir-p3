@@ -21,11 +21,11 @@ use rayon::prelude::*;
 /// - false: the result is directly set to the `out` buffer
 /// - true: the result is added to the `out` buffer
 #[inline]
-pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
-    eval: &[EF],
-    out: &mut [EF],
-    scalar: EF,
-) {
+pub(crate) fn eval_eq<F, EF, const INITIALIZED: bool>(eval: &[EF], out: &mut [EF], scalar: EF)
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
     // Number of threads to spawn.
     // Long term this should be a modifiable parameter.
     // I've chosen 32 here as my machine has 20 logical cores. Plausibly we might want to hard code this
@@ -163,7 +163,11 @@ pub(crate) fn eval_eq<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
 /// of `eq(x, z)` for `x ∈ {0,1}`.
 #[allow(clippy::inline_always)] // Adding inline(always) seems to give a small performance boost.
 #[inline(always)]
-fn eval_eq_1<F: Field, FP: Algebra<F> + Copy>(eval: &[F], scalar: FP) -> [FP; 2] {
+fn eval_eq_1<F, FP>(eval: &[F], scalar: FP) -> [FP; 2]
+where
+    F: Field,
+    FP: Algebra<F> + Copy,
+{
     // Extract the evaluation point z_0
     let z_0 = eval[0];
 
@@ -210,7 +214,11 @@ fn eval_eq_1<F: Field, FP: Algebra<F> + Copy>(eval: &[F], scalar: FP) -> [FP; 2]
 /// An array `[α ⋅ eq((0,0), z), α ⋅ eq((0,1), z), α ⋅ eq((1,0), z), α ⋅ eq((1,1), z)]`
 #[allow(clippy::inline_always)] // Helps with performance in tight loops
 #[inline(always)]
-fn eval_eq_2<F: Field, FP: Algebra<F> + Copy>(eval: &[F], scalar: FP) -> [FP; 4] {
+fn eval_eq_2<F, FP>(eval: &[F], scalar: FP) -> [FP; 4]
+where
+    F: Field,
+    FP: Algebra<F> + Copy,
+{
     // First variable z_0
     let z_0 = eval[0];
 
@@ -265,7 +273,11 @@ fn eval_eq_2<F: Field, FP: Algebra<F> + Copy>(eval: &[F], scalar: FP) -> [FP; 4]
 /// An array of 8 values `[α ⋅ eq(x, z)]` for all `x ∈ {0,1}³`, in lex order.
 #[allow(clippy::inline_always)] // Adding inline(always) seems to give a small performance boost.
 #[inline(always)]
-fn eval_eq_3<F: Field, FP: Algebra<F> + Copy>(eval: &[F], scalar: FP) -> [FP; 8] {
+fn eval_eq_3<F, FP>(eval: &[F], scalar: FP) -> [FP; 8]
+where
+    F: Field,
+    FP: Algebra<F> + Copy,
+{
     // Extract z_0, z_1, z_2 from the evaluation point
     let z_0 = eval[0];
     let z_1 = eval[1];
@@ -321,11 +333,11 @@ fn eval_eq_3<F: Field, FP: Algebra<F> + Copy>(eval: &[F], scalar: FP) -> [FP; 8]
 /// - true: the result is added to the `out` buffer
 #[allow(clippy::too_many_lines)]
 #[inline]
-fn eval_eq_basic<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
-    eval: &[EF],
-    out: &mut [EF],
-    scalar: EF,
-) {
+fn eval_eq_basic<F, EF, const INITIALIZED: bool>(eval: &[EF], out: &mut [EF], scalar: EF)
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
     debug_assert_eq!(out.len(), 1 << eval.len());
@@ -421,11 +433,14 @@ fn eval_eq_basic<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
 /// It then updates the output buffer `out` with the computed values by adding them in.
 #[allow(clippy::too_many_lines)]
 #[inline]
-fn eval_eq_packed<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
+fn eval_eq_packed<F, EF, const INITIALIZED: bool>(
     eval: &[EF],
     out: &mut [EF],
     scalar: EF::ExtensionPacking,
-) {
+) where
+    F: Field,
+    EF: ExtensionField<F>,
+{
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
     let width = F::Packing::WIDTH;
@@ -516,10 +531,11 @@ fn eval_eq_packed<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
 /// The length of `eval` must be equal to the `log2` of `F::Packing::WIDTH`.
 #[allow(clippy::inline_always)] // Adding inline(always) seems to give a small performance boost.
 #[inline(always)]
-fn packed_eq_poly<F: Field, EF: ExtensionField<F>>(
-    eval: &[EF],
-    scalar: EF,
-) -> EF::ExtensionPacking {
+fn packed_eq_poly<F, EF>(eval: &[EF], scalar: EF) -> EF::ExtensionPacking
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
     // As this function is only available in this file, debug_assert should be fine here.
     // If this function becomes public, this should be changed to an assert.
     debug_assert_eq!(F::Packing::WIDTH, 1 << eval.len());
@@ -549,7 +565,10 @@ fn packed_eq_poly<F: Field, EF: ExtensionField<F>>(
     EF::ExtensionPacking::from_ext_slice(&buffer)
 }
 
-pub fn parallel_clone<A: Clone + Send + Sync>(src: &[A], dst: &mut [A]) {
+pub fn parallel_clone<A>(src: &[A], dst: &mut [A])
+where
+    A: Clone + Send + Sync,
+{
     #[cfg(feature = "parallel")]
     if src.len() < 1 << 15 {
         // sequential copy
@@ -568,7 +587,10 @@ pub fn parallel_clone<A: Clone + Send + Sync>(src: &[A], dst: &mut [A]) {
     dst.clone_from_slice(src);
 }
 
-pub fn parallel_repeat<A: Copy + Send + Sync>(src: &[A], n: usize) -> Vec<A> {
+pub fn parallel_repeat<A>(src: &[A], n: usize) -> Vec<A>
+where
+    A: Copy + Send + Sync,
+{
     #[cfg(feature = "parallel")]
     if src.len() * n < 1 << 15 {
         // sequential repeat
@@ -717,7 +739,11 @@ where
     }
 }
 
-pub fn flatten_scalars_to_base<F: Field, EF: ExtensionField<F>>(scalars: &[EF]) -> Vec<F> {
+pub fn flatten_scalars_to_base<F, EF>(scalars: &[EF]) -> Vec<F>
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
     scalars
         .iter()
         .flat_map(BasedVectorSpace::as_basis_coefficients_slice)
@@ -725,7 +751,11 @@ pub fn flatten_scalars_to_base<F: Field, EF: ExtensionField<F>>(scalars: &[EF]) 
         .collect()
 }
 
-pub fn pack_scalars_to_extension<F: Field, EF: ExtensionField<F>>(scalars: &[F]) -> Vec<EF> {
+pub fn pack_scalars_to_extension<F, EF>(scalars: &[F]) -> Vec<EF>
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
     let extension_size = <EF as BasedVectorSpace<F>>::DIMENSION;
     assert!(
         scalars.len() % extension_size == 0,
