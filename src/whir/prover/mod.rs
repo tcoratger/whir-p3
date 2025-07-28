@@ -371,11 +371,8 @@ where
             .collect::<Vec<_>>();
 
         // TODO here we could gain performance by removing the embedding from F to EF
-        round_state.sumcheck_prover.add_new_equality(
-            &stir_challenges
-                .iter()
-                .map(MultilinearPoint::embed)
-                .collect::<Vec<_>>(),
+        round_state.sumcheck_prover.add_new_base_equality(
+            &stir_challenges,
             &stir_evaluations,
             &stir_combination_randomness,
         );

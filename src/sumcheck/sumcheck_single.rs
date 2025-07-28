@@ -82,7 +82,6 @@ pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
 /// ## Mathematical Formula
 /// The compression is achieved by applying the following formula to pairs of evaluations:
 /// $p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)$
-#[instrument(skip_all)]
 pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
     // Ensure the polynomial is not a constant (i.e., has variables to fold).
     assert_ne!(evals.num_variables(), 0);
@@ -572,6 +571,70 @@ where
                 .zip(combination_randomness.iter().zip(evaluations.iter()))
                 .for_each(|(point, (&rand, &eval))| {
                     crate::utils::eval_eq::<F, EF, true>(point, &mut self.weights, rand);
+                    self.sum += rand * eval;
+                });
+        }
+    }
+
+    /// Adds new weighted constraints to the polynomial.
+    ///
+    /// This function updates the weight evaluations and sum by incorporating new constraints.
+    ///
+    /// Given points `z_i`, weights `ε_i`, and evaluation values `f(z_i)`, it updates:
+    ///
+    /// \begin{equation}
+    ///     w(X) = w(X) + \sum ε_i \cdot w_{z_i}(X)
+    /// \end{equation}
+    ///
+    /// and updates the sum as:
+    ///
+    /// \begin{equation}
+    ///     S = S + \sum ε_i \cdot f(z_i)
+    /// \end{equation}
+    ///
+    /// where `w_{z_i}(X)` represents the constraint encoding at point `z_i`.
+    #[instrument(skip_all, fields(
+        num_points = points.len(),
+    ))]
+    pub fn add_new_base_equality(
+        &mut self,
+        points: &[MultilinearPoint<F>],
+        evaluations: &[EF],
+        combination_randomness: &[EF],
+    ) {
+        assert_eq!(combination_randomness.len(), points.len());
+        assert_eq!(evaluations.len(), points.len());
+
+        #[cfg(feature = "parallel")]
+        {
+            use tracing::info_span;
+
+            // Parallel update of weight buffer
+            info_span!("accumulate_weight_buffer_base").in_scope(|| {
+                points
+                    .iter()
+                    .zip(combination_randomness.iter())
+                    .for_each(|(point, &rand)| {
+                        crate::utils::eval_eq_base::<_, _, true>(point, &mut self.weights, rand);
+                    });
+            });
+
+            // Accumulate the weighted sum (cheap, done sequentially)
+            self.sum += combination_randomness
+                .iter()
+                .zip(evaluations.iter())
+                .map(|(&rand, &eval)| rand * eval)
+                .sum::<EF>();
+        }
+
+        #[cfg(not(feature = "parallel"))]
+        {
+            // Accumulate the sum while applying all constraints simultaneously
+            points
+                .iter()
+                .zip(combination_randomness.iter().zip(evaluations.iter()))
+                .for_each(|(point, (&rand, &eval))| {
+                    crate::utils::eval_eq_base::<F, EF, true>(point, &mut self.weights, rand);
                     self.sum += rand * eval;
                 });
         }
