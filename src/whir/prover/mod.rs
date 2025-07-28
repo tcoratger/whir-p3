@@ -359,7 +359,7 @@ where
         let ood_combination_randomness: Vec<_> = combination_randomness_gen
             .powers()
             .collect_n(ood_challenges.len());
-        round_state.sumcheck_prover.add_new_equality(
+        round_state.sumcheck_prover.add_new_equality::<EF>(
             &ood_challenges,
             &ood_answers,
             &ood_combination_randomness,
@@ -370,12 +370,8 @@ where
             .take(stir_challenges.len())
             .collect::<Vec<_>>();
 
-        // TODO here we could gain performance by removing the embedding from F to EF
         round_state.sumcheck_prover.add_new_equality(
-            &stir_challenges
-                .iter()
-                .map(MultilinearPoint::embed)
-                .collect::<Vec<_>>(),
+            &stir_challenges,
             &stir_evaluations,
             &stir_combination_randomness,
         );

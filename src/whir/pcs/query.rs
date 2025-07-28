@@ -102,7 +102,7 @@ where
                 let mut mle = F::zero_vec(1 << z.len());
 
                 // Fill with α ⋅ eq(x, z) for all x ∈ {0,1}^n
-                eval_eq::<_, _, false>(z, &mut mle, scalar);
+                eval_eq::<_, _, _, false>(z, &mut mle, scalar);
 
                 mle
             }
@@ -113,7 +113,7 @@ where
                 let mut mle = F::zero_vec(1 << z.len());
 
                 // Compute α ⋅ eq(x, z)
-                eval_eq::<_, _, false>(z, &mut mle, scalar);
+                eval_eq::<_, _, _, false>(z, &mut mle, scalar);
 
                 // Apply circular rotation to output buffer
                 mle.rotate_right(*mid);

@@ -54,7 +54,7 @@ where
         unsafe {
             out.set_len(1 << eval.len());
         }
-        eval_eq::<_, _, false>(eval, &mut out, F::ONE);
+        eval_eq::<_, _, _, false>(eval, &mut out, F::ONE);
         Self(out)
     }
 
@@ -907,7 +907,7 @@ mod tests {
             let mut out = vec![F::ZERO; 1 << n];
 
             // Run eval_eq with scalar = 1
-            eval_eq::<F, F, false>(&evals, &mut out, F::ONE);
+            eval_eq::<F, F, _, false>(&evals, &mut out, F::ONE);
 
             // Naively compute expected values for each binary assignment
             let mut expected = vec![F::ZERO; 1 << n];

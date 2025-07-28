@@ -533,12 +533,15 @@ where
     #[instrument(skip_all, fields(
         num_points = points.len(),
     ))]
-    pub fn add_new_equality(
+    pub fn add_new_equality<BF>(
         &mut self,
-        points: &[MultilinearPoint<EF>],
+        points: &[MultilinearPoint<BF>],
         evaluations: &[EF],
         combination_randomness: &[EF],
-    ) {
+    ) where
+        BF: Field,
+        EF: ExtensionField<BF>,
+    {
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(evaluations.len(), points.len());
 
@@ -552,7 +555,7 @@ where
                     .iter()
                     .zip(combination_randomness.iter())
                     .for_each(|(point, &rand)| {
-                        crate::utils::eval_eq::<_, _, true>(point, &mut self.weights, rand);
+                        crate::utils::eval_eq::<_, _, _, true>(point, &mut self.weights, rand);
                     });
             });
 
@@ -571,7 +574,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter().zip(evaluations.iter()))
                 .for_each(|(point, (&rand, &eval))| {
-                    crate::utils::eval_eq::<F, EF, true>(point, &mut self.weights, rand);
+                    crate::utils::eval_eq::<F, EF, _, true>(point, &mut self.weights, rand);
                     self.sum += rand * eval;
                 });
         }

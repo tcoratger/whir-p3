@@ -158,7 +158,7 @@ impl ConcatMatsMeta {
 
         // Build the equality polynomial eq_r over the input challenge.
         let mut eq_r = F::zero_vec(1 << r.len());
-        eval_eq::<_, _, false>(r, &mut eq_r, F::ONE);
+        eval_eq::<_, _, _, false>(r, &mut eq_r, F::ONE);
 
         // Compute the dot product of the selected row and eq_r.
         let sum = ys.iter().zip(&eq_r).map(|(y, e)| *y * *e).sum();

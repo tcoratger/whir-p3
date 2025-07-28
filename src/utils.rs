@@ -21,10 +21,11 @@ use rayon::prelude::*;
 /// - false: the result is directly set to the `out` buffer
 /// - true: the result is added to the `out` buffer
 #[inline]
-pub(crate) fn eval_eq<F, EF, const INITIALIZED: bool>(eval: &[EF], out: &mut [EF], scalar: EF)
+pub(crate) fn eval_eq<F, IF, EF, const INITIALIZED: bool>(eval: &[IF], out: &mut [EF], scalar: EF)
 where
     F: Field,
-    EF: ExtensionField<F>,
+    IF: ExtensionField<F>,
+    EF: ExtensionField<F> + ExtensionField<IF>,
 {
     // Number of threads to spawn.
     // Long term this should be a modifiable parameter.
@@ -58,7 +59,7 @@ where
     // parallelization or packings.
     if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
         // A basic recursive approach.
-        eval_eq_basic::<_, _, INITIALIZED>(eval, out, scalar);
+        eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
     } else {
         let log_packing_width = log2_strict_usize(packing_width);
         let eval_len_min_packing = eval.len() - log_packing_width;
@@ -72,7 +73,8 @@ where
         // The last log_packing_width elements are the ones which will be packed.
 
         // We make a buffer of elements of size `NUM_THREADS`.
-        let mut parallel_buffer = EF::ExtensionPacking::zero_vec(NUM_THREADS);
+        let mut parallel_buffer =
+            <EF as ExtensionField<IF>>::ExtensionPacking::zero_vec(NUM_THREADS);
         let out_chunk_size = out.len() / NUM_THREADS;
 
         // Compute the equality polynomial corresponding to the last log_packing_width elements
@@ -99,7 +101,7 @@ where
         out.par_chunks_exact_mut(out_chunk_size)
             .zip(parallel_buffer.par_iter())
             .for_each(|(out_chunk, buffer_val)| {
-                eval_eq_packed::<_, _, INITIALIZED>(
+                eval_eq_packed::<_, _, _, INITIALIZED>(
                     &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
                     out_chunk,
                     *buffer_val,
@@ -333,10 +335,11 @@ where
 /// - true: the result is added to the `out` buffer
 #[allow(clippy::too_many_lines)]
 #[inline]
-fn eval_eq_basic<F, EF, const INITIALIZED: bool>(eval: &[EF], out: &mut [EF], scalar: EF)
+fn eval_eq_basic<F, IF, EF, const INITIALIZED: bool>(eval: &[IF], out: &mut [EF], scalar: EF)
 where
     F: Field,
-    EF: ExtensionField<F>,
+    IF: ExtensionField<F>,
+    EF: ExtensionField<F> + ExtensionField<IF>,
 {
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
@@ -409,8 +412,8 @@ where
 
             // The recursive approach turns out to be faster than the iterative one here.
             // Probably related to nice cache locality.
-            eval_eq_basic::<_, _, INITIALIZED>(tail, low, s0);
-            eval_eq_basic::<_, _, INITIALIZED>(tail, high, s1);
+            eval_eq_basic::<_, _, _, INITIALIZED>(tail, low, s0);
+            eval_eq_basic::<_, _, _, INITIALIZED>(tail, high, s1);
         }
     }
 }
@@ -433,13 +436,14 @@ where
 /// It then updates the output buffer `out` with the computed values by adding them in.
 #[allow(clippy::too_many_lines)]
 #[inline]
-fn eval_eq_packed<F, EF, const INITIALIZED: bool>(
-    eval: &[EF],
+fn eval_eq_packed<F, IF, EF, const INITIALIZED: bool>(
+    eval: &[IF],
     out: &mut [EF],
-    scalar: EF::ExtensionPacking,
+    scalar: <EF as ExtensionField<IF>>::ExtensionPacking,
 ) where
     F: Field,
-    EF: ExtensionField<F>,
+    IF: ExtensionField<F>,
+    EF: ExtensionField<F> + ExtensionField<IF>,
 {
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
@@ -448,7 +452,8 @@ fn eval_eq_packed<F, EF, const INITIALIZED: bool>(
 
     match eval.len() {
         0 => {
-            let result: Vec<EF> = EF::ExtensionPacking::to_ext_iter([scalar]).collect();
+            let result: Vec<EF> =
+                <EF as ExtensionField<IF>>::ExtensionPacking::to_ext_iter([scalar]).collect();
             if INITIALIZED {
                 EF::add_slices(out, &result);
             } else {
@@ -459,7 +464,8 @@ fn eval_eq_packed<F, EF, const INITIALIZED: bool>(
             // Manually unroll for single variable case
             let eq_evaluations = eval_eq_1(eval, scalar);
 
-            let result: Vec<EF> = EF::ExtensionPacking::to_ext_iter(eq_evaluations).collect();
+            let result: Vec<EF> =
+                <EF as ExtensionField<IF>>::ExtensionPacking::to_ext_iter(eq_evaluations).collect();
             if INITIALIZED {
                 EF::add_slices(out, &result);
             } else {
@@ -470,7 +476,8 @@ fn eval_eq_packed<F, EF, const INITIALIZED: bool>(
             // Manually unroll for two variables case
             let eq_evaluations = eval_eq_2(eval, scalar);
 
-            let result: Vec<EF> = EF::ExtensionPacking::to_ext_iter(eq_evaluations).collect();
+            let result: Vec<EF> =
+                <EF as ExtensionField<IF>>::ExtensionPacking::to_ext_iter(eq_evaluations).collect();
             if INITIALIZED {
                 EF::add_slices(out, &result);
             } else {
@@ -489,7 +496,7 @@ fn eval_eq_packed<F, EF, const INITIALIZED: bool>(
             // so we know that `out.len() = 8 * F::Packing::WIDTH` meaning we can use `chunks_exact_mut`
             // and `iter_array_chunks_padded` will never actually pad anything.
             iter_array_chunks_padded::<_, EVAL_LEN>(
-                EF::ExtensionPacking::to_ext_iter(eq_evaluations),
+                <EF as ExtensionField<IF>>::ExtensionPacking::to_ext_iter(eq_evaluations),
                 EF::ZERO,
             )
             .zip(out.chunks_exact_mut(EVAL_LEN))
@@ -520,8 +527,8 @@ fn eval_eq_packed<F, EF, const INITIALIZED: bool>(
 
             // The recursive approach turns out to be faster than the iterative one here.
             // Probably related to nice cache locality.
-            eval_eq_packed::<_, _, INITIALIZED>(tail, low, s0);
-            eval_eq_packed::<_, _, INITIALIZED>(tail, high, s1);
+            eval_eq_packed::<_, _, _, INITIALIZED>(tail, low, s0);
+            eval_eq_packed::<_, _, _, INITIALIZED>(tail, high, s1);
         }
     }
 }
@@ -531,10 +538,14 @@ fn eval_eq_packed<F, EF, const INITIALIZED: bool>(
 /// The length of `eval` must be equal to the `log2` of `F::Packing::WIDTH`.
 #[allow(clippy::inline_always)] // Adding inline(always) seems to give a small performance boost.
 #[inline(always)]
-fn packed_eq_poly<F, EF>(eval: &[EF], scalar: EF) -> EF::ExtensionPacking
+fn packed_eq_poly<F, IF, EF>(
+    eval: &[IF],
+    scalar: EF,
+) -> <EF as ExtensionField<IF>>::ExtensionPacking
 where
     F: Field,
-    EF: ExtensionField<F>,
+    IF: ExtensionField<F>,
+    EF: ExtensionField<F> + ExtensionField<IF>,
 {
     // As this function is only available in this file, debug_assert should be fine here.
     // If this function becomes public, this should be changed to an assert.
@@ -562,7 +573,7 @@ where
     }
 
     // Finally we need to do a "transpose" to get a `PackedFieldExtension` element.
-    EF::ExtensionPacking::from_ext_slice(&buffer)
+    <EF as ExtensionField<IF>>::ExtensionPacking::from_ext_slice(&buffer)
 }
 
 pub fn parallel_clone<A>(src: &[A], dst: &mut [A])
@@ -825,7 +836,7 @@ mod tests {
         let eval = vec![F::from_u64(1), F::from_u64(0)]; // (X1, X2) = (1,0)
         let scalar = F::from_u64(2);
 
-        eval_eq::<_, _, true>(&eval, &mut output, scalar);
+        eval_eq::<_, _, _, true>(&eval, &mut output, scalar);
 
         // Expected results for (X1, X2) = (1,0)
         let expected_output = vec![F::ZERO, F::ZERO, F::from_u64(2), F::ZERO];
@@ -910,7 +921,7 @@ mod tests {
             let out_len = 1 << evals.len();
             let mut output = vec![EF4::ZERO; out_len];
 
-            eval_eq::<F, EF4, true>(&evals, &mut output, scalar);
+            eval_eq::<F, EF4, _, true>(&evals, &mut output, scalar);
 
             let expected = naive_eq(&evals, scalar);
 
@@ -1065,7 +1076,7 @@ mod tests {
 
             // Compute baseline result using monolithic `eval_eq`
             let mut expected = vec![EF4::ZERO; size];
-            eval_eq::<F, EF4, false>(&evals, &mut expected, scalar);
+            eval_eq::<F, EF4, _, false>(&evals, &mut expected, scalar);
 
             // Compute using chunked version
             let mut chunked = vec![EF4::ZERO; size];
