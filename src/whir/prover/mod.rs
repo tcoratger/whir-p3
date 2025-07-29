@@ -370,7 +370,6 @@ where
             .take(stir_challenges.len())
             .collect::<Vec<_>>();
 
-        // TODO here we could gain performance by removing the embedding from F to EF
         round_state.sumcheck_prover.add_new_base_equality(
             &stir_challenges,
             &stir_evaluations,
