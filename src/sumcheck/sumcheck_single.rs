@@ -578,6 +578,9 @@ where
 
     /// Adds new weighted constraints to the polynomial.
     ///
+    /// Similar to `add_new_equality`, but specifically for constraints involving points
+    /// in the base field.
+    ///
     /// This function updates the weight evaluations and sum by incorporating new constraints.
     ///
     /// Given points `z_i`, weights `ε_i`, and evaluation values `f(z_i)`, it updates:

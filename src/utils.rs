@@ -122,6 +122,9 @@ where
 
 /// Computes the equality polynomial evaluations efficiently.
 ///
+/// This function is similar to [`eval_eq`], but it assumes that we want to evaluate
+/// at a base field point instead of an extension field point.
+///
 /// Given an evaluation point vector `eval`, the function computes
 /// the equality polynomial recursively using the formula:
 ///
@@ -151,18 +154,8 @@ where
 
     const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
 
-    // It's possible for this to be called with F = EF (Despite F actually being an extension field).
-    //
-    // IMPORTANT: We previously checked here that `packing_width > 1`,
-    // but this check is **not viable** for Goldilocks on Neon or when not using `target-cpu=native`.
-    //
-    // Why? Because Neon SIMD vectors are 128 bits and Goldilocks elements are already 64 bits,
-    // so no packing happens (width stays 1), and there's no performance advantage.
-    //
-    // Be careful: this means code relying on packing optimizations should **not assume**
-    // `packing_width > 1` is always true.
+    // we assume that packing_width is a power of 2.
     let packing_width = F::Packing::WIDTH;
-    // debug_assert!(packing_width > 1);
 
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
@@ -195,6 +188,8 @@ where
 
         // Update the buffer so it contains the evaluations of the equality polynomial
         // with respect to parts one and three.
+
+        // TODO: Make this into a function call to reduce code duplication.
         for (ind, entry) in eval[..LOG_NUM_THREADS].iter().rev().enumerate() {
             let stride = 1 << ind;
 
@@ -284,6 +279,8 @@ where
     F: Field,
     FP: Algebra<F> + Copy,
 {
+    assert_eq!(eval.len(), 1);
+
     // Extract the evaluation point z_0
     let z_0 = eval[0];
 
@@ -335,6 +332,8 @@ where
     F: Field,
     FP: Algebra<F> + Copy,
 {
+    assert_eq!(eval.len(), 2);
+
     // First variable z_0
     let z_0 = eval[0];
 
@@ -394,6 +393,8 @@ where
     F: Field,
     FP: Algebra<F> + Copy,
 {
+    assert_eq!(eval.len(), 3);
+
     // Extract z_0, z_1, z_2 from the evaluation point
     let z_0 = eval[0];
     let z_1 = eval[1];
@@ -677,70 +678,34 @@ fn base_eval_eq_packed<F, EF, const INITIALIZED: bool>(
 
     match eval_points.len() {
         0 => {
-            if INITIALIZED {
-                out.iter_mut()
-                    .zip(eq_evals.as_slice())
-                    .for_each(|(out, &eq_eval)| {
-                        *out += scalar * eq_eval;
-                    });
-            } else {
-                out.iter_mut()
-                    .zip(eq_evals.as_slice())
-                    .for_each(|(out, &eq_eval)| {
-                        *out = scalar * eq_eval;
-                    });
-            }
+            scale_and_add::<_, _, INITIALIZED>(out, eq_evals.as_slice(), scalar);
         }
         1 => {
             let eq_evaluations = eval_eq_1(eval_points, eq_evals);
 
-            if INITIALIZED {
-                out.iter_mut()
-                    .zip(F::Packing::unpack_slice(&eq_evaluations))
-                    .for_each(|(out, &eq_eval)| {
-                        *out += scalar * eq_eval;
-                    });
-            } else {
-                out.iter_mut()
-                    .zip(F::Packing::unpack_slice(&eq_evaluations))
-                    .for_each(|(out, &eq_eval)| {
-                        *out = scalar * eq_eval;
-                    });
-            }
+            scale_and_add::<_, _, INITIALIZED>(
+                out,
+                F::Packing::unpack_slice(&eq_evaluations),
+                scalar,
+            );
         }
         2 => {
             let eq_evaluations = eval_eq_2(eval_points, eq_evals);
 
-            if INITIALIZED {
-                out.iter_mut()
-                    .zip(F::Packing::unpack_slice(&eq_evaluations))
-                    .for_each(|(out, &eq_eval)| {
-                        *out += scalar * eq_eval;
-                    });
-            } else {
-                out.iter_mut()
-                    .zip(F::Packing::unpack_slice(&eq_evaluations))
-                    .for_each(|(out, &eq_eval)| {
-                        *out = scalar * eq_eval;
-                    });
-            }
+            scale_and_add::<_, _, INITIALIZED>(
+                out,
+                F::Packing::unpack_slice(&eq_evaluations),
+                scalar,
+            );
         }
         3 => {
             let eq_evaluations = eval_eq_3(eval_points, eq_evals);
 
-            if INITIALIZED {
-                out.iter_mut()
-                    .zip(F::Packing::unpack_slice(&eq_evaluations))
-                    .for_each(|(out, &eq_eval)| {
-                        *out += scalar * eq_eval;
-                    });
-            } else {
-                out.iter_mut()
-                    .zip(F::Packing::unpack_slice(&eq_evaluations))
-                    .for_each(|(out, &eq_eval)| {
-                        *out = scalar * eq_eval;
-                    });
-            }
+            scale_and_add::<_, _, INITIALIZED>(
+                out,
+                F::Packing::unpack_slice(&eq_evaluations),
+                scalar,
+            );
         }
         _ => {
             let (&x, tail) = eval_points.split_first().unwrap();
@@ -767,7 +732,31 @@ fn base_eval_eq_packed<F, EF, const INITIALIZED: bool>(
     }
 }
 
+#[inline]
+fn scale_and_add<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
+    out: &mut [EF],
+    base_vals: &[F],
+    scalar: EF,
+) {
+    // TODO: We can probably add a custom method to Plonky3 to handle this more efficiently (and use packings).
+    // This approach is faster than collecting `scalar * eq_eval` into a vector and using `add_slices`. Presumably
+    // this is because we avoid the allocation.
+    if INITIALIZED {
+        out.iter_mut().zip(base_vals).for_each(|(out, &eq_eval)| {
+            *out += scalar * eq_eval;
+        });
+    } else {
+        out.iter_mut().zip(base_vals).for_each(|(out, &eq_eval)| {
+            *out = scalar * eq_eval;
+        });
+    }
+}
+
 /// Computes equality polynomial evaluations and packs them into a `PackedFieldExtension`.
+///
+/// Note that when `F = EF` is a PrimeField, `EF::ExtensionPacking = F::Packing` so this can
+/// also be used to compute initial packed evaluations of the equality polynomial over base
+/// field elements (instead of extension field elements).
 ///
 /// The length of `eval` must be equal to the `log2` of `F::Packing::WIDTH`.
 #[allow(clippy::inline_always)] // Adding inline(always) seems to give a small performance boost.
