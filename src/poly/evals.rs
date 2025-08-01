@@ -1,8 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use p3_field::{ExtensionField, Field};
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
+use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
 use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
@@ -153,13 +152,6 @@ where
         EF: ExtensionField<F>,
     {
         let folding_factor = folding_randomness.num_variables();
-        #[cfg(not(feature = "parallel"))]
-        let evals = self
-            .0
-            .chunks_exact(1 << folding_factor)
-            .map(|ev| eval_multilinear(ev, folding_randomness))
-            .collect();
-        #[cfg(feature = "parallel")]
         let evals = self
             .0
             .par_chunks_exact(1 << folding_factor)
@@ -180,9 +172,6 @@ where
     /// Multiply the polynomial by a scalar factor.
     #[must_use]
     pub fn scale<EF: ExtensionField<F>>(&self, factor: EF) -> EvaluationsList<EF> {
-        #[cfg(not(feature = "parallel"))]
-        let evals = self.iter().map(|&e| factor * e).collect();
-        #[cfg(feature = "parallel")]
         let evals = self.par_iter().map(|&e| factor * e).collect();
         EvaluationsList(evals)
     }
@@ -262,13 +251,10 @@ where
         }
         [x, tail @ ..] => {
             let (f0, f1) = evals.split_at(evals.len() / 2);
-            #[cfg(not(feature = "parallel"))]
-            let (f0, f1) = (eval_multilinear(f0, tail), eval_multilinear(f1, tail));
-            #[cfg(feature = "parallel")]
             let (f0, f1) = {
                 let work_size: usize = (1 << 15) / std::mem::size_of::<F>();
                 if evals.len() > work_size {
-                    rayon::join(|| eval_multilinear(f0, tail), || eval_multilinear(f1, tail))
+                    join(|| eval_multilinear(f0, tail), || eval_multilinear(f1, tail))
                 } else {
                     (eval_multilinear(f0, tail), eval_multilinear(f1, tail))
                 }
