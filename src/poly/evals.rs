@@ -153,7 +153,6 @@ where
     {
         let folding_factor = folding_randomness.num_variables();
         let evals = self
-            .0
             .par_chunks_exact(1 << folding_factor)
             .map(|ev| eval_multilinear(ev, folding_randomness))
             .collect();
@@ -172,8 +171,7 @@ where
     /// Multiply the polynomial by a scalar factor.
     #[must_use]
     pub fn scale<EF: ExtensionField<F>>(&self, factor: EF) -> EvaluationsList<EF> {
-        let evals = self.par_iter().map(|&e| factor * e).collect();
-        EvaluationsList(evals)
+        EvaluationsList(self.par_iter().map(|&e| factor * e).collect())
     }
 
     /// Convert from a list of evaluations to a list of multilinear coefficients.

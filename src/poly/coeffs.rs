@@ -64,12 +64,11 @@ where
         EF: ExtensionField<F>,
     {
         let folding_factor = folding_randomness.num_variables();
-        let coeffs = self
-            .par_chunks_exact(1 << folding_factor)
-            .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
-            .collect();
-
-        CoefficientList(coeffs)
+        CoefficientList(
+            self.par_chunks_exact(1 << folding_factor)
+                .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
+                .collect(),
+        )
     }
 
     /// Evaluate self at `point`, where `point` is from a field extension extending the field over

@@ -2,9 +2,8 @@ use p3_field::{
     Algebra, BasedVectorSpace, ExtensionField, Field, PackedFieldExtension, PackedValue,
     PrimeCharacteristicRing,
 };
+use p3_maybe_rayon::prelude::*;
 use p3_util::{iter_array_chunks_padded, log2_strict_usize};
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 
 /// Log of number of threads to spawn.
 /// Long term this should be a modifiable parameter and potentially be in an optimization file somewhere.
@@ -84,22 +83,9 @@ where
         // with respect to parts one and three.
         fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
 
-        // Finally do all computations involving the middle elements in parallel.
-        #[cfg(feature = "parallel")]
+        // Finally do all computations involving the middle elements.
         out.par_chunks_exact_mut(out_chunk_size)
             .zip(parallel_buffer.par_iter())
-            .for_each(|(out_chunk, buffer_val)| {
-                eval_eq_packed::<_, _, INITIALIZED>(
-                    &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
-                    out_chunk,
-                    *buffer_val,
-                );
-            });
-
-        // Or not in parallel if the feature is unavailable.
-        #[cfg(not(feature = "parallel"))]
-        out.chunks_exact_mut(out_chunk_size)
-            .zip(parallel_buffer.iter())
             .for_each(|(out_chunk, buffer_val)| {
                 eval_eq_packed::<_, _, INITIALIZED>(
                     &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
@@ -173,23 +159,9 @@ where
         // with respect to parts one and three.
         fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
 
-        // Finally do all computations involving the middle elements in parallel.
-        #[cfg(feature = "parallel")]
+        // Finally do all computations involving the middle elements.
         out.par_chunks_exact_mut(out_chunk_size)
             .zip(parallel_buffer.par_iter())
-            .for_each(|(out_chunk, buffer_val)| {
-                base_eval_eq_packed::<_, _, INITIALIZED>(
-                    &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
-                    out_chunk,
-                    *buffer_val,
-                    scalar,
-                );
-            });
-
-        // Or not in parallel if the feature is unavailable.
-        #[cfg(not(feature = "parallel"))]
-        out.chunks_exact_mut(out_chunk_size)
-            .zip(parallel_buffer.iter())
             .for_each(|(out_chunk, buffer_val)| {
                 base_eval_eq_packed::<_, _, INITIALIZED>(
                     &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],

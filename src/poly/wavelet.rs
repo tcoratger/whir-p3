@@ -51,9 +51,8 @@ use p3_matrix::{
     dense::{RowMajorMatrix, RowMajorMatrixViewMut},
     util::reverse_matrix_index_bits,
 };
+use p3_maybe_rayon::prelude::*;
 use p3_util::log2_strict_usize;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 use tracing::instrument;
 
 use crate::whir::utils::workload_size;

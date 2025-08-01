@@ -1,6 +1,5 @@
 use p3_field::{ExtensionField, Field};
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
+use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
 use crate::{
@@ -89,17 +88,10 @@ impl<F: Field> Weights<F> {
         match self {
             Self::Linear { weight } => {
                 assert_eq!(poly.num_variables(), weight.num_variables());
-                #[cfg(not(feature = "parallel"))]
-                {
-                    poly.iter().zip(weight.iter()).map(|(p, w)| *w * *p).sum()
-                }
-                #[cfg(feature = "parallel")]
-                {
-                    poly.par_iter()
-                        .zip(weight.par_iter())
-                        .map(|(p, w)| *w * *p)
-                        .sum()
-                }
+                poly.par_iter()
+                    .zip(weight.par_iter())
+                    .map(|(p, w)| *w * *p)
+                    .sum()
             }
             Self::Evaluation { point } => poly.evaluate(point),
         }
@@ -138,18 +130,16 @@ impl<F: Field> Weights<F> {
                 eval_eq::<Base, F, INITIALIZED>(point, accumulator, factor);
             }
             Self::Linear { weight } => {
-                #[cfg(feature = "parallel")]
-                let accumulator_iter = accumulator.par_iter_mut();
-                #[cfg(not(feature = "parallel"))]
-                let accumulator_iter = accumulator.iter_mut();
-
-                accumulator_iter.enumerate().for_each(|(corner, acc)| {
-                    if INITIALIZED {
-                        *acc += factor * weight[corner];
-                    } else {
-                        *acc = factor * weight[corner];
-                    }
-                });
+                accumulator
+                    .par_iter_mut()
+                    .enumerate()
+                    .for_each(|(corner, acc)| {
+                        if INITIALIZED {
+                            *acc += factor * weight[corner];
+                        } else {
+                            *acc = factor * weight[corner];
+                        }
+                    });
             }
         }
     }
