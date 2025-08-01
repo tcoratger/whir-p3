@@ -1,8 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use p3_field::{ExtensionField, Field};
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
+use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
 use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
@@ -153,15 +152,7 @@ where
         EF: ExtensionField<F>,
     {
         let folding_factor = folding_randomness.num_variables();
-        #[cfg(not(feature = "parallel"))]
         let evals = self
-            .0
-            .chunks_exact(1 << folding_factor)
-            .map(|ev| eval_multilinear(ev, folding_randomness))
-            .collect();
-        #[cfg(feature = "parallel")]
-        let evals = self
-            .0
             .par_chunks_exact(1 << folding_factor)
             .map(|ev| eval_multilinear(ev, folding_randomness))
             .collect();
@@ -180,11 +171,7 @@ where
     /// Multiply the polynomial by a scalar factor.
     #[must_use]
     pub fn scale<EF: ExtensionField<F>>(&self, factor: EF) -> EvaluationsList<EF> {
-        #[cfg(not(feature = "parallel"))]
-        let evals = self.iter().map(|&e| factor * e).collect();
-        #[cfg(feature = "parallel")]
-        let evals = self.par_iter().map(|&e| factor * e).collect();
-        EvaluationsList(evals)
+        EvaluationsList(self.par_iter().map(|&e| factor * e).collect())
     }
 
     /// Convert from a list of evaluations to a list of multilinear coefficients.

@@ -2,8 +2,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
+use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
@@ -109,25 +108,23 @@ pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
 
     // The parallel logic is only available when the "parallel" feature is enabled.
     #[cfg(feature = "parallel")]
-    {
-        // For large inputs, we use the original parallel, out-of-place strategy for maximum speed.
-        if evals.len() >= PARALLEL_THRESHOLD {
-            // Define the folding operation for a pair of elements.
-            let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
-            // Execute the fold in parallel and collect into a new vector.
-            let folded = evals.par_chunks_exact(2).map(fold).collect();
-            // Replace the old evaluations with the new, folded evaluations.
-            *evals = EvaluationsList::new(folded);
-        } else {
-            // For smaller inputs, we use the sequential, in-place strategy to save memory.
-            let mid = evals.len() / 2;
-            for i in 0..mid {
-                let p0 = evals[2 * i];
-                let p1 = evals[2 * i + 1];
-                evals[i] = r * (p1 - p0) + p0;
-            }
-            evals.truncate(mid);
+    // For large inputs, we use the original parallel, out-of-place strategy for maximum speed.
+    if evals.len() >= PARALLEL_THRESHOLD {
+        // Define the folding operation for a pair of elements.
+        let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
+        // Execute the fold in parallel and collect into a new vector.
+        let folded = evals.par_chunks_exact(2).map(fold).collect();
+        // Replace the old evaluations with the new, folded evaluations.
+        *evals = EvaluationsList::new(folded);
+    } else {
+        // For smaller inputs, we use the sequential, in-place strategy to save memory.
+        let mid = evals.len() / 2;
+        for i in 0..mid {
+            let p0 = evals[2 * i];
+            let p1 = evals[2 * i + 1];
+            evals[i] = r * (p1 - p0) + p0;
         }
+        evals.truncate(mid);
     }
 }
 
@@ -541,39 +538,21 @@ where
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(evaluations.len(), points.len());
 
-        #[cfg(feature = "parallel")]
-        {
-            use tracing::info_span;
-
-            // Parallel update of weight buffer
-            info_span!("accumulate_weight_buffer").in_scope(|| {
-                points
-                    .iter()
-                    .zip(combination_randomness.iter())
-                    .for_each(|(point, &rand)| {
-                        crate::utils::eval_eq::<_, _, true>(point, &mut self.weights, rand);
-                    });
-            });
-
-            // Accumulate the weighted sum (cheap, done sequentially)
-            self.sum += combination_randomness
-                .iter()
-                .zip(evaluations.iter())
-                .map(|(&rand, &eval)| rand * eval)
-                .sum::<EF>();
-        }
-
-        #[cfg(not(feature = "parallel"))]
-        {
-            // Accumulate the sum while applying all constraints simultaneously
+        tracing::info_span!("accumulate_weight_buffer").in_scope(|| {
             points
                 .iter()
-                .zip(combination_randomness.iter().zip(evaluations.iter()))
-                .for_each(|(point, (&rand, &eval))| {
-                    crate::utils::eval_eq::<F, EF, true>(point, &mut self.weights, rand);
-                    self.sum += rand * eval;
+                .zip(combination_randomness.iter())
+                .for_each(|(point, &rand)| {
+                    crate::utils::eval_eq::<_, _, true>(point, &mut self.weights, rand);
                 });
-        }
+        });
+
+        // Accumulate the weighted sum
+        self.sum += combination_randomness
+            .iter()
+            .zip(evaluations.iter())
+            .map(|(&rand, &eval)| rand * eval)
+            .sum::<EF>();
     }
 
     /// Adds new weighted constraints to the polynomial.
@@ -608,39 +587,21 @@ where
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(evaluations.len(), points.len());
 
-        #[cfg(feature = "parallel")]
-        {
-            use tracing::info_span;
-
-            // Parallel update of weight buffer
-            info_span!("accumulate_weight_buffer_base").in_scope(|| {
-                points
-                    .iter()
-                    .zip(combination_randomness.iter())
-                    .for_each(|(point, &rand)| {
-                        crate::utils::eval_eq_base::<_, _, true>(point, &mut self.weights, rand);
-                    });
-            });
-
-            // Accumulate the weighted sum (cheap, done sequentially)
-            self.sum += combination_randomness
-                .iter()
-                .zip(evaluations.iter())
-                .map(|(&rand, &eval)| rand * eval)
-                .sum::<EF>();
-        }
-
-        #[cfg(not(feature = "parallel"))]
-        {
-            // Accumulate the sum while applying all constraints simultaneously
+        tracing::info_span!("accumulate_weight_buffer_base").in_scope(|| {
             points
                 .iter()
-                .zip(combination_randomness.iter().zip(evaluations.iter()))
-                .for_each(|(point, (&rand, &eval))| {
-                    crate::utils::eval_eq_base::<F, EF, true>(point, &mut self.weights, rand);
-                    self.sum += rand * eval;
+                .zip(combination_randomness.iter())
+                .for_each(|(point, &rand)| {
+                    crate::utils::eval_eq_base::<_, _, true>(point, &mut self.weights, rand);
                 });
-        }
+        });
+
+        // Accumulate the weighted sum
+        self.sum += combination_randomness
+            .iter()
+            .zip(evaluations.iter())
+            .map(|(&rand, &eval)| rand * eval)
+            .sum::<EF>();
     }
 
     /// Executes the sumcheck protocol for a multilinear polynomial with optional **univariate skip**.

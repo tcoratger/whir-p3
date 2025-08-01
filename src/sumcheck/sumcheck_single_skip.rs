@@ -1,8 +1,7 @@
 use p3_dft::{NaiveDft, TwoAdicSubgroupDft};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
-#[cfg(feature = "parallel")]
-use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+use p3_maybe_rayon::prelude::*;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::poly::evals::EvaluationsList;

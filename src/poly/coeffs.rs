@@ -1,13 +1,11 @@
 use std::ops::Deref;
 
 use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue};
+use p3_maybe_rayon::prelude::*;
 use p3_util::log2_strict_usize;
 use tracing::instrument;
 #[cfg(feature = "parallel")]
-use {
-    rayon::{join, prelude::*},
-    std::mem::size_of,
-};
+use {rayon::join, std::mem::size_of};
 
 use super::{dense::WhirDensePolynomial, evals::EvaluationsList, wavelet::Radix2WaveletKernel};
 use crate::poly::multilinear::MultilinearPoint;
@@ -68,18 +66,11 @@ where
         EF: ExtensionField<F>,
     {
         let folding_factor = folding_randomness.num_variables();
-        #[cfg(not(feature = "parallel"))]
-        let coeffs = self
-            .chunks_exact(1 << folding_factor)
-            .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
-            .collect();
-        #[cfg(feature = "parallel")]
-        let coeffs = self
-            .par_chunks_exact(1 << folding_factor)
-            .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
-            .collect();
-
-        CoefficientList(coeffs)
+        CoefficientList(
+            self.par_chunks_exact(1 << folding_factor)
+                .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
+                .collect(),
+        )
     }
 
     /// Evaluate self at `point`, where `point` is from a field extension extending the field over
