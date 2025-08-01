@@ -86,11 +86,13 @@ impl<F: Field> Weights<F> {
         F: ExtensionField<BF>,
     {
         match self {
-            Self::Linear { weight } => poly
-                .par_iter()
-                .zip(weight.par_iter())
-                .map(|(p, w)| *w * *p)
-                .sum(),
+            Self::Linear { weight } => {
+                assert_eq!(poly.num_variables(), weight.num_variables());
+                poly.par_iter()
+                    .zip(weight.par_iter())
+                    .map(|(p, w)| *w * *p)
+                    .sum()
+            }
             Self::Evaluation { point } => poly.evaluate(point),
         }
     }
