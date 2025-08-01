@@ -7,9 +7,8 @@ use p3_matrix::{
     dense::{RowMajorMatrix, RowMajorMatrixView},
     horizontally_truncated::HorizontallyTruncated,
 };
+use p3_maybe_rayon::prelude::*;
 use p3_util::log2_ceil_usize;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 
 use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -279,28 +278,13 @@ impl<Val: Field> ConcatMats<Val> {
         let meta = ConcatMatsMeta::new(&mats.iter().map(Matrix::dimensions).collect::<Vec<_>>());
         let mut values = Val::zero_vec(1 << meta.log_b);
 
-        #[cfg(feature = "parallel")]
-        {
-            use rayon::prelude::*;
-            izip!(&meta.ranges, mats).for_each(|(range, mat)| {
-                // Parallel row-wise copying into padded storage
-                values[range.clone()]
-                    .par_chunks_mut(mat.width().next_power_of_two())
-                    .zip(mat.par_row_slices())
-                    .for_each(|(dst, src)| dst[..src.len()].copy_from_slice(src));
-            });
-        }
-
-        #[cfg(not(feature = "parallel"))]
-        {
-            izip!(&meta.ranges, mats).for_each(|(range, mat)| {
-                // Sequential row-wise copying into padded storage
-                values[range.clone()]
-                    .chunks_mut(mat.width().next_power_of_two())
-                    .zip(mat.row_slices())
-                    .for_each(|(dst, src)| dst[..src.len()].copy_from_slice(src));
-            });
-        }
+        izip!(&meta.ranges, mats).for_each(|(range, mat)| {
+            // Parallel row-wise copying into padded storage
+            values[range.clone()]
+                .par_chunks_mut(mat.width().next_power_of_two())
+                .zip(mat.par_row_slices())
+                .for_each(|(dst, src)| dst[..src.len()].copy_from_slice(src));
+        });
 
         Self { values, meta }
     }
