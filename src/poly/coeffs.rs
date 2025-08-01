@@ -1,13 +1,9 @@
 use std::ops::Deref;
 
 use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue};
+use p3_maybe_rayon::prelude::*;
 use p3_util::log2_strict_usize;
 use tracing::instrument;
-#[cfg(feature = "parallel")]
-use {
-    rayon::{join, prelude::*},
-    std::mem::size_of,
-};
 
 use super::{dense::WhirDensePolynomial, evals::EvaluationsList, wavelet::Radix2WaveletKernel};
 use crate::poly::multilinear::MultilinearPoint;
@@ -68,12 +64,6 @@ where
         EF: ExtensionField<F>,
     {
         let folding_factor = folding_randomness.num_variables();
-        #[cfg(not(feature = "parallel"))]
-        let coeffs = self
-            .chunks_exact(1 << folding_factor)
-            .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
-            .collect();
-        #[cfg(feature = "parallel")]
         let coeffs = self
             .par_chunks_exact(1 << folding_factor)
             .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
@@ -153,9 +143,6 @@ where
         }
         [x, tail @ ..] => {
             let (b0t, b1t) = coeffs.split_at(coeffs.len() / 2);
-            #[cfg(not(feature = "parallel"))]
-            let (b0t, b1t) = (eval_multivariate(b0t, tail), eval_multivariate(b1t, tail));
-            #[cfg(feature = "parallel")]
             let (b0t, b1t) = {
                 let work_size: usize = (1 << 15) / size_of::<F>();
                 if coeffs.len() > work_size {
@@ -237,28 +224,26 @@ where
     F: Field,
     E: ExtensionField<F>,
 {
+    // Ideally this should be the minimum number to achieve full cpu utilization.
+    // Currently a constant but long term this should likely be passed in as a
+    // parameter or set somewhere.
+    const LOG_NUM_THREADS: usize = 5;
+    const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
+
     debug_assert_eq!(coeff.len(), 1 << eval.len());
 
-    #[cfg(feature = "parallel")]
-    {
-        // Ideally this should be the minimum number to achieve full cpu utilization.
-        // Currently a constant but long term this should likely be passed in as a
-        // parameter or set somewhere.
-        const LOG_NUM_THREADS: usize = 5;
-        const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
-        let size = coeff.len();
-        // While we could run the following code for any size > LOG_NUM_THREADS, there isn't
-        // much point. In particular, we would lose some of the benefits of packing tricks in
-        // eval_extension_packed. Instead we set a (slightly arbitrary) threshold of 15.
-        if size > (1 << 15) {
-            let chunk_size = size / NUM_THREADS;
-            let (head_eval, tail_eval) = eval.split_at(LOG_NUM_THREADS);
-            let partial_sum = coeff
-                .par_chunks_exact(chunk_size)
-                .map(|chunk| eval_extension_packed(chunk, tail_eval))
-                .collect::<Vec<_>>();
-            return eval_extension_packed(&partial_sum, head_eval);
-        }
+    let size = coeff.len();
+    // While we could run the following code for any size > LOG_NUM_THREADS, there isn't
+    // much point. In particular, we would lose some of the benefits of packing tricks in
+    // eval_extension_packed. Instead we set a (slightly arbitrary) threshold of 15.
+    if size > (1 << 15) {
+        let chunk_size = size / NUM_THREADS;
+        let (head_eval, tail_eval) = eval.split_at(LOG_NUM_THREADS);
+        let partial_sum = coeff
+            .par_chunks_exact(chunk_size)
+            .map(|chunk| eval_extension_packed(chunk, tail_eval))
+            .collect::<Vec<_>>();
+        return eval_extension_packed(&partial_sum, head_eval);
     }
 
     eval_extension_packed(coeff, eval)
