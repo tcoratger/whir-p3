@@ -15,7 +15,6 @@ use crate::{
     whir::statement::Statement,
 };
 
-#[cfg(feature = "parallel")]
 const PARALLEL_THRESHOLD: usize = 4096;
 
 /// Folds a list of evaluations from a base field `F` into an extension field `EF`.
@@ -51,15 +50,12 @@ pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
     //
     // This was chosen based on experiments with the `compress` function.
     // It is possible that the threshold can be tuned further.
-    #[cfg(feature = "parallel")]
     let folded = if evals.len() >= PARALLEL_THRESHOLD {
         evals.par_chunks_exact(2).map(fold).collect()
     } else {
         evals.chunks_exact(2).map(fold).collect()
     };
 
-    #[cfg(not(feature = "parallel"))]
-    let folded = evals.chunks_exact(2).map(fold).collect();
     EvaluationsList::new(folded)
 }
 
@@ -85,29 +81,6 @@ pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
     // Ensure the polynomial is not a constant (i.e., has variables to fold).
     assert_ne!(evals.num_variables(), 0);
 
-    // The sequential, in-place logic is used for the non-parallel build
-    // and for smaller inputs in the parallel build.
-    #[cfg(not(feature = "parallel"))]
-    {
-        // Calculate the new length of the evaluations list after folding.
-        let mid = evals.len() / 2;
-
-        // Sequentially fold pairs of evaluations and write the result to the first half of the slice.
-        for i in 0..mid {
-            // Read the pair of evaluations, p(..., 0) and p(..., 1), for the last variable.
-            let p0 = evals[2 * i];
-            let p1 = evals[2 * i + 1];
-
-            // Apply the folding formula and overwrite the entry at the current write position.
-            evals[i] = r * (p1 - p0) + p0;
-        }
-
-        // Truncate the evaluations list to its new, smaller size.
-        evals.truncate(mid);
-    }
-
-    // The parallel logic is only available when the "parallel" feature is enabled.
-    #[cfg(feature = "parallel")]
     // For large inputs, we use the original parallel, out-of-place strategy for maximum speed.
     if evals.len() >= PARALLEL_THRESHOLD {
         // Define the folding operation for a pair of elements.
@@ -249,24 +222,15 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
 ) -> SumcheckPolynomial<EF> {
     assert!(evals.num_variables() >= 1);
 
-    #[cfg(feature = "parallel")]
     let (c0, c2) = evals
         .par_chunks_exact(2)
         .zip(weights.par_chunks_exact(2))
         .map(sumcheck_quadratic::<F, EF>)
-        .reduce(
+        .par_fold_reduce(
             || (EF::ZERO, EF::ZERO),
             |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
+            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
         );
-
-    #[cfg(not(feature = "parallel"))]
-    let (c0, c2) = evals
-        .chunks_exact(2)
-        .zip(weights.chunks_exact(2))
-        .map(sumcheck_quadratic::<F, EF>)
-        .fold((EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| {
-            (a0 + b0, a2 + b2)
-        });
 
     // Compute the middle (linear) coefficient
     //

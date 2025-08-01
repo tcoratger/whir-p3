@@ -735,29 +735,24 @@ pub fn parallel_clone<A>(src: &[A], dst: &mut [A])
 where
     A: Clone + Send + Sync,
 {
-    #[cfg(feature = "parallel")]
+    assert_eq!(src.len(), dst.len());
     if src.len() < 1 << 15 {
         // sequential copy
         dst.clone_from_slice(src);
     } else {
-        assert_eq!(src.len(), dst.len());
-        let chunk_size = src.len() / rayon::current_num_threads().max(1);
+        let chunk_size = src.len() / current_num_threads().max(1);
         dst.par_chunks_mut(chunk_size)
             .zip(src.par_chunks(chunk_size))
             .for_each(|(d, s)| {
                 d.clone_from_slice(s);
             });
     }
-
-    #[cfg(not(feature = "parallel"))]
-    dst.clone_from_slice(src);
 }
 
 pub fn parallel_repeat<A>(src: &[A], n: usize) -> Vec<A>
 where
     A: Copy + Send + Sync,
 {
-    #[cfg(feature = "parallel")]
     if src.len() * n < 1 << 15 {
         // sequential repeat
         src.repeat(n)
@@ -772,9 +767,6 @@ where
         });
         res
     }
-
-    #[cfg(not(feature = "parallel"))]
-    src.repeat(n)
 }
 
 /// Recursively computes a chunk of the scaled multilinear equality polynomial over the Boolean hypercube.
@@ -825,6 +817,9 @@ pub(crate) fn eval_eq_chunked<F>(eval: &[F], out: &mut [F], scalar: F, start_ind
 where
     F: Field,
 {
+    // Parallelism for deep recursion trees
+    const PARALLEL_THRESHOLD: usize = 10;
+
     // Early exit: Nothing to process if the output chunk is empty
     if out.is_empty() {
         return;
@@ -883,25 +878,15 @@ where
         // Split `out` into chunks for the x_i = 0 and x_i = 1 subcubes
         let (low_chunk, high_chunk) = out.split_at_mut(mid_point);
 
-        // Optional parallelism for deep recursion trees
-        #[cfg(feature = "parallel")]
-        {
-            const PARALLEL_THRESHOLD: usize = 10;
-
-            if remaining_vars > PARALLEL_THRESHOLD {
-                rayon::join(
-                    || eval_eq_chunked(tail, low_chunk, s0, start_index),
-                    || eval_eq_chunked(tail, high_chunk, s1, 0),
-                );
-                return;
-            }
+        if remaining_vars > PARALLEL_THRESHOLD {
+            join(
+                || eval_eq_chunked(tail, low_chunk, s0, start_index),
+                || eval_eq_chunked(tail, high_chunk, s1, 0),
+            );
+        } else {
+            eval_eq_chunked(tail, low_chunk, s0, start_index);
+            eval_eq_chunked(tail, high_chunk, s1, 0);
         }
-
-        // Sequential fallback: recurse on both branches
-        // x_i = 0 part
-        eval_eq_chunked(tail, low_chunk, s0, start_index);
-        // x_i = 1 part (new subproblem starts at 0)
-        eval_eq_chunked(tail, high_chunk, s1, 0);
     }
 }
 
