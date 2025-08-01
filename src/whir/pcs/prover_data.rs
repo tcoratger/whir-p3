@@ -196,12 +196,9 @@ impl ConcatMatsMeta {
                 // Evaluate the rotated query as a multilinear polynomial.
                 let query_evals = query.to_mle(F::ONE);
 
-                // Choose the appropriate iterator depending on the build configuration.
-                #[cfg(feature = "parallel")]
+                // If parallel feature is not enables, this will falls back
+                // to into_iter().
                 let range_iter = self.ranges[idx].clone().into_par_iter();
-
-                #[cfg(not(feature = "parallel"))]
-                let range_iter = self.ranges[idx].clone();
 
                 // Compute the constraint weights for each cell in the matrix.
                 //
