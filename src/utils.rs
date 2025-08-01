@@ -6,6 +6,18 @@ use p3_util::{iter_array_chunks_padded, log2_strict_usize};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
+/// Log of number of threads to spawn.
+/// Long term this should be a modifiable parameter and potentially be in an optimization file somewhere.
+/// I've chosen 32 here as my machine has 20 logical cores.
+#[cfg(feature = "parallel")]
+const LOG_NUM_THREADS: usize = 5;
+#[cfg(not(feature = "parallel"))]
+/// If the parallel feature is not enabled, we default to a single thread.
+const LOG_NUM_THREADS: usize = 0;
+
+/// The number of threads to spawn for parallel computations.
+const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
+
 /// Computes the equality polynomial evaluations efficiently.
 ///
 /// Given an evaluation point vector `eval`, the function computes
@@ -26,17 +38,6 @@ where
     F: Field,
     EF: ExtensionField<F>,
 {
-    // Number of threads to spawn.
-    // Long term this should be a modifiable parameter.
-    // I've chosen 32 here as my machine has 20 logical cores. Plausibly we might want to hard code this
-    // to be a little larger than this.
-    #[cfg(feature = "parallel")]
-    const LOG_NUM_THREADS: usize = 5;
-    #[cfg(not(feature = "parallel"))]
-    const LOG_NUM_THREADS: usize = 0;
-
-    const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
-
     // It's possible for this to be called with F = EF (Despite F actually being an extension field).
     //
     // IMPORTANT: We previously checked here that `packing_width > 1`,
@@ -58,7 +59,7 @@ where
     // parallelization or packings.
     if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
         // A basic recursive approach.
-        eval_eq_basic::<_, _, INITIALIZED>(eval, out, scalar);
+        eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
     } else {
         let log_packing_width = log2_strict_usize(packing_width);
         let eval_len_min_packing = eval.len() - log_packing_width;
@@ -81,18 +82,7 @@ where
 
         // Update the buffer so it contains the evaluations of the equality polynomial
         // with respect to parts one and three.
-        for (ind, entry) in eval[..LOG_NUM_THREADS].iter().rev().enumerate() {
-            let stride = 1 << ind;
-
-            for index in 0..stride {
-                let val = parallel_buffer[index];
-                let scaled_val = val * *entry;
-                let new_val = val - scaled_val;
-
-                parallel_buffer[index] = new_val;
-                parallel_buffer[index + stride] = scaled_val;
-            }
-        }
+        fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
 
         // Finally do all computations involving the middle elements in parallel.
         #[cfg(feature = "parallel")]
@@ -117,6 +107,125 @@ where
                     *buffer_val,
                 );
             });
+    }
+}
+
+/// Computes the equality polynomial evaluations efficiently.
+///
+/// This function is similar to [`eval_eq`], but it assumes that we want to evaluate
+/// at a base field point instead of an extension field point. This leads to a different
+/// strategy which can better minimize data transfers.
+///
+/// Given an evaluation point vector `eval`, the function computes
+/// the equality polynomial recursively using the formula:
+///
+/// ```text
+/// eq(X) = ∏ (1 - X_i + 2X_i z_i)
+/// ```
+///
+/// where `z_i` are the constraint points.
+///
+/// If INITIALIZED is:
+/// - false: the result is directly set to the `out` buffer
+/// - true: the result is added to the `out` buffer
+#[inline]
+pub(crate) fn eval_eq_base<F, EF, const INITIALIZED: bool>(eval: &[F], out: &mut [EF], scalar: EF)
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    // we assume that packing_width is a power of 2.
+    let packing_width = F::Packing::WIDTH;
+
+    // Ensure that the output buffer size is correct:
+    // It should be of size `2^n`, where `n` is the number of variables.
+    debug_assert_eq!(out.len(), 1 << eval.len());
+
+    // If the number of variables is small, there is no need to use
+    // parallelization or packings.
+    if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
+        // A basic recursive approach.
+        eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
+    } else {
+        let log_packing_width = log2_strict_usize(packing_width);
+        let eval_len_min_packing = eval.len() - log_packing_width;
+
+        // We split eval into three parts:
+        // - eval[..LOG_NUM_THREADS] (the first LOG_NUM_THREADS elements)
+        // - eval[LOG_NUM_THREADS..eval_len_min_packing] (the middle elements)
+        // - eval[eval_len_min_packing..] (the last log_packing_width elements)
+
+        // The middle elements are the ones which will be computed in parallel.
+        // The last log_packing_width elements are the ones which will be packed.
+
+        // We make a buffer of PackedField elements of size `NUM_THREADS`.
+        // Note that this is a slightly different strategy to `eval_eq` which instead
+        // uses PackedExtensionField elements. Whilst this involves slightly more mathematical
+        // operations, it seems to be faster in practice due to less data moving around.
+        let mut parallel_buffer = F::Packing::zero_vec(NUM_THREADS);
+        let out_chunk_size = out.len() / NUM_THREADS;
+
+        // Compute the equality polynomial corresponding to the last log_packing_width elements
+        // and pack these.
+        parallel_buffer[0] = packed_eq_poly(&eval[eval_len_min_packing..], F::ONE);
+
+        // Update the buffer so it contains the evaluations of the equality polynomial
+        // with respect to parts one and three.
+        fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
+
+        // Finally do all computations involving the middle elements in parallel.
+        #[cfg(feature = "parallel")]
+        out.par_chunks_exact_mut(out_chunk_size)
+            .zip(parallel_buffer.par_iter())
+            .for_each(|(out_chunk, buffer_val)| {
+                base_eval_eq_packed::<_, _, INITIALIZED>(
+                    &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
+                    out_chunk,
+                    *buffer_val,
+                    scalar,
+                );
+            });
+
+        // Or not in parallel if the feature is unavailable.
+        #[cfg(not(feature = "parallel"))]
+        out.chunks_exact_mut(out_chunk_size)
+            .zip(parallel_buffer.iter())
+            .for_each(|(out_chunk, buffer_val)| {
+                base_eval_eq_packed::<_, _, INITIALIZED>(
+                    &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
+                    out_chunk,
+                    *buffer_val,
+                    scalar,
+                );
+            });
+    }
+}
+
+/// Fills the `buffer` with evaluations of the equality polynomial
+/// of degree `points.len()` multiplied by the value at `buffer[0]`.
+///
+/// Assume that `buffer[0]` contains `{eq(i, x)}` for `i \in \{0, 1\}^j` packed into a single
+/// PackedExtensionField element. This function fills out the remainder of the buffer so that
+/// `buffer[ind]` contains `{eq(ind, points) * eq(i, x)}` for `i \in \{0, 1\}^j`. Note that
+/// `ind` is interpreted as an element of `\{0, 1\}^{points.len()}`.
+#[allow(clippy::inline_always)] // Adding inline(always) seems to give a small performance boost.
+#[inline(always)]
+fn fill_buffer<'a, F, A>(points: impl ExactSizeIterator<Item = &'a F>, buffer: &mut [A])
+where
+    F: Field,
+    A: Algebra<F> + Copy,
+{
+    for (ind, &entry) in points.enumerate() {
+        let stride = 1 << ind;
+
+        for index in 0..stride {
+            let val = buffer[index];
+            let scaled_val = val * entry;
+            let new_val = val - scaled_val;
+
+            buffer[index] = new_val;
+            buffer[index + stride] = scaled_val;
+        }
     }
 }
 
@@ -168,17 +277,16 @@ where
     F: Field,
     FP: Algebra<F> + Copy,
 {
+    assert_eq!(eval.len(), 1);
+
     // Extract the evaluation point z_0
     let z_0 = eval[0];
 
-    // Compute α ⋅ z_0 = α ⋅ eq(1, z)
-    let s1 = scalar * z_0;
+    // Compute α ⋅ z_0 = α ⋅ eq(1, z) and α ⋅ (1 - z_0) = α - α ⋅ z_0 = α ⋅ eq(0, z)
+    let eq_1 = scalar * z_0;
+    let eq_0 = scalar - eq_1;
 
-    // Compute α ⋅ (1 - z_0) = α - α ⋅ z_0 = eq(0, z)
-    let s0 = scalar - s1;
-
-    // [eq(0, z), eq(1, z)]
-    [s0, s1]
+    [eq_0, eq_1]
 }
 
 /// Compute the scaled multilinear equality polynomial over `{0,1}^2`.
@@ -219,16 +327,14 @@ where
     F: Field,
     FP: Algebra<F> + Copy,
 {
-    // First variable z_0
-    let z_0 = eval[0];
+    assert_eq!(eval.len(), 2);
 
-    // Second variable z_1
+    // Extract z_0, z_1 from the evaluation point
+    let z_0 = eval[0];
     let z_1 = eval[1];
 
-    // Compute s1 = α ⋅ z_0 = α ⋅ eq(x_0 = 1, -)
+    // Compute s1 = α ⋅ z_0 = α ⋅ eq(1, -) and s0 = α - s1 = α ⋅ (1 - z_0) = α ⋅ eq(0, -)
     let s1 = scalar * z_0;
-
-    // Compute s0 = α - s1 = α ⋅ (1 - z_0) = α ⋅ eq(x_0 = 0, -)
     let s0 = scalar - s1;
 
     // For x_0 = 0:
@@ -278,6 +384,8 @@ where
     F: Field,
     FP: Algebra<F> + Copy,
 {
+    assert_eq!(eval.len(), 3);
+
     // Extract z_0, z_1, z_2 from the evaluation point
     let z_0 = eval[0];
     let z_1 = eval[1];
@@ -333,10 +441,11 @@ where
 /// - true: the result is added to the `out` buffer
 #[allow(clippy::too_many_lines)]
 #[inline]
-fn eval_eq_basic<F, EF, const INITIALIZED: bool>(eval: &[EF], out: &mut [EF], scalar: EF)
+fn eval_eq_basic<F, IF, EF, const INITIALIZED: bool>(eval: &[IF], out: &mut [EF], scalar: EF)
 where
     F: Field,
-    EF: ExtensionField<F>,
+    IF: Field,
+    EF: ExtensionField<F> + Algebra<IF>,
 {
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
@@ -354,41 +463,19 @@ where
             // Manually unroll for single variable case
             let eq_evaluations = eval_eq_1(eval, scalar);
 
-            if INITIALIZED {
-                out[0] += eq_evaluations[0];
-                out[1] += eq_evaluations[1];
-            } else {
-                out[0] = eq_evaluations[0];
-                out[1] = eq_evaluations[1];
-            }
+            add_or_set::<_, INITIALIZED>(out, &eq_evaluations);
         }
         2 => {
             // Manually unroll for two variable case
             let eq_evaluations = eval_eq_2(eval, scalar);
 
-            out.iter_mut()
-                .zip(eq_evaluations.iter())
-                .for_each(|(out, eq_eval)| {
-                    if INITIALIZED {
-                        *out += *eq_eval;
-                    } else {
-                        *out = *eq_eval;
-                    }
-                });
+            add_or_set::<_, INITIALIZED>(out, &eq_evaluations);
         }
         3 => {
             // Manually unroll for three variable case
             let eq_evaluations = eval_eq_3(eval, scalar);
 
-            out.iter_mut()
-                .zip(eq_evaluations.iter())
-                .for_each(|(out, eq_eval)| {
-                    if INITIALIZED {
-                        *out += *eq_eval;
-                    } else {
-                        *out = *eq_eval;
-                    }
-                });
+            add_or_set::<_, INITIALIZED>(out, &eq_evaluations);
         }
         _ => {
             let (&x, tail) = eval.split_first().unwrap();
@@ -409,8 +496,8 @@ where
 
             // The recursive approach turns out to be faster than the iterative one here.
             // Probably related to nice cache locality.
-            eval_eq_basic::<_, _, INITIALIZED>(tail, low, s0);
-            eval_eq_basic::<_, _, INITIALIZED>(tail, high, s1);
+            eval_eq_basic::<_, _, _, INITIALIZED>(tail, low, s0);
+            eval_eq_basic::<_, _, _, INITIALIZED>(tail, high, s1);
         }
     }
 }
@@ -449,38 +536,26 @@ fn eval_eq_packed<F, EF, const INITIALIZED: bool>(
     match eval.len() {
         0 => {
             let result: Vec<EF> = EF::ExtensionPacking::to_ext_iter([scalar]).collect();
-            if INITIALIZED {
-                EF::add_slices(out, &result);
-            } else {
-                out.copy_from_slice(&result);
-            }
+            add_or_set::<_, INITIALIZED>(out, &result);
         }
         1 => {
             // Manually unroll for single variable case
             let eq_evaluations = eval_eq_1(eval, scalar);
 
             let result: Vec<EF> = EF::ExtensionPacking::to_ext_iter(eq_evaluations).collect();
-            if INITIALIZED {
-                EF::add_slices(out, &result);
-            } else {
-                out.copy_from_slice(&result);
-            }
+            add_or_set::<_, INITIALIZED>(out, &result);
         }
         2 => {
             // Manually unroll for two variables case
             let eq_evaluations = eval_eq_2(eval, scalar);
 
             let result: Vec<EF> = EF::ExtensionPacking::to_ext_iter(eq_evaluations).collect();
-            if INITIALIZED {
-                EF::add_slices(out, &result);
-            } else {
-                out.copy_from_slice(&result);
-            }
+            add_or_set::<_, INITIALIZED>(out, &result);
         }
         3 => {
             const EVAL_LEN: usize = 8;
 
-            // Manually unroll for single variable case
+            // Manually unroll for three variable case
             let eq_evaluations = eval_eq_3(eval, scalar);
 
             // Unpack the evaluations back into EF elements and add to output.
@@ -488,6 +563,9 @@ fn eval_eq_packed<F, EF, const INITIALIZED: bool>(
             // needing a vector allocation. Note that `eq_evaluations: [EF::ExtensionPacking: 8]`
             // so we know that `out.len() = 8 * F::Packing::WIDTH` meaning we can use `chunks_exact_mut`
             // and `iter_array_chunks_padded` will never actually pad anything.
+            // This avoids the allocation used to accumulate `result` in the other branches. We could
+            // do a similar strategy in those branches but, those branches should only be hit
+            // infrequently in small cases which are already sufficiently fast.
             iter_array_chunks_padded::<_, EVAL_LEN>(
                 EF::ExtensionPacking::to_ext_iter(eq_evaluations),
                 EF::ZERO,
@@ -526,7 +604,138 @@ fn eval_eq_packed<F, EF, const INITIALIZED: bool>(
     }
 }
 
+/// Computes the equality polynomial evaluations via a simple recursive algorithm.
+///
+/// Unlike [`eval_eq_basic`], this function makes heavy use of packed values to speed up computations.
+/// In particular `scalar` should be passed in as a packed value coming from [`packed_eq_poly`].
+///
+/// Essentially using packings this functions computes
+///
+/// ```text
+/// eq(X) = scalar[j] * ∏ (1 - X_i + 2X_i z_i)
+/// ```
+///
+/// for a collection of `i` at the same time. Here `scalar[j]` should be thought of as evaluations of an equality
+/// polynomial over different variables so `eq(X)` ends up being the evaluation of the equality polynomial over
+/// the combined set of variables.
+///
+/// It then updates the output buffer `out` with the computed values by adding them in.
+#[allow(clippy::too_many_lines)]
+#[inline]
+fn base_eval_eq_packed<F, EF, const INITIALIZED: bool>(
+    eval_points: &[F],
+    out: &mut [EF],
+    eq_evals: F::Packing,
+    scalar: EF,
+) where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    // Ensure that the output buffer size is correct:
+    // It should be of size `2^n`, where `n` is the number of variables.
+    let width = F::Packing::WIDTH;
+    debug_assert_eq!(out.len(), width << eval_points.len());
+
+    match eval_points.len() {
+        0 => {
+            scale_and_add::<_, _, INITIALIZED>(out, eq_evals.as_slice(), scalar);
+        }
+        1 => {
+            let eq_evaluations = eval_eq_1(eval_points, eq_evals);
+
+            scale_and_add::<_, _, INITIALIZED>(
+                out,
+                F::Packing::unpack_slice(&eq_evaluations),
+                scalar,
+            );
+        }
+        2 => {
+            let eq_evaluations = eval_eq_2(eval_points, eq_evals);
+
+            scale_and_add::<_, _, INITIALIZED>(
+                out,
+                F::Packing::unpack_slice(&eq_evaluations),
+                scalar,
+            );
+        }
+        3 => {
+            let eq_evaluations = eval_eq_3(eval_points, eq_evals);
+
+            scale_and_add::<_, _, INITIALIZED>(
+                out,
+                F::Packing::unpack_slice(&eq_evaluations),
+                scalar,
+            );
+        }
+        _ => {
+            let (&x, tail) = eval_points.split_first().unwrap();
+
+            // Divide the output buffer into two halves: one for `X_i = 0` and one for `X_i = 1`
+            let (low, high) = out.split_at_mut(out.len() / 2);
+
+            // Compute weight updates for the two branches:
+            // - `s0` corresponds to the case when `X_i = 0`
+            // - `s1` corresponds to the case when `X_i = 1`
+            //
+            // Mathematically, this follows the recurrence:
+            // ```text
+            // eq_{X1, ..., Xn}(X) = (1 - X_1) * eq_{X2, ..., Xn}(X) + X_1 * eq_{X2, ..., Xn}(X)
+            // ```
+            let s1 = eq_evals * x; // Contribution when `X_i = 1`
+            let s0 = eq_evals - s1; // Contribution when `X_i = 0`
+
+            // The recursive approach turns out to be faster than the iterative one here.
+            // Probably related to nice cache locality.
+            base_eval_eq_packed::<_, _, INITIALIZED>(tail, low, s0, scalar);
+            base_eval_eq_packed::<_, _, INITIALIZED>(tail, high, s1, scalar);
+        }
+    }
+}
+
+/// Adds or sets the equality polynomial evaluations in the output buffer.
+///
+/// If the output buffer is already initialized, it adds the evaluations otherwise
+/// it copies the evaluations into the buffer directly.
+#[inline]
+fn add_or_set<F: Field, const INITIALIZED: bool>(out: &mut [F], evaluations: &[F]) {
+    debug_assert_eq!(out.len(), evaluations.len());
+    if INITIALIZED {
+        F::add_slices(out, evaluations);
+    } else {
+        out.copy_from_slice(evaluations);
+    }
+}
+
+/// Scales the evaluations by scalar and either adds the result to the output buffer or
+/// sets the output buffer directly depending on the `INITIALIZED` flag.
+///
+/// If the output buffer is already initialized, it adds the evaluations otherwise
+/// it copies the evaluations into the buffer directly.
+#[inline]
+fn scale_and_add<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
+    out: &mut [EF],
+    base_vals: &[F],
+    scalar: EF,
+) {
+    // TODO: We can probably add a custom method to Plonky3 to handle this more efficiently (and use packings).
+    // This approach is faster than collecting `scalar * eq_eval` into a vector and using `add_slices`. Presumably
+    // this is because we avoid the allocation.
+    if INITIALIZED {
+        out.iter_mut().zip(base_vals).for_each(|(out, &eq_eval)| {
+            *out += scalar * eq_eval;
+        });
+    } else {
+        out.iter_mut().zip(base_vals).for_each(|(out, &eq_eval)| {
+            *out = scalar * eq_eval;
+        });
+    }
+}
+
 /// Computes equality polynomial evaluations and packs them into a `PackedFieldExtension`.
+///
+/// Note that when `F = EF` is a PrimeField, `EF::ExtensionPacking = F::Packing` so this can
+/// also be used to compute initial packed evaluations of the equality polynomial over base
+/// field elements (instead of extension field elements).
 ///
 /// The length of `eval` must be equal to the `log2` of `F::Packing::WIDTH`.
 #[allow(clippy::inline_always)] // Adding inline(always) seems to give a small performance boost.
@@ -544,22 +753,7 @@ where
     let mut buffer = EF::zero_vec(1 << eval.len());
     buffer[0] = scalar;
 
-    for (ind, entry) in eval.iter().rev().enumerate() {
-        // After round 1 buffer should look like:
-        // [(1 - xn)*scalar, xn*scalar, 0, 0, ...]
-        // After round 2 buffer should look like:
-        // [(1 - xn)*(1 - x_{n-1})*scalar, xn*(1 - x_{n-1})*scalar,
-        //      (1 - xn)*x_{n-1}*scalar, xn*x_{n-1}*scalar, 0, 0, ...]
-        let stride = 1 << ind;
-        for index in 0..stride {
-            let val = buffer[index];
-            let scaled_val = val * *entry;
-            let new_val = val - scaled_val;
-
-            buffer[index] = new_val;
-            buffer[index + stride] = scaled_val;
-        }
-    }
+    fill_buffer(eval.iter().rev(), &mut buffer);
 
     // Finally we need to do a "transpose" to get a `PackedFieldExtension` element.
     EF::ExtensionPacking::from_ext_slice(&buffer)
