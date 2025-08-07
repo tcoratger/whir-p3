@@ -1,7 +1,7 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::dense::RowMajorMatrix;
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
@@ -10,7 +10,8 @@ use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
-        sumcheck_single_skip::compute_skipping_sumcheck_polynomial, utils::sumcheck_quadratic,
+        sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
+        utils::{sumcheck_quadratic, univariate_selectors},
     },
     whir::statement::Statement,
 };
@@ -420,11 +421,40 @@ where
         // Proof-of-work challenge to delay prover.
         prover_state.pow_grinding(pow_bits);
 
-        // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
-        let new_p = interpolate_subgroup(&f_mat, r);
-        let new_w = interpolate_subgroup(&w_mat, r);
+        // Compute univariate selectors evaluated at challenge r.
+        //
+        // TODO: we don't need to compute this every time, we can just reuse the same selectors.
+        let selectors = univariate_selectors(k_skip)
+            .iter()
+            .map(|poly| poly.evaluate(r))
+            .collect::<Vec<_>>();
 
-        // Update polynomial and weights with reduced dimensionality.
+        // Fold the LDE matrices by applying the selectors to the rows.
+        let new_p = f_mat
+            .rows()
+            .zip(&selectors)
+            .map(|(row, s)| row.map(|x| *s * x).collect::<Vec<_>>())
+            .reduce(|mut acc, row| {
+                for (a, b) in acc.iter_mut().zip(row) {
+                    *a += b;
+                }
+                acc
+            })
+            .expect("at least one row");
+
+        // Same for the weights.
+        let new_w = w_mat
+            .rows()
+            .zip(&selectors)
+            .map(|(row, s)| row.map(|x| *s * x).collect::<Vec<_>>())
+            .reduce(|mut acc, row| {
+                for (a, b) in acc.iter_mut().zip(row) {
+                    *a += b;
+                }
+                acc
+            })
+            .expect("at least one row");
+
         let mut evals = EvaluationsList::new(new_p);
         let mut weights = EvaluationsList::new(new_w);
 

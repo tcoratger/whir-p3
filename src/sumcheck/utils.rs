@@ -1,4 +1,7 @@
 use p3_field::{ExtensionField, Field};
+use p3_maybe_rayon::prelude::*;
+
+use crate::poly::dense::WhirDensePolynomial;
 
 /// Computes the partial contributions to the sumcheck polynomial from two evaluations.
 ///
@@ -34,6 +37,19 @@ where
     let quadratic = (eq[1] - eq[0]) * (p[1] - p[0]);
 
     (constant, quadratic)
+}
+
+#[must_use]
+pub fn univariate_selectors<F: Field>(n: usize) -> Vec<WhirDensePolynomial<F>> {
+    (0..1 << n)
+        .into_par_iter()
+        .map(|i| {
+            let values = (0..1 << n)
+                .map(|j| (F::from_u64(j), if i == j { F::ONE } else { F::ZERO }))
+                .collect::<Vec<_>>();
+            WhirDensePolynomial::lagrange_interpolation(&values).unwrap()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -108,7 +124,7 @@ mod tests {
         let eq = &[EF4::ONE, EF4::ONE];
         let (c0, c2) = sumcheck_quadratic((p, eq));
         assert_eq!(c0, EF4::ONE);
-        assert_eq!(c2, EF4::ZERO); // (1-1) * (1-1) = 0  
+        assert_eq!(c2, EF4::ZERO); // (1-1) * (1-1) = 0
     }
 
     #[test]
@@ -117,8 +133,8 @@ mod tests {
         let p = &[F::from_u64(1000), F::from_u64(2000)];
         let eq = &[EF4::from_u64(500), EF4::from_u64(1500)];
         let (c0, c2) = sumcheck_quadratic((p, eq));
-        assert_eq!(c0, EF4::from_u64(500_000)); // 1000 * 500  
-        assert_eq!(c2, EF4::from_u64(1_000_000)); // 1000 * 1000  
+        assert_eq!(c0, EF4::from_u64(500_000)); // 1000 * 500
+        assert_eq!(c2, EF4::from_u64(1_000_000)); // 1000 * 1000
     }
 
     #[test]
@@ -127,8 +143,8 @@ mod tests {
         let p = &[F::ZERO, F::from_u64(5)];
         let eq = &[EF4::from_u64(3), EF4::from_u64(7)];
         let (c0, c2) = sumcheck_quadratic((p, eq));
-        assert_eq!(c0, EF4::ZERO); // 0 * 3 = 0  
-        assert_eq!(c2, EF4::from_u64(20)); // 5 * 4 = 20  
+        assert_eq!(c0, EF4::ZERO); // 0 * 3 = 0
+        assert_eq!(c2, EF4::from_u64(20)); // 5 * 4 = 20
     }
 
     #[test]

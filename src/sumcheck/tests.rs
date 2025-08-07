@@ -1,6 +1,6 @@
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
-use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, distr::StandardUniform, rngs::SmallRng};
 
@@ -10,7 +10,7 @@ use crate::{
         domain_separator::DomainSeparator, prover::ProverState, verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::K_SKIP_SUMCHECK,
+    sumcheck::{K_SKIP_SUMCHECK, utils::univariate_selectors},
     whir::{
         statement::{Statement, constraint::Constraint, weights::Weights},
         verifier::sumcheck::verify_sumcheck_rounds,
@@ -470,6 +470,122 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     assert_eq!(sum, final_folded_value_transcript * eq_eval);
 }
 
+/// Evaluates a multilinear polynomial (given by evaluations) at a mixed-domain point `r`
+/// that results from a univariate skip protocol.
+///
+/// This function implements the theoretical evaluation based on Lagrange interpolation
+/// over the skipped domain, providing a ground-truth value to test against. The final
+/// computation implements the formula:
+///
+/// $$
+/// \widetilde{p}(r_Y, r_{\text{rest}}) = \sum_{x \in D} p([x]_2, r_{\text{rest}}) \cdot L_x(r_Y)
+/// $$
+///
+/// # Arguments
+/// - `poly`: The original polynomial's evaluations over the Boolean hypercube, representing $p$.
+/// - `r`: The challenge point $(r_Y, r_{\text{rest}})$ from the verifier.
+/// - `k_skip`: The number of variables ($k$) that were skipped/grouped in the first round.
+fn evaluate_skip<F, EF>(poly: &EvaluationsList<F>, r: &MultilinearPoint<EF>, k_skip: usize) -> EF
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    // Let `n` be the total number of variables in the original polynomial `p`.
+    let n = poly.num_variables();
+
+    // Assert that the number of skipped variables `k` is not greater than the total `n`.
+    assert!(k_skip <= n, "k_skip must be <= total number of variables");
+
+    // The challenge point `r` is for a polynomial over the mixed domain
+    // D x {0,1}^{n-k}, which has 1 (univariate) + (n-k) (multilinear) variables.
+    assert_eq!(
+        r.len(),
+        n - k_skip + 1,
+        "challenge point `r` has incorrect length"
+    );
+
+    // Decompose the challenge point `r` into its univariate and multilinear parts.
+    // The full challenge point is `r = (r_k, r_{k+1}, ..., r_{n-1}, r_Y)`. Note the order.
+    let r_len = r.len();
+
+    // Extract the challenge for the univariate part, `r_Y`. Due to a `reverse()` call in the
+    // protocol's implementation, this challenge is the *last* element in the vector.
+    let r_skip = r.0[r_len - 1];
+
+    // Extract the challenges for the remaining multilinear variables, `r_rest = (r_k, ..., r_{n-1})`.
+    let r_rest = MultilinearPoint(r.0[0..r_len - 1].to_vec());
+
+    // Sanity check that the number of remaining challenges matches the number of multilinear variables.
+    assert_eq!(r_rest.len(), n - k_skip);
+
+    // Compute the Lagrange selectors.
+    //
+    // This step computes the value of each Lagrange basis polynomial `L_x(Y)` at the
+    // challenge point `r_Y`.
+    //
+    // The resulting vector `selectors` will be:
+    // `[L_0(r_Y), L_1(r_Y), ..., L_{2^k-1}(r_Y)]`.
+    let selectors: Vec<EF> = univariate_selectors(k_skip)
+        .iter()
+        .map(|p| {
+            // For each basis polynomial `L_x(Y)` evaluate it at `r_Y`.
+            p.evaluate(r_skip)
+        })
+        .collect();
+
+    // Evaluate all sub-polynomials at `r_rest`.
+    //
+    // This block computes the vector of values:
+    // `[ p([0]_2, r_rest),  p([1]_2, r_rest), ..., p([2^k-1]_2, r_rest) ]`
+    //
+    // Each element is a standard multilinear evaluation of a smaller, (n-k)-variable
+    // sub-polynomial. The results are collected into the `sub_evals` vector.
+    let sub_evals: Vec<EF> = (0..(1 << k_skip))
+        .map(|x| {
+            // Calculate the number of variables in each sub-polynomial, which is `n-k`.
+            let sub_poly_num_vars = n - k_skip;
+
+            // Calculate the number of evaluations that define each sub-polynomial.
+            // This is the size of the boolean hypercube for the remaining variables, `2^(n-k)`.
+            let sub_poly_size = 1 << sub_poly_num_vars;
+
+            // The original `poly` evaluations are ordered lexicographically. This means all
+            // evaluations for a fixed setting of the first `k` variables form a contiguous block.
+            //
+            // `start` computes the starting index of the block for the current integer `x`.
+            // For `x=0`, start=0. For `x=1`, start=2^(n-k). For `x=2`, start=2*2^(n-k), etc.
+            let start = x * sub_poly_size;
+
+            // Calculate the exclusive end index for the slice.
+            let end = start + sub_poly_size;
+
+            // Extract the slice of evaluations corresponding to the sub-polynomial p([x]_2, ...).
+            // This creates a new `EvaluationsList` object representing the (n-k)-variable function:
+            //
+            // p_x(X_k, ..., X_{n-1}) := p([x]_2, X_k, ..., X_{n-1})
+            let sub_poly = EvaluationsList::new(poly.to_vec()[start..end].to_vec());
+
+            // Perform a standard multilinear evaluation on the newly created `sub_poly`.
+            //
+            // This computes the value `p_x(r_rest)`, which is mathematically equivalent to
+            // our target term `p([x]_2, r_rest)`.
+            sub_poly.evaluate(&r_rest)
+        })
+        .collect();
+
+    // Compute the final evaluation.
+    //
+    // This step computes the dot product of the `sub_evals` and `selectors` vectors,
+    // which is the final summation in the Lagrange interpolation formula:
+    //
+    // $$ \sum_{x=0}^{2^k-1} \text{sub\_evals}[x] \cdot \text{selectors}[x] $$
+    sub_evals
+        .iter()
+        .zip(selectors)
+        .map(|(&sub_eval, selector)| selector * sub_eval)
+        .sum()
+}
+
 /// Runs an end-to-end prover-verifier test for the `SumcheckSingle` protocol with skipping enabled.
 ///
 /// This variant uses the univariate skip optimization: in the first round, `K_SKIP_SUMCHECK`
@@ -554,8 +670,10 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
 
     // Final constant should be f(r), where r is the accumulated challenge point
     let constant = sumcheck.evals[0];
-    // TODO: This should be fixed somehow for the univariate skip to work
-    // assert_eq!(poly.evaluate(&r), constant);
+
+    // The protocol's result must match a direct evaluation.
+    let expected_eval = evaluate_skip(&poly, &prover_randomness, K_SKIP_SUMCHECK);
+    assert_eq!(expected_eval, constant);
 
     // Commit final result to Fiat-Shamir transcript
     prover.add_extension_scalar(constant);
