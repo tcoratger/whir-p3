@@ -559,10 +559,6 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     // Final constant should be f(r), where r is the accumulated challenge point
     let constant = sumcheck.evals[0];
 
-    // // The protocol's result must match a direct evaluation.
-    // let expected_eval = evaluate_skip(&poly, &prover_randomness, K_SKIP_SUMCHECK);
-    // assert_eq!(expected_eval, constant);
-
     // Final constant should be f̂(r0, r_{k+1..}) under skip semantics
     let expected = eval_with_skip::<F, EF>(&poly, K_SKIP_SUMCHECK, &prover_randomness);
     assert_eq!(constant, expected);

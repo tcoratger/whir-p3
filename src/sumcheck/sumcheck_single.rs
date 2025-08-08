@@ -418,18 +418,18 @@ where
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
         prover_state.add_extension_scalars(sumcheck_poly.evaluations());
 
-        // Verifier challenge r ∈ EF specializes Y ← r.
+        // Receive the verifier challenge for this entire collapsed round.
         let r: EF = prover_state.sample();
         res.push(r);
 
-        // Optional proof-of-work delay.
+        // Proof-of-work challenge to delay prover.
         prover_state.pow_grinding(pow_bits);
 
         // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
         let new_p = interpolate_subgroup(&f_mat, r);
         let new_w = interpolate_subgroup(&w_mat, r);
 
-        // Wrap the specialized tables as evaluation lists on B^{n-k}.
+        // Update polynomial and weights with reduced dimensionality.
         let mut evals = EvaluationsList::new(new_p);
         let mut weights = EvaluationsList::new(new_w);
 
@@ -440,13 +440,13 @@ where
         );
         let mut sum = folded_poly_eval[0];
 
-        // Finish the remaining (folding_factor - k_skip) classic rounds over B^{n-k}.
+        // Apply rest of sumcheck rounds
         res.extend(
             (k_skip..folding_factor)
                 .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
         );
 
-        // Reverse the challenges to return them in X₀,…,X_{folding_factor-1} order.
+        // Reverse challenges to maintain order from X₀ to Xₙ.
         res.reverse();
 
         let sumcheck = Self {
