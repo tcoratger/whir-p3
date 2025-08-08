@@ -1,7 +1,7 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::{Matrix, dense::RowMajorMatrix};
+use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
@@ -10,8 +10,7 @@ use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
-        sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
-        utils::{sumcheck_quadratic, univariate_selectors},
+        sumcheck_single_skip::compute_skipping_sumcheck_polynomial, utils::sumcheck_quadratic,
     },
     whir::statement::Statement,
 };
@@ -408,53 +407,29 @@ where
         assert!(k_skip <= folding_factor);
 
         let (weights, _sum) = statement.combine::<F>(combination_randomness);
-        // Collapse the first k variables via a univariate evaluation over a multiplicative coset.
+
+        // Compute the skipped-round polynomial h and the rectangular views f̂, ŵ.
+        //
+        // - `sumcheck_poly`: The univariate polynomial sent to the verifier for this round.
+        // - `f_mat`, `w_mat`: The original evaluations reshaped into matrices of size 2^k x 2^(n-k).
         let (sumcheck_poly, f_mat, w_mat) =
             compute_skipping_sumcheck_polynomial(k_skip, evals, &weights);
 
+        // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
         prover_state.add_extension_scalars(sumcheck_poly.evaluations());
 
-        // Receive the verifier challenge for this entire collapsed round.
+        // Verifier challenge r ∈ EF specializes Y ← r.
         let r: EF = prover_state.sample();
         res.push(r);
 
-        // Proof-of-work challenge to delay prover.
+        // Optional proof-of-work delay.
         prover_state.pow_grinding(pow_bits);
 
-        // Compute univariate selectors evaluated at challenge r.
-        //
-        // TODO: we don't need to compute this every time, we can just reuse the same selectors.
-        let selectors = univariate_selectors(k_skip)
-            .iter()
-            .map(|poly| poly.evaluate(r))
-            .collect::<Vec<_>>();
+        // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
+        let new_p = interpolate_subgroup(&f_mat, r);
+        let new_w = interpolate_subgroup(&w_mat, r);
 
-        // Fold the LDE matrices by applying the selectors to the rows.
-        let new_p = f_mat
-            .rows()
-            .zip(&selectors)
-            .map(|(row, s)| row.map(|x| *s * x).collect::<Vec<_>>())
-            .reduce(|mut acc, row| {
-                for (a, b) in acc.iter_mut().zip(row) {
-                    *a += b;
-                }
-                acc
-            })
-            .expect("at least one row");
-
-        // Same for the weights.
-        let new_w = w_mat
-            .rows()
-            .zip(&selectors)
-            .map(|(row, s)| row.map(|x| *s * x).collect::<Vec<_>>())
-            .reduce(|mut acc, row| {
-                for (a, b) in acc.iter_mut().zip(row) {
-                    *a += b;
-                }
-                acc
-            })
-            .expect("at least one row");
-
+        // Wrap the specialized tables as evaluation lists on B^{n-k}.
         let mut evals = EvaluationsList::new(new_p);
         let mut weights = EvaluationsList::new(new_w);
 
@@ -465,13 +440,13 @@ where
         );
         let mut sum = folded_poly_eval[0];
 
-        // Apply rest of sumcheck rounds
+        // Finish the remaining (folding_factor - k_skip) classic rounds over B^{n-k}.
         res.extend(
             (k_skip..folding_factor)
                 .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
         );
 
-        // Reverse challenges to maintain order from X₀ to Xₙ.
+        // Reverse the challenges to return them in X₀,…,X_{folding_factor-1} order.
         res.reverse();
 
         let sumcheck = Self {

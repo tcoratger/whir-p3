@@ -1,7 +1,4 @@
 use p3_field::{ExtensionField, Field};
-use p3_maybe_rayon::prelude::*;
-
-use crate::poly::dense::WhirDensePolynomial;
 
 /// Computes the partial contributions to the sumcheck polynomial from two evaluations.
 ///
@@ -37,19 +34,6 @@ where
     let quadratic = (eq[1] - eq[0]) * (p[1] - p[0]);
 
     (constant, quadratic)
-}
-
-#[must_use]
-pub fn univariate_selectors<F: Field>(n: usize) -> Vec<WhirDensePolynomial<F>> {
-    (0..1 << n)
-        .into_par_iter()
-        .map(|i| {
-            let values = (0..1 << n)
-                .map(|j| (F::from_u64(j), if i == j { F::ONE } else { F::ZERO }))
-                .collect::<Vec<_>>();
-            WhirDensePolynomial::lagrange_interpolation(&values).unwrap()
-        })
-        .collect()
 }
 
 #[cfg(test)]
