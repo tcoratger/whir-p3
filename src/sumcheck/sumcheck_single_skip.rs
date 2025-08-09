@@ -1,4 +1,4 @@
-use p3_dft::{NaiveDft, TwoAdicSubgroupDft};
+use p3_dft::{NaiveDft, Radix2DFTSmallBatch, TwoAdicSubgroupDft};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_maybe_rayon::prelude::*;

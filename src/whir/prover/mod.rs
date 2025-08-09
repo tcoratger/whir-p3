@@ -3,7 +3,11 @@ use std::ops::Deref;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
-use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
+use p3_interpolation::interpolate_subgroup;
+use p3_matrix::{
+    Matrix,
+    dense::{DenseMatrix, RowMajorMatrix},
+};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use round::RoundState;
@@ -15,6 +19,7 @@ use crate::{
     dft::EvalsDft,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    sumcheck::K_SKIP_SUMCHECK,
     utils::parallel_repeat,
     whir::{
         parameters::RoundConfig,
@@ -311,11 +316,26 @@ where
 
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = Vec::with_capacity(answers.len());
+                // for answer in &answers {
+                //     stir_evaluations.push(
+                //         EvaluationsList::new(answer.clone())
+                //             .evaluate(&round_state.folding_randomness),
+                //     );
+                // }
+
                 for answer in &answers {
-                    stir_evaluations.push(
+                    let eval = if self.initial_statement
+                        && self.univariate_skip
+                        && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
+                    {
+                        let evals_mat = RowMajorMatrix::new_col(answer.clone());
+                        interpolate_subgroup(&evals_mat, round_state.folding_randomness[0])[0]
+                    } else {
                         EvaluationsList::new(answer.clone())
-                            .evaluate(&round_state.folding_randomness),
-                    );
+                            .evaluate(&round_state.folding_randomness)
+                    };
+
+                    stir_evaluations.push(eval);
                 }
 
                 stir_evaluations

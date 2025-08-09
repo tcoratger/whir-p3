@@ -14,7 +14,7 @@ use crate::{
         domain_separator::DomainSeparator, prover::ProverState, verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::K_SKIP_SUMCHECK,
+    sumcheck::{K_SKIP_SUMCHECK, sumcheck_single_skip::compute_skipping_sumcheck_polynomial},
     whir::{
         statement::{Statement, constraint::Constraint, weights::Weights},
         verifier::sumcheck::verify_sumcheck_rounds,
@@ -637,6 +637,48 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     // //
     // // Main equation: sum == f(r) · eq(z, r)
     // assert_eq!(sum, constant * eq_eval);
+
+    // EVALUATE EQ(z, r) VIA CONSTRAINTS — using the exact skip pipeline as the prover.
+    let k_skip = K_SKIP_SUMCHECK;
+
+    // In this test we only have one round of constraints combined with a single alpha.
+    let constraints_round0 = &constraints[0];
+    let alpha_round0 = alphas[0];
+    let alpha_pows = alpha_round0.powers().collect_n(constraints_round0.len());
+
+    // 1) Combine the equality weights into a single weight table W over B^n.
+    let mut w_all = EvaluationsList::new(vec![EF::ZERO; 1 << num_vars]);
+    for (c, &a_i) in constraints_round0.iter().zip(&alpha_pows) {
+        // Accumulate eq_{z_i}(·) with coefficient a_i.
+        c.weights.accumulate::<F, true>(&mut w_all, a_i);
+    }
+
+    // Number of variables for the multilinear polynomial f(X)
+    let n = poly.num_variables();
+    // Number of remaining variables after skipping k
+    let num_remaining_vars = n - k_skip;
+    // Number of columns = 2^{n-k}
+    let width = 1 << num_remaining_vars;
+
+    // Reorganize the weights into a matrix
+    let w_mat = RowMajorMatrix::new(w_all.to_vec(), width);
+
+    // Evaluate folded weights at the skip challenge, then on the remaining variables.
+    let r_skip = *verifier_randomness
+        .0
+        .last()
+        .expect("skip challenge present");
+    let folded_w_row = interpolate_subgroup(&w_mat, r_skip);
+    let w_folded = EvaluationsList::new(folded_w_row);
+
+    // Rest of challenges are the first (n - k) entries, in order.
+    let r_rest = MultilinearPoint(verifier_randomness.0[..(num_vars - k_skip)].to_vec());
+
+    // This is Σ α^i·eq(z_i, r) evaluated with the same domain/transform as the prover.
+    let eq_eval = w_folded.evaluate(&r_rest);
+
+    // FINAL SUMCHECK CHECK
+    assert_eq!(sum, constant * eq_eval);
 }
 
 /// Evaluate f with the same "univariate skip" semantics the prover uses:
@@ -691,5 +733,34 @@ fn test_sumcheck_prover() {
     run_sumcheck_test(&[4, 4, 1], &[9, 9]);
     run_sumcheck_test(&[1, 4, 4], &[9, 9]);
 
+    // Original skip test case.
+    // Folds 6 variables with skip, then 1 standard. Total 7 variables. 1 constraint.
     run_sumcheck_test_skips(&[6, 1], &[1]);
+
+    // Case 1: More constraints.
+    // Tests the system with a higher number of initial equality constraints.
+    // Total 7 variables (6 skipped, 1 standard). 5 constraints.
+    run_sumcheck_test_skips(&[6, 1], &[5]);
+
+    // Case 2: Higher dimensions.
+    // Increases the total number of variables, with more processed in the final standard round.
+    // Total 10 variables (6 skipped, 4 standard). 3 constraints.
+    run_sumcheck_test_skips(&[6, 4], &[3]);
+
+    // Case 3: All variables folded in the first skip round.
+    // The final round folds 0 variables, testing an edge case.
+    // Total 6 variables (all 6 skipped). 4 constraints.
+    run_sumcheck_test_skips(&[6, 0], &[4]);
+
+    // Case 4: First folding round is larger than k_skip.
+    // The `with_skip` function will perform one skip of `K_SKIP_SUMCHECK` (6) variables,
+    // followed by 2 standard folding rounds, all within the first logical round.
+    // Total 10 variables (8 folded in round 0, 2 in final round). 3 constraints.
+    run_sumcheck_test_skips(&[8, 2], &[3]);
+
+    // Case 5: Multiple intermediate rounds after the initial skip.
+    // This provides a more complex scenario with a skip round, an intermediate standard
+    // round with new constraints, and a final round.
+    // Total 10 variables (6 skipped, then 2, then 2). 3 initial and 3 intermediate constraints.
+    run_sumcheck_test_skips(&[6, 2, 2], &[3, 3]);
 }
