@@ -321,11 +321,6 @@ where
         )?;
 
         // Compute STIR Constraints
-        // let folds: Vec<_> = answers
-        //     .into_iter()
-        //     .map(|answers| EvaluationsList::new(answers).evaluate(folding_randomness))
-        //     .collect();
-
         let folds: Vec<_> = answers
             .into_iter()
             .map(|answers| {

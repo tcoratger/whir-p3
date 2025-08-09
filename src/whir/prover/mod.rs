@@ -316,12 +316,6 @@ where
 
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = Vec::with_capacity(answers.len());
-                // for answer in &answers {
-                //     stir_evaluations.push(
-                //         EvaluationsList::new(answer.clone())
-                //             .evaluate(&round_state.folding_randomness),
-                //     );
-                // }
 
                 for answer in &answers {
                     let eval = if self.initial_statement
