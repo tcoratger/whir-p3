@@ -131,7 +131,8 @@ where
 {
     // Compute the quadratic sumcheck polynomial for the current variable.
     let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
-    prover_state.add_extension_scalars(sumcheck_poly.evaluations());
+    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[0]);
+    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[2]);
 
     // Sample verifier challenge.
     let r: EF = prover_state.sample();
@@ -174,7 +175,8 @@ where
 {
     // Compute the quadratic sumcheck polynomial for the current variable.
     let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
-    prover_state.add_extension_scalars(sumcheck_poly.evaluations());
+    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[0]);
+    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[2]);
 
     // Sample verifier challenge.
     let r: EF = prover_state.sample();
