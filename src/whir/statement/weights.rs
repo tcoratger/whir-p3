@@ -201,9 +201,10 @@ impl<F: Field> Weights<F> {
         // and the number of skipped variables `k_skip`.
         let n = r_all.num_variables() + k_skip - 1;
 
-        // --- Step 2: Materialize the 2^n evaluation table for the weight polynomial ---
+        // Materialize the 2^n evaluation table for the weight polynomial
+        //
         // We build the complete table of the weight polynomial `W(X)` over the n-dimensional hypercube.
-        let evals: EvaluationsList<F> = match self {
+        let evals = match self {
             // Case 1: The weight is defined by a pre-computed evaluation table.
             Self::Linear { weight } => {
                 // Ensure the provided table matches the full domain size.
