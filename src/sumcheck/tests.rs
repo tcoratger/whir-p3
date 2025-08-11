@@ -14,7 +14,7 @@ use crate::{
         domain_separator::DomainSeparator, prover::ProverState, verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::{K_SKIP_SUMCHECK, sumcheck_single_skip::compute_skipping_sumcheck_polynomial},
+    sumcheck::K_SKIP_SUMCHECK,
     whir::{
         statement::{Statement, constraint::Constraint, weights::Weights},
         verifier::sumcheck::verify_sumcheck_rounds,
