@@ -109,21 +109,17 @@ where
     };
 
     for _ in start_round..rounds {
-        // Extract the 3 evaluations of the quadratic sumcheck polynomial h(X)
-        let evals: [_; 3] = verifier_state.next_extension_scalars_const()?;
-
-        let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
-
-        // Verify claimed sum is consistent with polynomial
-        if poly.sum_over_boolean_hypercube() != *claimed_sum {
-            return Err(ProofError::InvalidProof);
-        }
+        // Extract the first and third evaluations of the sumcheck polynomial
+        // and derive the second evaluation from the latest sum
+        let c0 = verifier_state.next_extension_scalar()?;
+        let c1 = *claimed_sum - c0;
+        let c2 = verifier_state.next_extension_scalar()?;
 
         // Sample the next verifier folding randomness rᵢ
         let rand: EF = verifier_state.sample();
 
         // Update claimed sum using folding randomness
-        *claimed_sum = poly.evaluate_at_point(&rand.into());
+        *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2], 1).evaluate_at_point(&rand.into());
 
         // Store this round’s randomness
         randomness.push(rand);
@@ -294,17 +290,13 @@ mod tests {
 
         let mut expected = Vec::with_capacity(folding_factor);
 
-        for i in 0..folding_factor {
+        for _ in 0..folding_factor {
             // Get the 3 evaluations of sumcheck polynomial h_i(X) at X = 0, 1, 2
-            let sumcheck_evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
+            let c0 = verifier_state.next_extension_scalar().unwrap();
+            let c1 = current_sum - c0;
+            let c2 = verifier_state.next_extension_scalar().unwrap();
 
-            let poly = SumcheckPolynomial::new(sumcheck_evals.to_vec(), 1);
-            // Verify sum over Boolean points {0,1} matches current sum
-            let sum = poly.evaluations()[0] + poly.evaluations()[1];
-            assert_eq!(
-                sum, current_sum,
-                "Sumcheck round {i}: sum rule failed (h(0) + h(1) != current_sum)"
-            );
+            let poly = SumcheckPolynomial::new(vec![c0, c1, c2], 1);
 
             // Sample random challenge r_i ∈ F and evaluate h_i(r_i)
             let r: EF4 = verifier_state.sample();
@@ -437,10 +429,11 @@ mod tests {
 
         // Remaining quadratic rounds
         for _ in 0..(NUM_VARS - K_SKIP) {
-            let evals: [_; 3] = verifier_state.next_extension_scalars_const().unwrap();
-            let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+            let c0 = verifier_state.next_extension_scalar().unwrap();
+            let c1 = current_sum - c0;
+            let c2 = verifier_state.next_extension_scalar().unwrap();
+            let poly = SumcheckPolynomial::new(vec![c0, c1, c2], 1);
             let r: EF4 = verifier_state.sample();
-            assert_eq!(poly.evaluations()[0] + poly.evaluations()[1], current_sum);
             current_sum = poly.evaluate_at_point(&r.into());
             expected.push((poly, r));
         }
