@@ -638,46 +638,87 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     // // Main equation: sum == f(r) · eq(z, r)
     // assert_eq!(sum, constant * eq_eval);
 
-    // EVALUATE EQ(z, r) VIA CONSTRAINTS — using the exact skip pipeline as the prover.
+    // // EVALUATE EQ(z, r) VIA CONSTRAINTS — using the exact skip pipeline as the prover.
+    // let k_skip = K_SKIP_SUMCHECK;
+
+    // // In this test we only have one round of constraints combined with a single alpha.
+    // let constraints_round0 = &constraints[0];
+    // let alpha_round0 = alphas[0];
+    // let alpha_pows = alpha_round0.powers().collect_n(constraints_round0.len());
+
+    // // 1) Combine the equality weights into a single weight table W over B^n.
+    // let mut w_all = EvaluationsList::new(vec![EF::ZERO; 1 << num_vars]);
+    // for (c, &a_i) in constraints_round0.iter().zip(&alpha_pows) {
+    //     // Accumulate eq_{z_i}(·) with coefficient a_i.
+    //     c.weights.accumulate::<F, true>(&mut w_all, a_i);
+    // }
+
+    // // Number of variables for the multilinear polynomial f(X)
+    // let n = poly.num_variables();
+    // // Number of remaining variables after skipping k
+    // let num_remaining_vars = n - k_skip;
+    // // Number of columns = 2^{n-k}
+    // let width = 1 << num_remaining_vars;
+
+    // // Reorganize the weights into a matrix
+    // let w_mat = RowMajorMatrix::new(w_all.to_vec(), width);
+
+    // // Evaluate folded weights at the skip challenge, then on the remaining variables.
+    // let r_skip = *verifier_randomness
+    //     .0
+    //     .last()
+    //     .expect("skip challenge present");
+    // let folded_w_row = interpolate_subgroup(&w_mat, r_skip);
+    // let w_folded = EvaluationsList::new(folded_w_row);
+
+    // // Rest of challenges are the first (n - k) entries, in order.
+    // let r_rest = MultilinearPoint(verifier_randomness.0[..(num_vars - k_skip)].to_vec());
+
+    // // This is Σ α^i·eq(z_i, r) evaluated with the same domain/transform as the prover.
+    // let eq_eval = w_folded.evaluate(&r_rest);
+
+    // // FINAL SUMCHECK CHECK
+    // assert_eq!(sum, constant * eq_eval);
+
+    // EVALUATE EQ(z, r) — using the exact skip pipeline as the prover.
+    // This is the verifier-side equivalent of how the prover computes f(r).
+    // We must use the same evaluation semantics for the weight polynomial W(X)
+    // to ensure the final check `sum = f(r) * W(r)` is consistent.
+
+    // We will compute the evaluation of the combined weight polynomial W(r) symbolically,
+    // which is more efficient for the verifier than materializing the full W(X) table.
+    // The key insight is that evaluation is a linear operation, so we can swap the
+    // summation and evaluation: W(r) = (Σ α_i * W_i)(r) = Σ α_i * W_i(r).
+    //
+    // We compute W_i(r) for each constraint using the required "univariate skip" semantics.
+
+    let mut eq_eval = EF::ZERO;
     let k_skip = K_SKIP_SUMCHECK;
 
-    // In this test we only have one round of constraints combined with a single alpha.
-    let constraints_round0 = &constraints[0];
-    let alpha_round0 = alphas[0];
-    let alpha_pows = alpha_round0.powers().collect_n(constraints_round0.len());
+    // Iterate through each round of constraints that were added.
+    for (constraints_in_round, &alpha_for_round) in constraints.iter().zip(alphas.iter()) {
+        let alpha_pows = alpha_for_round
+            .powers()
+            .collect_n(constraints_in_round.len());
 
-    // 1) Combine the equality weights into a single weight table W over B^n.
-    let mut w_all = EvaluationsList::new(vec![EF::ZERO; 1 << num_vars]);
-    for (c, &a_i) in constraints_round0.iter().zip(&alpha_pows) {
-        // Accumulate eq_{z_i}(·) with coefficient a_i.
-        c.weights.accumulate::<F, true>(&mut w_all, a_i);
+        // For each individual constraint in the round...
+        for (constraint, &alpha_pow) in constraints_in_round.iter().zip(&alpha_pows) {
+            // ...compute its skip-aware evaluation at the final point `r`.
+            // This is the W_i(r) term. The `compute_with_skip` method correctly
+            // materializes the small eq(z,X) table for this single constraint
+            // and evaluates it using the skip pipeline.
+            let single_weight_eval = constraint
+                .weights
+                .compute_with_skip(&verifier_randomness, k_skip);
+
+            // Add its weighted contribution to the total.
+            eq_eval += alpha_pow * single_weight_eval;
+        }
     }
 
-    // Number of variables for the multilinear polynomial f(X)
-    let n = poly.num_variables();
-    // Number of remaining variables after skipping k
-    let num_remaining_vars = n - k_skip;
-    // Number of columns = 2^{n-k}
-    let width = 1 << num_remaining_vars;
-
-    // Reorganize the weights into a matrix
-    let w_mat = RowMajorMatrix::new(w_all.to_vec(), width);
-
-    // Evaluate folded weights at the skip challenge, then on the remaining variables.
-    let r_skip = *verifier_randomness
-        .0
-        .last()
-        .expect("skip challenge present");
-    let folded_w_row = interpolate_subgroup(&w_mat, r_skip);
-    let w_folded = EvaluationsList::new(folded_w_row);
-
-    // Rest of challenges are the first (n - k) entries, in order.
-    let r_rest = MultilinearPoint(verifier_randomness.0[..(num_vars - k_skip)].to_vec());
-
-    // This is Σ α^i·eq(z_i, r) evaluated with the same domain/transform as the prover.
-    let eq_eval = w_folded.evaluate(&r_rest);
-
     // FINAL SUMCHECK CHECK
+    // This check is now consistent, as both `constant` (f(r)) and `eq_eval` (W(r))
+    // were computed using the same univariate skip evaluation method.
     assert_eq!(sum, constant * eq_eval);
 }
 
