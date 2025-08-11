@@ -139,36 +139,58 @@ impl<F: Field> Statement<F> {
         Base: Field,
         F: ExtensionField<Base>,
     {
+        // If there are no constraints, the combination is:
+        // - The combined polynomial W(X) is identically zero (all evaluations = 0).
+        // - The combined expected sum S is zero.
         if self.constraints.is_empty() {
             return (
                 EvaluationsList::new(F::zero_vec(1 << self.num_variables)),
                 F::ZERO,
             );
         }
-        // Alloc memory without initializing it to zero.
-        // This is safe because there is at least one constraint (otherwise it would return early),
-        // and the first iteration of the loop will overwrite the entire vector.
-        let evaluations_vec = unsafe { uninitialized_vec::<F>(1 << self.num_variables) };
-        let mut combined_evals = EvaluationsList::new(evaluations_vec);
-        let (combined_sum, _) = self.constraints.iter().enumerate().fold(
-            (F::ZERO, F::ONE),
-            |(mut acc_sum, gamma_pow), (i, constraint)| {
-                if i == 0 {
-                    // first iteration: combined_evals must be overwritten
-                    constraint
-                        .weights
-                        .accumulate::<Base, false>(&mut combined_evals, gamma_pow);
-                } else {
-                    constraint
-                        .weights
-                        .accumulate::<Base, true>(&mut combined_evals, gamma_pow);
-                }
-                acc_sum += constraint.sum * gamma_pow;
-                (acc_sum, gamma_pow * challenge)
-            },
-        );
 
-        (combined_evals, combined_sum)
+        // Compute the number of evaluation points: 2^(num_variables).
+        let len = 1usize << self.num_variables;
+
+        // Allocate the vector for combined evaluations without initializing it to zero.
+        // Safety: we guarantee that the very first accumulate() call will overwrite
+        // the entire buffer before any read occurs.
+        let mut combined = EvaluationsList::new(unsafe { uninitialized_vec::<F>(len) });
+
+        // Separate the first constraint from the rest.
+        // This allows us to treat the first one specially:
+        //   - We overwrite the buffer.
+        //   - We avoid a runtime branch in the main loop.
+        let (first, rest) = self.constraints.split_first().unwrap();
+
+        // Start with γ^0 = 1 for the first constraint.
+        let mut gamma = F::ONE;
+
+        // Apply the first constraint's weights directly into the buffer,
+        // overwriting any uninitialized values.
+        first
+            .weights
+            .accumulate::<Base, false>(&mut combined, gamma);
+
+        // Initialize the combined expected sum with the first term: s_1 * γ^0.
+        let mut sum = first.sum * gamma;
+
+        // Process the remaining constraints.
+        for c in rest {
+            // Update γ to γ^i for this constraint.
+            gamma *= challenge;
+
+            // Add this constraint's weighted polynomial evaluations into the buffer
+            c.weights.accumulate::<Base, true>(&mut combined, gamma);
+
+            // Add this constraint's contribution to the combined expected sum:
+            sum += c.sum * gamma;
+        }
+
+        // Return:
+        // - The combined polynomial W(X) in evaluation form.
+        // - The combined expected sum S.
+        (combined, sum)
     }
 
     #[must_use]
