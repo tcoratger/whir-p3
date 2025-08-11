@@ -1,6 +1,10 @@
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
-use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_field::{
+    ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
+};
+use p3_interpolation::interpolate_subgroup;
+use p3_matrix::dense::RowMajorMatrix;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, distr::StandardUniform, rngs::SmallRng};
 
@@ -554,8 +558,10 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
 
     // Final constant should be f(r), where r is the accumulated challenge point
     let constant = sumcheck.evals[0];
-    // TODO: This should be fixed somehow for the univariate skip to work
-    // assert_eq!(poly.evaluate(&r), constant);
+
+    // Final constant should be f̂(r0, r_{k+1..}) under skip semantics
+    let expected = eval_with_skip::<F, EF>(&poly, K_SKIP_SUMCHECK, &prover_randomness);
+    assert_eq!(constant, expected);
 
     // Commit final result to Fiat-Shamir transcript
     prover.add_extension_scalar(constant);
@@ -631,6 +637,129 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     // //
     // // Main equation: sum == f(r) · eq(z, r)
     // assert_eq!(sum, constant * eq_eval);
+
+    // // EVALUATE EQ(z, r) VIA CONSTRAINTS — using the exact skip pipeline as the prover.
+    // let k_skip = K_SKIP_SUMCHECK;
+
+    // // In this test we only have one round of constraints combined with a single alpha.
+    // let constraints_round0 = &constraints[0];
+    // let alpha_round0 = alphas[0];
+    // let alpha_pows = alpha_round0.powers().collect_n(constraints_round0.len());
+
+    // // 1) Combine the equality weights into a single weight table W over B^n.
+    // let mut w_all = EvaluationsList::new(vec![EF::ZERO; 1 << num_vars]);
+    // for (c, &a_i) in constraints_round0.iter().zip(&alpha_pows) {
+    //     // Accumulate eq_{z_i}(·) with coefficient a_i.
+    //     c.weights.accumulate::<F, true>(&mut w_all, a_i);
+    // }
+
+    // // Number of variables for the multilinear polynomial f(X)
+    // let n = poly.num_variables();
+    // // Number of remaining variables after skipping k
+    // let num_remaining_vars = n - k_skip;
+    // // Number of columns = 2^{n-k}
+    // let width = 1 << num_remaining_vars;
+
+    // // Reorganize the weights into a matrix
+    // let w_mat = RowMajorMatrix::new(w_all.to_vec(), width);
+
+    // // Evaluate folded weights at the skip challenge, then on the remaining variables.
+    // let r_skip = *verifier_randomness
+    //     .0
+    //     .last()
+    //     .expect("skip challenge present");
+    // let folded_w_row = interpolate_subgroup(&w_mat, r_skip);
+    // let w_folded = EvaluationsList::new(folded_w_row);
+
+    // // Rest of challenges are the first (n - k) entries, in order.
+    // let r_rest = MultilinearPoint(verifier_randomness.0[..(num_vars - k_skip)].to_vec());
+
+    // // This is Σ α^i·eq(z_i, r) evaluated with the same domain/transform as the prover.
+    // let eq_eval = w_folded.evaluate(&r_rest);
+
+    // // FINAL SUMCHECK CHECK
+    // assert_eq!(sum, constant * eq_eval);
+
+    // EVALUATE EQ(z, r) — using the exact skip pipeline as the prover.
+    // This is the verifier-side equivalent of how the prover computes f(r).
+    // We must use the same evaluation semantics for the weight polynomial W(X)
+    // to ensure the final check `sum = f(r) * W(r)` is consistent.
+
+    // We will compute the evaluation of the combined weight polynomial W(r) symbolically,
+    // which is more efficient for the verifier than materializing the full W(X) table.
+    // The key insight is that evaluation is a linear operation, so we can swap the
+    // summation and evaluation: W(r) = (Σ α_i * W_i)(r) = Σ α_i * W_i(r).
+    //
+    // We compute W_i(r) for each constraint using the required "univariate skip" semantics.
+
+    let mut eq_eval = EF::ZERO;
+    let k_skip = K_SKIP_SUMCHECK;
+
+    // Iterate through each round of constraints that were added.
+    for (constraints_in_round, &alpha_for_round) in constraints.iter().zip(alphas.iter()) {
+        let alpha_pows = alpha_for_round
+            .powers()
+            .collect_n(constraints_in_round.len());
+
+        // For each individual constraint in the round...
+        for (constraint, &alpha_pow) in constraints_in_round.iter().zip(&alpha_pows) {
+            // ...compute its skip-aware evaluation at the final point `r`.
+            // This is the W_i(r) term. The `compute_with_skip` method correctly
+            // materializes the small eq(z,X) table for this single constraint
+            // and evaluates it using the skip pipeline.
+            let single_weight_eval = constraint
+                .weights
+                .compute_with_skip(&verifier_randomness, k_skip);
+
+            // Add its weighted contribution to the total.
+            eq_eval += alpha_pow * single_weight_eval;
+        }
+    }
+
+    // FINAL SUMCHECK CHECK
+    // This check is now consistent, as both `constant` (f(r)) and `eq_eval` (W(r))
+    // were computed using the same univariate skip evaluation method.
+    assert_eq!(sum, constant * eq_eval);
+}
+
+/// Evaluate f with the same "univariate skip" semantics the prover uses:
+/// - Treat the first k variables as a single univariate slot over the 2^k subgroup,
+/// - interpolate at r_all[0],
+/// - then evaluate the remaining (n - k) variables at r_all[1..].
+fn eval_with_skip<F, EF>(
+    poly: &EvaluationsList<F>,
+    k_skip: usize,
+    r_all: &MultilinearPoint<EF>,
+) -> EF
+where
+    F: TwoAdicField,
+    EF: TwoAdicField + ExtensionField<F>,
+{
+    let n = poly.num_variables();
+    assert!(k_skip > 0 && k_skip <= n);
+
+    // After with_skip() reverses, layout is:
+    // [ r_for_remaining_vars...,  r_skip ]
+    let need = 1 + (n - k_skip);
+    assert!(
+        r_all.len() >= need,
+        "need {} challenges (1 + n - k), got {}",
+        need,
+        r_all.len()
+    );
+
+    // - r0 is the **last** element (skip challenge),
+    // - "rest" are the first n-k challenges for the remaining variables.
+    let r0 = *r_all.last().unwrap();
+    let rest = MultilinearPoint(r_all[..(n - k_skip)].to_vec());
+
+    // Reshape f into 2^k × 2^{n-k}, interpolate along the skipped dimension at r0,
+    // then evaluate the resulting EF-table on the remaining variables.
+    let width = 1 << (n - k_skip);
+    let f_mat = RowMajorMatrix::new(poly.to_vec(), width);
+    let folded_row = interpolate_subgroup::<F, EF, _>(&f_mat, r0);
+
+    EvaluationsList::new(folded_row).evaluate(&rest)
 }
 
 #[test]
@@ -645,5 +774,28 @@ fn test_sumcheck_prover() {
     run_sumcheck_test(&[4, 4, 1], &[9, 9]);
     run_sumcheck_test(&[1, 4, 4], &[9, 9]);
 
+    // Folds 6 variables with skip, then 1 standard. Total 7 variables. 1 constraint.
     run_sumcheck_test_skips(&[6, 1], &[1]);
+
+    // Tests the system with a higher number of initial equality constraints.
+    // Total 7 variables (6 skipped, 1 standard). 5 constraints.
+    run_sumcheck_test_skips(&[6, 1], &[5]);
+
+    // Increases the total number of variables, with more processed in the final standard round.
+    // Total 10 variables (6 skipped, 4 standard). 3 constraints.
+    run_sumcheck_test_skips(&[6, 4], &[3]);
+
+    // The final round folds 0 variables, testing an edge case.
+    // Total 6 variables (all 6 skipped). 4 constraints.
+    run_sumcheck_test_skips(&[6, 0], &[4]);
+
+    // The `with_skip` function will perform one skip of `K_SKIP_SUMCHECK` (6) variables,
+    // followed by 2 standard folding rounds, all within the first logical round.
+    // Total 10 variables (8 folded in round 0, 2 in final round). 3 constraints.
+    run_sumcheck_test_skips(&[8, 2], &[3]);
+
+    // This provides a more complex scenario with a skip round, an intermediate standard
+    // round with new constraints, and a final round.
+    // Total 10 variables (6 skipped, then 2, then 2). 3 initial and 3 intermediate constraints.
+    run_sumcheck_test_skips(&[6, 2, 2], &[3, 3]);
 }

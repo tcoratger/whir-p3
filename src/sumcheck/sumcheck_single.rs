@@ -408,10 +408,15 @@ where
         assert!(k_skip <= folding_factor);
 
         let (weights, _sum) = statement.combine::<F>(combination_randomness);
-        // Collapse the first k variables via a univariate evaluation over a multiplicative coset.
+
+        // Compute the skipped-round polynomial h and the rectangular views f̂, ŵ.
+        //
+        // - `sumcheck_poly`: The univariate polynomial sent to the verifier for this round.
+        // - `f_mat`, `w_mat`: The original evaluations reshaped into matrices of size 2^k x 2^(n-k).
         let (sumcheck_poly, f_mat, w_mat) =
             compute_skipping_sumcheck_polynomial(k_skip, evals, &weights);
 
+        // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
         prover_state.add_extension_scalars(sumcheck_poly.evaluations());
 
         // Receive the verifier challenge for this entire collapsed round.
