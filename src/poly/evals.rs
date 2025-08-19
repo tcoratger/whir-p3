@@ -1,5 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
+use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
 use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
@@ -201,26 +202,80 @@ impl<F> DerefMut for EvaluationsList<F> {
     }
 }
 
-/// Evaluates a multilinear polynomial at `point ∈ [0,1]^n` using fast interpolation.
+/// Evaluates a multilinear polynomial at an arbitrary point using fast interpolation.
 ///
-/// - Given evaluations `evals` over `{0,1}^n`, computes `f(point)` via iterative interpolation.
-/// - Uses the recurrence: `f(x_1, ..., x_n) = (1 - x_1) f_0 + x_1 f_1`, reducing dimension at each
-///   step.
-/// - Ensures `evals.len() = 2^n` to match the number of variables.
+/// This function is the workhorse for evaluating a multilinear polynomial `f`. It's given
+/// the polynomial's evaluations over all corners of the boolean hypercube `{0,1}^n` and
+/// can find the value at any other point `p` (even with coordinates outside of `{0,1}`).
+///
+/// ## Algorithm
+///
+/// The core idea is to recursively reduce the number of variables by one at each step.
+/// Imagine a 3D cube where we know the value at its 8 corners. To find the value at some
+/// point `p` inside the cube, we can:
+/// 1.  Find the values at the midpoints of the 4 edges along the x-axis.
+/// 2.  Use those 4 points to find the values at the midpoints of the 2 "ribs" along the y-axis.
+/// 3.  Finally, use those 2 points to find the single value at `p` along the z-axis.
+///
+/// This function implements this idea using the recurrence relation:
+/// `f(x₀, ..., xₙ₋₁) = f_0(x₁, ..., xₙ₋₁) * (1 - x₀) + f_1(x₁, ..., xₙ₋₁) * x₀`
+/// where `f_0` is the polynomial with `x₀` fixed to `0` and `f_1` is with `x₀` fixed to `1`.
+///
+/// ## Implementation Strategies
+///
+/// To maximize performance, this function uses several strategies:
+/// - **Hardcoded Paths:** For polynomials with 0 to 4 variables, the recursion is fully unrolled
+///   into highly efficient, direct calculations.
+/// - **Recursive Method:** For 5 to 19 variables, a standard recursive approach with a `rayon::join`
+///   is used for parallelism on sufficiently large subproblems.
+/// - **Non-Recursive Method:** For 20 or more variables, the algorithm switches to a non-recursive,
+///   chunk-based method. This avoids deep recursion stacks and uses a memory access pattern
+///   that is more friendly to parallelization.
+///
+/// ## Arguments
+///
+/// - `evals`: A slice containing the `2^n` evaluations of the polynomial over the boolean
+///   hypercube, ordered lexicographically. For `n=2`, the order is `f(0,0), f(0,1), f(1,0), f(1,1)`.
+/// - `point`: A slice containing the `n` coordinates of the point `p` at which to evaluate.
 fn eval_multilinear<F, EF>(evals: &[F], point: &[EF]) -> EF
 where
     F: Field,
     EF: ExtensionField<F>,
 {
+    // Ensure that the number of evaluations matches the number of variables in the point.
+    //
+    // This is a critical invariant: `evals.len()` must be exactly `2^point.len()`.
     debug_assert_eq!(evals.len(), 1 << point.len());
+
+    // Select the optimal evaluation strategy based on the number of variables.
     match point {
+        // Case: 0 Variables (Constant Polynomial)
+        //
+        // A polynomial with zero variables is just a constant.
         [] => evals[0].into(),
+
+        // Case: 1 Variable (Linear Interpolation)
+        //
+        // This is the base case for the recursion: f(x) = f(0) * (1-x) + f(1) * x.
+        // The expression is an optimized form: f(0) + x * (f(1) - f(0)).
         [x] => *x * (evals[1] - evals[0]) + evals[0],
+
+        // Case: 2 Variables (Bilinear Interpolation)
+        //
+        // This is a fully unrolled version for 2 variables, avoiding recursive calls.
         [x0, x1] => {
+            // Interpolate along the x1-axis for x0=0 to get `a0`.
             let a0 = *x1 * (evals[1] - evals[0]) + evals[0];
+            // Interpolate along the x1-axis for x0=1 to get `a1`.
             let a1 = *x1 * (evals[3] - evals[2]) + evals[2];
+            // Finally, interpolate between `a0` and `a1` along the x0-axis.
             a0 + (a1 - a0) * *x0
         }
+
+        // Cases: 3 and 4 Variables
+        //
+        // These are further unrolled versions for 3 and 4 variables for maximum speed.
+        // The logic is the same as the 2-variable case, just with more steps.
         [x0, x1, x2] => {
             let a00 = *x2 * (evals[1] - evals[0]) + evals[0];
             let a01 = *x2 * (evals[3] - evals[2]) + evals[2];
@@ -247,17 +302,88 @@ where
             let a1 = a10 + *x1 * (a11 - a10);
             a0 + (a1 - a0) * *x0
         }
+
+        // General Case (5+ Variables)
+        //
+        // This handles all other cases, using one of two different strategies.
         [x, tail @ ..] => {
-            let (f0, f1) = evals.split_at(evals.len() / 2);
-            let (f0, f1) = {
-                let work_size: usize = (1 << 15) / std::mem::size_of::<F>();
-                if evals.len() > work_size {
-                    join(|| eval_multilinear(f0, tail), || eval_multilinear(f1, tail))
-                } else {
-                    (eval_multilinear(f0, tail), eval_multilinear(f1, tail))
-                }
-            };
-            f0 + (f1 - f0) * *x
+            // For a very large number of variables, the recursive approach is not the most efficient.
+            //
+            // We switch to a more direct, non-recursive algorithm that is better suited for wide parallelization.
+            if point.len() >= 20 {
+                // The `evals` are ordered lexicographically, meaning the first variable's bit changes the slowest.
+                //
+                // To align our computation with this memory layout, we process the point's coordinates in reverse.
+                let mut point_rev = point.to_vec();
+                point_rev.reverse();
+
+                // Split the reversed point's coordinates into two halves:
+                // - `z0` (low-order vars)
+                // - `z1` (high-order vars).
+                let mid = point_rev.len() / 2;
+                let (z0, z1) = point_rev.split_at(mid);
+
+                // Precomputation of Basis Polynomials
+                //
+                // The basis polynomial eq(v, p) can be split: eq(v, p) = eq(v_low, p_low) * eq(v_high, p_high).
+                //
+                // We precompute all `2^|z0|` values of eq(v_low, p_low) and store them in `left`.
+                // We precompute all `2^|z1|` values of eq(v_high, p_high) and store them in `right`.
+
+                // Allocate uninitialized memory for the low-order basis polynomial evaluations.
+                let mut left = unsafe { uninitialized_vec(1 << z0.len()) };
+                // Allocate uninitialized memory for the high-order basis polynomial evaluations.
+                let mut right = unsafe { uninitialized_vec(1 << z1.len()) };
+
+                // The `eval_eq` function requires the variables in their original order, so we reverse the halves back.
+                let mut z0_ordered = z0.to_vec();
+                z0_ordered.reverse();
+                // Compute all eq(v_low, p_low) values and fill the `left` vector.
+                eval_eq::<_, _, false>(&z0_ordered, &mut left, EF::ONE);
+
+                // Repeat the process for the high-order variables.
+                let mut z1_ordered = z1.to_vec();
+                z1_ordered.reverse();
+                // Compute all eq(v_high, p_high) values and fill the `right` vector.
+                eval_eq::<_, _, false>(&z1_ordered, &mut right, EF::ONE);
+
+                // Parallelized Final Summation
+                //
+                // This chain of operations computes the regrouped sum:
+                // Σ_{v_high} eq(v_high, p_high) * (Σ_{v_low} f(v_high, v_low) * eq(v_low, p_low))
+                evals
+                    .par_chunks(left.len())
+                    .zip_eq(right.par_iter())
+                    .map(|(part, &c)| {
+                        // This is the inner sum: a dot product between the evaluation chunk and the `left` basis values.
+                        part.iter()
+                            .zip_eq(left.iter())
+                            .map(|(&a, &b)| b * a)
+                            .sum::<EF>()
+                            * c
+                    })
+                    .sum()
+            } else {
+                // For moderately sized inputs (5 to 19 variables), use the recursive strategy.
+                //
+                // Split the evaluations into two halves, corresponding to the first variable being 0 or 1.
+                let (f0, f1) = evals.split_at(evals.len() / 2);
+
+                // Recursively evaluate on the two smaller hypercubes.
+                let (f0_eval, f1_eval) = {
+                    // Only spawn parallel tasks if the subproblem is large enough to overcome
+                    // the overhead of threading.
+                    let work_size: usize = (1 << 15) / std::mem::size_of::<F>();
+                    if evals.len() > work_size {
+                        join(|| eval_multilinear(f0, tail), || eval_multilinear(f1, tail))
+                    } else {
+                        // For smaller subproblems, execute sequentially.
+                        (eval_multilinear(f0, tail), eval_multilinear(f1, tail))
+                    }
+                };
+                // Perform the final linear interpolation for the first variable `x`.
+                f0_eval + (f1_eval - f0_eval) * *x
+            }
         }
     }
 }
@@ -1030,5 +1156,77 @@ mod tests {
 
         assert_eq!(&*list, &evals);
         assert_eq!(list.num_variables(), 1);
+    }
+
+    #[test]
+    fn test_eval_multilinear_large_input_brute_force() {
+        // Define the number of variables.
+        //
+        // We use 20 to trigger the case where the recursive algorithm is not optimal.
+        const NUM_VARS: usize = 20;
+
+        // Use a seeded random number generator for a reproducible test case.
+        let mut rng = StdRng::seed_from_u64(42);
+
+        // The number of evaluations on the boolean hypercube is 2^n.
+        let num_evals = 1 << NUM_VARS;
+
+        // Create a vector of random evaluations for our polynomial `f`.
+        let evals_vec: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
+        let evals_list = EvaluationsList::new(evals_vec);
+
+        // Create a random point `p` where we will evaluate the polynomial.
+        let point_vec: Vec<EF4> = (0..NUM_VARS).map(|_| rng.random()).collect();
+        let point = MultilinearPoint(point_vec);
+
+        // BRUTE-FORCE CALCULATION (GROUND TRUTH)
+        //
+        // We will now calculate the expected result using the fundamental formula:
+        // f(p) = Σ_{v ∈ {0,1}^n} f(v) * eq(v, p)
+        // where eq(v, p) = Π_{i=0..n-1} (v_i*p_i + (1-v_i)*(1-p_i))
+
+        // This variable will accumulate the sum. It must be in the extension field.
+        let mut expected_sum = EF4::ZERO;
+
+        // Iterate through every point `v` on the boolean hypercube {0,1}^20.
+        //
+        // The loop counter `i` represents the integer value of the bit-string for `v`.
+        for i in 0..num_evals {
+            // This will hold the eq(v, p) value for the current hypercube point `v`.
+            let mut eq_term = EF4::ONE;
+
+            // To build eq(v, p), we iterate through each dimension of the hypercube.
+            for j in 0..NUM_VARS {
+                // Get the j-th bit of `i`. This corresponds to the coordinate v_j.
+                // We read bits from most-significant to least-significant to match the
+                // lexicographical ordering of the `evals_list`.
+                let v_j = (i >> (NUM_VARS - 1 - j)) & 1;
+
+                // Get the corresponding j-th coordinate of our evaluation point `p`.
+                let p_j = point.0[j];
+
+                if v_j == 1 {
+                    // If the hypercube coordinate v_j is 1, the factor is p_j.
+                    eq_term *= p_j;
+                } else {
+                    // If the hypercube coordinate v_j is 0, the factor is (1 - p_j).
+                    eq_term *= EF4::ONE - p_j;
+                }
+            }
+
+            // Get the pre-computed evaluation f(v) from our list. The index `i`
+            // directly corresponds to the lexicographically ordered point `v`.
+            let f_v = evals_list[i];
+
+            // Add the term f(v) * eq(v, p) to the total sum. We must lift `f_v` from the
+            // base field `F` to the extension field `EF4` for the multiplication.
+            expected_sum += eq_term * f_v;
+        }
+
+        // Now, run the optimized function that we want to test.
+        let actual_result = evals_list.evaluate(&point);
+
+        // Finally, assert that the results are equal.
+        assert_eq!(actual_result, expected_sum);
     }
 }
