@@ -218,11 +218,11 @@ impl<F: Field> Weights<F> {
             }
             // Case 2: The weight is defined by an equality constraint at a point `z`.
             Self::Evaluation { point } => {
-                // The constraint point `z` must be defined over the full n-variable domain.
-                assert_eq!(
-                    point.num_variables(),
-                    n,
-                    "Constraint point must match domain size"
+                // // The constraint point `z` must be defined over the full n-variable domain.
+                let k = point.num_variables();
+                assert!(
+                    k <= n,
+                    "Constraint point cannot have more variables than the domain"
                 );
 
                 // Construct the evaluation table for the polynomial eq_z(X).
