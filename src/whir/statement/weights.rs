@@ -196,14 +196,16 @@ impl<F: Field> Weights<F> {
         F: TwoAdicField,
         EF: TwoAdicField + ExtensionField<F>,
     {
-        // --- Step 1: Determine the full domain size `n` ---
+        // Determine the full domain size `n`
+        //
         // The total number of variables `n` is inferred from the structure of the challenge object `r_all`
         // and the number of skipped variables `k_skip`.
         let n = r_all.num_variables() + k_skip - 1;
 
-        // --- Step 2: Materialize the 2^n evaluation table for the weight polynomial ---
+        // Materialize the 2^n evaluation table for the weight polynomial
+        //
         // We build the complete table of the weight polynomial `W(X)` over the n-dimensional hypercube.
-        let evals: EvaluationsList<F> = match self {
+        let evals = match self {
             // Case 1: The weight is defined by a pre-computed evaluation table.
             Self::Linear { weight } => {
                 // Ensure the provided table matches the full domain size.
