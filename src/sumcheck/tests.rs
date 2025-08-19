@@ -549,7 +549,6 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
 /// # Arguments
 /// - `folding_factors`: A list of folding amounts (how many variables are folded each round).
 /// - `num_points`: Number of equality constraints applied in each round, except the final one.
-#[allow(clippy::collection_is_never_read)]
 fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     // Sanity check: folding_factors should have one more element than num_points
     assert_eq!(folding_factors.len(), num_points.len() + 1);
