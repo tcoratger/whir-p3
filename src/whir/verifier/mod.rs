@@ -199,7 +199,7 @@ where
             verifier_state.next_extension_scalars_vec(statement.num_deref_constraints())?;
 
         let evaluation_of_weights =
-            self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
+            self.eval_constraints_poly(&round_constraints, &deferred, &folding_randomness);
 
         // Check the final sumcheck evaluation
         let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
@@ -504,7 +504,7 @@ where
         &self,
         constraints: &[(Vec<EF>, Vec<Constraint<EF>>)],
         deferred: &[EF],
-        point: MultilinearPoint<EF>,
+        point: &MultilinearPoint<EF>,
     ) -> EF {
         // The total number of variables in the original, unfolded polynomial.
         let mut num_variables = self.mv_parameters.num_variables;
@@ -517,12 +517,12 @@ where
         for (round_idx, (combination_coeffs, constraints_in_round)) in
             constraints.iter().enumerate()
         {
-            // Create a view of the challenge point that matches the domain size for the current round.
-            let mut point_for_round = point.clone();
+            // For rounds after the first, the domain shrinks.
             if round_idx > 0 {
                 num_variables -= self.folding_factor.at_round(round_idx - 1);
-                point_for_round = MultilinearPoint(point.0[..num_variables].to_vec());
             }
+            // Create a view of the challenge point that matches the current round's domain size.
+            let point_for_round = MultilinearPoint(point.0[..num_variables].to_vec());
 
             // Check if this is the first round and if the univariate skip optimization is active.
             let is_skip_round = round_idx == 0
