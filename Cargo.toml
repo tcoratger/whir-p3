@@ -93,3 +93,7 @@ harness = false
 [[bench]]
 name = "lagrange"
 harness = false
+
+[[bench]]
+name = "eval_multilinear"
+harness = false
