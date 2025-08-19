@@ -483,138 +483,82 @@ where
         Ok(res)
     }
 
-    // /// Evaluate a batch of constraint polynomials at a given multilinear point.
-    // ///
-    // /// This function computes the combined weighted value of constraints across all rounds.
-    // /// Each constraint is either directly evaluated at the input point (`MultilinearPoint`)
-    // /// or substituted with a deferred evaluation result, depending on the constraint type.
-    // ///
-    // /// The final result is the sum of each constraint's value, scaled by its corresponding
-    // /// challenge randomness (used in the linear combination step of the sumcheck protocol).
-    // ///
-    // /// # Arguments
-    // /// - `constraints`: A list of tuples, where each tuple corresponds to a round and contains:
-    // ///     - A vector of challenge randomness values (used to weight each constraint),
-    // ///     - A vector of `Constraint<EF>` objects for that round.
-    // /// - `deferred`: Precomputed evaluations used for deferred constraints.
-    // /// - `point`: The multilinear point at which to evaluate the constraint polynomials.
-    // ///
-    // /// # Returns
-    // /// The combined evaluation result of all weighted constraints across rounds at the given point.
-    // ///
-    // /// # Panics
-    // /// Panics if:
-    // /// - Any round's `randomness.len()` does not match `constraints.len()`,
-    // /// - A deferred constraint is encountered but `deferred` has been exhausted.
-    // fn eval_constraints_poly(
-    //     &self,
-    //     constraints: &[(Vec<EF>, Vec<Constraint<EF>>)],
-    //     deferred: &[EF],
-    //     mut point: MultilinearPoint<EF>,
-    // ) -> EF {
-    //     let mut num_variables = self.mv_parameters.num_variables;
-    //     let mut deferred = deferred.iter().copied();
-    //     let mut value = EF::ZERO;
-
-    //     for (round, (randomness, constraints)) in constraints.iter().enumerate() {
-    //         assert_eq!(randomness.len(), constraints.len());
-    //         if round > 0 {
-    //             num_variables -= self.folding_factor.at_round(round - 1);
-    //             point = MultilinearPoint(point[..num_variables].to_vec());
-    //         }
-    //         value += constraints
-    //             .iter()
-    //             .zip(randomness)
-    //             .map(|(constraint, &randomness)| {
-    //                 let value = if constraint.defer_evaluation {
-    //                     deferred.next().unwrap()
-    //                 } else {
-    //                     constraint.weights.compute(&point)
-    //                 };
-    //                 value * randomness
-    //             })
-    //             .sum::<EF>();
-    //     }
-    //     value
-    // }
-
+    /// Evaluates the final combined weight polynomial `W(r)` at the challenge point `r`.
+    ///
+    /// This is the verifier's master function for the final check of the sumcheck protocol. It
+    /// correctly handles the recursive nature of the proof, where constraints are defined over
+    /// progressively smaller domains.
+    ///
+    /// Crucially, it also handles the special case where the first round uses the **univariate skip**
+    /// optimization, applying a different, skip-aware evaluation method for that round's constraints.
+    ///
+    /// # Arguments
+    /// * `constraints`: A list of constraint sets, one for each round of the protocol. Each set
+    ///   is paired with the random `alpha` powers used to linearly combine them.
+    /// * `deferred`: A list of pre-computed evaluations for any deferred constraints.
+    /// * `point`: The final, full `n`-dimensional challenge point `r` (`folding_randomness`).
+    ///
+    /// # Returns
+    /// The evaluation `W(r)` as a single field element.
     fn eval_constraints_poly(
         &self,
         constraints: &[(Vec<EF>, Vec<Constraint<EF>>)],
         deferred: &[EF],
-        mut point: MultilinearPoint<EF>,
+        point: MultilinearPoint<EF>,
     ) -> EF {
+        // The total number of variables in the original, unfolded polynomial.
         let mut num_variables = self.mv_parameters.num_variables;
+        // An iterator for any evaluations that were deferred in the protocol.
         let mut deferred_iter = deferred.iter().copied();
+        // The final, accumulated evaluation of W(r).
         let mut value = EF::ZERO;
 
-        for (round, (randomness, constraints)) in constraints.iter().enumerate() {
-            assert_eq!(randomness.len(), constraints.len());
-
-            // Truncate the evaluation point for rounds after the first.
-            if round > 0 {
-                num_variables -= self.folding_factor.at_round(round - 1);
-                point = MultilinearPoint(point.0[..num_variables].to_vec());
+        // Process the constraints from each round of the protocol.
+        for (round_idx, (combination_coeffs, constraints_in_round)) in
+            constraints.iter().enumerate()
+        {
+            // Create a view of the challenge point that matches the domain size for the current round.
+            let mut point_for_round = point.clone();
+            if round_idx > 0 {
+                num_variables -= self.folding_factor.at_round(round_idx - 1);
+                point_for_round = MultilinearPoint(point.0[..num_variables].to_vec());
             }
 
-            let round_sum = if round == 0
+            // Check if this is the first round and if the univariate skip optimization is active.
+            let is_skip_round = round_idx == 0
                 && self.univariate_skip
-                && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
-            {
-                // UNIVARIATE SKIP LOGIC FOR ROUND 0
-                let k_skip = K_SKIP_SUMCHECK;
+                && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
-                // 1. Combine all weight polynomials for this round into a single evaluation table.
-                let mut combined_weights = EvaluationsList::new(vec![EF::ZERO; 1 << num_variables]);
-                for (constraint, &rand_val) in constraints.iter().zip(randomness) {
-                    // Deferred evaluation isn't compatible with this accumulation strategy,
-                    // but it's not used in the univariate skip round in the protocol.
-                    if constraint.defer_evaluation {
-                        unimplemented!(
-                            "Deferred evaluation is not supported in the univariate skip round"
-                        );
-                    }
-                    // Accumulate the evaluations of `randomness[i] * W_i(X)` into `combined_weights`.
-                    constraint
-                        .weights
-                        .accumulate::<F, true>(&mut combined_weights, rand_val);
-                }
+            // Calculate the total contribution from this round's constraints.
+            let round_sum: EF = constraints_in_round
+                .iter()
+                .zip(combination_coeffs)
+                .map(|(constraint, &coeff)| {
+                    // For each constraint, get its evaluation at the appropriate point `r`.
+                    let single_eval = if constraint.defer_evaluation {
+                        deferred_iter.next().unwrap()
+                    } else if is_skip_round {
+                        // ROUND 0 with SKIP: Use the special skip-aware evaluation.
+                        // The constraint and the full challenge point are over the `num_variables` domain.
+                        assert_eq!(constraint.weights.num_variables(), num_variables);
+                        constraint
+                            .weights
+                            .compute_with_skip(&point_for_round, K_SKIP_SUMCHECK)
+                    } else {
+                        // STANDARD ROUND: Use the standard multilinear evaluation.
+                        // The constraint and challenge point are over the (potentially smaller) domain.
+                        assert_eq!(constraint.weights.num_variables(), num_variables);
+                        constraint.weights.compute(&point_for_round)
+                    };
+                    // Multiply by its random combination coefficient.
+                    single_eval * coeff
+                })
+                .sum();
 
-                // 2. Evaluate the combined weight polynomial `W(X)` at the compressed point `r`.
-                // This mirrors the `eval_with_skip` logic.
-                let width = 1 << (num_variables - k_skip);
-                let w_mat = RowMajorMatrix::new(combined_weights.to_vec(), width);
-
-                let r_skip_challenge = *point.0.last().expect("skip challenge must be present");
-                let r_rest_challenges = &point.0[..num_variables - k_skip];
-
-                // Interpolate along the skipped dimension at the skip challenge.
-                let folded_w_row = interpolate_subgroup(&w_mat, r_skip_challenge);
-                let w_folded_evals = EvaluationsList::new(folded_w_row);
-
-                // The challenges for the 'rest' variables are in reversed order, so we
-                // reverse them back to match the standard variable order for evaluation.
-                let r_rest = MultilinearPoint(r_rest_challenges.iter().rev().copied().collect());
-
-                w_folded_evals.evaluate(&r_rest)
-            } else {
-                // STANDARD LOGIC for non-skip and subsequent rounds
-                constraints
-                    .iter()
-                    .zip(randomness)
-                    .map(|(constraint, &rand_val)| {
-                        let single_eval = if constraint.defer_evaluation {
-                            deferred_iter.next().unwrap()
-                        } else {
-                            constraint.weights.compute(&point)
-                        };
-                        single_eval * rand_val
-                    })
-                    .sum::<EF>()
-            };
-
+            // Add this round's total contribution to the final value.
             value += round_sum;
         }
+
         value
     }
 }
