@@ -311,44 +311,51 @@ where
             //
             // We switch to a more direct, non-recursive algorithm that is better suited for wide parallelization.
             if point.len() >= 20 {
-                // This helper computes the evaluations of a basis polynomial `eq(v, p)`
-                // over all `2^k` corners `v` of its hypercube.
-                fn eq<F: Field>(p: &[F]) -> Vec<F> {
-                    let k = p.len();
-                    let mut eq_evals = unsafe { uninitialized_vec(1 << k) };
-                    eq_evals[0] = F::ONE;
-                    for (i, &zi) in p.iter().enumerate() {
-                        let (lo, hi) = eq_evals.split_at_mut(1 << i);
-                        lo.par_iter_mut()
-                            .zip(hi.par_iter_mut())
-                            .for_each(|(a0, a1)| {
-                                *a1 = *a0 * zi;
-                                *a0 -= *a1;
-                            });
-                    }
-                    eq_evals
-                }
-
-                // Reverse the point to process variables in an order that aligns with the
-                // lexicographical layout of `evals`.
+                // The `evals` are ordered lexicographically, meaning the first variable's bit changes the slowest.
+                //
+                // To align our computation with this memory layout, we process the point's coordinates in reverse.
                 let mut point_rev = point.to_vec();
                 point_rev.reverse();
 
-                // Split the (reversed) point into two halves.
+                // Split the reversed point's coordinates into two halves:
+                // - `z0` (low-order vars)
+                // - `z1` (high-order vars).
                 let mid = point_rev.len() / 2;
                 let (z0, z1) = point_rev.split_at(mid);
 
-                // Pre-compute the basis polynomial evaluations for each half.
-                let left = eq(z0);
-                let right = eq(z1);
-
-                // This computes the final sum Σ f(v) * eq(v, p) using parallel chunks.
+                // Precomputation of Basis Polynomials
                 //
-                // It's equivalent to a series of parallelized dot products.
+                // The basis polynomial eq(v, p) can be split: eq(v, p) = eq(v_low, p_low) * eq(v_high, p_high).
+                //
+                // We precompute all `2^|z0|` values of eq(v_low, p_low) and store them in `left`.
+                // We precompute all `2^|z1|` values of eq(v_high, p_high) and store them in `right`.
+
+                // Allocate uninitialized memory for the low-order basis polynomial evaluations.
+                let mut left = unsafe { uninitialized_vec(1 << z0.len()) };
+                // Allocate uninitialized memory for the high-order basis polynomial evaluations.
+                let mut right = unsafe { uninitialized_vec(1 << z1.len()) };
+
+                // The `eval_eq` function requires the variables in their original order, so we reverse the halves back.
+                let mut z0_ordered = z0.to_vec();
+                z0_ordered.reverse();
+                // Compute all eq(v_low, p_low) values and fill the `left` vector.
+                eval_eq::<_, _, false>(&z0_ordered, &mut left, EF::ONE);
+
+                // Repeat the process for the high-order variables.
+                let mut z1_ordered = z1.to_vec();
+                z1_ordered.reverse();
+                // Compute all eq(v_high, p_high) values and fill the `right` vector.
+                eval_eq::<_, _, false>(&z1_ordered, &mut right, EF::ONE);
+
+                // Parallelized Final Summation
+                //
+                // This chain of operations computes the regrouped sum:
+                // Σ_{v_high} eq(v_high, p_high) * (Σ_{v_low} f(v_high, v_low) * eq(v_low, p_low))
                 evals
                     .par_chunks(left.len())
                     .zip_eq(right.par_iter())
                     .map(|(part, &c)| {
+                        // This is the inner sum: a dot product between the evaluation chunk and the `left` basis values.
                         part.iter()
                             .zip_eq(left.iter())
                             .map(|(&a, &b)| b * a)
