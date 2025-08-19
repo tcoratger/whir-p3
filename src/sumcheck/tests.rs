@@ -295,30 +295,86 @@ fn combine_constraints<EF: Field>(
     alpha
 }
 
-fn eval_constraints_poly<EF: Field>(
-    mut num_variables: usize,
-    folding_factor: &[usize],
+/// Evaluates the final combined weight polynomial `W(r)` by recursively applying
+/// the correct evaluation method for each round of constraints.
+///
+/// This function is the verifier's master function for the final check of the sumcheck protocol. It
+/// correctly handles the recursive nature of the proof, where constraints are defined over
+/// progressively smaller domains.
+///
+/// It intelligently handles the **univariate skip** optimization: if the flag is set,
+/// it applies a special, skip-aware evaluation method for the first round's constraints;
+/// otherwise, it treats all rounds as standard sumcheck rounds.
+///
+/// # Arguments
+/// * `univariate_skip`: A boolean flag indicating if the first round used the skip optimization.
+/// * `num_vars`: The total number of variables in the original polynomial.
+/// * `k_skip`: The number of variables that were skipped (only used if `univariate_skip` is true).
+/// * `folding_factors`: The number of variables folded in each round.
+/// * `constraints`: A list of constraint sets, one for each round of the protocol.
+/// * `alphas`: The random scalars used to linearly combine the constraints in each round.
+/// * `final_challenges`: The final, full `n`-dimensional challenge point `r`.
+///
+/// # Returns
+/// The evaluation `W(r)` as a single field element.
+fn eval_constraints_poly<F, EF>(
+    univariate_skip: bool,
+    num_vars: usize,
+    k_skip: usize,
+    folding_factors: &[usize],
     constraints: &[Vec<Constraint<EF>>],
     alphas: &[EF],
-    mut point: MultilinearPoint<EF>,
-) -> EF {
-    let mut value = EF::ZERO;
-    assert_eq!(alphas.len(), constraints.len());
+    final_challenges: &MultilinearPoint<EF>,
+) -> EF
+where
+    F: TwoAdicField,
+    EF: TwoAdicField + ExtensionField<F>,
+{
+    let mut eq_eval = EF::ZERO;
+    let mut num_vars_at_round = num_vars;
+    let mut challenges_for_round = final_challenges.clone();
 
-    for (round, (alphas, constraints)) in alphas.iter().zip(constraints.iter()).enumerate() {
-        let alphas = alphas.powers().collect_n(constraints.len());
-        assert_eq!(alphas.len(), constraints.len());
-        if round > 0 {
-            num_variables -= folding_factor[round - 1];
-            point = MultilinearPoint(point[..num_variables].to_vec());
-        }
-        value += constraints
+    // Iterate through each round where constraints were introduced.
+    for (round_idx, constraints_in_round) in constraints.iter().enumerate() {
+        let alpha = alphas[round_idx];
+        let alpha_pows = alpha.powers().collect_n(constraints_in_round.len());
+
+        // Determine if this specific round should be evaluated using the skip method.
+        let is_skip_round = round_idx == 0 && univariate_skip;
+
+        // Calculate the total contribution from this round's constraints.
+        let round_contribution: EF = constraints_in_round
             .iter()
-            .zip(alphas)
-            .map(|(constraint, alpha)| alpha * constraint.weights.compute(&point))
-            .sum::<EF>();
+            .zip(alpha_pows)
+            .map(|(constraint, alpha_pow)| {
+                let single_eval = if is_skip_round {
+                    // ROUND 0 with SKIP: Use the special skip-aware evaluation.
+                    // The constraints for this round are over the full `num_vars` domain.
+                    assert_eq!(constraint.weights.num_variables(), num_vars);
+                    constraint
+                        .weights
+                        .compute_with_skip(final_challenges, k_skip)
+                } else {
+                    // STANDARD ROUND: Use the standard multilinear evaluation.
+                    // The constraints and challenge point are over the smaller `num_vars_at_round` domain.
+                    assert_eq!(constraint.weights.num_variables(), num_vars_at_round);
+                    constraint.weights.compute(&challenges_for_round)
+                };
+                alpha_pow * single_eval
+            })
+            .sum();
+
+        eq_eval += round_contribution;
+
+        // After processing the round, shrink the domain for the next iteration's challenges.
+        if round_idx < constraints.len() - 1 {
+            num_vars_at_round -= folding_factors[round_idx];
+            challenges_for_round =
+                MultilinearPoint(final_challenges.0[..num_vars_at_round].to_vec());
+        }
     }
-    value
+
+    eq_eval
 }
 
 /// Runs an end-to-end prover-verifier test for the `SumcheckSingle` protocol with nested folding.
@@ -462,14 +518,17 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     assert_eq!(final_folded_value, final_folded_value_transcript);
 
     // CHECK EQ(z, r) WEIGHT POLY
-    let eq_eval = eval_constraints_poly(
+    //
+    // No skip optimization, so the first round is treated as a standard sumcheck round.
+    let eq_eval = eval_constraints_poly::<F, EF>(
+        false,
         num_vars,
+        0,
         folding_factors,
         &constraints,
         &alphas,
-        verifier_randomness,
+        &verifier_randomness,
     );
-
     // CHECK SUM == f(r) * eq(z, r)
     assert_eq!(sum, final_folded_value_transcript * eq_eval);
 }
@@ -629,8 +688,9 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
 
     // EVALUATE EQ(z, r) VIA CONSTRAINTS
     //
-    // Evaluate eq(z, r) using the multilinear constraint interpolation
-    let eq_eval = eval_constraints_poly_with_skip::<F, EF>(
+    // Evaluate eq(z, r) using the unified constraint evaluation function.
+    let eq_eval = eval_constraints_poly::<F, EF>(
+        true, // univariate_skip is true for this test
         num_vars,
         K_SKIP_SUMCHECK,
         folding_factors,
@@ -683,61 +743,6 @@ where
     let folded_row = interpolate_subgroup::<F, EF, _>(&f_mat, r0);
 
     EvaluationsList::new(folded_row).evaluate(&rest)
-}
-
-/// Evaluates the final combined weight polynomial `W(r)` by recursively applying
-/// the correct evaluation method for each round of constraints.
-fn eval_constraints_poly_with_skip<F, EF>(
-    num_vars: usize,
-    k_skip: usize,
-    folding_factors: &[usize],
-    constraints: &[Vec<Constraint<EF>>],
-    alphas: &[EF],
-    final_challenges: &MultilinearPoint<EF>,
-) -> EF
-where
-    F: TwoAdicField,
-    EF: TwoAdicField + ExtensionField<F>,
-{
-    let mut eq_eval = EF::ZERO;
-    let mut num_vars_at_round = num_vars;
-    let mut challenges_for_round = final_challenges.clone();
-
-    // Iterate through each round where constraints were introduced.
-    for (round_idx, constraints_in_round) in constraints.iter().enumerate() {
-        let alpha = alphas[round_idx];
-        let alpha_pows = alpha.powers().collect_n(constraints_in_round.len());
-
-        // Calculate the total contribution from this round's constraints.
-        let round_contribution: EF = constraints_in_round
-            .iter()
-            .zip(alpha_pows)
-            .map(|(constraint, alpha_pow)| {
-                let single_eval = if round_idx == 0 {
-                    // ROUND 0: Use the special skip-aware evaluation.
-                    // The constraints for this round are over the full `num_vars` domain.
-                    assert_eq!(constraint.weights.num_variables(), num_vars);
-                    constraint
-                        .weights
-                        .compute_with_skip(final_challenges, k_skip)
-                } else {
-                    // SUBSEQUENT ROUNDS: Use the standard multilinear evaluation.
-                    // The constraints and challenge point are over the smaller `num_vars_at_round` domain.
-                    assert_eq!(constraint.weights.num_variables(), num_vars_at_round);
-                    constraint.weights.compute(&challenges_for_round)
-                };
-                alpha_pow * single_eval
-            })
-            .sum();
-
-        eq_eval += round_contribution;
-
-        // After processing the round, shrink the domain for the next iteration's challenges.
-        num_vars_at_round -= folding_factors[round_idx];
-        challenges_for_round = MultilinearPoint(final_challenges.0[..num_vars_at_round].to_vec());
-    }
-
-    eq_eval
 }
 
 #[test]
