@@ -500,6 +500,7 @@ where
     ///
     /// # Returns
     /// The evaluation `W(r)` as a single field element.
+    #[allow(clippy::useless_let_if_seq)]
     fn eval_constraints_poly(
         &self,
         constraints: &[(Vec<EF>, Vec<Constraint<EF>>)],
@@ -517,12 +518,12 @@ where
         for (round_idx, (combination_coeffs, constraints_in_round)) in
             constraints.iter().enumerate()
         {
-            // For rounds after the first, the domain shrinks.
+            // Create a view of the challenge point that matches the domain size for the current round.
+            let mut point_for_round = point.clone();
             if round_idx > 0 {
                 num_variables -= self.folding_factor.at_round(round_idx - 1);
+                point_for_round = MultilinearPoint(point.0[..num_variables].to_vec());
             }
-            // Create a view of the challenge point that matches the current round's domain size.
-            let point_for_round = MultilinearPoint(point.0[..num_variables].to_vec());
 
             // Check if this is the first round and if the univariate skip optimization is active.
             let is_skip_round = round_idx == 0
