@@ -4,12 +4,12 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
+    constant::K_SKIP_SUMCHECK,
     fiat_shamir::{
         pattern::{Hint, Observe, Pattern, Sample},
         prover::ProverState,
         verifier::VerifierState,
     },
-    sumcheck::K_SKIP_SUMCHECK,
     whir::parameters::WhirConfig,
 };
 

@@ -10,11 +10,11 @@ use rand::{Rng, SeedableRng, distr::StandardUniform, rngs::SmallRng};
 
 use super::sumcheck_single::SumcheckSingle;
 use crate::{
+    constant::K_SKIP_SUMCHECK,
     fiat_shamir::{
         domain_separator::DomainSeparator, prover::ProverState, verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::K_SKIP_SUMCHECK,
     whir::{
         statement::{Statement, constraint::Constraint, weights::Weights},
         verifier::sumcheck::verify_sumcheck_rounds,

@@ -4,12 +4,13 @@ use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 
 use crate::{
+    constant::K_SKIP_SUMCHECK,
     fiat_shamir::{
         errors::{ProofError, ProofResult},
         verifier::VerifierState,
     },
     poly::multilinear::MultilinearPoint,
-    sumcheck::{K_SKIP_SUMCHECK, sumcheck_polynomial::SumcheckPolynomial},
+    sumcheck::sumcheck_polynomial::SumcheckPolynomial,
 };
 
 /// The full vector of folding randomness values, in reverse round order.

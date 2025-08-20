@@ -17,12 +17,12 @@ use super::{
     utils::get_challenge_stir_queries,
 };
 use crate::{
+    constant::K_SKIP_SUMCHECK,
     fiat_shamir::{
         errors::{ProofError, ProofResult},
         verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::K_SKIP_SUMCHECK,
     whir::{Statement, parameters::WhirConfig, verifier::sumcheck::verify_sumcheck_rounds},
 };
 

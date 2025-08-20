@@ -6,7 +6,10 @@ use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
 use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
-use crate::utils::{eval_eq, parallel_clone, uninitialized_vec};
+use crate::{
+    constant::MLE_RECURSION_THRESHOLD,
+    utils::{eval_eq, parallel_clone, uninitialized_vec},
+};
 
 /// Represents a multilinear polynomial `f` in `n` variables, stored by its evaluations
 /// over the boolean hypercube `{0,1}^n`.
@@ -310,7 +313,7 @@ where
             // For a very large number of variables, the recursive approach is not the most efficient.
             //
             // We switch to a more direct, non-recursive algorithm that is better suited for wide parallelization.
-            if point.len() >= 20 {
+            if point.len() >= MLE_RECURSION_THRESHOLD {
                 // The `evals` are ordered lexicographically, meaning the first variable's bit changes the slowest.
                 //
                 // To align our computation with this memory layout, we process the point's coordinates in reverse.

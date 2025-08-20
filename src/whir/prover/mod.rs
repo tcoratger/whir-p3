@@ -13,10 +13,10 @@ use tracing::{info_span, instrument};
 
 use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
+    constant::K_SKIP_SUMCHECK,
     dft::EvalsDft,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::K_SKIP_SUMCHECK,
     utils::parallel_repeat,
     whir::{
         parameters::RoundConfig,

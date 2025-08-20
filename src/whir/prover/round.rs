@@ -8,9 +8,10 @@ use tracing::{info_span, instrument};
 
 use super::Prover;
 use crate::{
+    constant::K_SKIP_SUMCHECK,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::multilinear::MultilinearPoint,
-    sumcheck::{K_SKIP_SUMCHECK, sumcheck_single::SumcheckSingle},
+    sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{RoundMerkleTree, Witness},
         statement::{Statement, weights::Weights},
