@@ -1,6 +1,10 @@
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
-use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_field::{
+    ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
+};
+use p3_interpolation::interpolate_subgroup;
+use p3_matrix::dense::RowMajorMatrix;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, distr::StandardUniform, rngs::SmallRng};
 
@@ -291,30 +295,86 @@ fn combine_constraints<EF: Field>(
     alpha
 }
 
-fn eval_constraints_poly<EF: Field>(
-    mut num_variables: usize,
-    folding_factor: &[usize],
+/// Evaluates the final combined weight polynomial `W(r)` by recursively applying
+/// the correct evaluation method for each round of constraints.
+///
+/// This function is the verifier's master function for the final check of the sumcheck protocol. It
+/// correctly handles the recursive nature of the proof, where constraints are defined over
+/// progressively smaller domains.
+///
+/// It intelligently handles the **univariate skip** optimization: if the flag is set,
+/// it applies a special, skip-aware evaluation method for the first round's constraints;
+/// otherwise, it treats all rounds as standard sumcheck rounds.
+///
+/// # Arguments
+/// * `univariate_skip`: A boolean flag indicating if the first round used the skip optimization.
+/// * `num_vars`: The total number of variables in the original polynomial.
+/// * `k_skip`: The number of variables that were skipped (only used if `univariate_skip` is true).
+/// * `folding_factors`: The number of variables folded in each round.
+/// * `constraints`: A list of constraint sets, one for each round of the protocol.
+/// * `alphas`: The random scalars used to linearly combine the constraints in each round.
+/// * `final_challenges`: The final, full `n`-dimensional challenge point `r`.
+///
+/// # Returns
+/// The evaluation `W(r)` as a single field element.
+fn eval_constraints_poly<F, EF>(
+    univariate_skip: bool,
+    num_vars: usize,
+    k_skip: usize,
+    folding_factors: &[usize],
     constraints: &[Vec<Constraint<EF>>],
     alphas: &[EF],
-    mut point: MultilinearPoint<EF>,
-) -> EF {
-    let mut value = EF::ZERO;
-    assert_eq!(alphas.len(), constraints.len());
+    final_challenges: &MultilinearPoint<EF>,
+) -> EF
+where
+    F: TwoAdicField,
+    EF: TwoAdicField + ExtensionField<F>,
+{
+    let mut eq_eval = EF::ZERO;
+    let mut num_vars_at_round = num_vars;
+    let mut challenges_for_round = final_challenges.clone();
 
-    for (round, (alphas, constraints)) in alphas.iter().zip(constraints.iter()).enumerate() {
-        let alphas = alphas.powers().collect_n(constraints.len());
-        assert_eq!(alphas.len(), constraints.len());
-        if round > 0 {
-            num_variables -= folding_factor[round - 1];
-            point = MultilinearPoint(point[..num_variables].to_vec());
-        }
-        value += constraints
+    // Iterate through each round where constraints were introduced.
+    for (round_idx, constraints_in_round) in constraints.iter().enumerate() {
+        let alpha = alphas[round_idx];
+        let alpha_pows = alpha.powers().collect_n(constraints_in_round.len());
+
+        // Determine if this specific round should be evaluated using the skip method.
+        let is_skip_round = round_idx == 0 && univariate_skip;
+
+        // Calculate the total contribution from this round's constraints.
+        let round_contribution: EF = constraints_in_round
             .iter()
-            .zip(alphas)
-            .map(|(constraint, alpha)| alpha * constraint.weights.compute(&point))
-            .sum::<EF>();
+            .zip(alpha_pows)
+            .map(|(constraint, alpha_pow)| {
+                let single_eval = if is_skip_round {
+                    // ROUND 0 with SKIP: Use the special skip-aware evaluation.
+                    // The constraints for this round are over the full `num_vars` domain.
+                    assert_eq!(constraint.weights.num_variables(), num_vars);
+                    constraint
+                        .weights
+                        .compute_with_skip(final_challenges, k_skip)
+                } else {
+                    // STANDARD ROUND: Use the standard multilinear evaluation.
+                    // The constraints and challenge point are over the smaller `num_vars_at_round` domain.
+                    assert_eq!(constraint.weights.num_variables(), num_vars_at_round);
+                    constraint.weights.compute(&challenges_for_round)
+                };
+                alpha_pow * single_eval
+            })
+            .sum();
+
+        eq_eval += round_contribution;
+
+        // After processing the round, shrink the domain for the next iteration's challenges.
+        if round_idx < constraints.len() - 1 {
+            num_vars_at_round -= folding_factors[round_idx];
+            challenges_for_round =
+                MultilinearPoint(final_challenges.0[..num_vars_at_round].to_vec());
+        }
     }
-    value
+
+    eq_eval
 }
 
 /// Runs an end-to-end prover-verifier test for the `SumcheckSingle` protocol with nested folding.
@@ -458,14 +518,17 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     assert_eq!(final_folded_value, final_folded_value_transcript);
 
     // CHECK EQ(z, r) WEIGHT POLY
-    let eq_eval = eval_constraints_poly(
+    //
+    // No skip optimization, so the first round is treated as a standard sumcheck round.
+    let eq_eval = eval_constraints_poly::<F, EF>(
+        false,
         num_vars,
+        0,
         folding_factors,
         &constraints,
         &alphas,
-        verifier_randomness,
+        &verifier_randomness,
     );
-
     // CHECK SUM == f(r) * eq(z, r)
     assert_eq!(sum, final_folded_value_transcript * eq_eval);
 }
@@ -486,7 +549,6 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
 /// # Arguments
 /// - `folding_factors`: A list of folding amounts (how many variables are folded each round).
 /// - `num_points`: Number of equality constraints applied in each round, except the final one.
-#[allow(clippy::collection_is_never_read)]
 fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     // Sanity check: folding_factors should have one more element than num_points
     assert_eq!(folding_factors.len(), num_points.len() + 1);
@@ -554,8 +616,10 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
 
     // Final constant should be f(r), where r is the accumulated challenge point
     let constant = sumcheck.evals[0];
-    // TODO: This should be fixed somehow for the univariate skip to work
-    // assert_eq!(poly.evaluate(&r), constant);
+
+    // Final constant should be f̂(r0, r_{k+1..}) under skip semantics
+    let expected = eval_with_skip::<F, EF>(&poly, K_SKIP_SUMCHECK, &prover_randomness);
+    assert_eq!(constant, expected);
 
     // Commit final result to Fiat-Shamir transcript
     prover.add_extension_scalar(constant);
@@ -582,7 +646,9 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     let mut num_vars_inter = num_vars;
 
     // VERIFY EACH ROUND
-    for (&folding, &num_pts) in folding_factors.iter().zip(num_points.iter()) {
+    for (round_idx, (&folding, &num_pts)) in
+        folding_factors.iter().zip(num_points.iter()).enumerate()
+    {
         // Reconstruct the equality statement from the proof stream
         let statement = read_statement(verifier, num_vars_inter, num_pts);
 
@@ -597,8 +663,12 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
         constraints.push(statement.constraints.clone());
 
         // Extend r with verifier's folding randomness
-        verifier_randomness
-            .extend(&verify_sumcheck_rounds(verifier, &mut sum, folding, 0, true).unwrap());
+        //
+        // The skip optimization is only applied to the first round.
+        let is_skip_round = round_idx == 0;
+        verifier_randomness.extend(
+            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, is_skip_round).unwrap(),
+        );
 
         num_vars_inter -= folding;
     }
@@ -606,7 +676,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     // FINAL FOLDING
     let final_rounds = *folding_factors.last().unwrap();
     verifier_randomness
-        .extend(&verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, true).unwrap());
+        .extend(&verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, false).unwrap());
 
     // Check that the randomness vectors are the same
     assert_eq!(prover_randomness, verifier_randomness);
@@ -615,22 +685,63 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     let constant_verifier = verifier.next_extension_scalar().unwrap();
     assert_eq!(constant_verifier, constant);
 
-    // TODO: This should be fixed somehow for the univariate skip to work
-    // // EVALUATE EQ(z, r) VIA CONSTRAINTS
-    // //
-    // // Evaluate eq(z, r) using the multilinear constraint interpolation
-    // let eq_eval = eval_constraints_poly(
-    //     num_vars,
-    //     folding_factors,
-    //     &constraints,
-    //     &alphas,
-    //     verifier_randomness.clone(),
-    // );
+    // EVALUATE EQ(z, r) VIA CONSTRAINTS
+    //
+    // Evaluate eq(z, r) using the unified constraint evaluation function.
+    let eq_eval = eval_constraints_poly::<F, EF>(
+        true, // univariate_skip is true for this test
+        num_vars,
+        K_SKIP_SUMCHECK,
+        folding_factors,
+        &constraints,
+        &alphas,
+        &verifier_randomness,
+    );
 
-    // // FINAL SUMCHECK CHECK
-    // //
-    // // Main equation: sum == f(r) · eq(z, r)
-    // assert_eq!(sum, constant * eq_eval);
+    // FINAL SUMCHECK CHECK
+    //
+    // Main equation: sum == f(r) · eq(z, r)
+    assert_eq!(sum, constant * eq_eval);
+}
+
+/// Evaluate f with the same "univariate skip" semantics the prover uses:
+/// - Treat the first k variables as a single univariate slot over the 2^k subgroup,
+/// - interpolate at r_all[0],
+/// - then evaluate the remaining (n - k) variables at r_all[1..].
+fn eval_with_skip<F, EF>(
+    poly: &EvaluationsList<F>,
+    k_skip: usize,
+    r_all: &MultilinearPoint<EF>,
+) -> EF
+where
+    F: TwoAdicField,
+    EF: TwoAdicField + ExtensionField<F>,
+{
+    let n = poly.num_variables();
+    assert!(k_skip > 0 && k_skip <= n);
+
+    // After with_skip() reverses, layout is:
+    // [ r_for_remaining_vars...,  r_skip ]
+    let need = 1 + (n - k_skip);
+    assert!(
+        r_all.len() >= need,
+        "need {} challenges (1 + n - k), got {}",
+        need,
+        r_all.len()
+    );
+
+    // - r0 is the **last** element (skip challenge),
+    // - "rest" are the first n-k challenges for the remaining variables.
+    let r0 = *r_all.last().unwrap();
+    let rest = MultilinearPoint(r_all[..(n - k_skip)].to_vec());
+
+    // Reshape f into 2^k × 2^{n-k}, interpolate along the skipped dimension at r0,
+    // then evaluate the resulting EF-table on the remaining variables.
+    let width = 1 << (n - k_skip);
+    let f_mat = RowMajorMatrix::new(poly.to_vec(), width);
+    let folded_row = interpolate_subgroup::<F, EF, _>(&f_mat, r0);
+
+    EvaluationsList::new(folded_row).evaluate(&rest)
 }
 
 #[test]
@@ -645,5 +756,28 @@ fn test_sumcheck_prover() {
     run_sumcheck_test(&[4, 4, 1], &[9, 9]);
     run_sumcheck_test(&[1, 4, 4], &[9, 9]);
 
+    // Folds 6 variables with skip, then 1 standard. Total 7 variables. 1 constraint.
     run_sumcheck_test_skips(&[6, 1], &[1]);
+
+    // Tests the system with a higher number of initial equality constraints.
+    // Total 7 variables (6 skipped, 1 standard). 5 constraints.
+    run_sumcheck_test_skips(&[6, 1], &[5]);
+
+    // Increases the total number of variables, with more processed in the final standard round.
+    // Total 10 variables (6 skipped, 4 standard). 3 constraints.
+    run_sumcheck_test_skips(&[6, 4], &[3]);
+
+    // The final round folds 0 variables, testing an edge case.
+    // Total 6 variables (all 6 skipped). 4 constraints.
+    run_sumcheck_test_skips(&[6, 0], &[4]);
+
+    // The `with_skip` function will perform one skip of `K_SKIP_SUMCHECK` (6) variables,
+    // followed by 2 standard folding rounds, all within the first logical round.
+    // Total 10 variables (8 folded in round 0, 2 in final round). 3 constraints.
+    run_sumcheck_test_skips(&[8, 2], &[3]);
+
+    // This provides a more complex scenario with a skip round, an intermediate standard
+    // round with new constraints, and a final round.
+    // Total 10 variables (6 skipped, then 2, then 2). 3 initial and 3 intermediate constraints.
+    run_sumcheck_test_skips(&[6, 2, 2], &[3, 3]);
 }

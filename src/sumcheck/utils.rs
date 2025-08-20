@@ -108,7 +108,7 @@ mod tests {
         let eq = &[EF4::ONE, EF4::ONE];
         let (c0, c2) = sumcheck_quadratic((p, eq));
         assert_eq!(c0, EF4::ONE);
-        assert_eq!(c2, EF4::ZERO); // (1-1) * (1-1) = 0  
+        assert_eq!(c2, EF4::ZERO); // (1-1) * (1-1) = 0
     }
 
     #[test]
@@ -117,8 +117,8 @@ mod tests {
         let p = &[F::from_u64(1000), F::from_u64(2000)];
         let eq = &[EF4::from_u64(500), EF4::from_u64(1500)];
         let (c0, c2) = sumcheck_quadratic((p, eq));
-        assert_eq!(c0, EF4::from_u64(500_000)); // 1000 * 500  
-        assert_eq!(c2, EF4::from_u64(1_000_000)); // 1000 * 1000  
+        assert_eq!(c0, EF4::from_u64(500_000)); // 1000 * 500
+        assert_eq!(c2, EF4::from_u64(1_000_000)); // 1000 * 1000
     }
 
     #[test]
@@ -127,8 +127,8 @@ mod tests {
         let p = &[F::ZERO, F::from_u64(5)];
         let eq = &[EF4::from_u64(3), EF4::from_u64(7)];
         let (c0, c2) = sumcheck_quadratic((p, eq));
-        assert_eq!(c0, EF4::ZERO); // 0 * 3 = 0  
-        assert_eq!(c2, EF4::from_u64(20)); // 5 * 4 = 20  
+        assert_eq!(c0, EF4::ZERO); // 0 * 3 = 0
+        assert_eq!(c2, EF4::from_u64(20)); // 5 * 4 = 20
     }
 
     #[test]

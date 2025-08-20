@@ -3,7 +3,8 @@ use std::{fmt::Debug, ops::Deref};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
-use p3_matrix::Dimensions;
+use p3_interpolation::interpolate_subgroup;
+use p3_matrix::{Dimensions, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,7 @@ use crate::{
         verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    sumcheck::K_SKIP_SUMCHECK,
     whir::{Statement, parameters::WhirConfig, verifier::sumcheck::verify_sumcheck_rounds},
 };
 
@@ -197,7 +199,7 @@ where
             verifier_state.next_extension_scalars_vec(statement.num_deref_constraints())?;
 
         let evaluation_of_weights =
-            self.eval_constraints_poly(&round_constraints, &deferred, folding_randomness.clone());
+            self.eval_constraints_poly(&round_constraints, &deferred, &folding_randomness);
 
         // Check the final sumcheck evaluation
         let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
@@ -321,7 +323,18 @@ where
         // Compute STIR Constraints
         let folds: Vec<_> = answers
             .into_iter()
-            .map(|answers| EvaluationsList::new(answers).evaluate(folding_randomness))
+            .map(|answers| {
+                if self.initial_statement
+                    && round_index == 0
+                    && self.univariate_skip
+                    && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
+                {
+                    let evals_mat = RowMajorMatrix::new_col(answers);
+                    interpolate_subgroup(&evals_mat, folding_randomness[0])[0]
+                } else {
+                    EvaluationsList::new(answers).evaluate(folding_randomness)
+                }
+            })
             .collect();
 
         let stir_constraints = stir_challenges_indexes
@@ -470,58 +483,86 @@ where
         Ok(res)
     }
 
-    /// Evaluate a batch of constraint polynomials at a given multilinear point.
+    /// Evaluates the final combined weight polynomial `W(r)` at the challenge point `r`.
     ///
-    /// This function computes the combined weighted value of constraints across all rounds.
-    /// Each constraint is either directly evaluated at the input point (`MultilinearPoint`)
-    /// or substituted with a deferred evaluation result, depending on the constraint type.
+    /// This is the verifier's master function for the final check of the sumcheck protocol. It
+    /// correctly handles the recursive nature of the proof, where constraints are defined over
+    /// progressively smaller domains.
     ///
-    /// The final result is the sum of each constraint's value, scaled by its corresponding
-    /// challenge randomness (used in the linear combination step of the sumcheck protocol).
+    /// Crucially, it also handles the special case where the first round uses the **univariate skip**
+    /// optimization, applying a different, skip-aware evaluation method for that round's constraints.
     ///
     /// # Arguments
-    /// - `constraints`: A list of tuples, where each tuple corresponds to a round and contains:
-    ///     - A vector of challenge randomness values (used to weight each constraint),
-    ///     - A vector of `Constraint<EF>` objects for that round.
-    /// - `deferred`: Precomputed evaluations used for deferred constraints.
-    /// - `point`: The multilinear point at which to evaluate the constraint polynomials.
+    /// * `constraints`: A list of constraint sets, one for each round of the protocol. Each set
+    ///   is paired with the random `alpha` powers used to linearly combine them.
+    /// * `deferred`: A list of pre-computed evaluations for any deferred constraints.
+    /// * `point`: The final, full `n`-dimensional challenge point `r` (`folding_randomness`).
     ///
     /// # Returns
-    /// The combined evaluation result of all weighted constraints across rounds at the given point.
-    ///
-    /// # Panics
-    /// Panics if:
-    /// - Any round's `randomness.len()` does not match `constraints.len()`,
-    /// - A deferred constraint is encountered but `deferred` has been exhausted.
+    /// The evaluation `W(r)` as a single field element.
     fn eval_constraints_poly(
         &self,
         constraints: &[(Vec<EF>, Vec<Constraint<EF>>)],
         deferred: &[EF],
-        mut point: MultilinearPoint<EF>,
+        point: &MultilinearPoint<EF>,
     ) -> EF {
+        // The total number of variables in the original, unfolded polynomial.
         let mut num_variables = self.mv_parameters.num_variables;
-        let mut deferred = deferred.iter().copied();
+        // An iterator for any evaluations that were deferred in the protocol.
+        let mut deferred_iter = deferred.iter().copied();
+        // The final, accumulated evaluation of W(r).
         let mut value = EF::ZERO;
 
-        for (round, (randomness, constraints)) in constraints.iter().enumerate() {
-            assert_eq!(randomness.len(), constraints.len());
-            if round > 0 {
-                num_variables -= self.folding_factor.at_round(round - 1);
-                point = MultilinearPoint(point[..num_variables].to_vec());
-            }
-            value += constraints
+        // Process the constraints from each round of the protocol.
+        for (round_idx, (combination_coeffs, constraints_in_round)) in
+            constraints.iter().enumerate()
+        {
+            // Create a view of the challenge point that matches the domain size for the current round.
+            let point_for_round = if round_idx > 0 {
+                // If it's not the first round, shrink the number of variables.
+                num_variables -= self.folding_factor.at_round(round_idx - 1);
+                // The value of the `if` block is the new, sliced point.
+                MultilinearPoint(point.0[..num_variables].to_vec())
+            } else {
+                // Otherwise, for the first round, use the full, original point.
+                point.clone()
+            };
+
+            // Check if this is the first round and if the univariate skip optimization is active.
+            let is_skip_round = round_idx == 0
+                && self.univariate_skip
+                && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
+
+            // Calculate the total contribution from this round's constraints.
+            let round_sum: EF = constraints_in_round
                 .iter()
-                .zip(randomness)
-                .map(|(constraint, &randomness)| {
-                    let value = if constraint.defer_evaluation {
-                        deferred.next().unwrap()
+                .zip(combination_coeffs)
+                .map(|(constraint, &coeff)| {
+                    // For each constraint, get its evaluation at the appropriate point `r`.
+                    let single_eval = if constraint.defer_evaluation {
+                        deferred_iter.next().unwrap()
+                    } else if is_skip_round {
+                        // ROUND 0 with SKIP: Use the special skip-aware evaluation.
+                        // The constraint and the full challenge point are over the `num_variables` domain.
+                        assert_eq!(constraint.weights.num_variables(), num_variables);
+                        constraint
+                            .weights
+                            .compute_with_skip(&point_for_round, K_SKIP_SUMCHECK)
                     } else {
-                        constraint.weights.compute(&point)
+                        // STANDARD ROUND: Use the standard multilinear evaluation.
+                        // The constraint and challenge point are over the (potentially smaller) domain.
+                        assert_eq!(constraint.weights.num_variables(), num_variables);
+                        constraint.weights.compute(&point_for_round)
                     };
-                    value * randomness
+                    // Multiply by its random combination coefficient.
+                    single_eval * coeff
                 })
-                .sum::<EF>();
+                .sum();
+
+            // Add this round's total contribution to the final value.
+            value += round_sum;
         }
+
         value
     }
 }

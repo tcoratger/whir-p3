@@ -3,6 +3,7 @@ use std::ops::Deref;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
@@ -15,6 +16,7 @@ use crate::{
     dft::EvalsDft,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    sumcheck::K_SKIP_SUMCHECK,
     utils::parallel_repeat,
     whir::{
         parameters::RoundConfig,
@@ -311,11 +313,43 @@ where
 
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = Vec::with_capacity(answers.len());
+
+                // Determine if this is the special first round where the univariate skip is applied.
+                let is_skip_round = self.initial_statement
+                    && round_index == 0
+                    && self.univariate_skip
+                    && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
+
+                // Process each set of evaluations retrieved from the Merkle tree openings.
                 for answer in &answers {
-                    stir_evaluations.push(
-                        EvaluationsList::new(answer.clone())
-                            .evaluate(&round_state.folding_randomness),
-                    );
+                    // Fold the polynomial represented by the `answer` evaluations using the verifier's challenge.
+                    // The evaluation method depends on whether this is a "skip round" or a "standard round".
+                    let eval = if is_skip_round {
+                        // Case 1: Univariate Skip Round
+                        //
+                        // The `answer` represents a polynomial over the `k_skip` variables.
+                        // We perform a special evaluation consistent with the skip protocol.
+
+                        // Reshape the evaluations into a single-column matrix.
+                        let evals_mat = RowMajorMatrix::new_col(answer.clone());
+
+                        // Evaluate the polynomial by interpolating at the single skip challenge `r_skip`.
+                        // For the skip round, `folding_randomness` contains only this one challenge.
+                        interpolate_subgroup(&evals_mat, round_state.folding_randomness[0])[0]
+                    } else {
+                        // Case 2: Standard Sumcheck Round
+                        //
+                        // The `answer` represents a standard multilinear polynomial.
+
+                        // Wrap the evaluations to represent the polynomial.
+                        let evals_list = EvaluationsList::new(answer.clone());
+
+                        // Perform a standard multilinear evaluation at the full challenge point `r`.
+                        evals_list.evaluate(&round_state.folding_randomness)
+                    };
+
+                    // Store the single, folded scalar value.
+                    stir_evaluations.push(eval);
                 }
 
                 stir_evaluations
