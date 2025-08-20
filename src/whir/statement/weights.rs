@@ -564,6 +564,83 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_compute_with_skip_evaluation_all_vars() {
+        // SETUP:
+        // - n = 5 total variables: (X0, X1, X2, X3, X4).
+        // - The constraint point `z` is defined over the full n=5 variables.
+        // - k_skip = 5 variables to skip (all of them).
+        // - This leaves 0 remaining variables.
+        let n = 5;
+        let k_skip = 5;
+
+        // The weight polynomial is W(X) = eq_z(X0..X4), where z is a random 5-element point.
+        let point = MultilinearPoint(vec![
+            F::from_u32(2),
+            F::from_u32(3),
+            F::from_u32(5),
+            F::from_u32(7),
+            F::from_u32(11),
+        ]);
+        let weights = Weights::Evaluation {
+            point: point.clone(),
+        };
+
+        // The verifier's challenge object `r_all`.
+        // It has (n - k_skip) + 1 = (5 - 5) + 1 = 1 element.
+        // - r_rest is an empty vector for the 0 remaining variables.
+        // - r_skip is the single challenge for the combined (X0..X4) domain.
+        let r_rest = MultilinearPoint(vec![]);
+        let r_skip = EF4::from_u32(13);
+        let r_all = MultilinearPoint(vec![r_skip]);
+
+        // Compute W(r) using the function under test.
+        let result = weights.compute_with_skip(&r_all, k_skip);
+
+        // MANUAL VERIFICATION:
+        // Manually construct the full 2^5=32 element table for W(X) = eq_z(X0..X4).
+        let mut full_evals_vec = Vec::with_capacity(1 << n);
+        for i in 0..(1 << n) {
+            // The evaluation of eq_z(x) is the product of n individual terms.
+            let eq_val: EF4 = (0..n)
+                .map(|j| {
+                    // Get the j-th coordinate of the constraint point z.
+                    let z_j = EF4::from(point.0[j]);
+                    // Get the j-th coordinate of the hypercube point x by checking the j-th bit of i.
+                    let x_j = EF4::from_u32((i >> (n - 1 - j)) & 1);
+                    // Calculate the j-th term of the product.
+                    z_j * x_j + (EF4::ONE - z_j) * (EF4::ONE - x_j)
+                })
+                .product();
+            full_evals_vec.push(eq_val);
+        }
+
+        // Reshape into a 32x1 matrix (Rows: (X0..X4), Cols: empty).
+        let num_remaining = n - k_skip;
+        let mat = RowMajorMatrix::new(full_evals_vec, 1 << num_remaining);
+
+        // Interpolate the single column at r_skip to fold all 5 variables.
+        let folded_row = interpolate_subgroup(&mat, r_skip);
+
+        // The `folded_row` is a new 0-variable polynomial (a constant).
+        let final_poly = EvaluationsList::new(folded_row);
+
+        // Evaluate this constant polynomial. The point `r_rest` is empty.
+        let expected = final_poly.evaluate(&r_rest);
+
+        // The result of interpolation should be a single scalar.
+        assert_eq!(
+            final_poly.len(),
+            1,
+            "Folding all variables should result in a single value"
+        );
+
+        assert_eq!(
+            result, expected,
+            "Manual skip evaluation for n=k_skip should match"
+        );
+    }
+
     proptest! {
         /// The test is set up with randomly generated dimensions and field elements. The generation
         /// is chained to ensure all inputs are valid and correctly sized:
