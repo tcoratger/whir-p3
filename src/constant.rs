@@ -5,7 +5,7 @@
 ///
 /// This optimization keeps the work in the base field and reduces the number of expensive
 /// extension field rounds.
-pub const K_SKIP_SUMCHECK: usize = 5;
+pub const K_SKIP_SUMCHECK: usize = 7;
 
 /// The number of variables at which the multilinear evaluation algorithm switches
 /// from a recursive to a non-recursive, chunk-based strategy.
