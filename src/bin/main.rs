@@ -62,7 +62,7 @@ struct Args {
     #[arg(short = 'r', long, default_value = "1")]
     rate: usize,
 
-    #[arg(short = 'k', long = "fold", default_value = "4")]
+    #[arg(short = 'k', long = "fold", default_value = "5")]
     folding_factor: usize,
 
     #[arg(long = "sec", default_value = "CapacityBound")]

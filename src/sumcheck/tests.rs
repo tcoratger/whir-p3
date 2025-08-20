@@ -756,10 +756,28 @@ fn test_sumcheck_prover() {
     run_sumcheck_test(&[4, 4, 1], &[9, 9]);
     run_sumcheck_test(&[1, 4, 4], &[9, 9]);
 
-    run_sumcheck_test_skips(&[8, 1], &[1]);
-    run_sumcheck_test_skips(&[8, 1], &[5]);
-    run_sumcheck_test_skips(&[8, 4], &[3]);
-    run_sumcheck_test_skips(&[8, 0], &[4]);
-    run_sumcheck_test_skips(&[11, 2], &[3]);
-    run_sumcheck_test_skips(&[8, 2, 2], &[3, 3]);
+    // Folds 6 variables with skip, then 1 standard. Total 7 variables. 1 constraint.
+    run_sumcheck_test_skips(&[6, 1], &[1]);
+
+    // Tests the system with a higher number of initial equality constraints.
+    // Total 7 variables (6 skipped, 1 standard). 5 constraints.
+    run_sumcheck_test_skips(&[6, 1], &[5]);
+
+    // Increases the total number of variables, with more processed in the final standard round.
+    // Total 10 variables (6 skipped, 4 standard). 3 constraints.
+    run_sumcheck_test_skips(&[6, 4], &[3]);
+
+    // The final round folds 0 variables, testing an edge case.
+    // Total 6 variables (all 6 skipped). 4 constraints.
+    run_sumcheck_test_skips(&[6, 0], &[4]);
+
+    // The `with_skip` function will perform one skip of `K_SKIP_SUMCHECK` (6) variables,
+    // followed by 2 standard folding rounds, all within the first logical round.
+    // Total 10 variables (8 folded in round 0, 2 in final round). 3 constraints.
+    run_sumcheck_test_skips(&[8, 2], &[3]);
+
+    // This provides a more complex scenario with a skip round, an intermediate standard
+    // round with new constraints, and a final round.
+    // Total 10 variables (6 skipped, then 2, then 2). 3 initial and 3 intermediate constraints.
+    run_sumcheck_test_skips(&[6, 2, 2], &[3, 3]);
 }
