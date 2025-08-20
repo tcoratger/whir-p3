@@ -1,7 +1,8 @@
-use p3_dft::{NaiveDft, TwoAdicSubgroupDft};
+use p3_dft::{Radix2DitParallel, TwoAdicSubgroupDft};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_maybe_rayon::prelude::*;
+use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::poly::evals::EvaluationsList;
@@ -48,7 +49,8 @@ use crate::poly::evals::EvaluationsList;
 /// - The LDE step extends each row from $2^k$ to $2^{k+1}$ using a coset FFT,
 ///   enabling efficient computation of the univariate sumcheck polynomial.
 #[must_use]
-pub(crate) fn compute_skipping_sumcheck_polynomial<F: TwoAdicField, EF: ExtensionField<F>>(
+#[instrument(skip_all)]
+pub(crate) fn compute_skipping_sumcheck_polynomial<F, EF>(
     k: usize,
     evals: &EvaluationsList<F>,
     weights: &EvaluationsList<EF>,
@@ -56,7 +58,11 @@ pub(crate) fn compute_skipping_sumcheck_polynomial<F: TwoAdicField, EF: Extensio
     SumcheckPolynomial<EF>,
     RowMajorMatrix<F>,
     RowMajorMatrix<EF>,
-) {
+)
+where
+    F: TwoAdicField + Ord,
+    EF: ExtensionField<F>,
+{
     // Ensure we have enough variables to skip.
     // We can only skip if the number of variables n ≥ k.
     assert!(
@@ -90,7 +96,7 @@ pub(crate) fn compute_skipping_sumcheck_polynomial<F: TwoAdicField, EF: Extensio
         //
         // This gives us access to evaluations of f(X, b) and w(X, b)
         // for non-Boolean values of X ∈ D (coset of size 2^{k+1}).
-        let dft = NaiveDft;
+        let dft = Radix2DitParallel::<F>::default();
 
         // Apply base-field LDE to each row of f_mat: F^2^k → F^2^{k+1}
         let f_on_coset = dft.lde_batch(f_mat.clone(), 1).to_row_major_matrix();

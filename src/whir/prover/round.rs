@@ -67,7 +67,7 @@ where
 #[allow(clippy::mismatching_type_param_order)]
 impl<EF, F, const DIGEST_ELEMS: usize> RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>
 where
-    F: TwoAdicField,
+    F: TwoAdicField + Ord,
     EF: ExtensionField<F> + TwoAdicField,
 {
     /// Initializes the prover’s state for the first round of the WHIR protocol.
