@@ -52,7 +52,7 @@ where
 
 impl<EF, F, H, C, Challenger> Prover<'_, EF, F, H, C, Challenger>
 where
-    F: TwoAdicField,
+    F: TwoAdicField + Ord,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {

@@ -304,7 +304,7 @@ pub struct SumcheckSingle<F, EF> {
 
 impl<F, EF> SumcheckSingle<F, EF>
 where
-    F: Field,
+    F: Field + Ord,
     EF: ExtensionField<F>,
 {
     /// Constructs a new `SumcheckSingle` instance from evaluations in the extension field.
