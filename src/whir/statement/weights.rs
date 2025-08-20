@@ -218,7 +218,7 @@ impl<F: Field> Weights<F> {
             }
             // Case 2: The weight is defined by an equality constraint at a point `z`.
             Self::Evaluation { point } => {
-                // // The constraint point `z` must be defined over the full n-variable domain.
+                // The constraint point `z` must be defined over the full n-variable domain.
                 let k = point.num_variables();
                 assert!(
                     k <= n,
