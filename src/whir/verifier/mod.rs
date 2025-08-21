@@ -662,9 +662,9 @@ mod tests {
             initial_statement: true,
             security_level: 90,
             pow_bits: 0,
-            soundness_type: SecurityAssumption::CapacityBound,
+            soundness_type: SecurityAssumption::UniqueDecoding,
             starting_log_inv_rate: 1,
-            rs_domain_initial_reduction_factor: 3,
+            rs_domain_initial_reduction_factor: 1,
         };
         let params =
             WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
@@ -805,7 +805,7 @@ mod tests {
                 initial_statement: true,
                 security_level: 90,
                 pow_bits: 0,
-                soundness_type: SecurityAssumption::CapacityBound,
+                soundness_type: SecurityAssumption::UniqueDecoding,
                 starting_log_inv_rate: 1,
                 rs_domain_initial_reduction_factor: 1,
             };
@@ -919,9 +919,9 @@ mod tests {
             initial_statement: true,
             security_level: 90,
             pow_bits: 0,
-            soundness_type: SecurityAssumption::CapacityBound,
+            soundness_type: SecurityAssumption::UniqueDecoding,
             starting_log_inv_rate: 1,
-            rs_domain_initial_reduction_factor: 3,
+            rs_domain_initial_reduction_factor: 1,
         };
         let params =
             WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
@@ -1065,9 +1065,9 @@ mod tests {
                 initial_statement: true,
                 security_level: 90,
                 pow_bits: 0,
-                soundness_type: SecurityAssumption::CapacityBound,
+                soundness_type: SecurityAssumption::UniqueDecoding,
                 starting_log_inv_rate: 1,
-                rs_domain_initial_reduction_factor: 3,
+                rs_domain_initial_reduction_factor: 1,
             };
             let params =
                 WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
