@@ -334,7 +334,7 @@ where
                     // Case 1: Univariate Skip Round Evaluation
                     //
                     // The `answer` contains evaluations of a polynomial over the `k_skip` variables.
-                    let evals = EvaluationsList::new(answer.clone());
+                    let evals = EvaluationsList::new(answer);
 
                     // Calculate `n-k`, the number of variables that are *not* folded in this skip round.
                     let num_remaining_vars = evals.num_variables() - K_SKIP_SUMCHECK;
