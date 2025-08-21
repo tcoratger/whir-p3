@@ -318,9 +318,9 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_invalid_answers_length() {
-        let answers = vec![F::from_u64(1); 7]; // 7 != 2^3  
+        let answers = vec![F::from_u64(1); 7]; // 7 != 2^3
         let folding_randomness = vec![F::from_u64(3); 3];
-        compute_fold(&answers, &folding_randomness, F::ONE, F::ONE, 3);
+        let _ = compute_fold(&answers, &folding_randomness, F::ONE, F::ONE, 3);
     }
 
     #[test]

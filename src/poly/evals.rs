@@ -3,12 +3,13 @@ use std::ops::{Deref, DerefMut};
 use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
 use p3_maybe_rayon::prelude::*;
+use p3_multilinear_util::eq::eval_eq;
 use tracing::instrument;
 
 use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
 use crate::{
     constant::MLE_RECURSION_THRESHOLD,
-    utils::{eval_eq, parallel_clone, uninitialized_vec},
+    utils::{parallel_clone, uninitialized_vec},
 };
 
 /// Represents a multilinear polynomial `f` in `n` variables, stored by its evaluations
@@ -1011,8 +1012,6 @@ mod tests {
              // always at least 5 elements
             evals_raw in prop::collection::vec(0u64..F::ORDER_U64, 5),
         ) {
-            use crate::utils::eval_eq;
-
             // Slice out exactly n elements, guaranteed present
             let evals: Vec<F> = evals_raw[..n].iter().map(|&x| F::from_u64(x)).collect();
 

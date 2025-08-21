@@ -433,7 +433,7 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
         .zip(num_points.iter().skip(1))
     {
         // Add additional equality constraints for intermediate rounds
-        make_inter_statement(prover, num_points, &mut sumcheck);
+        let _ = make_inter_statement(prover, num_points, &mut sumcheck);
 
         // Compute and apply the next folding round
         prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
@@ -594,7 +594,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
         .zip(num_points.iter().skip(1))
     {
         // Sample new evaluation constraints and combine them into the sumcheck state
-        make_inter_statement(prover, num_pts, &mut sumcheck);
+        let _ = make_inter_statement(prover, num_pts, &mut sumcheck);
 
         // Fold the sumcheck polynomial again and extend randomness vector
         prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(prover, folding, 0));
