@@ -5,7 +5,7 @@ use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
 use prover::Prover;
-use rand::{SeedableRng, rngs::SmallRng};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use statement::{Statement, weights::Weights};
 use verifier::Verifier;
 
@@ -15,7 +15,7 @@ use crate::{
     parameters::{
         FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
     },
-    poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
+    poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
 };
 
 pub mod committer;
@@ -85,7 +85,7 @@ pub fn make_whir_things(
     let params = WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
 
     // Define a polynomial with all coefficients set to 1
-    let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]).to_evaluations();
+    let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
 
     // Sample `num_points` multilinear points
     let points: Vec<_> = (0..num_points)
