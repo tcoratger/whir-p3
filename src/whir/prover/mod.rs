@@ -325,17 +325,36 @@ where
                     // Fold the polynomial represented by the `answer` evaluations using the verifier's challenge.
                     // The evaluation method depends on whether this is a "skip round" or a "standard round".
                     let eval = if is_skip_round {
-                        // Case 1: Univariate Skip Round
+                        // Case 1: Univariate Skip Round Evaluation
                         //
-                        // The `answer` represents a polynomial over the `k_skip` variables.
-                        // We perform a special evaluation consistent with the skip protocol.
+                        // The `answer` contains evaluations of a polynomial over the `k_skip` variables.
+                        let evals = EvaluationsList::new(answer.clone());
 
-                        // Reshape the evaluations into a single-column matrix.
-                        let evals_mat = RowMajorMatrix::new_col(answer.clone());
+                        // The challenges for the remaining (non-skipped) variables.
+                        let num_remaining_vars = evals.num_variables() - K_SKIP_SUMCHECK;
 
-                        // Evaluate the polynomial by interpolating at the single skip challenge `r_skip`.
-                        // For the skip round, `folding_randomness` contains only this one challenge.
-                        interpolate_subgroup(&evals_mat, round_state.folding_randomness[0])[0]
+                        // The width of the matrix corresponds to the number of remaining variables.
+                        let width = 1 << num_remaining_vars;
+
+                        // Reshape the `answer` evaluations into the `2^k x 2^(n-k)` matrix format.
+                        let mat = RowMajorMatrix::new(evals.to_vec(), width);
+
+                        // For a skip round, `folding_randomness` is the special `(n-k)+1` challenge object.
+                        let r_all = round_state.folding_randomness.clone();
+
+                        // Deconstruct the special challenge object `r_all`.
+                        //
+                        // The last element is the single challenge for the `k_skip` variables being folded.
+                        let r_skip = *r_all.0.last().expect("skip challenge must be present");
+                        // The first `n - k_skip` elements are the challenges for the remaining variables.
+                        let r_rest = MultilinearPoint(r_all.0[..num_remaining_vars].to_vec());
+
+                        // Perform the two-stage skip-aware evaluation:
+                        //
+                        // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
+                        let folded_row = interpolate_subgroup(&mat, r_skip);
+                        // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
+                        EvaluationsList::new(folded_row).evaluate(&r_rest)
                     } else {
                         // Case 2: Standard Sumcheck Round
                         //

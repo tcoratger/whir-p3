@@ -320,19 +320,49 @@ where
             round_index,
         )?;
 
+        // Determine if this is the special first round where the univariate skip is applied.
+        let is_skip_round = self.initial_statement
+            && round_index == 0
+            && self.univariate_skip
+            && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
+
         // Compute STIR Constraints
         let folds: Vec<_> = answers
             .into_iter()
-            .map(|answers| {
-                if self.initial_statement
-                    && round_index == 0
-                    && self.univariate_skip
-                    && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK
-                {
-                    let evals_mat = RowMajorMatrix::new_col(answers);
-                    interpolate_subgroup(&evals_mat, folding_randomness[0])[0]
+            .map(|answer| {
+                if is_skip_round {
+                    // Case 1: Univariate Skip Round Evaluation
+                    //
+                    // The `answer` contains evaluations of a polynomial over the `k_skip` variables.
+                    let evals = EvaluationsList::new(answer.clone());
+
+                    // Calculate `n-k`, the number of variables that are *not* folded in this skip round.
+                    let num_remaining_vars = evals.num_variables() - K_SKIP_SUMCHECK;
+
+                    // Determine the width of the evaluation matrix, which is `2^(n-k)`.
+                    let width = 1 << num_remaining_vars;
+
+                    // Reshape the flat `2^n` evaluations into a `2^k x 2^(n-k)` matrix.
+                    let mat = RowMajorMatrix::new(evals.to_vec(), width);
+
+                    // The `folding_randomness` for a skip round is the special `(n-k)+1` challenge object.
+                    let r_all = folding_randomness.clone();
+
+                    // Deconstruct the challenge object `r_all` into its two components.
+                    //
+                    // The last element is the single challenge `r_skip` used to evaluate the skipped variables.
+                    let r_skip = *r_all.0.last().expect("skip challenge must be present");
+                    // The first `n - k_skip` elements are the challenges `r_rest` for the remaining variables.
+                    let r_rest = MultilinearPoint(r_all.0[..num_remaining_vars].to_vec());
+
+                    // Perform the two-stage skip-aware evaluation:
+                    //
+                    // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
+                    let folded_row = interpolate_subgroup(&mat, r_skip);
+                    // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
+                    EvaluationsList::new(folded_row).evaluate(&r_rest)
                 } else {
-                    EvaluationsList::new(answers).evaluate(folding_randomness)
+                    EvaluationsList::new(answer).evaluate(folding_randomness)
                 }
             })
             .collect();
@@ -632,9 +662,9 @@ mod tests {
             initial_statement: true,
             security_level: 90,
             pow_bits: 0,
-            soundness_type: SecurityAssumption::UniqueDecoding,
+            soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
-            rs_domain_initial_reduction_factor: 1,
+            rs_domain_initial_reduction_factor: 3,
         };
         let params =
             WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
@@ -775,7 +805,7 @@ mod tests {
                 initial_statement: true,
                 security_level: 90,
                 pow_bits: 0,
-                soundness_type: SecurityAssumption::UniqueDecoding,
+                soundness_type: SecurityAssumption::CapacityBound,
                 starting_log_inv_rate: 1,
                 rs_domain_initial_reduction_factor: 1,
             };
@@ -889,9 +919,9 @@ mod tests {
             initial_statement: true,
             security_level: 90,
             pow_bits: 0,
-            soundness_type: SecurityAssumption::UniqueDecoding,
+            soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
-            rs_domain_initial_reduction_factor: 1,
+            rs_domain_initial_reduction_factor: 3,
         };
         let params =
             WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
@@ -1035,9 +1065,9 @@ mod tests {
                 initial_statement: true,
                 security_level: 90,
                 pow_bits: 0,
-                soundness_type: SecurityAssumption::UniqueDecoding,
+                soundness_type: SecurityAssumption::CapacityBound,
                 starting_log_inv_rate: 1,
-                rs_domain_initial_reduction_factor: 1,
+                rs_domain_initial_reduction_factor: 3,
             };
             let params =
                 WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
