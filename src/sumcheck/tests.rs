@@ -6,7 +6,7 @@ use p3_field::{
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
-use rand::{Rng, SeedableRng, distr::StandardUniform, rngs::SmallRng};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 
 use super::sumcheck_single::SumcheckSingle;
 use crate::{
@@ -60,22 +60,6 @@ fn verifier(proof: Vec<F>) -> VerifierState<F, EF, MyChallenger> {
 
     // Use the domain separator to construct a new verifier state with the provided proof and challenger
     domsep.to_verifier_state(proof, challenger)
-}
-
-/// Generates a vector of `n` random field elements using the provided RNG.
-fn rand_vec<F>(mut rng: impl Rng, n: usize) -> Vec<F>
-where
-    StandardUniform: rand::distr::Distribution<F>,
-{
-    (0..n).map(|_| rng.random()).collect()
-}
-
-/// Generates a random `MultilinearPoint` of arity `k` over the given field.
-fn rand_point<F>(rng: impl Rng, k: usize) -> MultilinearPoint<F>
-where
-    StandardUniform: rand::distr::Distribution<F>,
-{
-    MultilinearPoint(rand_vec(rng, k))
 }
 
 /// Creates an initial `Statement` with evaluation constraints sampled from the prover's challenger.
@@ -407,7 +391,7 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
 
     // Initialize a random multilinear polynomial with 2^num_vars evaluations.
     let mut rng = SmallRng::seed_from_u64(1);
-    let poly = EvaluationsList::new(rand_vec(&mut rng, 1 << num_vars));
+    let poly = EvaluationsList::new((0..1 << num_vars).map(|_| rng.random()).collect());
 
     // PROVER
     let prover = &mut prover();
@@ -560,7 +544,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     //
     // Generate a random multilinear polynomial of arity `num_vars`
     let mut rng = SmallRng::seed_from_u64(1);
-    let poly = EvaluationsList::new(rand_vec(&mut rng, 1 << num_vars));
+    let poly = EvaluationsList::new((0..1 << num_vars).map(|_| rng.random()).collect());
 
     // PROVER SIDE
     let prover = &mut prover();

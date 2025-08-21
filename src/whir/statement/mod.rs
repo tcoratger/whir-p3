@@ -7,6 +7,7 @@ use crate::{
 };
 
 pub mod constraint;
+pub mod evaluator;
 pub mod weights;
 
 /// Represents a system of weighted polynomial constraints over a Boolean hypercube.
