@@ -522,7 +522,7 @@ where
                 // If it's not the first round, shrink the number of variables.
                 num_variables -= self.folding_factor.at_round(round_idx - 1);
                 // The value of the `if` block is the new, sliced point.
-                MultilinearPoint(point.0[..num_variables].to_vec())
+                MultilinearPoint(point[..num_variables].to_vec())
             } else {
                 // Otherwise, for the first round, use the full, original point.
                 point.clone()
@@ -697,18 +697,20 @@ mod tests {
         expected_result += w0_combined.evaluate(&point_round0);
 
         // --- Contribution from Round 1 ---
+        //
         // Combine the constraints for the second round using its alpha.
         let (w1_combined, _) = statements[1].combine::<F>(alphas[1]);
         // The domain has shrunk. The evaluation point is the first 15 variables of the full point.
-        let point_round1 = MultilinearPoint(final_point.0[..15].to_vec());
+        let point_round1 = MultilinearPoint(final_point[..15].to_vec());
         // Add the contribution from this round.
         expected_result += w1_combined.evaluate(&point_round1);
 
         // --- Contribution from Round 2 ---
+        //
         // Combine the constraints for the third round.
         let (w2_combined, _) = statements[2].combine::<F>(alphas[2]);
         // The domain shrinks again. The evaluation point is the first 10 variables of the full point.
-        let point_round2 = MultilinearPoint(final_point.0[..10].to_vec());
+        let point_round2 = MultilinearPoint(final_point[..10].to_vec());
         // Add the contribution from this round.
         expected_result += w2_combined.evaluate(&point_round2);
 
@@ -836,7 +838,7 @@ mod tests {
                 let (w_combined, _) = statements[i].combine::<F>(alphas[i]);
 
                 // Create the challenge point for this round by taking a prefix slice of the full point `r`.
-                let point_for_round = MultilinearPoint(final_point.0[..num_vars_for_round].to_vec());
+                let point_for_round = MultilinearPoint(final_point[..num_vars_for_round].to_vec());
                 // Evaluate `W_i` at the correctly sliced point.
                 let w_eval = w_combined.evaluate(&point_for_round);
 
@@ -859,16 +861,14 @@ mod tests {
         // We use 20 variables to ensure a non-trivial number of folding rounds.
         let num_vars = 20;
 
-        // The first round must fold at least K_SKIP_SUMCHECK variables to trigger the skip.
-        //
-        // Subsequent rounds will use a smaller folding factor of 4.
-        let folding_factor = FoldingFactor::ConstantFromSecondRound(K_SKIP_SUMCHECK, 4);
+        // We use a constant folding factor of `K_SKIP_SUMCHECK` to trigger the skip.
+        let folding_factor = FoldingFactor::Constant(K_SKIP_SUMCHECK);
 
         // This configuration implies a folding schedule:
         // Round 0: 20 vars --(skip 5)--> 15 vars
-        // Round 1: 15 vars --(fold 4)--> 11 vars
-        // Round 2: 11 vars --(fold 4)-->  7 vars
-        // Round 3:  7 vars --(fold 4)-->  3 vars (final polynomial)
+        // Round 1: 15 vars --(fold 5)--> 10 vars
+        // Round 2: 11 vars --(fold 5)-->  5 vars
+        // Round 3:  7 vars --(fold 5)-->  0 vars (final polynomial)
         let num_constraints_per_round = &[2, 3, 1, 2];
         let num_rounds = num_constraints_per_round.len();
 
@@ -884,7 +884,8 @@ mod tests {
             folding_factor,
             merkle_hash,
             merkle_compress,
-            univariate_skip: true, // This test is for the skip case.
+            // This test is for the skip case.
+            univariate_skip: true,
             initial_statement: true,
             security_level: 90,
             pow_bits: 0,
@@ -943,17 +944,17 @@ mod tests {
         let mut expected_result = EF::ZERO;
 
         // --- Contribution from Round 0 (Skip Round) ---
+        //
         // Combine the constraints for the first round into a single polynomial, W_0(X).
         let (w0_combined, _) = statements[0].combine::<F>(alphas[0]);
 
         // To evaluate W_0(r) using skip semantics, we follow the same pipeline as the prover:
-        // a) Deconstruct the special challenge object `r` into its `r_rest` and `r_skip` components.
+        // a) Deconstruct the special challenge object `r` into its components:
+        // - `r_rest`,
+        // - `r_skip`.
         let num_remaining = num_vars - K_SKIP_SUMCHECK;
-        let r_rest = MultilinearPoint(final_point.0[..num_remaining].to_vec());
-        let r_skip = *final_point
-            .0
-            .last()
-            .expect("skip challenge must be present");
+        let r_rest = MultilinearPoint(final_point[..num_remaining].to_vec());
+        let r_skip = *final_point.last().expect("skip challenge must be present");
 
         // b) Reshape the W_0(X) evaluation table into a matrix.
         let w0_mat = RowMajorMatrix::new(w0_combined.to_vec(), 1 << num_remaining);
@@ -968,17 +969,17 @@ mod tests {
         // --- Contribution from Round 1 (Standard Round) ---
         let (w1_combined, _) = statements[1].combine::<F>(alphas[1]);
         // For subsequent rounds, the evaluation point is a prefix slice of the `r_rest` challenges.
-        let point_round1 = MultilinearPoint(r_rest.0[..statements[1].num_variables()].to_vec());
+        let point_round1 = MultilinearPoint(r_rest[..statements[1].num_variables()].to_vec());
         expected_result += w1_combined.evaluate(&point_round1);
 
         // --- Contribution from Round 2 (Standard Round) ---
         let (w2_combined, _) = statements[2].combine::<F>(alphas[2]);
-        let point_round2 = MultilinearPoint(r_rest.0[..statements[2].num_variables()].to_vec());
+        let point_round2 = MultilinearPoint(r_rest[..statements[2].num_variables()].to_vec());
         expected_result += w2_combined.evaluate(&point_round2);
 
         // --- Contribution from Round 3 (Standard Round) ---
         let (w3_combined, _) = statements[3].combine::<F>(alphas[3]);
-        let point_round3 = MultilinearPoint(r_rest.0[..statements[3].num_variables()].to_vec());
+        let point_round3 = MultilinearPoint(r_rest[..statements[3].num_variables()].to_vec());
         expected_result += w3_combined.evaluate(&point_round3);
 
         // The result from the recursive function must match the materialized ground truth.
@@ -1089,8 +1090,8 @@ mod tests {
             let (w0_combined, _) = statements[0].combine::<F>(alphas[0]);
             // Evaluate W_0(r) using the manual skip evaluation pipeline.
             let num_remaining = n - K_SKIP_SUMCHECK;
-            let r_rest = MultilinearPoint(final_point.0[..num_remaining].to_vec());
-            let r_skip = *final_point.0.last().expect("skip challenge must be present");
+            let r_rest = MultilinearPoint(final_point[..num_remaining].to_vec());
+            let r_skip = *final_point.last().expect("skip challenge must be present");
             let w0_mat = RowMajorMatrix::new(w0_combined.to_vec(), 1 << num_remaining);
             let folded_row = interpolate_subgroup(&w0_mat, r_skip);
             let w0_eval = EvaluationsList::new(folded_row).evaluate(&r_rest);
@@ -1105,7 +1106,7 @@ mod tests {
                 let (w_combined, _) = statements[i].combine::<F>(alphas[i]);
 
                 // Evaluate `W_i` at the correct prefix slice of the `r_rest` challenges.
-                let point_for_round = MultilinearPoint(r_rest.0[..num_vars_for_round].to_vec());
+                let point_for_round = MultilinearPoint(r_rest[..num_vars_for_round].to_vec());
                 let w_eval = w_combined.evaluate(&point_for_round);
 
                 // Add this round's contribution to the total.
