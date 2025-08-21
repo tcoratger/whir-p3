@@ -1,6 +1,7 @@
 use p3_field::Field;
+use p3_multilinear_util::eq::eval_eq;
 
-use crate::{poly::multilinear::MultilinearPoint, utils::eval_eq};
+use crate::poly::multilinear::MultilinearPoint;
 
 /// A query to a multilinear polynomial over an extension field.
 ///

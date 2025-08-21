@@ -3,6 +3,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
+use p3_multilinear_util::eq::{eval_eq, eval_eq_base};
 use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
@@ -499,7 +500,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter())
                 .for_each(|(point, &rand)| {
-                    crate::utils::eval_eq::<_, _, true>(point, &mut self.weights, rand);
+                    eval_eq::<_, _, true>(point, &mut self.weights, rand);
                 });
         });
 
@@ -548,7 +549,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter())
                 .for_each(|(point, &rand)| {
-                    crate::utils::eval_eq_base::<_, _, true>(point, &mut self.weights, rand);
+                    eval_eq_base::<_, _, true>(point, &mut self.weights, rand);
                 });
         });
 

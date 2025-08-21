@@ -8,11 +8,11 @@ use p3_matrix::{
     horizontally_truncated::HorizontallyTruncated,
 };
 use p3_maybe_rayon::prelude::*;
+use p3_multilinear_util::eq::eval_eq;
 use p3_util::log2_ceil_usize;
 
 use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    utils::eval_eq,
     whir::{pcs::query::MlQuery, statement::weights::Weights},
 };
 

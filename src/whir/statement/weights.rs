@@ -2,12 +2,10 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
+use p3_multilinear_util::eq::eval_eq;
 use tracing::instrument;
 
-use crate::{
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    utils::eval_eq,
-};
+use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
 /// Represents a weight function used in polynomial evaluations.
 ///

@@ -34,7 +34,7 @@ fn bench_eval_multilinear(c: &mut Criterion) {
             };
 
             let routine = |(evals_list, point): (EvaluationsList<F>, MultilinearPoint<EF4>)| {
-                std::hint::black_box(evals_list.evaluate(std::hint::black_box(&point)));
+                let _ = std::hint::black_box(evals_list.evaluate(std::hint::black_box(&point)));
             };
 
             b.iter_batched(setup, routine, criterion::BatchSize::SmallInput);
