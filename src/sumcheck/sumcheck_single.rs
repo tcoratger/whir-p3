@@ -143,7 +143,7 @@ where
     // Compress polynomials and update the sum.
     let evals = join(|| compress(weights, r), || compress_ext(evals, r)).1;
 
-    *sum = sumcheck_poly.evaluate_at_point(&r.into());
+    *sum = sumcheck_poly.evaluate_on_standard_domain(&r.into());
 
     (r, evals)
 }
@@ -187,7 +187,7 @@ where
     // Compress polynomials and update the sum.
     join(|| compress(evals, r), || compress(weights, r));
 
-    *sum = sumcheck_poly.evaluate_at_point(&r.into());
+    *sum = sumcheck_poly.evaluate_on_standard_domain(&r.into());
 
     r
 }
