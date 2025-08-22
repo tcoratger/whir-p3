@@ -120,7 +120,8 @@ where
         let rand: EF = verifier_state.sample();
 
         // Update claimed sum using folding randomness
-        *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2], 1).evaluate_at_point(&rand.into());
+        *claimed_sum =
+            SumcheckPolynomial::new(vec![c0, c1, c2], 1).evaluate_on_standard_domain(&rand.into());
 
         // Store this round’s randomness
         randomness.push(rand);
@@ -301,7 +302,7 @@ mod tests {
 
             // Sample random challenge r_i ∈ F and evaluate h_i(r_i)
             let r: EF4 = verifier_state.sample();
-            current_sum = poly.evaluate_at_point(&r.into());
+            current_sum = poly.evaluate_on_standard_domain(&r.into());
 
             if pow_bits > 0 {
                 // verifier_state.challenge_pow::<Blake3PoW>(pow_bits).unwrap();
@@ -435,7 +436,7 @@ mod tests {
             let c2 = verifier_state.next_extension_scalar().unwrap();
             let poly = SumcheckPolynomial::new(vec![c0, c1, c2], 1);
             let r: EF4 = verifier_state.sample();
-            current_sum = poly.evaluate_at_point(&r.into());
+            current_sum = poly.evaluate_on_standard_domain(&r.into());
             expected.push((poly, r));
         }
 
