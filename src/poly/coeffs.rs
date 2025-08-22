@@ -207,11 +207,11 @@ impl<F> CoefficientList<F> {
 /// ```
 /// where `S(i)` is the set of variables active in term `i` (based on its binary representation).
 ///
-/// - Splits into `NUM_THREADS` many subtasks with the `j`'th subtask computing:
+/// - Splits into `num_threads` many subtasks with the `j`'th subtask computing:
 /// ```ignore
 /// eval_poly_{L, j}(X_L, ..., X_n) = sum(coeffs[shift * j + i] * product(X_j for j in S(i)))
 /// ```
-/// where `shift = 2^n / NUM_THREADS` and `L = LOG_NUM_THREADS`.
+/// where `shift = 2^n / num_threads` and `L = log_num_threads`.
 /// - Then the results are combined using:
 /// ```ignore
 /// eval_poly = sum(eval_poly_{L, j} * product(X_j for j in S(i)))
@@ -223,11 +223,8 @@ where
     F: Field,
     E: ExtensionField<F>,
 {
-    // Ideally this should be the minimum number to achieve full cpu utilization.
-    // Currently a constant but long term this should likely be passed in as a
-    // parameter or set somewhere.
-    const LOG_NUM_THREADS: usize = 5;
-    const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
+    let num_threads = current_num_threads().next_power_of_two();
+    let log_num_threads = log2_strict_usize(num_threads);
 
     debug_assert_eq!(coeff.len(), 1 << eval.len());
 
@@ -236,8 +233,8 @@ where
     // much point. In particular, we would lose some of the benefits of packing tricks in
     // eval_extension_packed. Instead we set a (slightly arbitrary) threshold of 15.
     if size > (1 << 15) {
-        let chunk_size = size / NUM_THREADS;
-        let (head_eval, tail_eval) = eval.split_at(LOG_NUM_THREADS);
+        let chunk_size = size / num_threads;
+        let (head_eval, tail_eval) = eval.split_at(log_num_threads);
         let partial_sum = coeff
             .par_chunks_exact(chunk_size)
             .map(|chunk| eval_extension_packed(chunk, tail_eval))
