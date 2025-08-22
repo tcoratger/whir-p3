@@ -11,10 +11,7 @@ use rand::{
 use whir_p3::{
     dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
-    parameters::{
-        DEFAULT_MAX_POW, FoldingFactor, MultivariateParameters, ProtocolParameters,
-        errors::SecurityAssumption,
-    },
+    parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::writer::CommitmentWriter,
@@ -66,9 +63,6 @@ fn prepare_inputs() -> (
 
     // Create multivariate polynomial and hash setup
 
-    // Instantiate parameters for a degree-24 multilinear polynomial over EF.
-    let mv_params = MultivariateParameters::<EF>::new(num_variables);
-
     // Define the hash functions for Merkle tree and compression.
     let mut rng = SmallRng::seed_from_u64(1);
     let poseidon16 = Poseidon16::new_from_rng_128(&mut rng);
@@ -95,7 +89,7 @@ fn prepare_inputs() -> (
     };
 
     // Combine multivariate and protocol parameters into a unified WHIR config.
-    let params = WhirConfig::new(mv_params, whir_params);
+    let params = WhirConfig::new(num_variables, whir_params);
 
     // Sample random multilinear polynomial
 

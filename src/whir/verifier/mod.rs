@@ -202,7 +202,7 @@ where
             verifier_state.next_extension_scalars_vec(statement.num_deref_constraints())?;
 
         let evaluator = ConstraintPolyEvaluator::new(
-            self.mv_parameters.num_variables,
+            self.num_variables,
             self.folding_factor,
             self.univariate_skip,
         );

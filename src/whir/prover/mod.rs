@@ -65,7 +65,7 @@ where
     /// # Returns
     /// `true` if the parameter configuration is consistent, `false` otherwise.
     fn validate_parameters(&self) -> bool {
-        self.mv_parameters.num_variables
+        self.num_variables
             == self.folding_factor.total_number(self.n_rounds()) + self.final_sumcheck_rounds
     }
 
@@ -81,7 +81,7 @@ where
     /// # Returns
     /// `true` if the statement structure is valid for this protocol instance.
     fn validate_statement(&self, statement: &Statement<EF>) -> bool {
-        statement.num_variables() == self.mv_parameters.num_variables
+        statement.num_variables() == self.num_variables
             && (self.initial_statement || statement.constraints.is_empty())
     }
 
@@ -109,7 +109,7 @@ where
         if !self.initial_statement {
             assert!(witness.ood_points.is_empty());
         }
-        witness.polynomial.num_variables() == self.mv_parameters.num_variables
+        witness.polynomial.num_variables() == self.num_variables
     }
 
     /// Executes the full WHIR prover protocol to produce the proof.
@@ -189,7 +189,7 @@ where
         Ok((constraint_eval, deferred))
     }
 
-    #[instrument(skip_all, fields(round_number = round_index, log_size = self.mv_parameters.num_variables - self.folding_factor.total_number(round_index)))]
+    #[instrument(skip_all, fields(round_number = round_index, log_size = self.num_variables - self.folding_factor.total_number(round_index)))]
     #[allow(clippy::too_many_lines)]
     fn round<const DIGEST_ELEMS: usize>(
         &self,
@@ -208,8 +208,7 @@ where
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         let folded_evaluations = &round_state.sumcheck_prover.evals;
-        let num_variables =
-            self.mv_parameters.num_variables - self.folding_factor.total_number(round_index);
+        let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
         assert_eq!(num_variables, folded_evaluations.num_variables());
 
         // Base case: final round reached

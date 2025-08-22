@@ -156,7 +156,7 @@ where
     ) -> ProofResult<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>> {
         ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
             verifier_state,
-            self.mv_parameters.num_variables,
+            self.num_variables,
             self.committment_ood_samples,
         )
     }
@@ -185,9 +185,7 @@ mod tests {
     use super::*;
     use crate::{
         dft::EvalsDft,
-        parameters::{
-            FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
-        },
+        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
         whir::{DomainSeparator, committer::writer::CommitmentWriter},
     };
@@ -234,7 +232,7 @@ mod tests {
         };
 
         // Construct full WHIR configuration with MV polynomial shape and protocol rules.
-        let mut config = WhirConfig::new(MultivariateParameters::new(num_variables), whir_params);
+        let mut config = WhirConfig::new(num_variables, whir_params);
 
         // Set the number of OOD samples for commitment testing.
         config.committment_ood_samples = ood_samples;

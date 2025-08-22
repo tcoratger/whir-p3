@@ -1,4 +1,4 @@
-use std::{fmt::Display, marker::PhantomData};
+use std::fmt::Display;
 
 use errors::SecurityAssumption;
 use thiserror::Error;
@@ -11,31 +11,6 @@ pub mod errors;
 const MAX_NUM_VARIABLES_TO_SEND_COEFFS: usize = 6;
 
 pub const DEFAULT_MAX_POW: usize = 16;
-
-/// Represents the parameters for a multivariate polynomial.
-#[derive(Debug, Clone, Copy)]
-pub struct MultivariateParameters<F> {
-    /// The number of variables in the polynomial.
-    pub(crate) num_variables: usize,
-    _field: PhantomData<F>,
-}
-
-impl<F> MultivariateParameters<F> {
-    /// Creates new multivariate parameters.
-    #[must_use]
-    pub const fn new(num_variables: usize) -> Self {
-        Self {
-            num_variables,
-            _field: PhantomData,
-        }
-    }
-}
-
-impl<F> Display for MultivariateParameters<F> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Number of variables: {}", self.num_variables)
-    }
-}
 
 /// Errors that can occur when validating a folding factor.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -214,13 +189,6 @@ impl<H, C> Display for ProtocolParameters<H, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_multivariate_parameters() {
-        let params = MultivariateParameters::<u32>::new(5);
-        assert_eq!(params.num_variables, 5);
-        assert_eq!(params.to_string(), "Number of variables: 5");
-    }
 
     #[test]
     fn test_folding_factor_at_round() {

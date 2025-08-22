@@ -3,9 +3,7 @@ use std::{f64::consts::LOG2_10, marker::PhantomData};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use crate::parameters::{
-    FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
-};
+use crate::parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption};
 
 #[derive(Debug, Clone)]
 pub struct RoundConfig<F> {
@@ -26,7 +24,7 @@ where
     F: Field,
     EF: ExtensionField<F>,
 {
-    pub mv_parameters: MultivariateParameters<EF>,
+    pub num_variables: usize,
     pub soundness_type: SecurityAssumption,
     pub security_level: usize,
     pub max_pow_bits: usize,
@@ -70,13 +68,12 @@ where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     #[allow(clippy::too_many_lines)]
-    pub fn new(
-        mv_parameters: MultivariateParameters<EF>,
-        whir_parameters: ProtocolParameters<Hash, C>,
-    ) -> Self {
+    pub fn new(num_variables: usize, whir_parameters: ProtocolParameters<Hash, C>) -> Self {
+        // We need to store the initial number of variables for the final composition.
+        let initial_num_variables = num_variables;
         whir_parameters
             .folding_factor
-            .check_validity(mv_parameters.num_variables)
+            .check_validity(num_variables)
             .unwrap();
 
         assert!(
@@ -90,7 +87,7 @@ where
             .saturating_sub(whir_parameters.pow_bits);
         let field_size_bits = EF::bits();
         let mut log_inv_rate = whir_parameters.starting_log_inv_rate;
-        let mut num_variables = mv_parameters.num_variables;
+        let mut num_variables = num_variables;
 
         let log_domain_size = num_variables + log_inv_rate;
         let mut domain_size: usize = 1 << log_domain_size;
@@ -108,7 +105,7 @@ where
 
         let (num_rounds, final_sumcheck_rounds) = whir_parameters
             .folding_factor
-            .compute_number_of_rounds(mv_parameters.num_variables);
+            .compute_number_of_rounds(num_variables);
 
         let committment_ood_samples = if whir_parameters.initial_statement {
             whir_parameters.soundness_type.determine_ood_samples(
@@ -228,7 +225,7 @@ where
             max_pow_bits: whir_parameters.pow_bits,
             initial_statement: whir_parameters.initial_statement,
             committment_ood_samples,
-            mv_parameters,
+            num_variables: initial_num_variables,
             soundness_type: whir_parameters.soundness_type,
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,
             starting_folding_pow_bits: starting_folding_pow_bits as usize,
@@ -267,7 +264,7 @@ where
     /// # Returns
     /// A power-of-two value representing the number of evaluation points in the starting domain.
     pub const fn starting_domain_size(&self) -> usize {
-        1 << (self.mv_parameters.num_variables + self.starting_log_inv_rate)
+        1 << (self.num_variables + self.starting_log_inv_rate)
     }
 
     pub const fn n_rounds(&self) -> usize {
@@ -292,19 +289,17 @@ where
     }
 
     pub fn merkle_tree_height(&self, round: usize) -> usize {
-        self.log_inv_rate_at(round) + self.mv_parameters.num_variables
-            - self.folding_factor.total_number(round)
+        self.log_inv_rate_at(round) + self.num_variables - self.folding_factor.total_number(round)
     }
 
     pub fn n_vars_of_final_polynomial(&self) -> usize {
-        self.mv_parameters.num_variables - self.folding_factor.total_number(self.n_rounds())
+        self.num_variables - self.folding_factor.total_number(self.n_rounds())
     }
 
     /// Returns the log2 size of the largest FFT
     /// (At commitment we perform 2^folding_factor FFT of size 2^max_fft_size)
     pub const fn max_fft_size(&self) -> usize {
-        self.mv_parameters.num_variables + self.starting_log_inv_rate
-            - self.folding_factor.at_round(0)
+        self.num_variables + self.starting_log_inv_rate - self.folding_factor.at_round(0)
     }
 
     pub fn check_pow_bits(&self) -> bool {
@@ -408,7 +403,7 @@ where
         if self.round_parameters.is_empty() {
             // Fallback: no folding rounds, use initial domain setup
             RoundConfig {
-                num_variables: self.mv_parameters.num_variables - self.folding_factor.at_round(0),
+                num_variables: self.num_variables - self.folding_factor.at_round(0),
                 folding_factor: self.folding_factor.at_round(self.n_rounds()),
                 num_queries: self.final_queries,
                 pow_bits: self.final_pow_bits,
@@ -482,10 +477,9 @@ mod tests {
     fn test_whir_config_creation() {
         let params = default_whir_params();
 
-        let mv_params = MultivariateParameters::<F>::new(10);
         let config =
             WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                mv_params, params,
+                10, params,
             );
 
         assert_eq!(config.security_level, 100);
@@ -497,10 +491,9 @@ mod tests {
     #[test]
     fn test_n_rounds() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<F>::new(10);
         let config =
             WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                mv_params, params,
+                10, params,
             );
 
         assert_eq!(config.n_rounds(), config.round_parameters.len());
@@ -526,10 +519,9 @@ mod tests {
     #[test]
     fn test_check_pow_bits_within_limits() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<F>::new(10);
         let mut config =
             WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                mv_params, params,
+                10, params,
             );
 
         // Set all values within limits
@@ -573,10 +565,9 @@ mod tests {
     #[test]
     fn test_check_pow_bits_starting_folding_exceeds() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<F>::new(10);
         let mut config =
             WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                mv_params, params,
+                10, params,
             );
 
         config.max_pow_bits = 20;
@@ -593,10 +584,9 @@ mod tests {
     #[test]
     fn test_check_pow_bits_final_pow_exceeds() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<F>::new(10);
         let mut config =
             WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                mv_params, params,
+                10, params,
             );
 
         config.max_pow_bits = 20;
@@ -613,10 +603,9 @@ mod tests {
     #[test]
     fn test_check_pow_bits_round_pow_exceeds() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<F>::new(10);
         let mut config =
             WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                mv_params, params,
+                10, params,
             );
 
         config.max_pow_bits = 20;
@@ -646,10 +635,9 @@ mod tests {
     #[test]
     fn test_check_pow_bits_round_folding_pow_exceeds() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<F>::new(10);
         let mut config =
             WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                mv_params, params,
+                10, params,
             );
 
         config.max_pow_bits = 20;
@@ -679,10 +667,9 @@ mod tests {
     #[test]
     fn test_check_pow_bits_exactly_at_limit() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<F>::new(10);
         let mut config =
             WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                mv_params, params,
+                10, params,
             );
 
         config.max_pow_bits = 20;
@@ -711,10 +698,9 @@ mod tests {
     #[test]
     fn test_check_pow_bits_all_exceed() {
         let params = default_whir_params();
-        let mv_params = MultivariateParameters::<F>::new(10);
         let mut config =
             WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                mv_params, params,
+                10, params,
             );
 
         config.max_pow_bits = 20;

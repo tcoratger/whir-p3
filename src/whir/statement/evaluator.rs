@@ -121,7 +121,7 @@ where
 {
     fn from(cfg: WhirConfig<EF, F, H, C, Challenger>) -> Self {
         Self {
-            num_variables: cfg.mv_parameters.num_variables,
+            num_variables: cfg.num_variables,
             folding_factor: cfg.folding_factor,
             univariate_skip: cfg.univariate_skip,
         }
@@ -141,9 +141,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        parameters::{
-            FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
-        },
+        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
         whir::statement::{Statement, weights::Weights},
     };
@@ -178,7 +176,6 @@ mod tests {
         let perm = Perm::new_from_rng_128(&mut rng);
         let merkle_hash = MyHash::new(perm.clone());
         let merkle_compress = MyCompress::new(perm);
-        let mv_params = MultivariateParameters::<EF>::new(num_vars);
         let whir_params = ProtocolParameters {
             folding_factor,
             merkle_hash,
@@ -192,7 +189,7 @@ mod tests {
             rs_domain_initial_reduction_factor: 1,
         };
         let params =
-            WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
+            WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_vars, whir_params);
         let evaluator: ConstraintPolyEvaluator = params.into();
 
         // -- Random Constraints and Challenges --
@@ -320,7 +317,6 @@ mod tests {
             let merkle_compress = MyCompress::new(perm);
 
             // Define the top-level parameters for the protocol.
-            let mv_params = MultivariateParameters::<EF>::new(n);
             let whir_params = ProtocolParameters {
                 folding_factor,
                 merkle_hash,
@@ -336,7 +332,7 @@ mod tests {
             };
             // Create the complete verifier configuration object.
             let params =
-                WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
+                WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(n, whir_params);
             let evaluator: ConstraintPolyEvaluator = params.into();
 
             // -- Random Constraints and Challenges --
@@ -434,7 +430,6 @@ mod tests {
         let perm = Perm::new_from_rng_128(&mut rng);
         let merkle_hash = MyHash::new(perm.clone());
         let merkle_compress = MyCompress::new(perm);
-        let mv_params = MultivariateParameters::<EF>::new(num_vars);
         let whir_params = ProtocolParameters {
             folding_factor,
             merkle_hash,
@@ -449,7 +444,7 @@ mod tests {
             rs_domain_initial_reduction_factor: 1,
         };
         let params =
-            WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
+            WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_vars, whir_params);
         let evaluator: ConstraintPolyEvaluator = params.into();
 
         // -- Random Constraints and Challenges --
@@ -580,7 +575,6 @@ mod tests {
             let perm = Perm::new_from_rng_128(&mut rng);
             let merkle_hash = MyHash::new(perm.clone());
             let merkle_compress = MyCompress::new(perm);
-            let mv_params = MultivariateParameters::<EF>::new(n);
             let whir_params = ProtocolParameters {
                 folding_factor,
                 merkle_hash,
@@ -595,7 +589,7 @@ mod tests {
                 rs_domain_initial_reduction_factor: 1,
             };
             let params =
-                WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
+                WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(n, whir_params);
             let evaluator: ConstraintPolyEvaluator = params.into();
 
             // -- Random Constraints and Challenges --

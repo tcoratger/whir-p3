@@ -150,9 +150,7 @@ mod tests {
             domain_separator::{DomainSeparator, SumcheckParams},
             pattern::{Observe, Sample},
         },
-        parameters::{
-            FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
-        },
+        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
@@ -180,9 +178,6 @@ mod tests {
         let merkle_hash = MyHash::new(perm.clone());
         let merkle_compress = MyCompress::new(perm);
 
-        // Set the multivariate polynomial parameters
-        let mv_params = MultivariateParameters::<EF4>::new(num_variables);
-
         // Construct WHIR protocol parameters
         let whir_params = ProtocolParameters {
             initial_statement: true,
@@ -198,7 +193,7 @@ mod tests {
         };
 
         // Combine protocol and polynomial parameters into a single config
-        WhirConfig::new(mv_params, whir_params)
+        WhirConfig::new(num_variables, whir_params)
     }
 
     #[test]

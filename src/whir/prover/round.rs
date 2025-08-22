@@ -107,7 +107,7 @@ where
             .map(|(point, evaluation)| {
                 let weights = Weights::evaluation(MultilinearPoint::expand_from_univariate(
                     point,
-                    prover.mv_parameters.num_variables,
+                    prover.num_variables,
                 ));
                 (weights, evaluation)
             })
@@ -168,9 +168,9 @@ where
         };
 
         let randomness_vec = info_span!("copy_across_random_vec").in_scope(|| {
-            let mut randomness_vec = Vec::with_capacity(prover.mv_parameters.num_variables);
+            let mut randomness_vec = Vec::with_capacity(prover.num_variables);
             randomness_vec.extend(folding_randomness.iter().rev().copied());
-            randomness_vec.resize(prover.mv_parameters.num_variables, EF::ZERO);
+            randomness_vec.resize(prover.num_variables, EF::ZERO);
             randomness_vec
         });
 
@@ -201,9 +201,7 @@ mod tests {
     use crate::{
         dft::EvalsDft,
         fiat_shamir::domain_separator::DomainSeparator,
-        parameters::{
-            FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
-        },
+        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::{coeffs::CoefficientList, evals::EvaluationsList},
         whir::{WhirConfig, committer::writer::CommitmentWriter},
     };
@@ -234,10 +232,6 @@ mod tests {
         folding_factor: usize,
         pow_bits: usize,
     ) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger> {
-        // Construct the multivariate parameter set with `num_variables` variables,
-        // determining the size of the evaluation domain.
-        let mv_params = MultivariateParameters::<EF4>::new(num_variables);
-
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
 
@@ -260,7 +254,7 @@ mod tests {
         };
 
         // Combine the multivariate and protocol parameters into a full WHIR config
-        WhirConfig::new(mv_params, protocol_params)
+        WhirConfig::new(num_variables, protocol_params)
     }
 
     /// Prepare the Fiat-Shamir domain, prover state, and Merkle commitment for a test polynomial.
