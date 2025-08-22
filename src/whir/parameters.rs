@@ -69,7 +69,8 @@ where
 {
     #[allow(clippy::too_many_lines)]
     pub fn new(num_variables: usize, whir_parameters: ProtocolParameters<Hash, C>) -> Self {
-        let initial_num_variables = num_variables.clone();
+        // We need to store the initial number of variables for the final composition.
+        let initial_num_variables = num_variables;
         whir_parameters
             .folding_factor
             .check_validity(num_variables)
