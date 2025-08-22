@@ -69,6 +69,7 @@ where
 {
     #[allow(clippy::too_many_lines)]
     pub fn new(num_variables: usize, whir_parameters: ProtocolParameters<Hash, C>) -> Self {
+        let initial_num_variables = num_variables.clone();
         whir_parameters
             .folding_factor
             .check_validity(num_variables)
@@ -223,7 +224,7 @@ where
             max_pow_bits: whir_parameters.pow_bits,
             initial_statement: whir_parameters.initial_statement,
             committment_ood_samples,
-            num_variables,
+            num_variables: initial_num_variables,
             soundness_type: whir_parameters.soundness_type,
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,
             starting_folding_pow_bits: starting_folding_pow_bits as usize,
