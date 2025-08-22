@@ -225,51 +225,34 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
 ) -> SumcheckPolynomial<EF> {
     assert!(evals.num_variables() >= 1);
 
-    let (c0, c2) = evals
+    // This helper computes the terms needed for h(0) and h(1/2) for a single chunk.
+    let compute_terms = |(p, w): (&[F], &[EF])| -> (EF, EF) {
+        // Term for h(0): p(0,b) * w(0,b)
+        let h0_term = w[0] * p[0];
+        // Term for h(1/2): (p(0,b) + p(1,b)) * (w(0,b) + w(1,b))
+        let h_half_term = (w[0] + w[1]) * (p[0] + p[1]);
+        (h0_term, h_half_term)
+    };
+
+    // Parallel fold to compute the sum for h(0) and the sum of terms for h(1/2).
+    let (h0_sum, h_half_term_sum) = evals
         .par_chunks_exact(2)
         .zip(weights.par_chunks_exact(2))
-        .map(sumcheck_quadratic::<F, EF>)
+        .map(compute_terms)
         .par_fold_reduce(
             || (EF::ZERO, EF::ZERO),
-            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
+            |(a0, a_half), (b0, b_half)| (a0 + b0, a_half + b_half),
+            |(a0, a_half), (b0, b_half)| (a0 + b0, a_half + b_half),
         );
 
-    // Compute the middle (linear) coefficient
-    //
-    // The quadratic polynomial h(X) has the form:
-    //     h(X) = c0 + c1 * X + c2 * X^2
-    //
-    // We already computed:
-    // - c0: the constant coefficient (contribution at X=0)
-    // - c2: the quadratic coefficient (contribution at X^2)
-    //
-    // To recover c1 (linear term), we use the known sum rule:
-    //     sum = h(0) + h(1)
-    // Expand h(0) and h(1):
-    //     h(0) = c0
-    //     h(1) = c0 + c1 + c2
-    // Therefore:
-    //     sum = c0 + (c0 + c1 + c2) = 2*c0 + c1 + c2
-    //
-    // Rearranging for c1 gives:
-    //     c1 = sum - 2*c0 - c2
-    let c1 = sum - c0.double() - c2;
+    // Final evaluations for the sumcheck polynomial h(X)
+    let eval_0 = h0_sum;
+    let eval_1 = sum - eval_0; // Since sum = h(0) + h(1)
+    let eval_half = h_half_term_sum * (EF::TWO + EF::TWO).inverse(); // Multiply by 1/4
 
-    // Evaluate the quadratic polynomial at points 0, 1, 2
-    //
-    // Evaluate:
-    //     h(0) = c0
-    //     h(1) = c0 + c1 + c2
-    //     h(2) = c0 + 2*c1 + 4*c2
-    //
-    // To compute h(2) efficiently, observe:
-    //     h(2) = h(1) + (c1 + 2*c2)
-    let eval_0 = c0;
-    let eval_1 = c0 + c1 + c2;
-    let eval_2 = eval_1 + c1 + c2 + c2.double();
-
-    SumcheckPolynomial::new(vec![eval_0, eval_1, eval_2], 1)
+    // The prover now sends evaluations at 0, 1, and 1/2.
+    // We store them in the order h(0), h(1), h(1/2).
+    SumcheckPolynomial::new(vec![eval_0, eval_1, eval_half], 1)
 }
 
 /// Implements the single-round sumcheck protocol for verifying a multilinear polynomial evaluation.
