@@ -94,7 +94,7 @@ where
         let (ood_points, ood_answers) = sample_ood_points(
             prover_state,
             self.committment_ood_samples,
-            self.mv_parameters.num_variables,
+            self.num_variables,
             |point| info_span!("ood evaluation").in_scope(|| polynomial.evaluate(point)),
         );
 
@@ -130,9 +130,7 @@ mod tests {
     use super::*;
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
-        parameters::{
-            FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
-        },
+        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::multilinear::MultilinearPoint,
     };
 
@@ -175,9 +173,8 @@ mod tests {
         };
 
         // Define multivariate parameters for the polynomial.
-        let mv_params = MultivariateParameters::new(num_variables);
         let params =
-            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
+            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = rand::rng();
@@ -257,9 +254,8 @@ mod tests {
             univariate_skip: false,
         };
 
-        let mv_params = MultivariateParameters::<F>::new(num_variables);
         let params =
-            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
+            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
 
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
@@ -310,9 +306,8 @@ mod tests {
             univariate_skip: false,
         };
 
-        let mv_params = MultivariateParameters::<F>::new(num_variables);
         let mut params =
-            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
+            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
 
         // Explicitly set OOD samples to 0
         params.committment_ood_samples = 0;

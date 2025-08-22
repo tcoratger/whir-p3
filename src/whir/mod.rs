@@ -12,9 +12,7 @@ use verifier::Verifier;
 use crate::{
     dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
-    parameters::{
-        FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
-    },
+    parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
 };
 
@@ -64,9 +62,6 @@ pub fn make_whir_things(
     let merkle_hash = MyHash::new(perm.clone());
     let merkle_compress = MyCompress::new(perm);
 
-    // Set the multivariate polynomial parameters
-    let mv_params = MultivariateParameters::<EF>::new(num_variables);
-
     // Construct WHIR protocol parameters
     let whir_params = ProtocolParameters {
         initial_statement: true,
@@ -82,7 +77,8 @@ pub fn make_whir_things(
     };
 
     // Combine protocol and polynomial parameters into a single config
-    let params = WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(mv_params, whir_params);
+    let params =
+        WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
 
     // Define a polynomial with all coefficients set to 1
     let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]).to_evaluations();

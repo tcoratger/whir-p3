@@ -16,10 +16,7 @@ use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::Subscr
 use whir_p3::{
     dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
-    parameters::{
-        DEFAULT_MAX_POW, FoldingFactor, MultivariateParameters, ProtocolParameters,
-        errors::SecurityAssumption,
-    },
+    parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
@@ -113,8 +110,6 @@ fn main() {
 
     let num_coeffs = 1 << num_variables;
 
-    let mv_params = MultivariateParameters::<EF>::new(num_variables);
-
     // Construct WHIR protocol parameters
     let whir_params = ProtocolParameters {
         initial_statement: true,
@@ -129,8 +124,10 @@ fn main() {
         univariate_skip: false,
     };
 
-    let params =
-        WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(mv_params, whir_params);
+    let params = WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(
+        num_variables,
+        whir_params,
+    );
 
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
