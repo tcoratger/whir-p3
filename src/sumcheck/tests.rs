@@ -6,6 +6,7 @@ use p3_field::{
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
+use proptest::prelude::*;
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 
 use super::sumcheck_single::SumcheckSingle;
@@ -420,11 +421,7 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
         let _ = make_inter_statement(prover, num_points, &mut sumcheck);
 
         // Compute and apply the next folding round
-        prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
-            prover,
-            folding_factors[1],
-            0,
-        ));
+        prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(prover, folding, 0));
         num_vars_inter -= folding;
 
         // Check that the number of variables and evaluations match the expected values
@@ -748,4 +745,67 @@ fn test_sumcheck_prover() {
     run_sumcheck_test_skips(&[6, 0], &[4]);
     run_sumcheck_test_skips(&[8, 2], &[3]);
     run_sumcheck_test_skips(&[6, 2, 2], &[3, 3]);
+}
+
+proptest! {
+    #[test]
+    fn prop_sumcheck_prover_classic(
+        (folds, points) in
+            // Non-final folds:
+            // - Choose 2..=3 rounds so total length becomes 3..=4 after appending the final fold.
+            // - Each round folds 1..=5 variables.
+            prop::collection::vec(1usize..=5, 2..=3)
+            // Final fold ∈ 0..=4
+            .prop_flat_map(|prefix| {
+                (0usize..=4).prop_map(move |last| {
+                    let mut f = prefix.clone();
+                    f.push(last);
+                    f
+                })
+            })
+            // Keep overall arity modest: sum(folds) ≤ 15.
+            .prop_filter("sum(folds) must be small", |f| f.iter().sum::<usize>() <= 15)
+            // Build the per-round constraint counts (no choice for the final fold):
+            // - points.len() = folds.len() - 1
+            // - each in 1..=4.
+            .prop_flat_map(|f| {
+                let len_pts = f.len() - 1;
+                prop::collection::vec(1usize..=4, len_pts)
+                    .prop_map(move |pts| (f.clone(), pts))
+            })
+    ) {
+        // Run the complete classic (no-skip) prover/verifier test with this schedule.
+        run_sumcheck_test(&folds, &points);
+    }
+}
+
+proptest! {
+    #[test]
+    fn prop_sumcheck_prover_with_skip(
+        (folds, points) in
+            // Build a three-round folding schedule suited for the skip variant:
+            // - First round: must be at least the skip threshold so the optimization actually triggers.
+            //   We allow a small bump above the threshold to vary the difficulty a bit.
+            // - Middle round: ensure there's another real folding step to keep things multi-round.
+            // - Final round: allow either a no-op tail or a small final fold.
+            (
+                0usize..=3,   // small bump above the skip threshold (or none)
+                1usize..=4,   // middle fold is a small positive amount
+                0usize..=4    // final fold may be zero or small
+            )
+            // Materialize the schedule: [first >= K_SKIP_SUMCHECK, middle, last]
+            .prop_map(|(delta, mid, last)| vec![K_SKIP_SUMCHECK + delta, mid, last])
+            // Keep the overall arity modest so evaluation tables stay quick to build and check..
+            .prop_filter("sum(folds) should remain modest", |f| f.iter().sum::<usize>() <= K_SKIP_SUMCHECK + 6)
+            // Produce exactly one constraint-count per non-final round.
+            // For three folds, we generate two constraint counts — each at least one — to ensure
+            // every active round contributes a real equality check without blowing up runtime.
+            .prop_flat_map(|f| {
+                prop::collection::vec(1usize..=4, f.len() - 1)
+                    .prop_map(move |pts| (f.clone(), pts))
+            })
+    ) {
+        // Run the end-to-end test using the skip-aware prover/verifier path.
+        run_sumcheck_test_skips(&folds, &points);
+    }
 }
