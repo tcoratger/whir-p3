@@ -248,7 +248,7 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
     // Final evaluations for the sumcheck polynomial h(X)
     let eval_0 = h0_sum;
     let eval_1 = sum - eval_0; // Since sum = h(0) + h(1)
-    let eval_half = h_half_term_sum * (EF::TWO + EF::TWO).inverse(); // Multiply by 1/4
+    let eval_half = h_half_term_sum * F::ONE.div_2exp_u64(2); // Multiply by 1/4
 
     // The prover now sends evaluations at 0, 1, and 1/2.
     // We store them in the order h(0), h(1), h(1/2).
