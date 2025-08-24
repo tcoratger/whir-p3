@@ -64,18 +64,6 @@ where
     }
 }
 
-pub fn flatten_scalars_to_base<F, EF>(scalars: &[EF]) -> Vec<F>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    scalars
-        .iter()
-        .flat_map(BasedVectorSpace::as_basis_coefficients_slice)
-        .copied()
-        .collect()
-}
-
 pub fn pack_scalars_to_extension<F, EF>(scalars: &[F]) -> Vec<EF>
 where
     F: Field,
