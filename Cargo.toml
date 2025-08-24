@@ -99,3 +99,7 @@ harness = false
 [[bench]]
 name = "eval_multilinear"
 harness = false
+
+[[bench]]
+name = "sumcheck"
+harness = false
