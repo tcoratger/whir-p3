@@ -45,12 +45,14 @@ impl BinaryHypercube {
 
     /// Remaining number of points that will be yielded.
     #[inline]
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.range.end.saturating_sub(self.range.start)
     }
 
     /// Whether iteration is finished.
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.range.is_empty()
     }
