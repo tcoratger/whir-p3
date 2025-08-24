@@ -153,8 +153,6 @@ mod tests {
             prop_assert_eq!(got, want);
         }
 
-
-
         #[test]
         fn size_hint_and_len_track_progress(n in 0usize..=MAX_N, k in 0usize..=1_000) {
             let mut it = BinaryHypercube::new(n);
@@ -185,6 +183,5 @@ mod tests {
             let rest: Vec<_> = it.collect();
             prop_assert_eq!(rest.len(), rem);
         }
-
     }
 }
