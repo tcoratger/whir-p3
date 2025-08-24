@@ -1,30 +1,4 @@
-use p3_field::{ExtensionField, Field};
 use p3_maybe_rayon::prelude::*;
-
-/// Scales the evaluations by scalar and either adds the result to the output buffer or
-/// sets the output buffer directly depending on the `INITIALIZED` flag.
-///
-/// If the output buffer is already initialized, it adds the evaluations otherwise
-/// it copies the evaluations into the buffer directly.
-#[inline]
-fn scale_and_add<F: Field, EF: ExtensionField<F>, const INITIALIZED: bool>(
-    out: &mut [EF],
-    base_vals: &[F],
-    scalar: EF,
-) {
-    // TODO: We can probably add a custom method to Plonky3 to handle this more efficiently (and use packings).
-    // This approach is faster than collecting `scalar * eq_eval` into a vector and using `add_slices`. Presumably
-    // this is because we avoid the allocation.
-    if INITIALIZED {
-        out.iter_mut().zip(base_vals).for_each(|(out, &eq_eval)| {
-            *out += scalar * eq_eval;
-        });
-    } else {
-        out.iter_mut().zip(base_vals).for_each(|(out, &eq_eval)| {
-            *out = scalar * eq_eval;
-        });
-    }
-}
 
 pub fn parallel_clone<A>(src: &[A], dst: &mut [A])
 where
