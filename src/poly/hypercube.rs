@@ -75,7 +75,16 @@ impl Iterator for BinaryHypercube {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
+
+    const MAX_N: usize = 16;
+
+    // Helper: collect the iterator into plain usize values.
+    fn collect_usizes(it: BinaryHypercube) -> Vec<usize> {
+        it.map(|p| p.0).collect()
+    }
 
     #[test]
     fn test_binary_hypercube_iterator() {
@@ -133,5 +142,49 @@ mod tests {
             assert_eq!(hypercube.next(), Some(expected));
         }
         assert_eq!(hypercube.next(), None);
+    }
+
+    proptest! {
+        #[test]
+        fn iter_matches_canonical_range(n in 0usize..=MAX_N) {
+            let it = BinaryHypercube::new(n);
+            let got = collect_usizes(it);
+            let want: Vec<usize> = (0..(1usize << n)).collect();
+            prop_assert_eq!(got, want);
+        }
+
+
+
+        #[test]
+        fn size_hint_and_len_track_progress(n in 0usize..=MAX_N, k in 0usize..=1_000) {
+            let mut it = BinaryHypercube::new(n);
+            let total = 1usize << n;
+
+            // Initial hints are exact.
+            let (lo, hi) = it.size_hint();
+            prop_assert_eq!(lo, total);
+            prop_assert_eq!(hi, Some(total));
+            prop_assert_eq!(it.len(), total);
+            prop_assert_eq!(it.is_empty(), total == 0);
+
+            // Consume up to k elements (bounded by total).
+            let take = core::cmp::min(k, total);
+            for _ in 0..take {
+                let _ = it.next();
+            }
+
+            // Hints remain exact and match remaining.
+            let rem = total - take;
+            let (lo2, hi2) = it.size_hint();
+            prop_assert_eq!(lo2, rem);
+            prop_assert_eq!(hi2, Some(rem));
+            prop_assert_eq!(it.len(), rem);
+            prop_assert_eq!(it.is_empty(), rem == 0);
+
+            // Collect the rest and ensure count matches rem.
+            let rest: Vec<_> = it.collect();
+            prop_assert_eq!(rest.len(), rem);
+        }
+
     }
 }
