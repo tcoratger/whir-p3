@@ -2,10 +2,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
 
 use super::domain_separator::DomainSeparator;
-use crate::{
-    fiat_shamir::{ChallengSampler, errors::ProofError},
-    utils::pack_scalars_to_extension,
-};
+use crate::fiat_shamir::{ChallengSampler, errors::ProofError};
 
 /// State held by the verifier in a Fiat-Shamir protocol.
 ///
@@ -107,13 +104,14 @@ where
     /// # Errors
     /// Returns `ProofError::ExceededTranscript` if insufficient data remains.
     pub fn next_extension_scalars_vec(&mut self, n: usize) -> Result<Vec<EF>, ProofError> {
-        // Calculate number of base scalars per extension scalar.
-        let extension_size = <EF as BasedVectorSpace<F>>::DIMENSION;
+        // Number of base scalars needed
+        let need = n * EF::DIMENSION;
 
-        // Read and pack into extension elements.
-        Ok(pack_scalars_to_extension(
-            &self.next_base_scalars_vec(n * extension_size)?,
-        ))
+        // Read base scalars (this already observes them in the challenger)
+        let bases: Vec<F> = self.next_base_scalars_vec(need)?;
+
+        // Pack F^d -> EF
+        Ok(EF::reconstitute_from_base(bases))
     }
 
     /// Consume and return `N` extension scalars as a fixed-size array, observing them in the challenger.
@@ -160,12 +158,14 @@ where
     /// # Errors
     /// Returns `ProofError::ExceededTranscript` if insufficient data remains.
     pub fn receive_hint_extension_scalars(&mut self, n: usize) -> Result<Vec<EF>, ProofError> {
-        let extension_size = <EF as BasedVectorSpace<F>>::DIMENSION;
+        // Number of base scalars needed
+        let need = n * EF::DIMENSION;
 
-        // Read and pack into extension elements without challenger observation.
-        Ok(pack_scalars_to_extension(
-            &self.receive_hint_base_scalars(n * extension_size)?,
-        ))
+        // Read base scalars without observing
+        let bases: Vec<F> = self.receive_hint_base_scalars(need)?;
+
+        // Pack F^d -> EF
+        Ok(EF::reconstitute_from_base(bases))
     }
 
     /// Sample a new random extension field element using the challenger.

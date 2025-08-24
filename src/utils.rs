@@ -1,4 +1,4 @@
-use p3_field::{BasedVectorSpace, ExtensionField, Field};
+use p3_field::{ExtensionField, Field};
 use p3_maybe_rayon::prelude::*;
 
 /// Scales the evaluations by scalar and either adds the result to the output buffer or
@@ -62,22 +62,6 @@ where
         });
         res
     }
-}
-
-pub fn pack_scalars_to_extension<F, EF>(scalars: &[F]) -> Vec<EF>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    let extension_size = <EF as BasedVectorSpace<F>>::DIMENSION;
-    assert!(
-        scalars.len() % extension_size == 0,
-        "Scalars length must be a multiple of the extension size"
-    );
-    scalars
-        .chunks_exact(extension_size)
-        .map(|chunk| EF::from_basis_coefficients_slice(chunk).unwrap())
-        .collect()
 }
 
 /// Returns a vector of uninitialized elements of type `A` with the specified length.
