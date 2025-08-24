@@ -4,7 +4,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
 
 use super::domain_separator::DomainSeparator;
-use crate::{fiat_shamir::ChallengSampler, utils::flatten_scalars_to_base};
+use crate::fiat_shamir::ChallengSampler;
 
 /// State held by the prover in a Fiat-Shamir protocol.
 ///
@@ -84,7 +84,7 @@ where
     /// - `scalars`: Slice of extension field elements to append.
     pub fn add_extension_scalars(&mut self, scalars: &[EF]) {
         // Flatten each extension scalar into base scalars and delegate.
-        self.add_base_scalars(&flatten_scalars_to_base(scalars));
+        self.add_base_scalars(&EF::flatten_to_base(scalars.to_vec()));
     }
 
     /// Append a single extension field scalar to the transcript.
@@ -113,7 +113,8 @@ where
     /// - `scalars`: Slice of extension field elements to append.
     pub fn hint_extension_scalars(&mut self, scalars: &[EF]) {
         // Flatten extension field scalars and append as base field scalars.
-        self.proof_data.extend(flatten_scalars_to_base(scalars));
+        self.proof_data
+            .extend(EF::flatten_to_base(scalars.to_vec()));
     }
 
     /// Sample a new random extension field element from the challenger.
