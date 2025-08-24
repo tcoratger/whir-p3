@@ -96,7 +96,7 @@ where
             )?;
             round_folding_randomness.push(folding_randomness);
         } else {
-            assert_eq!(prev_commitment.ood_points.len(), 0);
+            assert!(prev_commitment.ood_points.is_empty());
             assert!(statement.constraints.is_empty());
             round_constraints.push((vec![], vec![]));
 
@@ -132,7 +132,7 @@ where
             )?;
 
             // Add out-of-domain and in-domain constraints to claimed_sum
-            let constraints: Vec<Constraint<EF>> = new_commitment
+            let constraints: Vec<_> = new_commitment
                 .oods_constraints()
                 .into_iter()
                 .chain(stir_constraints.into_iter())
