@@ -57,18 +57,19 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
 
     // Define the range of variable counts to benchmark.
     // Each increment doubles the problem size.
-    for num_vars in [12, 14, 16, 18, 20].iter() {
+    for num_vars in [16, 18, 20, 22, 24].iter() {
         // Generate a large polynomial to use for this set of benchmarks.
         let poly = generate_poly(*num_vars);
 
         // Benchmark for the classic, round-by-round sumcheck ---
         let classic_folding_schedule = vec![*num_vars / 2, num_vars - (*num_vars / 2)];
+
+        let mut prover = setup_prover();
+        let statement = generate_statement(&mut prover, *num_vars, &poly, 3);
+        let combination_randomness: EF = prover.sample();
+
         group.bench_with_input(BenchmarkId::new("Classic", *num_vars), &poly, |b, poly| {
             b.iter(|| {
-                let mut prover = setup_prover();
-                let statement = generate_statement(&mut prover, *num_vars, poly, 3);
-                let combination_randomness: EF = prover.sample();
-
                 let (mut sumcheck, _) = SumcheckSingle::from_base_evals(
                     poly,
                     &statement,

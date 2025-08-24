@@ -138,19 +138,19 @@ where
         let h1 = self.evaluations[1];
         let h_half = self.evaluations[2];
 
-        let one = F::ONE;
-        let two = one.double();
-        let half = two.inverse();
-        let neg_four = F::ZERO - two.double();
+        // Recover the coefficients of the quadratic polynomial h(X) = c2*X^2 + c1*X + c0
+        //
+        // We use the known evaluations at X=0, X=1, and X=1/2.
+        let c0 = h0;
 
-        // L_0(x) = 2(x-1)(x-1/2)
-        let l0 = two * (x - one) * (x - half);
-        // L_1(x) = 2x(x-1/2)
-        let l1 = two * x * (x - half);
-        // L_2(x) = -4x(x-1)
-        let l2 = neg_four * x * (x - one);
+        // c2 = 2 * (h(0) + h(1) - 2*h(1/2))
+        let c2 = F::TWO * (h0 + h1 - h_half.double());
 
-        h0 * l0 + h1 * l1 + h_half * l2
+        // c1 = h(1) - c0 - c2
+        let c1 = h1 - c0 - c2;
+
+        // Evaluate using Horner's method: (c2*x + c1)*x + c0
+        (c2 * x + c1) * x + c0
     }
 }
 
