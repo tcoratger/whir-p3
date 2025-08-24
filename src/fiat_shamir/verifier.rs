@@ -1,5 +1,5 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{BasedVectorSpace, ExtensionField, Field};
+use p3_field::{ExtensionField, Field};
 
 use super::domain_separator::DomainSeparator;
 use crate::fiat_shamir::{ChallengSampler, errors::ProofError};
