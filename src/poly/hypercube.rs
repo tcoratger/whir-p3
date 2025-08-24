@@ -180,8 +180,7 @@ mod tests {
             prop_assert_eq!(it.is_empty(), rem == 0);
 
             // Collect the rest and ensure count matches rem.
-            let rest: Vec<_> = it.collect();
-            prop_assert_eq!(rest.len(), rem);
+            prop_assert_eq!(it.count(), rem);
         }
     }
 }
