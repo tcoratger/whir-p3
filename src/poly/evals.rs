@@ -106,9 +106,6 @@ where
     where
         EF: ExtensionField<F>,
     {
-        if let Some(point) = point.to_hypercube() {
-            return self[point.point].into();
-        }
         eval_multilinear(self, point)
     }
 
@@ -402,7 +399,7 @@ mod tests {
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
     use super::*;
-    use crate::poly::{coeffs::CoefficientList, hypercube::BinaryHypercube};
+    use crate::poly::{coeffs::CoefficientList};
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
@@ -476,19 +473,6 @@ mod tests {
     }
 
     #[test]
-    fn test_evaluate_on_hypercube_points() {
-        let evaluations_vec = vec![F::ZERO, F::ONE, F::ZERO, F::ONE];
-        let evals = EvaluationsList::new(evaluations_vec.clone());
-
-        for i in BinaryHypercube::new(2) {
-            assert_eq!(
-                evaluations_vec[i.point],
-                evals.evaluate(&MultilinearPoint::from_binary_hypercube_point(i))
-            );
-        }
-    }
-
-    #[test]
     fn test_evaluate_edge_cases() {
         let e1 = F::from_u64(7);
         let e2 = F::from_u64(8);
@@ -517,24 +501,6 @@ mod tests {
     fn test_num_variables() {
         let evals = EvaluationsList::new(vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
         assert_eq!(evals.num_variables(), 2);
-    }
-
-    #[test]
-    fn test_eval_extension_on_hypercube_points() {
-        let evals = vec![
-            F::from_u64(1),
-            F::from_u64(2),
-            F::from_u64(3),
-            F::from_u64(4),
-        ];
-        let eval_list = EvaluationsList::new(evals.clone());
-
-        for i in BinaryHypercube::new(2) {
-            assert_eq!(
-                eval_list.evaluate(&MultilinearPoint::<F>::from_binary_hypercube_point(i)),
-                evals[i.point]
-            );
-        }
     }
 
     #[test]
