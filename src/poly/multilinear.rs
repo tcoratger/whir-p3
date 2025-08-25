@@ -7,8 +7,6 @@ use rand::{
 };
 
 /// A point `(x_1, ..., x_n)` in `F^n` for some field `F`.
-///
-/// Often, `x_i` are binary. If strictly binary, `BinaryHypercubePoint` is used.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct MultilinearPoint<F>(pub Vec<F>);
 
@@ -138,11 +136,7 @@ where
     StandardUniform: Distribution<F>,
 {
     pub fn rand<R: Rng>(rng: &mut R, num_variables: usize) -> Self {
-        Self(
-            (0..num_variables)
-                .map(|_| rng.sample(StandardUniform))
-                .collect(),
-        )
+        Self((0..num_variables).map(|_| rng.random()).collect())
     }
 }
 
