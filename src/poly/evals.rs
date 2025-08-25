@@ -399,7 +399,7 @@ mod tests {
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
     use super::*;
-    use crate::poly::{coeffs::CoefficientList};
+    use crate::poly::coeffs::CoefficientList;
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
