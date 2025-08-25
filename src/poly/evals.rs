@@ -107,7 +107,7 @@ where
         EF: ExtensionField<F>,
     {
         if let Some(point) = point.to_hypercube() {
-            return self[point.0].into();
+            return self[point.point].into();
         }
         eval_multilinear(self, point)
     }
@@ -482,8 +482,8 @@ mod tests {
 
         for i in BinaryHypercube::new(2) {
             assert_eq!(
-                evaluations_vec[i.0],
-                evals.evaluate(&MultilinearPoint::from_binary_hypercube_point(i, 2))
+                evaluations_vec[i.point],
+                evals.evaluate(&MultilinearPoint::from_binary_hypercube_point(i))
             );
         }
     }
@@ -531,8 +531,8 @@ mod tests {
 
         for i in BinaryHypercube::new(2) {
             assert_eq!(
-                eval_list.evaluate(&MultilinearPoint::<F>::from_binary_hypercube_point(i, 2)),
-                evals[i.0]
+                eval_list.evaluate(&MultilinearPoint::<F>::from_binary_hypercube_point(i)),
+                evals[i.point]
             );
         }
     }

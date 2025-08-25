@@ -42,11 +42,11 @@ where
     /// [b_{n-1}, b_{n-2}, ..., b_1, b_0]
     /// ```
     #[must_use]
-    pub fn from_binary_hypercube_point(point: BinaryHypercubePoint, num_variables: usize) -> Self {
+    pub fn from_binary_hypercube_point(point: BinaryHypercubePoint) -> Self {
         Self(
-            (0..num_variables)
+            (0..point.num_variables)
                 .rev()
-                .map(|i| F::from_bool((point.0 >> i) & 1 == 1))
+                .map(|i| F::from_bool((point.point >> i) & 1 == 1))
                 .collect(),
         )
     }
@@ -58,6 +58,7 @@ where
     /// b_{n-1} * 2^{n-1} + b_{n-2} * 2^{n-2} + ... + b_1 * 2^1 + b_0 * 2^0
     /// ```
     /// Returns `None` if any coordinate is non-binary.
+    #[must_use]
     pub fn to_hypercube(&self) -> Option<BinaryHypercubePoint> {
         self.iter()
             .try_fold(0, |acc, &coord| {
@@ -69,7 +70,7 @@ where
                     None
                 }
             })
-            .map(BinaryHypercubePoint)
+            .map(|x| BinaryHypercubePoint { point: x, num_variables: self.num_variables() })
     }
 
     /// Converts a univariate evaluation point into a multilinear one.
@@ -109,15 +110,13 @@ where
     /// `p` is interpreted as a **big-endian** binary number.
     #[must_use]
     pub fn eq_poly(&self, mut point: BinaryHypercubePoint) -> F {
-        let n_variables = self.num_variables();
-        assert!(*point < (1 << n_variables)); // Ensure correct length
+        assert!(point.num_variables == self.num_variables());
 
         let mut acc = F::ONE;
-
         for val in self.iter().rev() {
-            let b = *point % 2;
+            let b = point.point % 2;
             acc *= if b == 1 { *val } else { F::ONE - *val };
-            *point >>= 1;
+            point.point >>= 1;
         }
 
         acc
@@ -234,9 +233,9 @@ mod tests {
     fn test_from_binary_hypercube_point_all_zeros() {
         let num_variables = 5;
         // Represents (0,0,0,0,0)
-        let binary_point = BinaryHypercubePoint(0);
+        let binary_point = BinaryHypercubePoint::new(0, num_variables);
         let ml_point =
-            MultilinearPoint::<F>::from_binary_hypercube_point(binary_point, num_variables);
+            MultilinearPoint::<F>::from_binary_hypercube_point(binary_point);
 
         let expected = vec![F::ZERO; num_variables];
         assert_eq!(ml_point.0, expected);
@@ -246,9 +245,9 @@ mod tests {
     fn test_from_binary_hypercube_point_all_ones() {
         let num_variables = 4;
         // Represents (1,1,1,1)
-        let binary_point = BinaryHypercubePoint((1 << num_variables) - 1);
+        let binary_point = BinaryHypercubePoint::new((1 << num_variables) - 1, num_variables);
         let ml_point =
-            MultilinearPoint::<F>::from_binary_hypercube_point(binary_point, num_variables);
+            MultilinearPoint::<F>::from_binary_hypercube_point(binary_point);
 
         let expected = vec![F::ONE; num_variables];
         assert_eq!(ml_point.0, expected);
@@ -258,9 +257,9 @@ mod tests {
     fn test_from_binary_hypercube_point_mixed_bits() {
         let num_variables = 6;
         // Represents (1,0,1,0,1,0)
-        let binary_point = BinaryHypercubePoint(0b10_1010);
+        let binary_point = BinaryHypercubePoint::new(0b10_1010, num_variables);
         let ml_point =
-            MultilinearPoint::<F>::from_binary_hypercube_point(binary_point, num_variables);
+            MultilinearPoint::<F>::from_binary_hypercube_point(binary_point);
 
         let expected = vec![F::ONE, F::ZERO, F::ONE, F::ZERO, F::ONE, F::ZERO];
         assert_eq!(ml_point.0, expected);
@@ -270,9 +269,9 @@ mod tests {
     fn test_from_binary_hypercube_point_truncation() {
         let num_variables = 3;
         // Should only use last 3 bits (101)
-        let binary_point = BinaryHypercubePoint(0b10101);
+        let binary_point = BinaryHypercubePoint::new(0b10101, num_variables);
         let ml_point =
-            MultilinearPoint::<F>::from_binary_hypercube_point(binary_point, num_variables);
+            MultilinearPoint::<F>::from_binary_hypercube_point(binary_point);
 
         let expected = vec![F::ONE, F::ZERO, F::ONE];
         assert_eq!(ml_point.0, expected);
@@ -282,9 +281,9 @@ mod tests {
     fn test_from_binary_hypercube_point_expansion() {
         let num_variables = 8;
         // Represents (0,0,0,0,1,0,1,0)
-        let binary_point = BinaryHypercubePoint(0b1010);
+        let binary_point = BinaryHypercubePoint::new(0b1010, num_variables);
         let ml_point =
-            MultilinearPoint::<F>::from_binary_hypercube_point(binary_point, num_variables);
+            MultilinearPoint::<F>::from_binary_hypercube_point(binary_point);
 
         let expected = vec![
             F::ZERO,
@@ -302,28 +301,28 @@ mod tests {
     #[test]
     fn test_to_hypercube_all_zeros() {
         let point = MultilinearPoint(vec![F::ZERO, F::ZERO, F::ZERO, F::ZERO]);
-        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint(0)));
+        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint { point: 0, num_variables: 4 }));
     }
 
     #[test]
     fn test_to_hypercube_all_ones() {
         let point = MultilinearPoint(vec![F::ONE, F::ONE, F::ONE, F::ONE]);
-        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint(0b1111)));
+        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint { point: 0b1111, num_variables: 4 }));
     }
 
     #[test]
     fn test_to_hypercube_mixed_bits() {
         let point = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
-        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint(0b1010)));
+        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint { point: 0b1010, num_variables: 4 }));
     }
 
     #[test]
     fn test_to_hypercube_single_bit() {
         let point = MultilinearPoint(vec![F::ONE]);
-        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint(1)));
+        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint { point: 1, num_variables: 1 }));
 
         let point = MultilinearPoint(vec![F::ZERO]);
-        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint(0)));
+        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint { point: 0, num_variables: 1 }));
     }
 
     #[test]
@@ -340,7 +339,7 @@ mod tests {
         ]);
         assert_eq!(
             point.to_hypercube(),
-            Some(BinaryHypercubePoint(0b1101_0110))
+            Some(BinaryHypercubePoint { point: 0b1101_0110, num_variables: 8 })
         );
     }
 
@@ -354,7 +353,7 @@ mod tests {
     #[test]
     fn test_to_hypercube_empty_vector() {
         let point = MultilinearPoint::<F>(vec![]);
-        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint(0)));
+        assert_eq!(point.to_hypercube(), Some(BinaryHypercubePoint { point: 0, num_variables: 0 }));
     }
 
     #[test]
@@ -452,7 +451,7 @@ mod tests {
     fn test_eq_poly_all_zeros() {
         // Multilinear point (0,0,0,0)
         let ml_point = MultilinearPoint(vec![F::ZERO; 4]);
-        let binary_point = BinaryHypercubePoint(0b0000);
+        let binary_point = BinaryHypercubePoint { point: 0b0000, num_variables: 4 };
 
         // eq_poly should evaluate to 1 since c_i = p_i = 0
         assert_eq!(ml_point.eq_poly(binary_point), F::ONE);
@@ -462,7 +461,7 @@ mod tests {
     fn test_eq_poly_all_ones() {
         // Multilinear point (1,1,1,1)
         let ml_point = MultilinearPoint(vec![F::ONE; 4]);
-        let binary_point = BinaryHypercubePoint(0b1111);
+        let binary_point = BinaryHypercubePoint { point: 0b1111, num_variables: 4 };
 
         // eq_poly should evaluate to 1 since c_i = p_i = 1
         assert_eq!(ml_point.eq_poly(binary_point), F::ONE);
@@ -472,7 +471,7 @@ mod tests {
     fn test_eq_poly_mixed_bits_match() {
         // Multilinear point (1,0,1,0)
         let ml_point = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
-        let binary_point = BinaryHypercubePoint(0b1010);
+        let binary_point = BinaryHypercubePoint { point: 0b1010, num_variables: 4 };
 
         // eq_poly should evaluate to 1 since c_i = p_i for all i
         assert_eq!(ml_point.eq_poly(binary_point), F::ONE);
@@ -482,7 +481,7 @@ mod tests {
     fn test_eq_poly_mixed_bits_mismatch() {
         // Multilinear point (1,0,1,0)
         let ml_point = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
-        let binary_point = BinaryHypercubePoint(0b1100); // Differs at second bit
+        let binary_point = BinaryHypercubePoint { point: 0b1100, num_variables: 4 }; // Differs at second bit
 
         // eq_poly should evaluate to 0 since there is at least one mismatch
         assert_eq!(ml_point.eq_poly(binary_point), F::ZERO);
@@ -492,7 +491,7 @@ mod tests {
     fn test_eq_poly_single_variable_match() {
         // Multilinear point (1)
         let ml_point = MultilinearPoint(vec![F::ONE]);
-        let binary_point = BinaryHypercubePoint(0b1);
+        let binary_point = BinaryHypercubePoint { point: 0b1, num_variables: 1 };
 
         // eq_poly should evaluate to 1 since c_1 = p_1 = 1
         assert_eq!(ml_point.eq_poly(binary_point), F::ONE);
@@ -502,7 +501,7 @@ mod tests {
     fn test_eq_poly_single_variable_mismatch() {
         // Multilinear point (1)
         let ml_point = MultilinearPoint(vec![F::ONE]);
-        let binary_point = BinaryHypercubePoint(0b0);
+        let binary_point = BinaryHypercubePoint { point: 0b0, num_variables: 1 };
 
         // eq_poly should evaluate to 0 since c_1 != p_1
         assert_eq!(ml_point.eq_poly(binary_point), F::ZERO);
@@ -521,7 +520,7 @@ mod tests {
             F::ONE,
             F::ZERO,
         ]);
-        let binary_point = BinaryHypercubePoint(0b1101_0110);
+        let binary_point = BinaryHypercubePoint { point: 0b1101_0110, num_variables: 8 };
 
         // eq_poly should evaluate to 1 since c_i = p_i for all i
         assert_eq!(ml_point.eq_poly(binary_point), F::ONE);
@@ -540,7 +539,7 @@ mod tests {
             F::ONE,
             F::ZERO,
         ]);
-        let binary_point = BinaryHypercubePoint(0b1101_0111); // Last bit differs
+        let binary_point = BinaryHypercubePoint { point: 0b1101_0111, num_variables: 8 }; // Last bit differs
 
         // eq_poly should evaluate to 0 since there is a mismatch
         assert_eq!(ml_point.eq_poly(binary_point), F::ZERO);
@@ -550,7 +549,7 @@ mod tests {
     fn test_eq_poly_empty_vector() {
         // Empty Multilinear Point
         let ml_point = MultilinearPoint::<F>(vec![]);
-        let binary_point = BinaryHypercubePoint(0);
+        let binary_point = BinaryHypercubePoint { point: 0, num_variables: 0 };
 
         // eq_poly should evaluate to 1 since both are trivially equal
         assert_eq!(ml_point.eq_poly(binary_point), F::ONE);
@@ -824,16 +823,16 @@ mod tests {
     #[test]
     fn test_equality() {
         let point = MultilinearPoint(vec![F::from_u64(0), F::from_u64(0)]);
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b00)), F::from_u64(1));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b01)), F::from_u64(0));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b10)), F::from_u64(0));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b11)), F::from_u64(0));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint { point: 0b00, num_variables: 2 }), F::from_u64(1));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint { point: 0b01, num_variables: 2 }), F::from_u64(0));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint { point: 0b10, num_variables: 2 }), F::from_u64(0));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint { point: 0b11, num_variables: 2 }), F::from_u64(0));
 
         let point = MultilinearPoint(vec![F::from_u64(1), F::from_u64(0)]);
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b00)), F::from_u64(0));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b01)), F::from_u64(0));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b10)), F::from_u64(1));
-        assert_eq!(point.eq_poly(BinaryHypercubePoint(0b11)), F::from_u64(0));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint { point: 0b00, num_variables: 2 }), F::from_u64(0));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint { point: 0b01, num_variables: 2 }), F::from_u64(0));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint { point: 0b10, num_variables: 2 }), F::from_u64(1));
+        assert_eq!(point.eq_poly(BinaryHypercubePoint { point: 0b11, num_variables: 2 }), F::from_u64(0));
     }
 
     #[test]

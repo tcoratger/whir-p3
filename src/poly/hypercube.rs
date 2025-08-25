@@ -1,24 +1,24 @@
 use core::ops::Range;
-use std::ops::{Deref, DerefMut};
 
 /// Represents a point on the binary hypercube `{0,1}^n`.
 ///
 /// The point is encoded via the `n` least significant bits of a `usize` in big-endian order.
 /// The struct does not store `n`; interpretation relies on context.
-#[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BinaryHypercubePoint(pub usize);
-
-impl Deref for BinaryHypercubePoint {
-    type Target = usize;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+#[must_use]
+pub struct BinaryHypercubePoint {
+    pub point: usize,
+    pub num_variables: usize,
 }
 
-impl DerefMut for BinaryHypercubePoint {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+impl BinaryHypercubePoint {
+    /// Returns the number of variables (dimension `n`).
+    #[inline]
+    pub const fn new(point: usize, num_variables: usize) -> Self {
+        debug_assert!(num_variables < usize::BITS as usize);
+        debug_assert!(point < (1 << num_variables));
+
+        Self { point, num_variables }
     }
 }
 
@@ -26,21 +26,22 @@ impl DerefMut for BinaryHypercubePoint {
 ///
 /// Yields `2^n` points from `0..(1<<n)`.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct BinaryHypercube {
     /// Range of points to yield.
     range: Range<usize>,
+    num_variables: usize,
 }
 
 impl BinaryHypercube {
     /// Constructs a new iterator for `{0,1}^num_variables`.
-    #[must_use]
     #[inline]
     pub const fn new(num_variables: usize) -> Self {
         // keep the debug guard; shifting by >= word size is UB
         debug_assert!(num_variables < usize::BITS as usize);
         // `1usize << n` is fine because of the assert above
         let end = 1usize << num_variables;
-        Self { range: 0..end }
+        Self { range: 0..end, num_variables }
     }
 
     /// Remaining number of points that will be yielded.
@@ -56,6 +57,13 @@ impl BinaryHypercube {
     pub fn is_empty(&self) -> bool {
         self.range.is_empty()
     }
+
+    /// Returns the number of variables in the hypercube.
+    #[inline]
+    #[must_use]
+    pub const fn num_variables(&self) -> usize {
+        self.num_variables
+    }
 }
 
 impl Iterator for BinaryHypercube {
@@ -63,7 +71,7 @@ impl Iterator for BinaryHypercube {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.range.next().map(BinaryHypercubePoint)
+        self.range.next().map(|point| BinaryHypercubePoint { point, num_variables: self.num_variables })
     }
 
     #[inline]
@@ -83,17 +91,17 @@ mod tests {
 
     // Helper: collect the iterator into plain usize values.
     fn collect_usizes(it: BinaryHypercube) -> Vec<usize> {
-        it.map(|p| p.0).collect()
+        it.map(|p| p.point).collect()
     }
 
     #[test]
     fn test_binary_hypercube_iterator() {
         let mut hypercube = BinaryHypercube::new(2);
 
-        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint(0)));
-        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint(1)));
-        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint(2)));
-        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint(3)));
+        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint::new(0, 2)));
+        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint::new(1, 2)));
+        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint::new(2, 2)));
+        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint::new(3, 2)));
         assert_eq!(hypercube.next(), None);
     }
 
@@ -101,8 +109,8 @@ mod tests {
     fn test_binary_hypercube_single_dimension() {
         let mut hypercube = BinaryHypercube::new(1);
 
-        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint(0)));
-        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint(1)));
+        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint::new(0, 1)));
+        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint::new(1, 1)));
         assert_eq!(hypercube.next(), None);
     }
 
@@ -110,7 +118,7 @@ mod tests {
     fn test_binary_hypercube_zero_dimensions() {
         let mut hypercube = BinaryHypercube::new(0);
 
-        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint(0)));
+        assert_eq!(hypercube.next(), Some(BinaryHypercubePoint::new(0, 0)));
         assert_eq!(hypercube.next(), None);
     }
 
@@ -128,14 +136,14 @@ mod tests {
     fn test_binary_hypercube_point_order() {
         let mut hypercube = BinaryHypercube::new(3);
         let expected_points = [
-            BinaryHypercubePoint(0),
-            BinaryHypercubePoint(1),
-            BinaryHypercubePoint(2),
-            BinaryHypercubePoint(3),
-            BinaryHypercubePoint(4),
-            BinaryHypercubePoint(5),
-            BinaryHypercubePoint(6),
-            BinaryHypercubePoint(7),
+            BinaryHypercubePoint::new(0, 3),
+            BinaryHypercubePoint::new(1, 3),
+            BinaryHypercubePoint::new(2, 3),
+            BinaryHypercubePoint::new(3, 3),
+            BinaryHypercubePoint::new(4, 3),
+            BinaryHypercubePoint::new(5, 3),
+            BinaryHypercubePoint::new(6, 3),
+            BinaryHypercubePoint::new(7, 3),
         ];
 
         for &expected in &expected_points {
