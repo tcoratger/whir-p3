@@ -43,31 +43,26 @@ where
     ///
     /// Reversing the order ensures the **big-endian** convention.
     pub fn expand_from_univariate(point: F, num_variables: usize) -> Self {
-        let mut res = Vec::with_capacity(num_variables);
         let mut cur = point;
-
-        for _ in 0..num_variables {
-            res.push(cur);
-            cur = cur.square(); // Compute y^(2^k) at each step
-        }
+        let mut res = (0..num_variables)
+            .map(|_| {
+                let value_to_return = cur;
+                // Compute y^(2^k) at each step
+                cur = cur.square();
+                value_to_return
+            })
+            .collect::<Vec<F>>();
 
         res.reverse();
         Self(res)
     }
 
-    /// Computes `eq(c, p)`, where `p` is a general `MultilinearPoint` (not necessarily binary).
+    /// Computes `eq(c, p)`, where `p` is another `MultilinearPoint`.
     ///
     /// The **equality polynomial** for two vectors is:
     /// ```ignore
     /// eq(s1, s2) = ∏ (s1_i * s2_i + (1 - s1_i) * (1 - s2_i))
     /// ```
-    /// which evaluates to `1` if `s1 == s2`, and `0` otherwise.
-    ///
-    /// This uses the algebraic identity:
-    /// ```ignore
-    /// s1_i * s2_i + (1 - s1_i) * (1 - s2_i) = 1 + 2 * s1_i * s2_i - s1_i - s2_i
-    /// ```
-    /// to avoid unnecessary multiplications.
     #[must_use]
     pub fn eq_poly_outside(&self, point: &Self) -> F {
         assert_eq!(self.num_variables(), point.num_variables());
@@ -75,8 +70,9 @@ where
         let mut acc = F::ONE;
 
         for (&l, &r) in self.iter().zip(&point.0) {
+            // This uses the algebraic identity:
             // l * r + (1 - l) * (1 - r) = 1 + 2 * l * r - l - r
-            // +/- much cheaper than multiplication.
+            // to avoid unnecessary multiplications.
             acc *= F::ONE + l * r.double() - l - r;
         }
 
@@ -103,25 +99,26 @@ where
 
         // Iterate in **little-endian** order and adjust using big-endian convention.
         for &val in self.iter().rev() {
-            let val_minus_one = val - F::ONE;
-            let val_minus_two = val - F::TWO;
+            let val_min_1 = val - F::ONE;
+            let val_sq_min_val = val * val_min_1;
 
             acc *= match point % 3 {
-                0 => val_minus_one * val_minus_two.halve(), // (val - 1)(val - 2) / 2
-                1 => -val * val_minus_two,                  // val (val - 2)(-1)
-                2 => val * val_minus_one.halve(),           // val (val - 1) / 2
+                // (val - 1)(val - 2) / 2
+                // = (val^2 - 3val + 2)/2
+                // = (val^2 - val - 2val + 2)/2
+                // = (val(val-1) - 2(val-1))/2
+                // = val(val-1)/2 - (val-1)
+                0 => val_sq_min_val.halve() - val_min_1,
+                // -val * (val - 2) = -val^2 + 2val = -val(val-1) + val
+                1 => val - val_sq_min_val,
+                // val * (val - 1) / 2
+                2 => val_sq_min_val.halve(),
                 _ => unreachable!(),
             };
             point /= 3;
         }
 
         acc
-    }
-}
-
-impl<F> From<F> for MultilinearPoint<F> {
-    fn from(value: F) -> Self {
-        Self(vec![value])
     }
 }
 
