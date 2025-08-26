@@ -15,6 +15,7 @@ where
     F: Field,
 {
     /// Construct a new `MultilinearPoint` from a vector of field elements.
+    #[must_use]
     pub const fn new(coords: Vec<F>) -> Self {
         Self(coords)
     }
