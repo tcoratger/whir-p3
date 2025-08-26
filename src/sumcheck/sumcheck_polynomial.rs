@@ -1,7 +1,5 @@
 use p3_field::Field;
-use p3_maybe_rayon::prelude::{
-    IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
-};
+use p3_maybe_rayon::prelude::*;
 
 use crate::poly::multilinear::MultilinearPoint;
 
