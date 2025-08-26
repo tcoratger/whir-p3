@@ -173,7 +173,7 @@ impl ConcatMatsMeta {
                 // We assemble the point in order of significance: offset -> row -> column.
                 let point = {
                     // 1. Offset bits (most significant), generated in big-endian order.
-                    let num_non_offset_vars = z.len() + r.len();
+                    let num_non_offset_vars = z.num_variables() + r.len();
                     let num_offset_vars = self.log_b - num_non_offset_vars;
 
                     let offset_vars = (0..num_offset_vars).map(|i| {

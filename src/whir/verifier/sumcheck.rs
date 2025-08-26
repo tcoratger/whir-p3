@@ -320,7 +320,7 @@ mod tests {
         .unwrap();
 
         // Check that number of parsed rounds is correct
-        assert_eq!(randomness.len(), folding_factor);
+        assert_eq!(randomness.num_variables(), folding_factor);
 
         // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
         let expected_randomness =
@@ -447,7 +447,7 @@ mod tests {
         // Check length:
         // - 1 randomness for the first K skipped rounds
         // - 1 randomness for each regular round
-        assert_eq!(randomness.len(), NUM_VARS - K_SKIP + 1);
+        assert_eq!(randomness.num_variables(), NUM_VARS - K_SKIP + 1);
 
         // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
         let expected_randomness =

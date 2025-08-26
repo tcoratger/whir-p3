@@ -705,16 +705,16 @@ where
     // [ r_for_remaining_vars...,  r_skip ]
     let need = 1 + (n - k_skip);
     assert!(
-        r_all.len() >= need,
+        r_all.num_variables() >= need,
         "need {} challenges (1 + n - k), got {}",
         need,
-        r_all.len()
+        r_all.num_variables()
     );
 
     // - r0 is the **last** element (skip challenge),
     // - "rest" are the first n-k challenges for the remaining variables.
     let r0 = *r_all.last().unwrap();
-    let rest = MultilinearPoint(r_all[..(n - k_skip)].to_vec());
+    let rest = r_all.get_range(0..(n - k_skip));
 
     // Reshape f into 2^k × 2^{n-k}, interpolate along the skipped dimension at r0,
     // then evaluate the resulting EF-table on the remaining variables.

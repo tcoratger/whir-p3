@@ -498,7 +498,7 @@ mod tests {
         assert_eq!(sumcheck.sum, EF4::ZERO);
 
         // Folding randomness should have length equal to the folding factor (1)
-        assert_eq!(sumcheck_randomness.len(), 1);
+        assert_eq!(sumcheck_randomness.num_variables(), 1);
 
         // The `randomness_vec` is populated in reverse variable order, padded with 0s
         assert_eq!(

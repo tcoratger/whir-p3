@@ -436,7 +436,7 @@ where
 
         let start_idx = self.folding_factor.total_number(round_index);
         let dst_randomness =
-            &mut round_state.randomness_vec[start_idx..][..folding_randomness.len()];
+            &mut round_state.randomness_vec[start_idx..][..folding_randomness.num_variables()];
 
         for (dst, src) in dst_randomness
             .iter_mut()
@@ -564,7 +564,7 @@ where
                 );
             let start_idx = self.folding_factor.total_number(round_index);
             let rand_dst = &mut round_state.randomness_vec
-                [start_idx..start_idx + final_folding_randomness.len()];
+                [start_idx..start_idx + final_folding_randomness.num_variables()];
 
             for (dst, src) in rand_dst
                 .iter_mut()

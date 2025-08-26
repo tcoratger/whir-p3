@@ -500,7 +500,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter())
                 .for_each(|(point, &rand)| {
-                    eval_eq::<_, _, true>(point, &mut self.weights, rand);
+                    eval_eq::<_, _, true>(point.as_slice(), &mut self.weights, rand);
                 });
         });
 
@@ -549,7 +549,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter())
                 .for_each(|(point, &rand)| {
-                    eval_eq_base::<_, _, true>(point, &mut self.weights, rand);
+                    eval_eq_base::<_, _, true>(point.as_slice(), &mut self.weights, rand);
                 });
         });
 

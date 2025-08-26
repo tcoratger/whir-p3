@@ -65,9 +65,9 @@ where
     /// # Returns
     /// The number of variables (length of the `z` vector).
     #[must_use]
-    pub fn log_b(&self) -> usize {
+    pub const fn log_b(&self) -> usize {
         match self {
-            Self::Eq(z) | Self::EqRotateRight(z, _) => z.len(),
+            Self::Eq(z) | Self::EqRotateRight(z, _) => z.num_variables(),
         }
     }
 
@@ -100,10 +100,10 @@ where
             // Standard case: evaluate at z
             Self::Eq(z) => {
                 // Allocate output buffer of size 2^n
-                let mut mle = F::zero_vec(1 << z.len());
+                let mut mle = F::zero_vec(1 << z.num_variables());
 
                 // Fill with α ⋅ eq(x, z) for all x ∈ {0,1}^n
-                eval_eq::<_, _, false>(z, &mut mle, scalar);
+                eval_eq::<_, _, false>(z.as_slice(), &mut mle, scalar);
 
                 mle
             }
@@ -111,10 +111,10 @@ where
             // Rotated case: evaluate at z, then rotate output
             Self::EqRotateRight(z, mid) => {
                 // Allocate output buffer of size 2^n
-                let mut mle = F::zero_vec(1 << z.len());
+                let mut mle = F::zero_vec(1 << z.num_variables());
 
                 // Compute α ⋅ eq(x, z)
-                eval_eq::<_, _, false>(z, &mut mle, scalar);
+                eval_eq::<_, _, false>(z.as_slice(), &mut mle, scalar);
 
                 // Apply circular rotation to output buffer
                 mle.rotate_right(*mid);

@@ -1,22 +1,13 @@
-use std::ops::Deref;
-
 use p3_field::Field;
 use rand::{
     Rng,
     distr::{Distribution, StandardUniform},
 };
+use core::ops::{Index, Range};
 
 /// A point `(x_1, ..., x_n)` in `F^n` for some field `F`.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct MultilinearPoint<F>(pub Vec<F>);
-
-impl<F> Deref for MultilinearPoint<F> {
-    type Target = Vec<F>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
 
 impl<F> MultilinearPoint<F>
 where
@@ -25,8 +16,38 @@ where
     /// Returns the number of variables (dimension `n`).
     #[inline]
     #[must_use]
-    pub fn num_variables(&self) -> usize {
-        self.len()
+    pub const fn num_variables(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Return a reference to the slice of field elements
+    /// defining the point.
+    #[inline]
+    #[must_use]
+    pub fn as_slice(&self) -> &[F] {
+        &self.0
+    }
+
+    #[inline]
+    pub fn iter(&self) -> core::slice::Iter<'_, F> {
+        self.0.iter()
+    }
+
+    #[inline]
+    pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, F> {
+        self.0.iter_mut()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn get_range(&self, idx: Range<usize>) -> Self {
+        Self(self.0[idx].to_vec())
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn last(&self) -> Option<&F> {
+        self.0.last()
     }
 
     /// Converts a univariate evaluation point into a multilinear one.
@@ -69,7 +90,7 @@ where
 
         let mut acc = F::ONE;
 
-        for (&l, &r) in self.iter().zip(&point.0) {
+        for (&l, &r) in self.into_iter().zip(point) {
             // This uses the algebraic identity:
             // l * r + (1 - l) * (1 - r) = 1 + 2 * l * r - l - r
             // to avoid unnecessary multiplications.
@@ -128,6 +149,39 @@ where
 {
     pub fn rand<R: Rng>(rng: &mut R, num_variables: usize) -> Self {
         Self((0..num_variables).map(|_| rng.random()).collect())
+    }
+}
+
+
+impl<'a, F> IntoIterator for &'a MultilinearPoint<F> {
+    type Item = &'a F;
+    type IntoIter = std::slice::Iter<'a, F>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl<'a, F> IntoIterator for &'a mut MultilinearPoint<F> {
+    type Item = &'a mut F;
+    type IntoIter = std::slice::IterMut<'a, F>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
+    }
+}
+
+impl<F> IntoIterator for MultilinearPoint<F> {
+    type Item = F;
+    type IntoIter = std::vec::IntoIter<F>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<F> Index<usize> for MultilinearPoint<F> {
+    type Output = F;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
     }
 }
 
@@ -568,10 +622,10 @@ mod tests {
 
         for _ in 0..K {
             let point = MultilinearPoint::<F>::rand(&mut rng, N);
-            let first = point[0];
+            let first = point.0[0];
 
             // Check if all coordinates are the same as the first one
-            if point.iter().all(|&x| x == first) {
+            if point.into_iter().all(|x| x == first) {
                 all_same_count += 1;
             }
         }
@@ -600,7 +654,7 @@ mod tests {
 
             // Compute expected value using manual formula:
             // eq(c, p) = ∏ (c_i * p_i + (1 - c_i)(1 - p_i))
-            let expected = p1.iter().zip(&p2.0).fold(F::ONE, |acc, (&a, &b)| {
+            let expected = p1.into_iter().zip(p2).fold(F::ONE, |acc, (a, b)| {
                 acc * (a * b + (F::ONE - a) * (F::ONE - b))
             });
 
