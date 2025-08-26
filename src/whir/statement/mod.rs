@@ -320,8 +320,8 @@ mod tests {
         // Define a randomness point for folding
         let folding_randomness = MultilinearPoint(vec![F::from_u64(2)]);
 
-        // Expected result is the evaluation of eq_poly_outside at the given randomness
-        let expected = point.eq_poly_outside(&folding_randomness);
+        // Expected result is the evaluation of eq_poly at the given randomness
+        let expected = point.eq_poly(&folding_randomness);
 
         assert_eq!(weight.compute(&folding_randomness), expected);
     }
