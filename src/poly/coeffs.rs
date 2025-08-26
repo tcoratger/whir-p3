@@ -78,7 +78,7 @@ where
     #[instrument(skip_all, fields(size = point.num_variables()), level = "debug")]
     pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables(), point.num_variables());
-        eval_extension_par(self, point.as_slice())
+        eval_extension_par(self, point)
     }
 }
 
@@ -222,7 +222,7 @@ impl<F> CoefficientList<F> {
 /// ```
 /// where the product is now only over the first `L` variables.
 #[inline]
-fn eval_extension_par<F, E>(coeff: &[F], eval: &[E]) -> E
+fn eval_extension_par<F, E>(coeff: &[F], point: &MultilinearPoint<E>) -> E
 where
     F: Field,
     E: ExtensionField<F>,
@@ -230,7 +230,7 @@ where
     let num_threads = current_num_threads().next_power_of_two();
     let log_num_threads = log2_strict_usize(num_threads);
 
-    debug_assert_eq!(coeff.len(), 1 << eval.len());
+    debug_assert_eq!(coeff.len(), 1 << point.num_variables());
 
     let size = coeff.len();
     // While we could run the following code for any size > LOG_NUM_THREADS, there isn't
@@ -238,15 +238,17 @@ where
     // eval_extension_packed. Instead we set a (slightly arbitrary) threshold of 15.
     if size > (1 << 15) {
         let chunk_size = size / num_threads;
-        let (head_eval, tail_eval) = eval.split_at(log_num_threads);
+        let (head, tail) = point.0.split_at(log_num_threads);
+        let head_point = MultilinearPoint(head.to_vec());
+        let tail_point = MultilinearPoint(tail.to_vec());
         let partial_sum = coeff
             .par_chunks_exact(chunk_size)
-            .map(|chunk| eval_extension_packed(chunk, tail_eval))
+            .map(|chunk| eval_extension_packed(chunk, &tail_point))
             .collect::<Vec<_>>();
-        return eval_extension_packed(&partial_sum, head_eval);
+        return eval_extension_packed(&partial_sum, &head_point);
     }
 
-    eval_extension_packed(coeff, eval)
+    eval_extension_packed(coeff, point)
 }
 
 /// Recursively evaluates a multilinear polynomial at an extension field point.
@@ -262,24 +264,24 @@ where
 ///   do as many rounds as possible in the packed case which is reasonably faster.
 ///   Eventually we unpack and pass to `eval_extension_unpacked`
 #[inline]
-fn eval_extension_packed<F, E>(coeff: &[F], eval: &[E]) -> E
+fn eval_extension_packed<F, E>(coeff: &[F], point: &MultilinearPoint<E>) -> E
 where
     F: Field,
     E: ExtensionField<F>,
 {
-    debug_assert_eq!(coeff.len(), 1 << eval.len());
+    debug_assert_eq!(coeff.len(), 1 << point.num_variables());
     let log_packing_width = log2_strict_usize(F::Packing::WIDTH);
 
     // There is some overhead when packing extension field elements so we only want to do it
     // when we have a large number of coefficients. I chose 2 here basically arbitrarily, it might
     // be worth benchmarking this.
-    if eval.len() <= (log_packing_width + 2) {
-        eval_extension_unpacked(coeff, eval)
+    if point.num_variables() <= (log_packing_width + 2) {
+        eval_extension_unpacked(coeff, point)
     } else {
         // If the size of eval is > log_packing_width + 2, it makes sense to start using packings.
         // As coeffs lie in F, we do the first round manually as it's a little cheaper.
         let packed_coeff = F::Packing::pack_slice(coeff);
-        let packed_eval: E::ExtensionPacking = eval[0].into();
+        let packed_eval: E::ExtensionPacking = point.0[0].into();
         let (lo, hi) = packed_coeff.split_at(packed_coeff.len() / 2);
         let mut buffer = lo
             .iter()
@@ -287,7 +289,7 @@ where
             .map(|(l, h)| packed_eval * *h + *l)
             .collect::<Vec<_>>();
 
-        for &ef_eval in &eval[1..(eval.len() - log_packing_width)] {
+        for &ef_eval in &point.0[1..(point.num_variables() - log_packing_width)] {
             let half_buffer_len = buffer.len() / 2;
             let (lo, hi) = buffer.split_at_mut(half_buffer_len);
             lo.iter_mut().zip(hi.iter()).for_each(|(l, &h)| {
@@ -299,7 +301,10 @@ where
         // After this, buffer should have been reduced to a single element.
         // Further reductions will need to be done in the non-packed extension field.
         let base_elems = E::ExtensionPacking::to_ext_iter(buffer).collect::<Vec<_>>();
-        eval_extension_unpacked(&base_elems, &eval[eval.len() - log_packing_width..])
+        eval_extension_unpacked(
+            &base_elems,
+            &MultilinearPoint(point.0[point.num_variables() - log_packing_width..].to_vec()),
+        )
     }
 }
 
@@ -316,42 +321,47 @@ where
 ///   - Splits `coeffs` into two halves for `X_0 = 0` and `X_0 = 1`.
 ///   - Recursively evaluates each half.
 #[inline]
-fn eval_extension_unpacked<F, E>(coeff: &[F], eval: &[E]) -> E
+fn eval_extension_unpacked<F, E>(coeff: &[F], point: &MultilinearPoint<E>) -> E
 where
     F: Field,
     E: ExtensionField<F>,
 {
-    debug_assert_eq!(coeff.len(), 1 << eval.len());
+    debug_assert_eq!(coeff.len(), 1 << point.num_variables());
 
-    match eval.len() {
+    match point.num_variables() {
         0 => coeff[0].into(),
-        1 => eval[0] * coeff[1] + coeff[0],
-        2 => eval[0] * (eval[1] * coeff[3] + coeff[2]) + eval[1] * coeff[1] + coeff[0],
+        1 => point.0[0] * coeff[1] + coeff[0],
+        2 => point.0[0] * (point.0[1] * coeff[3] + coeff[2]) + point.0[1] * coeff[1] + coeff[0],
         3 => {
-            eval[0] * (eval[1] * (eval[2] * coeff[7] + coeff[6]) + eval[2] * coeff[5] + coeff[4])
-                + eval[1] * (eval[2] * coeff[3] + coeff[2])
-                + eval[2] * coeff[1]
+            point.0[0]
+                * (point.0[1] * (point.0[2] * coeff[7] + coeff[6])
+                    + point.0[2] * coeff[5]
+                    + coeff[4])
+                + point.0[1] * (point.0[2] * coeff[3] + coeff[2])
+                + point.0[2] * coeff[1]
                 + coeff[0]
         }
         4 => {
-            eval[0]
-                * (eval[1]
-                    * (eval[2] * (eval[3] * coeff[15] + coeff[14])
-                        + eval[3] * coeff[13]
+            point.0[0]
+                * (point.0[1]
+                    * (point.0[2] * (point.0[3] * coeff[15] + coeff[14])
+                        + point.0[3] * coeff[13]
                         + coeff[12])
-                    + eval[2] * (eval[3] * coeff[11] + coeff[10])
-                    + eval[3] * coeff[9]
+                    + point.0[2] * (point.0[3] * coeff[11] + coeff[10])
+                    + point.0[3] * coeff[9]
                     + coeff[8])
-                + eval[1]
-                    * (eval[2] * (eval[3] * coeff[7] + coeff[6]) + eval[3] * coeff[5] + coeff[4])
-                + eval[2] * (eval[3] * coeff[3] + coeff[2])
-                + eval[3] * coeff[1]
+                + point.0[1]
+                    * (point.0[2] * (point.0[3] * coeff[7] + coeff[6])
+                        + point.0[3] * coeff[5]
+                        + coeff[4])
+                + point.0[2] * (point.0[3] * coeff[3] + coeff[2])
+                + point.0[3] * coeff[1]
                 + coeff[0]
         }
         _ => {
             let (lo, hi) = coeff.split_at(coeff.len() / 2);
-            eval_extension_unpacked(lo, &eval[1..])
-                + eval[0] * eval_extension_unpacked(hi, &eval[1..])
+            eval_extension_unpacked(lo, &MultilinearPoint(point.0[1..].to_vec()))
+                + point.0[0] * eval_extension_unpacked(hi, &MultilinearPoint(point.0[1..].to_vec()))
         }
     }
 }
