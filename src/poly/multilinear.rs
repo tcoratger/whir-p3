@@ -43,13 +43,15 @@ where
     ///
     /// Reversing the order ensures the **big-endian** convention.
     pub fn expand_from_univariate(point: F, num_variables: usize) -> Self {
-        let mut res = Vec::with_capacity(num_variables);
         let mut cur = point;
-
-        for _ in 0..num_variables {
-            res.push(cur);
-            cur = cur.square(); // Compute y^(2^k) at each step
-        }
+        let mut res = (0..num_variables)
+            .map(|_| {
+                let value_to_return = cur;
+                // Compute y^(2^k) at each step
+                cur = cur.square();
+                value_to_return
+            })
+            .collect::<Vec<F>>();
 
         res.reverse();
         Self(res)
