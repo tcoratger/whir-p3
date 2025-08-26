@@ -165,7 +165,7 @@ impl<F: Field> Weights<F> {
     #[must_use]
     pub fn compute(&self, folding_randomness: &MultilinearPoint<F>) -> F {
         match self {
-            Self::Evaluation { point } => point.eq_poly_outside(folding_randomness),
+            Self::Evaluation { point } => point.eq_poly(folding_randomness),
             Self::Linear { weight } => weight.evaluate(folding_randomness),
         }
     }

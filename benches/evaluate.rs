@@ -11,7 +11,7 @@ fn generate_test_case(num_variables: usize) -> (CoefficientList<F>, MultilinearP
     let mut rng = SmallRng::seed_from_u64(1);
     let num_coeffs = 1 << num_variables;
     let coeffs = (0..num_coeffs).map(|_| rng.random()).collect();
-    let point = MultilinearPoint((0..num_variables).map(|_| rng.random()).collect());
+    let point = MultilinearPoint::new((0..num_variables).map(|_| rng.random()).collect());
     (CoefficientList::new(coeffs), point)
 }
 

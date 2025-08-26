@@ -8,12 +8,18 @@ use rand::{
 
 /// A point `(x_1, ..., x_n)` in `F^n` for some field `F`.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct MultilinearPoint<F>(pub Vec<F>);
+pub struct MultilinearPoint<F>(pub(crate) Vec<F>);
 
 impl<F> MultilinearPoint<F>
 where
     F: Field,
 {
+    /// Construct a new `MultilinearPoint` from a vector of field elements.
+    #[must_use]
+    pub const fn new(coords: Vec<F>) -> Self {
+        Self(coords)
+    }
+
     /// Returns the number of variables (dimension `n`).
     #[inline]
     #[must_use]
@@ -65,17 +71,16 @@ where
     ///
     /// Reversing the order ensures the **big-endian** convention.
     pub fn expand_from_univariate(point: F, num_variables: usize) -> Self {
+        let mut res: Vec<F> = F::zero_vec(num_variables);
         let mut cur = point;
-        let mut res = (0..num_variables)
-            .map(|_| {
-                let value_to_return = cur;
-                // Compute y^(2^k) at each step
-                cur = cur.square();
-                value_to_return
-            })
-            .collect::<Vec<F>>();
 
-        res.reverse();
+        // Fill big-endian: [y^(2^(n-1)), ..., y^2, y]
+        // Loop from the last index down to the first.
+        for i in (0..num_variables).rev() {
+            res[i] = cur;
+            cur = cur.square();
+        }
+
         Self(res)
     }
 
@@ -86,7 +91,7 @@ where
     /// eq(s1, s2) = ∏ (s1_i * s2_i + (1 - s1_i) * (1 - s2_i))
     /// ```
     #[must_use]
-    pub fn eq_poly_outside(&self, point: &Self) -> F {
+    pub fn eq_poly(&self, point: &Self) -> F {
         assert_eq!(self.num_variables(), point.num_variables());
 
         let mut acc = F::ONE;
@@ -178,12 +183,12 @@ impl<F> Index<usize> for MultilinearPoint<F> {
 }
 
 #[cfg(test)]
-#[allow(clippy::identity_op, clippy::cast_sign_loss, clippy::erasing_op)]
+#[allow(clippy::identity_op, clippy::erasing_op)]
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
     use proptest::prelude::*;
-    use rand::rng;
+    use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
 
@@ -291,7 +296,7 @@ mod tests {
         let ml_point1 = MultilinearPoint(vec![F::ZERO; 4]);
         let ml_point2 = MultilinearPoint(vec![F::ZERO; 4]);
 
-        assert_eq!(ml_point1.eq_poly_outside(&ml_point2), F::ONE);
+        assert_eq!(ml_point1.eq_poly(&ml_point2), F::ONE);
     }
 
     #[test]
@@ -299,7 +304,7 @@ mod tests {
         let ml_point1 = MultilinearPoint(vec![F::ONE; 4]);
         let ml_point2 = MultilinearPoint(vec![F::ONE; 4]);
 
-        assert_eq!(ml_point1.eq_poly_outside(&ml_point2), F::ONE);
+        assert_eq!(ml_point1.eq_poly(&ml_point2), F::ONE);
     }
 
     #[test]
@@ -307,7 +312,7 @@ mod tests {
         let ml_point1 = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
         let ml_point2 = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
 
-        assert_eq!(ml_point1.eq_poly_outside(&ml_point2), F::ONE);
+        assert_eq!(ml_point1.eq_poly(&ml_point2), F::ONE);
     }
 
     #[test]
@@ -315,7 +320,7 @@ mod tests {
         let ml_point1 = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
         let ml_point2 = MultilinearPoint(vec![F::ZERO, F::ONE, F::ZERO, F::ONE]);
 
-        assert_eq!(ml_point1.eq_poly_outside(&ml_point2), F::ZERO);
+        assert_eq!(ml_point1.eq_poly(&ml_point2), F::ZERO);
     }
 
     #[test]
@@ -323,7 +328,7 @@ mod tests {
         let ml_point1 = MultilinearPoint(vec![F::ONE]);
         let ml_point2 = MultilinearPoint(vec![F::ONE]);
 
-        assert_eq!(ml_point1.eq_poly_outside(&ml_point2), F::ONE);
+        assert_eq!(ml_point1.eq_poly(&ml_point2), F::ONE);
     }
 
     #[test]
@@ -331,7 +336,7 @@ mod tests {
         let ml_point1 = MultilinearPoint(vec![F::ONE]);
         let ml_point2 = MultilinearPoint(vec![F::ZERO]);
 
-        assert_eq!(ml_point1.eq_poly_outside(&ml_point2), F::ZERO);
+        assert_eq!(ml_point1.eq_poly(&ml_point2), F::ZERO);
     }
 
     #[test]
@@ -351,7 +356,7 @@ mod tests {
         let ml_point2 = MultilinearPoint(vec![x10, x11, x12, x13]);
 
         // Compute the equality polynomial between ml_point1 and ml_point2
-        let result = ml_point1.eq_poly_outside(&ml_point2);
+        let result = ml_point1.eq_poly(&ml_point2);
 
         // Manually compute the expected result of the equality polynomial:
         // eq(c, p) = ∏ (c_i * p_i + (1 - c_i) * (1 - p_i))
@@ -388,7 +393,7 @@ mod tests {
             F::ZERO,
         ]);
 
-        assert_eq!(ml_point1.eq_poly_outside(&ml_point2), F::ONE);
+        assert_eq!(ml_point1.eq_poly(&ml_point2), F::ONE);
     }
 
     #[test]
@@ -414,7 +419,7 @@ mod tests {
             F::ONE, // Last bit differs
         ]);
 
-        assert_eq!(ml_point1.eq_poly_outside(&ml_point2), F::ZERO);
+        assert_eq!(ml_point1.eq_poly(&ml_point2), F::ZERO);
     }
 
     #[test]
@@ -422,7 +427,7 @@ mod tests {
         let ml_point1 = MultilinearPoint::<F>(vec![]);
         let ml_point2 = MultilinearPoint::<F>(vec![]);
 
-        assert_eq!(ml_point1.eq_poly_outside(&ml_point2), F::ONE);
+        assert_eq!(ml_point1.eq_poly(&ml_point2), F::ONE);
     }
 
     #[test]
@@ -432,7 +437,7 @@ mod tests {
         let ml_point2 = MultilinearPoint(vec![F::ONE, F::ZERO, F::ONE]);
 
         // Should panic because lengths do not match
-        let _ = ml_point1.eq_poly_outside(&ml_point2);
+        let _ = ml_point1.eq_poly(&ml_point2);
     }
 
     #[test]
@@ -608,7 +613,7 @@ mod tests {
         const K: usize = 20; // Number of trials
         const N: usize = 10; // Number of variables
 
-        let mut rng = rng();
+        let mut rng = SmallRng::seed_from_u64(1);
 
         let mut all_same_count = 0;
 
@@ -641,8 +646,8 @@ mod tests {
             let p1 = MultilinearPoint(coords1.iter().copied().map(F::from_u8).collect());
             let p2 = MultilinearPoint(coords2.iter().copied().map(F::from_u8).collect());
 
-            // Evaluate eq_poly_outside
-            let result = p1.eq_poly_outside(&p2);
+            // Evaluate eq_poly
+            let result = p1.eq_poly(&p2);
 
             // Compute expected value using manual formula:
             // eq(c, p) = ∏ (c_i * p_i + (1 - c_i)(1 - p_i))

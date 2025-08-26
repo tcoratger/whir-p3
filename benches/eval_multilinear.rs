@@ -28,7 +28,7 @@ fn bench_eval_multilinear(c: &mut Criterion) {
                 let evals_list = EvaluationsList::new(evals_vec);
 
                 let point_vec: Vec<EF4> = (0..n_vars).map(|_| rng.random()).collect();
-                let point = MultilinearPoint(point_vec);
+                let point = MultilinearPoint::new(point_vec);
 
                 (evals_list, point)
             };
