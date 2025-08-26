@@ -504,7 +504,9 @@ mod tests {
         // - `r_skip`.
         let num_remaining = num_vars - K_SKIP_SUMCHECK;
         let r_rest = final_point.get_subpoint_over_range(0..num_remaining);
-        let r_skip = *final_point.last_variable().expect("skip challenge must be present");
+        let r_skip = *final_point
+            .last_variable()
+            .expect("skip challenge must be present");
 
         // b) Reshape the W_0(X) evaluation table into a matrix.
         let w0_mat = RowMajorMatrix::new(w0_combined.to_vec(), 1 << num_remaining);

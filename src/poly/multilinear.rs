@@ -1,4 +1,5 @@
 use core::ops::{Index, Range};
+
 use p3_field::Field;
 use rand::{
     Rng,
@@ -151,7 +152,6 @@ where
         Self((0..num_variables).map(|_| rng.random()).collect())
     }
 }
-
 
 impl<'a, F> IntoIterator for &'a MultilinearPoint<F> {
     type Item = &'a F;
