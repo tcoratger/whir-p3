@@ -34,12 +34,6 @@ where
         self.0.iter()
     }
 
-    /// Return a mutable iterator over the field elements making up the point.
-    #[inline]
-    pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, F> {
-        self.0.iter_mut()
-    }
-
     /// Return a sub-point over the specified range of variables.
     #[inline]
     #[must_use]
@@ -164,14 +158,6 @@ impl<'a, F> IntoIterator for &'a MultilinearPoint<F> {
     type IntoIter = std::slice::Iter<'a, F>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
-    }
-}
-
-impl<'a, F> IntoIterator for &'a mut MultilinearPoint<F> {
-    type Item = &'a mut F;
-    type IntoIter = std::slice::IterMut<'a, F>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter_mut()
     }
 }
 
