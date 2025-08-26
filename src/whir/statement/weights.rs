@@ -452,7 +452,7 @@ mod tests {
         // - r_skip is the single challenge for the combined (X0, X1) domain.
         let r_rest = MultilinearPoint(vec![EF4::from_u32(5)]);
         let r_skip = EF4::from_u32(7);
-        let r_all = MultilinearPoint([r_rest.0.as_slice(), &[r_skip]].concat());
+        let r_all = MultilinearPoint([r_rest.as_slice(), &[r_skip]].concat());
 
         // ACTION: Compute W(r) using the function under test.
         let result = weights.compute_with_skip(&r_all, k_skip);
@@ -521,7 +521,7 @@ mod tests {
         // - r_skip for the combined (X0, X1) domain.
         let r_rest = MultilinearPoint(vec![EF4::from_u32(5)]);
         let r_skip = EF4::from_u32(7);
-        let r_all = MultilinearPoint([r_rest.0.as_slice(), &[r_skip]].concat());
+        let r_all = MultilinearPoint([r_rest.as_slice(), &[r_skip]].concat());
 
         // ACTION: Compute W(r) using the function under test.
         let result = weights.compute_with_skip(&r_all, k_skip);
