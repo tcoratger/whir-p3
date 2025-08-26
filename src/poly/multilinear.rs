@@ -1,9 +1,9 @@
+use core::ops::{Index, Range};
 use p3_field::Field;
 use rand::{
     Rng,
     distr::{Distribution, StandardUniform},
 };
-use core::ops::{Index, Range};
 
 /// A point `(x_1, ..., x_n)` in `F^n` for some field `F`.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
