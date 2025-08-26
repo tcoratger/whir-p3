@@ -66,7 +66,7 @@ where
         let folding_factor = folding_randomness.num_variables();
         CoefficientList(
             self.par_chunks_exact(1 << folding_factor)
-                .map(|coeffs| eval_multivariate(coeffs, folding_randomness.as_slice()))
+                .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
                 .collect(),
         )
     }
@@ -100,13 +100,13 @@ impl<F> Deref for CoefficientList<F> {
 /// ```
 ///
 /// where `P_0` and `P_1` are the even-indexed and odd-indexed coefficient subsets.
-fn eval_multivariate<F, EF>(coeffs: &[F], point: &[EF]) -> EF
+fn eval_multivariate<F, EF>(coeffs: &[F], point: &MultilinearPoint<EF>) -> EF
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    debug_assert_eq!(coeffs.len(), 1 << point.len());
-    match point {
+    debug_assert_eq!(coeffs.len(), 1 << point.num_variables());
+    match point.as_slice() {
         [] => coeffs[0].into(),
         [x] => *x * coeffs[1] + coeffs[0],
         [x0, x1] => {
@@ -141,16 +141,20 @@ where
             b0 + b1 * *x0
         }
         [x, tail @ ..] => {
+            let sub_point = MultilinearPoint(tail.to_vec());
             let (b0t, b1t) = coeffs.split_at(coeffs.len() / 2);
             let (b0t, b1t) = {
                 let work_size: usize = (1 << 15) / size_of::<F>();
                 if coeffs.len() > work_size {
                     join(
-                        || eval_multivariate(b0t, tail),
-                        || eval_multivariate(b1t, tail),
+                        || eval_multivariate(b0t, &sub_point),
+                        || eval_multivariate(b1t, &sub_point),
                     )
                 } else {
-                    (eval_multivariate(b0t, tail), eval_multivariate(b1t, tail))
+                    (
+                        eval_multivariate(b0t, &sub_point),
+                        eval_multivariate(b1t, &sub_point),
+                    )
                 }
             };
             b0t + b1t * *x
@@ -354,6 +358,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use p3_baby_bear::BabyBear;
     use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use proptest::prelude::*;
@@ -705,20 +711,23 @@ mod tests {
         let x0 = F::from_u64(5);
         let x1 = F::from_u64(7);
 
-        let eval_extension = eval_multivariate(&coeffs, &[EF4::from(x0), EF4::from(x1)]);
+        let eval_extension = eval_multivariate(
+            &coeffs,
+            &MultilinearPoint(vec![EF4::from(x0), EF4::from(x1)]),
+        );
         let expected = c0 + c1 * x1 + c2 * x0 + c3 * x0 * x1;
 
         assert_eq!(eval_extension, EF4::from(expected));
 
         // Compare with base field evaluation
-        let eval_base = eval_multivariate(&coeffs, &[x0, x1]);
+        let eval_base = eval_multivariate(&coeffs, &MultilinearPoint(vec![x0, x1]));
         assert_eq!(eval_extension, EF4::from(eval_base));
 
         // Now test with some random extension points
         let e: EF4 = rng.random();
         let f: EF4 = rng.random();
 
-        let eval = eval_multivariate(&coeffs, &[e, f]);
+        let eval = eval_multivariate(&coeffs, &MultilinearPoint(vec![e, f]));
 
         let expected =
             EF4::from(c0) + EF4::from(c1) * f + EF4::from(c2) * e + EF4::from(c3) * e * f;
@@ -733,7 +742,7 @@ mod tests {
 
         let points: Vec<EF4> = vec![]; // Zero variables
 
-        let result = eval_multivariate(&coeffs, &points);
+        let result = eval_multivariate(&coeffs, &MultilinearPoint(points));
         assert_eq!(result, EF4::from(c));
     }
 
@@ -747,7 +756,7 @@ mod tests {
         ];
         let zeros = vec![EF4::ZERO, EF4::ZERO];
 
-        let result = eval_multivariate(&coeffs, &zeros);
+        let result = eval_multivariate(&coeffs, &MultilinearPoint(zeros));
         assert_eq!(result, EF4::from(coeffs[0])); // Only constant survives
     }
 
@@ -761,7 +770,7 @@ mod tests {
         ];
 
         let one = EF4::ONE;
-        let result = eval_multivariate(&coeffs, &[one, one]);
+        let result = eval_multivariate(&coeffs, &MultilinearPoint(vec![one, one]));
 
         let expected = EF4::from(coeffs[0])
             + EF4::from(coeffs[1])
@@ -805,7 +814,7 @@ mod tests {
         .unwrap(); // x₂ is a custom EF4 element
 
         // Evaluate the multilinear polynomial at (x₀, x₁, x₂)
-        let result = eval_multivariate(&coeffs, &[x0, x1, x2]);
+        let result = eval_multivariate(&coeffs, &MultilinearPoint(vec![x0, x1, x2]));
 
         // Manually expand the expected result:
         //
