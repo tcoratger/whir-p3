@@ -106,7 +106,7 @@ where
     where
         EF: ExtensionField<F>,
     {
-        eval_multilinear(self, point.as_slice())
+        eval_multilinear(self, point)
     }
 
     /// Evaluates the polynomial as a constant.
@@ -156,7 +156,7 @@ where
         let folding_factor = folding_randomness.num_variables();
         let evals = self
             .par_chunks_exact(1 << folding_factor)
-            .map(|ev| eval_multilinear(ev, folding_randomness.as_slice()))
+            .map(|ev| eval_multilinear(ev, folding_randomness))
             .collect();
 
         EvaluationsList(evals)
@@ -238,7 +238,7 @@ impl<F> DerefMut for EvaluationsList<F> {
 /// - `evals`: A slice containing the `2^n` evaluations of the polynomial over the boolean
 ///   hypercube, ordered lexicographically. For `n=2`, the order is `f(0,0), f(0,1), f(1,0), f(1,1)`.
 /// - `point`: A slice containing the `n` coordinates of the point `p` at which to evaluate.
-fn eval_multilinear<F, EF>(evals: &[F], point: &[EF]) -> EF
+fn eval_multilinear<F, EF>(evals: &[F], point: &MultilinearPoint<EF>) -> EF
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -246,10 +246,10 @@ where
     // Ensure that the number of evaluations matches the number of variables in the point.
     //
     // This is a critical invariant: `evals.len()` must be exactly `2^point.len()`.
-    debug_assert_eq!(evals.len(), 1 << point.len());
+    debug_assert_eq!(evals.len(), 1 << point.num_variables());
 
     // Select the optimal evaluation strategy based on the number of variables.
-    match point {
+    match point.as_slice() {
         // Case: 0 Variables (Constant Polynomial)
         //
         // A polynomial with zero variables is just a constant.
@@ -311,18 +311,18 @@ where
             // For a very large number of variables, the recursive approach is not the most efficient.
             //
             // We switch to a more direct, non-recursive algorithm that is better suited for wide parallelization.
-            if point.len() >= MLE_RECURSION_THRESHOLD {
+            if point.num_variables() >= MLE_RECURSION_THRESHOLD {
                 // The `evals` are ordered lexicographically, meaning the first variable's bit changes the slowest.
                 //
                 // To align our computation with this memory layout, we process the point's coordinates in reverse.
-                let mut point_rev = point.to_vec();
-                point_rev.reverse();
+                let mut point_rev = point.clone();
+                point_rev.0.reverse();
 
                 // Split the reversed point's coordinates into two halves:
                 // - `z0` (low-order vars)
                 // - `z1` (high-order vars).
-                let mid = point_rev.len() / 2;
-                let (z0, z1) = point_rev.split_at(mid);
+                let mid = point_rev.num_variables() / 2;
+                let (z0, z1) = point_rev.0.split_at(mid);
 
                 // Precomputation of Basis Polynomials
                 //
@@ -365,6 +365,9 @@ where
                     })
                     .sum()
             } else {
+                // Create a new point with the remaining coordinates.
+                let sub_point = MultilinearPoint(tail.to_vec());
+
                 // For moderately sized inputs (5 to 19 variables), use the recursive strategy.
                 //
                 // Split the evaluations into two halves, corresponding to the first variable being 0 or 1.
@@ -376,10 +379,16 @@ where
                     // the overhead of threading.
                     let work_size: usize = (1 << 15) / std::mem::size_of::<F>();
                     if evals.len() > work_size {
-                        join(|| eval_multilinear(f0, tail), || eval_multilinear(f1, tail))
+                        join(
+                            || eval_multilinear(f0, &sub_point),
+                            || eval_multilinear(f1, &sub_point),
+                        )
                     } else {
                         // For smaller subproblems, execute sequentially.
-                        (eval_multilinear(f0, tail), eval_multilinear(f1, tail))
+                        (
+                            eval_multilinear(f0, &sub_point),
+                            eval_multilinear(f1, &sub_point),
+                        )
                     }
                 };
                 // Perform the final linear interpolation for the first variable `x`.
@@ -517,7 +526,7 @@ mod tests {
         let result = evals.evaluate(&point);
 
         // Expected result using `eval_multilinear`
-        let expected = eval_multilinear(&evals, point.as_slice());
+        let expected = eval_multilinear(&evals, &point);
 
         assert_eq!(result, expected);
     }
@@ -532,7 +541,10 @@ mod tests {
         let x = F::from_u64(1) / F::from_u64(2);
         let expected = a + (b - a) * x;
 
-        assert_eq!(eval_multilinear(&evals, &[x]), expected);
+        assert_eq!(
+            eval_multilinear(&evals, &MultilinearPoint(vec![x])),
+            expected
+        );
     }
 
     #[test]
@@ -557,7 +569,10 @@ mod tests {
             + x * (F::ONE - y) * b
             + x * y * d;
 
-        assert_eq!(eval_multilinear(&evals, &[x, y]), expected);
+        assert_eq!(
+            eval_multilinear(&evals, &MultilinearPoint(vec![x, y])),
+            expected
+        );
     }
 
     #[test]
@@ -590,7 +605,10 @@ mod tests {
             + x * y * (F::ONE - z) * g
             + x * y * z * h;
 
-        assert_eq!(eval_multilinear(&evals, &[x, y, z]), expected);
+        assert_eq!(
+            eval_multilinear(&evals, &MultilinearPoint(vec![x, y, z])),
+            expected
+        );
     }
 
     #[test]
@@ -639,7 +657,10 @@ mod tests {
             + x * y * z * w * p;
 
         // Validate against the function output
-        assert_eq!(eval_multilinear(&evals, &[x, y, z, w]), expected);
+        assert_eq!(
+            eval_multilinear(&evals, &MultilinearPoint(vec![x, y, z, w])),
+            expected
+        );
     }
 
     proptest! {
