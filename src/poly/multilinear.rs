@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use p3_field::{ExtensionField, Field};
+use p3_field::Field;
 use rand::{
     Rng,
     distr::{Distribution, StandardUniform},
@@ -116,18 +116,6 @@ where
         }
 
         acc
-    }
-
-    /// Embeds the point into an extension field `EF`.
-    #[must_use]
-    pub fn embed<EF: ExtensionField<F>>(&self) -> MultilinearPoint<EF> {
-        MultilinearPoint(self.iter().map(|&x| EF::from(x)).collect())
-    }
-}
-
-impl<F> From<F> for MultilinearPoint<F> {
-    fn from(value: F) -> Self {
-        Self(vec![value])
     }
 }
 
