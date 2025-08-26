@@ -713,8 +713,8 @@ where
 
     // - r0 is the **last** element (skip challenge),
     // - "rest" are the first n-k challenges for the remaining variables.
-    let r0 = *r_all.last().unwrap();
-    let rest = r_all.get_range(0..(n - k_skip));
+    let r0 = *r_all.last_variable().unwrap();
+    let rest = r_all.get_subpoint_over_range(0..(n - k_skip));
 
     // Reshape f into 2^k × 2^{n-k}, interpolate along the skipped dimension at r0,
     // then evaluate the resulting EF-table on the remaining variables.

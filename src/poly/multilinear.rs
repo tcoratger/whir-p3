@@ -28,25 +28,31 @@ where
         &self.0
     }
 
+    /// Return an iterator over the field elements making up the point.
     #[inline]
     pub fn iter(&self) -> core::slice::Iter<'_, F> {
         self.0.iter()
     }
 
+    /// Return a mutable iterator over the field elements making up the point.
     #[inline]
     pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, F> {
         self.0.iter_mut()
     }
 
+    /// Return a sub-point over the specified range of variables.
     #[inline]
     #[must_use]
-    pub fn get_range(&self, idx: Range<usize>) -> Self {
+    pub fn get_subpoint_over_range(&self, idx: Range<usize>) -> Self {
         Self(self.0[idx].to_vec())
     }
 
+    /// Return a reference to the last variable in the point, if it exists.
+    ///
+    /// Returns None if the point is empty.
     #[inline]
     #[must_use]
-    pub fn last(&self) -> Option<&F> {
+    pub fn last_variable(&self) -> Option<&F> {
         self.0.last()
     }
 
