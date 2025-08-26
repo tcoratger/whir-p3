@@ -106,7 +106,7 @@ where
     where
         EF: ExtensionField<F>,
     {
-        eval_multilinear(self, point)
+        eval_multilinear(self, point.as_slice())
     }
 
     /// Evaluates the polynomial as a constant.
@@ -156,7 +156,7 @@ where
         let folding_factor = folding_randomness.num_variables();
         let evals = self
             .par_chunks_exact(1 << folding_factor)
-            .map(|ev| eval_multilinear(ev, folding_randomness))
+            .map(|ev| eval_multilinear(ev, folding_randomness.as_slice()))
             .collect();
 
         EvaluationsList(evals)
@@ -517,7 +517,7 @@ mod tests {
         let result = evals.evaluate(&point);
 
         // Expected result using `eval_multilinear`
-        let expected = eval_multilinear(&evals, &point);
+        let expected = eval_multilinear(&evals, point.as_slice());
 
         assert_eq!(result, expected);
     }

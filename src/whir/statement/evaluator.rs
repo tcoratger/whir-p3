@@ -72,7 +72,7 @@ impl ConstraintPolyEvaluator {
             // take a prefix of length `vars_left`.
             let point_for_round = if round_idx > 0 {
                 vars_left -= self.folding_factor.at_round(round_idx - 1);
-                MultilinearPoint(point[..vars_left].to_vec())
+                point.get_subpoint_over_range(0..vars_left)
             } else {
                 point.clone()
             };
@@ -253,7 +253,7 @@ mod tests {
         // Combine the constraints for the second round using its alpha.
         let (w1_combined, _) = statements[1].combine::<F>(alphas[1]);
         // The domain has shrunk. The evaluation point is the first 15 variables of the full point.
-        let point_round1 = MultilinearPoint(final_point[..15].to_vec());
+        let point_round1 = final_point.get_subpoint_over_range(0..15);
         // Add the contribution from this round.
         expected_result += w1_combined.evaluate(&point_round1);
 
@@ -262,7 +262,7 @@ mod tests {
         // Combine the constraints for the third round.
         let (w2_combined, _) = statements[2].combine::<F>(alphas[2]);
         // The domain shrinks again. The evaluation point is the first 10 variables of the full point.
-        let point_round2 = MultilinearPoint(final_point[..10].to_vec());
+        let point_round2 = final_point.get_subpoint_over_range(0..10);
         // Add the contribution from this round.
         expected_result += w2_combined.evaluate(&point_round2);
 
@@ -389,7 +389,7 @@ mod tests {
                 let (w_combined, _) = statements[i].combine::<F>(alphas[i]);
 
                 // Create the challenge point for this round by taking a prefix slice of the full point `r`.
-                let point_for_round = MultilinearPoint(final_point[..num_vars_for_round].to_vec());
+                let point_for_round = final_point.get_subpoint_over_range(0..num_vars_for_round);
                 // Evaluate `W_i` at the correctly sliced point.
                 let w_eval = w_combined.evaluate(&point_for_round);
 
@@ -503,8 +503,10 @@ mod tests {
         // - `r_rest`,
         // - `r_skip`.
         let num_remaining = num_vars - K_SKIP_SUMCHECK;
-        let r_rest = MultilinearPoint(final_point[..num_remaining].to_vec());
-        let r_skip = *final_point.last().expect("skip challenge must be present");
+        let r_rest = final_point.get_subpoint_over_range(0..num_remaining);
+        let r_skip = *final_point
+            .last_variable()
+            .expect("skip challenge must be present");
 
         // b) Reshape the W_0(X) evaluation table into a matrix.
         let w0_mat = RowMajorMatrix::new(w0_combined.to_vec(), 1 << num_remaining);
@@ -519,17 +521,17 @@ mod tests {
         // --- Contribution from Round 1 (Standard Round) ---
         let (w1_combined, _) = statements[1].combine::<F>(alphas[1]);
         // For subsequent rounds, the evaluation point is a prefix slice of the `r_rest` challenges.
-        let point_round1 = MultilinearPoint(r_rest[..statements[1].num_variables()].to_vec());
+        let point_round1 = r_rest.get_subpoint_over_range(0..statements[1].num_variables());
         expected_result += w1_combined.evaluate(&point_round1);
 
         // --- Contribution from Round 2 (Standard Round) ---
         let (w2_combined, _) = statements[2].combine::<F>(alphas[2]);
-        let point_round2 = MultilinearPoint(r_rest[..statements[2].num_variables()].to_vec());
+        let point_round2 = r_rest.get_subpoint_over_range(0..statements[2].num_variables());
         expected_result += w2_combined.evaluate(&point_round2);
 
         // --- Contribution from Round 3 (Standard Round) ---
         let (w3_combined, _) = statements[3].combine::<F>(alphas[3]);
-        let point_round3 = MultilinearPoint(r_rest[..statements[3].num_variables()].to_vec());
+        let point_round3 = r_rest.get_subpoint_over_range(0..statements[3].num_variables());
         expected_result += w3_combined.evaluate(&point_round3);
 
         // The result from the recursive function must match the materialized ground truth.
@@ -639,8 +641,9 @@ mod tests {
             let (w0_combined, _) = statements[0].combine::<F>(alphas[0]);
             // Evaluate W_0(r) using the manual skip evaluation pipeline.
             let num_remaining = n - K_SKIP_SUMCHECK;
-            let r_rest = MultilinearPoint(final_point[..num_remaining].to_vec());
-            let r_skip = *final_point.last().expect("skip challenge must be present");
+            let r_rest = final_point.get_subpoint_over_range(0..num_remaining);
+            let r_skip = *final_point.last_variable().expect("skip challenge must be present");
+
             let w0_mat = RowMajorMatrix::new(w0_combined.to_vec(), 1 << num_remaining);
             let folded_row = interpolate_subgroup(&w0_mat, r_skip);
             let w0_eval = EvaluationsList::new(folded_row).evaluate(&r_rest);
@@ -655,7 +658,7 @@ mod tests {
                 let (w_combined, _) = statements[i].combine::<F>(alphas[i]);
 
                 // Evaluate `W_i` at the correct prefix slice of the `r_rest` challenges.
-                let point_for_round = MultilinearPoint(r_rest[..num_vars_for_round].to_vec());
+                let point_for_round = r_rest.get_subpoint_over_range(0..num_vars_for_round);
                 let w_eval = w_combined.evaluate(&point_for_round);
 
                 // Add this round's contribution to the total.

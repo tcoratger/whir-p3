@@ -53,7 +53,7 @@ impl<F: Field> Weights<F> {
 
     /// Returns the number of variables involved in the weight function.
     #[must_use]
-    pub fn num_variables(&self) -> usize {
+    pub const fn num_variables(&self) -> usize {
         match self {
             Self::Evaluation { point } => point.num_variables(),
             Self::Linear { weight } => weight.num_variables(),
@@ -127,7 +127,7 @@ impl<F: Field> Weights<F> {
         assert_eq!(accumulator.num_variables(), self.num_variables());
         match self {
             Self::Evaluation { point } => {
-                eval_eq::<Base, F, INITIALIZED>(point, accumulator, factor);
+                eval_eq::<Base, F, INITIALIZED>(point.as_slice(), accumulator, factor);
             }
             Self::Linear { weight } => {
                 accumulator
@@ -225,7 +225,7 @@ impl<F: Field> Weights<F> {
 
                 // Construct the evaluation table for the polynomial eq_z(X).
                 let mut evals = EvaluationsList::new(F::zero_vec(1 << n));
-                eval_eq::<_, _, false>(point, &mut evals, F::ONE);
+                eval_eq::<_, _, false>(point.as_slice(), &mut evals, F::ONE);
                 evals
             }
         };
@@ -375,7 +375,7 @@ mod tests {
 
         // Compute expected result manually
         let mut expected = vec![F::ZERO, F::ZERO];
-        eval_eq::<_, _, true>(&point, &mut expected, factor);
+        eval_eq::<_, _, true>(point.as_slice(), &mut expected, factor);
 
         assert_eq!(&*accumulator, &expected);
     }

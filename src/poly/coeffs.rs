@@ -66,7 +66,7 @@ where
         let folding_factor = folding_randomness.num_variables();
         CoefficientList(
             self.par_chunks_exact(1 << folding_factor)
-                .map(|coeffs| eval_multivariate(coeffs, folding_randomness))
+                .map(|coeffs| eval_multivariate(coeffs, folding_randomness.as_slice()))
                 .collect(),
         )
     }
@@ -78,7 +78,7 @@ where
     #[instrument(skip_all, fields(size = point.num_variables()), level = "debug")]
     pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables(), point.num_variables());
-        eval_extension_par(self, point)
+        eval_extension_par(self, point.as_slice())
     }
 }
 
