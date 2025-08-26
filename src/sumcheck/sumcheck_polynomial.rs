@@ -3,6 +3,12 @@ use p3_maybe_rayon::prelude::*;
 
 use crate::poly::multilinear::MultilinearPoint;
 
+/// A constant to determine when to switch from sequential to parallel execution.
+///
+/// Through benchmarking, 12 variables is a good crossover point
+/// where the overhead of thread management becomes worth the performance gain.
+const PARALLEL_THRESHOLD: usize = 12;
+
 /// Represents a univariate polynomial returned by a sumcheck round.
 ///
 /// This structure holds the evaluations of a univariate polynomial `h(X)` that the
@@ -131,67 +137,77 @@ where
             return self.evaluations.first().copied().unwrap_or(F::ZERO);
         }
 
+        // Ping-Pong Buffer Strategy:
+        //
+        // We allocate two buffers upfront to avoid allocations in the loop.
+
         // Start with the full set of evaluations.
-        let mut evals = self.evaluations.clone();
+        let mut current_evals = self.evaluations.clone();
+        // The destination buffer for the next folded state.
+        let mut next_evals = vec![F::ZERO; self.evaluations.len() / 3];
 
         // Iteratively fold the evaluation table one dimension at a time.
         //
         // We iterate in reverse to process from the last variable (fastest-moving index) to the first.
-        for &p_i in point.iter().rev() {
-            // Pre-compute Lagrange evaluations for the current point coordinate p_i.
+        for (i, &p_i) in point.iter().rev().enumerate() {
             let p_i_min_1 = p_i - F::ONE;
             let p_i_sq_min_p_i = p_i * p_i_min_1;
             let lagrange_evals = [
-                // L_0(p_i)
+                // L_0(p_i) = (p_i - 1)(p_i - 2) / 2
                 //
-                // (val - 1)(val - 2) / 2
-                // = (val^2 - 3val + 2)/2
-                // = (val^2 - val - 2val + 2)/2
-                // = (val(val-1) - 2(val-1))/2
-                // = val(val-1)/2 - (val-1)
+                // (p_i - 1)(p_i - 2) / 2
+                // = (p_i^2 - p_i + 2)/2
+                // = (p_i^2 - p_i - p_i + 2)/2
+                // = (p_i(p_i-1) - 2(p_i-1))/2
+                // = p_i(p_i-1)/2 - (p_i-1)
                 p_i_sq_min_p_i.halve() - p_i_min_1,
-                // L_1(p_i)
+                // L_1(p_i) = -p_i(p_i - 2)
                 //
-                // -val * (val - 2) = -val^2 + 2val = -val(val-1) + val
+                // -p_i * (p_i - 2)
+                // = -p_i^2 + p_i
+                // = -p_i(p_i-1) + val
                 p_i - p_i_sq_min_p_i,
-                // L_2(p_i)
+                // L_2(p_i) = p_i(p_i - 1) / 2
                 //
-                // val * (val - 1) / 2
+                // p_i * (p_i - 1) / 2
                 p_i_sq_min_p_i.halve(),
             ];
 
-            // The size of the table for the remaining variables.
-            let next_size = evals.len() / 3;
-
-            // Create the next, smaller evaluation table.
-            let mut next_evals = F::zero_vec(next_size);
-
-            // Compute the weighted sum for each entry in the new table.
-            //
-            // Via experimentations, it was found that:
-            // - For < 12 variables, the sequential version is faster.
-            // - For >= 12 variables, the parallel version is faster.
-            //
-            // TODO: we may define a constant for this.
-            if n_vars < 12 {
-                next_evals.iter_mut().enumerate().for_each(|(j, res)| {
-                    *res = evals[3 * j] * lagrange_evals[0]
-                        + evals[3 * j + 1] * lagrange_evals[1]
-                        + evals[3 * j + 2] * lagrange_evals[2];
-                });
+            // Determine the source and destination buffers for this iteration.
+            let (source, dest) = if i % 2 == 0 {
+                (&current_evals, &mut next_evals)
             } else {
-                next_evals.par_iter_mut().enumerate().for_each(|(j, res)| {
-                    *res = evals[3 * j] * lagrange_evals[0]
-                        + evals[3 * j + 1] * lagrange_evals[1]
-                        + evals[3 * j + 2] * lagrange_evals[2];
-                });
-            }
+                (&next_evals, &mut current_evals)
+            };
 
-            evals = next_evals;
+            // Ensure the destination buffer is the correct size for this folding step.
+            let next_size = source.len() / 3;
+            dest.resize(next_size, F::ZERO);
+
+            // The core computation: fold one dimension.
+            let compute_fold = |(j, res): (usize, &mut F)| {
+                *res = source[3 * j] * lagrange_evals[0]
+                    + source[3 * j + 1] * lagrange_evals[1]
+                    + source[3 * j + 2] * lagrange_evals[2];
+            };
+
+            // Use parallel execution for large inputs, sequential for small ones.
+            if n_vars > PARALLEL_THRESHOLD {
+                dest.par_iter_mut().enumerate().for_each(compute_fold);
+            } else {
+                dest.iter_mut().enumerate().for_each(compute_fold);
+            }
         }
 
         // After all dimensions are folded, only one value remains.
-        evals[0]
+        // The final result is in one of the two buffers, depending on n_vars.
+        if n_vars.is_multiple_of(2) {
+            // After an even number of folds, the result is back in `current_evals`.
+            current_evals[0]
+        } else {
+            // After an odd number of folds, the result is in `next_evals`.
+            next_evals[0]
+        }
     }
 }
 
