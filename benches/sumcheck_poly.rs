@@ -16,14 +16,14 @@ fn benchmark_evaluation(c: &mut Criterion) {
     let mut rng = rand::rng();
 
     // Define a range of dimensions to benchmark.
-    for &n_vars in [5, 10, 11, 12, 13, 14, 15].iter() {
+    for &n_vars in &[5, 10, 11, 12, 13, 14, 15] {
         let num_evals = 3usize.pow(n_vars as u32);
 
         let evaluations: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
         let poly = SumcheckPolynomial::new(evaluations, n_vars);
         let point = MultilinearPoint::rand(&mut rng, n_vars);
 
-        let id = BenchmarkId::from_parameter(format!("n_vars={}", n_vars));
+        let id = BenchmarkId::from_parameter(format!("n_vars={n_vars}"));
 
         group.bench_with_input(id, &(poly, point), |b, (poly, point)| {
             b.iter(|| {

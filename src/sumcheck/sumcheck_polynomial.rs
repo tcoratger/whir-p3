@@ -187,7 +187,7 @@ where
                         + evals[3 * j + 1] * lagrange_evals[1]
                         + evals[3 * j + 2] * lagrange_evals[2];
                 });
-            };
+            }
 
             evals = next_evals;
         }
