@@ -187,9 +187,7 @@ where
 
             // The core computation, defined as a lambda to avoid duplication.
             let compute_fold = |(res, chunk): (&mut F, &[F])| {
-                *res = chunk[0] * lagrange_evals[0]
-                    + chunk[1] * lagrange_evals[1]
-                    + chunk[2] * lagrange_evals[2];
+                *res = F::dot_product(chunk.try_into().unwrap(), &lagrange_evals);
             };
 
             // Use parallel execution for large inputs, sequential for small ones.
