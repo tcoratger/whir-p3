@@ -183,7 +183,7 @@ where
 
             // Ensure the destination buffer is the correct size for this folding step.
             let next_size = source.len() / 3;
-            dest.resize(next_size, F::ZERO);
+            dest.truncate(next_size);
 
             // The core computation: fold one dimension.
             let compute_fold = |(j, res): (usize, &mut F)| {
