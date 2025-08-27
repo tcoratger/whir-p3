@@ -144,7 +144,7 @@ where
         // Start with the full set of evaluations.
         let mut current_evals = self.evaluations.clone();
         // The destination buffer for the next folded state.
-        let mut next_evals = vec![F::ZERO; self.evaluations.len() / 3];
+        let mut next_evals = F::zero_vec(self.evaluations.len() / 3);
 
         // Iteratively fold the evaluation table one dimension at a time.
         //
@@ -152,6 +152,7 @@ where
         for (i, &p_i) in point.iter().rev().enumerate() {
             let p_i_min_1 = p_i - F::ONE;
             let p_i_sq_min_p_i = p_i * p_i_min_1;
+            let p_i_sq_min_p_i_halve = p_i_sq_min_p_i.halve();
             let lagrange_evals = [
                 // L_0(p_i) = (p_i - 1)(p_i - 2) / 2
                 //
@@ -160,7 +161,7 @@ where
                 // = (p_i^2 - p_i - p_i + 2)/2
                 // = (p_i(p_i-1) - 2(p_i-1))/2
                 // = p_i(p_i-1)/2 - (p_i-1)
-                p_i_sq_min_p_i.halve() - p_i_min_1,
+                p_i_sq_min_p_i_halve - p_i_min_1,
                 // L_1(p_i) = -p_i(p_i - 2)
                 //
                 // -p_i * (p_i - 2)
@@ -170,11 +171,11 @@ where
                 // L_2(p_i) = p_i(p_i - 1) / 2
                 //
                 // p_i * (p_i - 1) / 2
-                p_i_sq_min_p_i.halve(),
+                p_i_sq_min_p_i_halve,
             ];
 
             // Determine the source and destination buffers for this iteration.
-            let (source, dest) = if i % 2 == 0 {
+            let (source, dest) = if i.is_multiple_of(2) {
                 (&current_evals, &mut next_evals)
             } else {
                 (&next_evals, &mut current_evals)
