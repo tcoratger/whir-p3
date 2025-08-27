@@ -185,18 +185,22 @@ where
             let next_size = source.len() / 3;
             dest.truncate(next_size);
 
-            // The core computation: fold one dimension.
-            let compute_fold = |(j, res): (usize, &mut F)| {
-                *res = source[3 * j] * lagrange_evals[0]
-                    + source[3 * j + 1] * lagrange_evals[1]
-                    + source[3 * j + 2] * lagrange_evals[2];
+            // The core computation, defined as a lambda to avoid duplication.
+            let compute_fold = |(res, chunk): (&mut F, &[F])| {
+                *res = chunk[0] * lagrange_evals[0]
+                    + chunk[1] * lagrange_evals[1]
+                    + chunk[2] * lagrange_evals[2];
             };
 
             // Use parallel execution for large inputs, sequential for small ones.
             if n_vars > PARALLEL_THRESHOLD {
-                dest.par_iter_mut().enumerate().for_each(compute_fold);
+                dest.par_iter_mut()
+                    .zip(source.par_chunks_exact(3))
+                    .for_each(compute_fold);
             } else {
-                dest.iter_mut().enumerate().for_each(compute_fold);
+                dest.iter_mut()
+                    .zip(source.chunks_exact(3))
+                    .for_each(compute_fold);
             }
         }
 
