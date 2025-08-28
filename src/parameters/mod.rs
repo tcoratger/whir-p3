@@ -126,17 +126,17 @@ impl FoldingFactor {
 
     /// Computes the total number of folding rounds over `n_rounds` iterations.
     #[must_use]
-    pub fn total_number(&self, n_rounds: usize) -> usize {
+    pub const fn total_number(&self, n_rounds: usize) -> usize {
         match self {
             Self::Constant(factor) => {
                 // - Each round folds `factor` variables,
                 // - There are `n_rounds + 1` iterations (including the original input size).
-                factor * (n_rounds + 1)
+                *factor * (n_rounds + 1)
             }
             Self::ConstantFromSecondRound(first_round_factor, factor) => {
                 // - The first round folds `first_round_factor` variables,
                 // - Subsequent rounds fold `factor` variables each.
-                first_round_factor + factor * n_rounds
+                *first_round_factor + *factor * n_rounds
             }
         }
     }
