@@ -234,9 +234,13 @@ fn extend_point<F: Field>(
     point: MultilinearPoint<F>,
     extension: &MultilinearPoint<F>,
 ) -> MultilinearPoint<F> {
-    let mut coords: Vec<_> = point.into_iter().collect();
-    coords.extend_from_slice(extension.as_slice());
-    MultilinearPoint::new(coords)
+    let new_coords: Vec<_> = extension
+        .as_slice()
+        .iter()
+        .chain(point.iter())
+        .copied()
+        .collect();
+    MultilinearPoint::new(new_coords)
 }
 
 /// Combines a list of constraints into a single linear combination using powers of `alpha`,
