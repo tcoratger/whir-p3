@@ -1,12 +1,10 @@
 // src/whir/constraint_poly_evaluator.rs
 
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_multilinear_util::point::MultilinearPoint;
 
 use super::constraint::Constraint;
-use crate::{
-    constant::K_SKIP_SUMCHECK, parameters::FoldingFactor, poly::multilinear::MultilinearPoint,
-    whir::parameters::WhirConfig,
-};
+use crate::{constant::K_SKIP_SUMCHECK, parameters::FoldingFactor, whir::parameters::WhirConfig};
 
 /// Lightweight evaluator for the combined constraint polynomial W(r).
 #[derive(Clone, Debug)]

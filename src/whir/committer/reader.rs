@@ -179,6 +179,7 @@ mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_field::PrimeCharacteristicRing;
+    use p3_multilinear_util::point::MultilinearPoint;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -186,7 +187,7 @@ mod tests {
     use crate::{
         dft::EvalsDft,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+        poly::evals::EvaluationsList,
         whir::{DomainSeparator, committer::writer::CommitmentWriter},
     };
 
@@ -415,7 +416,7 @@ mod tests {
             let expected_eval = parsed.ood_answers[i];
 
             // Manually compute the expanded univariate point
-            let expanded = MultilinearPoint(vec![
+            let expanded = MultilinearPoint::new(vec![
                 point.exp_u64(8),
                 point.exp_u64(4),
                 point.exp_u64(2),

@@ -4,13 +4,13 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
+use p3_multilinear_util::point::MultilinearPoint;
 use tracing::{info_span, instrument};
 
 use super::Prover;
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
-    poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{RoundMerkleTree, Witness},
@@ -149,7 +149,7 @@ where
             // initial rounds of the sum-check, and the verifier directly sends
             // the initial folding randomnesses.
 
-            let folding_randomness = MultilinearPoint(
+            let folding_randomness = MultilinearPoint::new(
                 (0..prover.folding_factor.at_round(0))
                     .map(|_| prover_state.sample())
                     .collect::<Vec<_>>(),
@@ -336,7 +336,7 @@ mod tests {
         .unwrap();
 
         // Folding factor was 2, so we expect 2 sampled folding randomness values
-        assert_eq!(state.folding_randomness.0.len(), 2);
+        assert_eq!(state.folding_randomness.num_variables(), 2);
 
         // Full randomness vector should be padded up to `num_variables`
         assert_eq!(state.randomness_vec.len(), num_variables);
@@ -385,7 +385,7 @@ mod tests {
         // Add a single equality constraint to the statement: f(1,1,1) = expected value
         let mut statement = Statement::<EF4>::new(num_variables);
         statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ONE])),
+            Weights::evaluation(MultilinearPoint::new(vec![EF4::ONE, EF4::ONE, EF4::ONE])),
             f(EF4::ONE, EF4::ONE, EF4::ONE),
         );
 
@@ -438,7 +438,7 @@ mod tests {
 
         // The `folding_randomness` should store values in forward order (X0, X1, X2)
         assert_eq!(
-            state.folding_randomness.0,
+            state.folding_randomness.as_slice(),
             vec![
                 sumcheck_randomness[0],
                 sumcheck_randomness[1],
@@ -472,7 +472,7 @@ mod tests {
             let point = (0..num_variables)
                 .map(|b| EF4::from_u64(((i >> b) & 1) as u64))
                 .collect();
-            statement.add_constraint(Weights::evaluation(MultilinearPoint(point)), EF4::ZERO);
+            statement.add_constraint(Weights::evaluation(MultilinearPoint::new(point)), EF4::ZERO);
         }
 
         // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
@@ -509,7 +509,7 @@ mod tests {
         // Confirm that folding randomness matches exactly
         assert_eq!(
             state.folding_randomness,
-            MultilinearPoint(vec![sumcheck_randomness[0]])
+            MultilinearPoint::new(vec![sumcheck_randomness[0]])
         );
 
         // No Merkle commitment data for folded rounds yet
@@ -557,7 +557,7 @@ mod tests {
         // Construct a statement with one evaluation constraint at the point (1, 0, 1)
         let mut statement = Statement::<EF4>::new(num_variables);
         statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ONE])),
+            Weights::evaluation(MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE])),
             f(EF4::ONE, EF4::ZERO, EF4::ONE),
         );
 
@@ -580,7 +580,7 @@ mod tests {
         // Evaluate f at (32636, 9876, r0) and match it with the sumcheck's recovered evaluation
         let evals_f = &sumcheck.evals;
         assert_eq!(
-            evals_f.evaluate(&MultilinearPoint(vec![
+            evals_f.evaluate(&MultilinearPoint::new(vec![
                 EF4::from_u64(32636),
                 EF4::from_u64(9876)
             ])),
@@ -610,7 +610,7 @@ mod tests {
         // The folding randomness must match what was sampled by the sumcheck
         assert_eq!(
             state.folding_randomness,
-            MultilinearPoint(vec![sumcheck_randomness[0]])
+            MultilinearPoint::new(vec![sumcheck_randomness[0]])
         );
     }
 }

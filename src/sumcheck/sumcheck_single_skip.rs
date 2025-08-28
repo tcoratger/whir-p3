@@ -141,12 +141,13 @@ mod tests {
     use p3_challenger::DuplexChallenger;
     use p3_dft::NaiveDft;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_multilinear_util::point::MultilinearPoint;
     use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
-        poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
+        poly::coeffs::CoefficientList,
         whir::statement::{Statement, weights::Weights},
     };
 
@@ -350,11 +351,11 @@ mod tests {
         // Constraints
         let mut statement = Statement::new(3);
         statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO])),
+            Weights::evaluation(MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO])),
             f_extension(EF4::ZERO, EF4::ZERO, EF4::ZERO),
         );
         statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ONE])),
+            Weights::evaluation(MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE])),
             f_extension(EF4::ONE, EF4::ZERO, EF4::ONE),
         );
 

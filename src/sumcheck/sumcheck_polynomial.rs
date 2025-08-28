@@ -1,7 +1,6 @@
 use p3_field::Field;
 use p3_maybe_rayon::prelude::*;
-
-use crate::poly::multilinear::MultilinearPoint;
+use p3_multilinear_util::point::MultilinearPoint;
 
 /// A constant to determine when to switch from sequential to parallel execution.
 ///
@@ -262,7 +261,7 @@ mod tests {
     #[should_panic]
     fn test_evaluate_on_standard_domain_wrong_dimensions() {
         let poly = SumcheckPolynomial::new(vec![F::ZERO; 9], 2);
-        let point = MultilinearPoint(vec![F::ONE]); // Wrong dimension
+        let point = MultilinearPoint::new(vec![F::ONE]); // Wrong dimension
         assert_eq!(poly.evaluate_on_standard_domain(&point), F::ZERO);
     }
 
@@ -271,7 +270,7 @@ mod tests {
         let poly = SumcheckPolynomial::new(vec![F::ZERO; 9], 2);
         assert_eq!(poly.sum_over_boolean_hypercube(), F::ZERO);
 
-        let point = MultilinearPoint(vec![F::from_u64(5), F::from_u64(7)]);
+        let point = MultilinearPoint::new(vec![F::from_u64(5), F::from_u64(7)]);
         assert_eq!(poly.evaluate_on_standard_domain(&point), F::ZERO);
     }
 
@@ -405,7 +404,7 @@ mod tests {
             .collect();
         let combined_poly = SumcheckPolynomial::new(combined_evals, 2);
 
-        let point = MultilinearPoint(vec![F::from_u64(3), F::from_u64(7)]);
+        let point = MultilinearPoint::new(vec![F::from_u64(3), F::from_u64(7)]);
         let expected = poly1.evaluate_on_standard_domain(&point)
             + poly2.evaluate_on_standard_domain(&point).double();
         assert_eq!(combined_poly.evaluate_on_standard_domain(&point), expected);
@@ -421,7 +420,7 @@ mod tests {
         let poly = SumcheckPolynomial::new(evaluations, 2);
 
         // Define an evaluation point (0.5, 0.5) as an interpolation between {0,1,2}^2
-        let point = MultilinearPoint(vec![F::from_u64(1) / F::from_u64(2); 2]);
+        let point = MultilinearPoint::new(vec![F::from_u64(1) / F::from_u64(2); 2]);
 
         let result = poly.evaluate_on_standard_domain(&point);
 
@@ -446,7 +445,7 @@ mod tests {
         let poly = SumcheckPolynomial::new(evaluations, 3);
 
         // Define an interpolation point (1/2, 1/2, 1/2) in {0,1,2}^3
-        let point = MultilinearPoint(vec![F::from_u64(1) / F::from_u64(2); 3]);
+        let point = MultilinearPoint::new(vec![F::from_u64(1) / F::from_u64(2); 3]);
 
         // Compute expected evaluation:
         let expected_value = (0..27)

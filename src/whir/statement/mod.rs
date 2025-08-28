@@ -314,11 +314,11 @@ mod tests {
     #[test]
     fn test_compute_evaluation_weight() {
         // Define an evaluation weight at a specific point
-        let point = MultilinearPoint(vec![F::from_u64(3)]);
+        let point = MultilinearPoint::new(vec![F::from_u64(3)]);
         let weight = Weights::evaluation(point.clone());
 
         // Define a randomness point for folding
-        let folding_randomness = MultilinearPoint(vec![F::from_u64(2)]);
+        let folding_randomness = MultilinearPoint::new(vec![F::from_u64(2)]);
 
         // Expected result is the evaluation of eq_poly at the given randomness
         let expected = point.eq_poly(&folding_randomness);
@@ -361,7 +361,7 @@ mod tests {
 
         // Folding randomness should have no effect in linear mode
         let folding_randomness =
-            MultilinearPoint(vec![F::from_u64(3), F::from_u64(46), F::from_u64(56)]);
+            MultilinearPoint::new(vec![F::from_u64(3), F::from_u64(46), F::from_u64(56)]);
 
         // Expected result is the proper evaluation of the polynomial
         assert_eq!(
@@ -386,7 +386,7 @@ mod tests {
             let coeffs_ef: Vec<EF4> = values.iter().copied().map(EF4::from_u64).collect();
             let poly_ef = EvaluationsList::new(coeffs_ef);
 
-            let point_ef4 = MultilinearPoint(vec![
+            let point_ef4 = MultilinearPoint::new(vec![
                 EF4::from_u64(x0),
                 EF4::from_u64(x1),
                 EF4::from_u64(x2),
@@ -418,7 +418,7 @@ mod tests {
         let coeffs = CoefficientList::new(vec![c0, c1, c2, c3]);
 
         // Create the weight in Evaluation mode at point (1, 0)
-        let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
+        let point = MultilinearPoint::new(vec![F::ONE, F::ZERO]);
         let weight = Weights::evaluation(point);
 
         // Manually compute expected f(1, 0):

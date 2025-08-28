@@ -2,10 +2,11 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
 use p3_field::extension::BinomialExtensionField;
+use p3_multilinear_util::point::MultilinearPoint;
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::evals::EvaluationsList,
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::statement::{Statement, weights::Weights},
 };
