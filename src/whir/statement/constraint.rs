@@ -54,7 +54,7 @@ mod tests {
         let f = |x0: F| c0 + c1 * x0;
 
         // Define a weight enforcing evaluation at point X0 = 1
-        let point = MultilinearPoint(vec![F::ONE]);
+        let point = MultilinearPoint::new(vec![F::ONE]);
         let weights = Weights::evaluation(point);
 
         // Compute f(1):
@@ -80,7 +80,7 @@ mod tests {
         let coeffs = CoefficientList::new(vec![c0, c1]);
 
         // Weight: evaluate at X0 = 1
-        let point = MultilinearPoint(vec![F::ONE]);
+        let point = MultilinearPoint::new(vec![F::ONE]);
         let weights = Weights::evaluation(point);
 
         // Wrong sum: f(1) = 5, but sum = 6

@@ -1,8 +1,9 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
 use p3_field::extension::BinomialExtensionField;
+use p3_multilinear_util::point::MultilinearPoint;
 use rand::Rng;
-use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use whir_p3::poly::evals::EvaluationsList;
 
 type F = BabyBear;
 type EF4 = BinomialExtensionField<F, 4>;

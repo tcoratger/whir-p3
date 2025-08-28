@@ -3,13 +3,16 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::eq::{eval_eq, eval_eq_base};
+use p3_multilinear_util::{
+    eq::{eval_eq, eval_eq_base},
+    point::MultilinearPoint,
+};
 use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
     fiat_shamir::prover::ProverState,
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::evals::EvaluationsList,
     sumcheck::{
         sumcheck_single_skip::compute_skipping_sumcheck_polynomial, utils::sumcheck_quadratic,
     },
@@ -143,7 +146,7 @@ where
     // Compress polynomials and update the sum.
     let evals = join(|| compress(weights, r), || compress_ext(evals, r)).1;
 
-    *sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint(vec![r]));
+    *sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
 
     (r, evals)
 }
@@ -187,7 +190,7 @@ where
     // Compress polynomials and update the sum.
     join(|| compress(evals, r), || compress(weights, r));
 
-    *sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint(vec![r]));
+    *sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
 
     r
 }
@@ -377,7 +380,7 @@ where
             phantom: std::marker::PhantomData,
         };
 
-        (sumcheck, MultilinearPoint(res))
+        (sumcheck, MultilinearPoint::new(res))
     }
 
     /// Constructs a new `SumcheckSingle` instance from evaluations in the base field.
@@ -458,7 +461,7 @@ where
             phantom: std::marker::PhantomData,
         };
 
-        (sumcheck, MultilinearPoint(res))
+        (sumcheck, MultilinearPoint::new(res))
     }
 
     /// Returns the number of variables in the polynomial.
@@ -616,6 +619,6 @@ where
         res.reverse();
 
         // Return the full vector of verifier challenges as a multilinear point.
-        MultilinearPoint(res)
+        MultilinearPoint::new(res)
     }
 }

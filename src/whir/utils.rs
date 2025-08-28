@@ -1,13 +1,11 @@
 use itertools::Itertools;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
+use p3_multilinear_util::point::MultilinearPoint;
 use p3_util::log2_ceil_usize;
 use tracing::instrument;
 
-use crate::{
-    fiat_shamir::{ChallengSampler, errors::ProofResult, prover::ProverState},
-    poly::multilinear::MultilinearPoint,
-};
+use crate::fiat_shamir::{ChallengSampler, errors::ProofResult, prover::ProverState};
 
 /// Computes the optimal workload size for `T` to fit in L1 cache (32 KB).
 ///
