@@ -426,7 +426,6 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
             &sumcheck.compute_sumcheck_polynomials(prover, folding, 0),
         );
 
-        // prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(prover, folding, 0));
         num_vars_inter -= folding;
 
         // Check that the number of variables and evaluations match the expected values
