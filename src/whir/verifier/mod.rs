@@ -361,8 +361,7 @@ where
                     //
                     // The last element is the single challenge `r_skip` used to evaluate the skipped variables.
                     let r_skip = *r_all
-                        .as_slice()
-                        .last()
+                        .last_variable()
                         .expect("skip challenge must be present");
                     // The first `n - k_skip` elements are the challenges `r_rest` for the remaining variables.
                     let r_rest =
