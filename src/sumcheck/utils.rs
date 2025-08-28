@@ -61,8 +61,7 @@ where
         "Point dimension must match number of variables"
     );
 
-    // This is an efficient way to calculate z^int(b) for each b in the hypercube.
-    // It is equivalent to the logic in my previous (incorrect) answer but more concise.
+    // Get the powers of the point `z` in the boolean hypercube.
     let z_powers = &point;
 
     // Iterate through each point `b` on the boolean hypercube, represented by its integer value `i`.
