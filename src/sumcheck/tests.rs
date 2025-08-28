@@ -231,7 +231,7 @@ where
 
 /// Helper to extend a `MultilinearPoint` by creating a new one.
 fn extend_point<F: Field>(
-    point: MultilinearPoint<F>,
+    point: &MultilinearPoint<F>,
     extension: &MultilinearPoint<F>,
 ) -> MultilinearPoint<F> {
     let new_coords: Vec<_> = extension
@@ -426,7 +426,7 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
 
         // Compute and apply the next folding round
         prover_randomness = extend_point(
-            prover_randomness,
+            &prover_randomness,
             &sumcheck.compute_sumcheck_polynomials(prover, folding, 0),
         );
 
@@ -440,7 +440,7 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     // FINAL ROUND
     let final_rounds = *folding_factors.last().unwrap();
     prover_randomness = extend_point(
-        prover_randomness,
+        &prover_randomness,
         &sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0),
     );
 
@@ -482,7 +482,7 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
 
         // Extend r with verifier's folding challenges
         verifier_randomness = extend_point(
-            verifier_randomness,
+            &verifier_randomness,
             &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, false).unwrap(),
         );
 
@@ -502,7 +502,7 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     // Final round check
     let final_rounds = *folding_factors.last().unwrap();
     verifier_randomness = extend_point(
-        verifier_randomness,
+        &verifier_randomness,
         &verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, false).unwrap(),
     );
 
@@ -594,7 +594,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
 
         // Fold the sumcheck polynomial again and extend randomness vector
         prover_randomness = extend_point(
-            prover_randomness,
+            &prover_randomness,
             &sumcheck.compute_sumcheck_polynomials(prover, folding, 0),
         );
         num_vars_inter -= folding;
@@ -607,7 +607,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     // FINAL ROUND
     let final_rounds = *folding_factors.last().unwrap();
     prover_randomness = extend_point(
-        prover_randomness,
+        &prover_randomness,
         &sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0),
     );
 
@@ -669,7 +669,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
         // The skip optimization is only applied to the first round.
         let is_skip_round = round_idx == 0;
         verifier_randomness = extend_point(
-            verifier_randomness,
+            &verifier_randomness,
             &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, is_skip_round).unwrap(),
         );
 
@@ -679,7 +679,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     // FINAL FOLDING
     let final_rounds = *folding_factors.last().unwrap();
     verifier_randomness = extend_point(
-        verifier_randomness,
+        &verifier_randomness,
         &verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, false).unwrap(),
     );
 
