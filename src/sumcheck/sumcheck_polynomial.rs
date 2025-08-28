@@ -223,6 +223,41 @@ mod tests {
 
     type F = BabyBear;
 
+    /// This function computes the Lagrange basis polynomial for the domain `{0,1,2}^n`
+    /// by directly applying the textbook formulas.
+    ///
+    /// It computes:
+    /// `Π L_{p_i}(c_i)`
+    ///
+    /// where `(p_1, ..., p_n)` are the ternary digits of `point_idx`, `(c_1, ..., c_n)`
+    /// are the coordinates of `eval_point`, and `L_j(x)` are the univariate Lagrange
+    /// basis polynomials for the domain `{0, 1, 2}`.
+    fn eq_poly3(eval_point: &MultilinearPoint<F>, mut point_idx: usize) -> F {
+        let n_vars = eval_point.num_variables();
+        assert!(point_idx < 3usize.pow(n_vars as u32));
+
+        let mut acc = F::ONE;
+        let two_inv = F::TWO.inverse();
+
+        // Iterate through variables in little-endian order.
+        for &c_i in eval_point.iter().rev() {
+            let p_i = point_idx % 3;
+
+            let lagrange_eval = match p_i {
+                // L_0(x) = (x-1)(x-2)/2
+                0 => (c_i - F::ONE) * (c_i - F::TWO) * two_inv,
+                // L_1(x) = -x(x-2)
+                1 => -c_i * (c_i - F::TWO),
+                // L_2(x) = x(x-1)/2
+                2 => c_i * (c_i - F::ONE) * two_inv,
+                _ => unreachable!(),
+            };
+            acc *= lagrange_eval;
+            point_idx /= 3;
+        }
+        acc
+    }
+
     #[test]
     #[should_panic]
     fn test_evaluate_on_standard_domain_wrong_dimensions() {
@@ -391,15 +426,15 @@ mod tests {
         let result = poly.evaluate_on_standard_domain(&point);
 
         // Compute the expected result using the full weighted sum:
-        let expected_value = F::from_u64(1) * point.eq_poly3(0)
-            + F::from_u64(2) * point.eq_poly3(1)
-            + F::from_u64(3) * point.eq_poly3(2)
-            + F::from_u64(4) * point.eq_poly3(3)
-            + F::from_u64(5) * point.eq_poly3(4)
-            + F::from_u64(6) * point.eq_poly3(5)
-            + F::from_u64(7) * point.eq_poly3(6)
-            + F::from_u64(8) * point.eq_poly3(7)
-            + F::from_u64(9) * point.eq_poly3(8);
+        let expected_value = F::from_u64(1) * eq_poly3(&point, 0)
+            + F::from_u64(2) * eq_poly3(&point, 1)
+            + F::from_u64(3) * eq_poly3(&point, 2)
+            + F::from_u64(4) * eq_poly3(&point, 3)
+            + F::from_u64(5) * eq_poly3(&point, 4)
+            + F::from_u64(6) * eq_poly3(&point, 5)
+            + F::from_u64(7) * eq_poly3(&point, 6)
+            + F::from_u64(8) * eq_poly3(&point, 7)
+            + F::from_u64(9) * eq_poly3(&point, 8);
 
         assert_eq!(result, expected_value);
     }
@@ -415,7 +450,7 @@ mod tests {
 
         // Compute expected evaluation:
         let expected_value = (0..27)
-            .map(|i| poly.evaluations[i] * point.eq_poly3(i))
+            .map(|i| poly.evaluations[i] * eq_poly3(&point, i))
             .sum::<F>();
 
         let computed_value = poly.evaluate_on_standard_domain(&point);
