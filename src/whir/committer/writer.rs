@@ -2,6 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -11,7 +12,6 @@ use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
-    dft::EvalsDft,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::evals::EvaluationsList,
     utils::parallel_repeat,
@@ -54,9 +54,9 @@ where
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
     #[instrument(skip_all)]
-    pub fn commit<const DIGEST_ELEMS: usize>(
+    pub fn commit<DFT, const DIGEST_ELEMS: usize>(
         &self,
-        dft: &EvalsDft<F>,
+        dft: &DFT,
         prover_state: &mut ProverState<F, EF, Challenger>,
         polynomial: EvaluationsList<F>,
     ) -> ProofResult<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>>
@@ -68,6 +68,7 @@ where
             + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        DFT: TwoAdicSubgroupDft<F>,
     {
         let evals_repeated = info_span!("repeating evals")
             .in_scope(|| parallel_repeat(&polynomial, 1 << self.starting_log_inv_rate));
@@ -76,7 +77,7 @@ where
         let width = 1 << self.folding_factor.at_round(0);
         let folded_matrix = info_span!("dft", height = evals_repeated.len() / width, width)
             .in_scope(|| {
-                dft.dft_batch_by_evals(RowMajorMatrix::new(evals_repeated, width))
+                dft.dft_batch(RowMajorMatrix::new(evals_repeated, width))
                     .to_row_major_matrix()
             });
 
@@ -124,6 +125,7 @@ where
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
+    use p3_dft::Radix2DFTSmallBatch;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -192,7 +194,7 @@ mod tests {
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(&params);
-        let dft_committer = EvalsDft::<F>::default();
+        let dft_committer = Radix2DFTSmallBatch::<F>::default();
         let witness = committer
             .commit(&dft_committer, &mut prover_state, polynomial.clone())
             .unwrap();
@@ -268,7 +270,7 @@ mod tests {
 
         let mut prover_state = domainsep.to_prover_state(challenger);
 
-        let dft_committer = EvalsDft::<F>::default();
+        let dft_committer = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let _ = committer
             .commit(&dft_committer, &mut prover_state, polynomial)
@@ -323,7 +325,7 @@ mod tests {
 
         let mut prover_state = domainsep.to_prover_state(challenger);
 
-        let dft_committer = EvalsDft::<F>::default();
+        let dft_committer = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let witness = committer
             .commit(&dft_committer, &mut prover_state, polynomial)

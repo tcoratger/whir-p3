@@ -5,7 +5,10 @@ use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::eq::eval_eq;
 use tracing::instrument;
 
-use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use crate::{
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    sumcheck::utils::eval_select,
+};
 
 /// Represents a weight function used in polynomial evaluations.
 ///
@@ -127,7 +130,8 @@ impl<F: Field> Weights<F> {
         assert_eq!(accumulator.num_variables(), self.num_variables());
         match self {
             Self::Evaluation { point } => {
-                eval_eq::<Base, F, INITIALIZED>(point.as_slice(), accumulator, factor);
+                // eval_eq::<Base, F, INITIALIZED>(point.as_slice(), accumulator, factor);
+                eval_select(point.as_slice(), accumulator, factor);
             }
             Self::Linear { weight } => {
                 accumulator

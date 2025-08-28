@@ -2,6 +2,7 @@ use std::ops::Deref;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
@@ -14,7 +15,6 @@ use tracing::{info_span, instrument};
 use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    dft::EvalsDft,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::parallel_repeat,
@@ -135,9 +135,9 @@ where
     /// # Errors
     /// Returns an error if the witness or statement are invalid, or if a round fails.
     #[instrument(skip_all)]
-    pub fn prove<const DIGEST_ELEMS: usize>(
+    pub fn prove<DFT, const DIGEST_ELEMS: usize>(
         &self,
-        dft: &EvalsDft<F>,
+        dft: &DFT,
         prover_state: &mut ProverState<F, EF, Challenger>,
         statement: Statement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
@@ -150,6 +150,7 @@ where
             + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        DFT: TwoAdicSubgroupDft<F>,
     {
         // Validate parameters
         assert!(
@@ -191,10 +192,10 @@ where
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = self.num_variables - self.folding_factor.total_number(round_index)))]
     #[allow(clippy::too_many_lines)]
-    fn round<const DIGEST_ELEMS: usize>(
+    fn round<DFT, const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        dft: &EvalsDft<F>,
+        dft: &DFT,
         prover_state: &mut ProverState<F, EF, Challenger>,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> ProofResult<()>
@@ -206,6 +207,7 @@ where
             + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        DFT: TwoAdicSubgroupDft<F>,
     {
         let folded_evaluations = &round_state.sumcheck_prover.evals;
         let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
@@ -235,7 +237,7 @@ where
                 width = 1 << folding_factor_next
             )
             .in_scope(|| {
-                dft.dft_algebra_batch_by_evals(RowMajorMatrix::new(
+                dft.dft_algebra_batch(RowMajorMatrix::new(
                     evals_repeated,
                     1 << folding_factor_next,
                 ))
@@ -411,7 +413,7 @@ where
         let ood_combination_randomness: Vec<_> = combination_randomness_gen
             .powers()
             .collect_n(ood_challenges.len());
-        round_state.sumcheck_prover.add_new_equality(
+        round_state.sumcheck_prover.add_new_select_equality::<EF>(
             &ood_challenges,
             &ood_answers,
             &ood_combination_randomness,
@@ -422,7 +424,7 @@ where
             .take(stir_challenges.len())
             .collect::<Vec<_>>();
 
-        round_state.sumcheck_prover.add_new_base_equality(
+        round_state.sumcheck_prover.add_new_select_equality::<F>(
             &stir_challenges,
             &stir_evaluations,
             &stir_combination_randomness,
