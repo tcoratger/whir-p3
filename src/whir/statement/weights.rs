@@ -88,8 +88,9 @@ impl<F: Field> Weights<F> {
         match self {
             Self::Linear { weight } => {
                 assert_eq!(poly.num_variables(), weight.num_variables());
-                poly.par_iter()
-                    .zip(weight.par_iter())
+                poly.as_slice()
+                    .par_iter()
+                    .zip(weight.as_slice().par_iter())
                     .map(|(p, w)| *w * *p)
                     .sum()
             }
@@ -128,17 +129,19 @@ impl<F: Field> Weights<F> {
         match self {
             Self::Evaluation { point } => {
                 // eval_eq::<Base, F, INITIALIZED>(point.as_slice(), accumulator, factor);
-                eval_select(point.as_slice(), accumulator, factor);
+                eval_select(point.as_slice(), accumulator.as_mut_slice(), factor);
             }
             Self::Linear { weight } => {
+                let weight_slice = weight.as_slice();
                 accumulator
+                    .as_mut_slice()
                     .par_iter_mut()
                     .enumerate()
                     .for_each(|(corner, acc)| {
                         if INITIALIZED {
-                            *acc += factor * weight[corner];
+                            *acc += factor * weight_slice[corner];
                         } else {
-                            *acc = factor * weight[corner];
+                            *acc = factor * weight_slice[corner];
                         }
                     });
             }
@@ -226,7 +229,7 @@ impl<F: Field> Weights<F> {
 
                 // Construct the evaluation table for the polynomial eq_z(X).
                 let mut evals = EvaluationsList::new(F::zero_vec(1 << n));
-                eval_eq::<_, _, false>(point.as_slice(), &mut evals, F::ONE);
+                eval_eq::<_, _, false>(point.as_slice(), evals.as_mut_slice(), F::ONE);
                 evals
             }
         };
@@ -238,7 +241,7 @@ impl<F: Field> Weights<F> {
         // Columns correspond to the remaining variables (Xk, ..., Xn-1).
         let num_remaining_vars = n - k_skip;
         let width = 1 << num_remaining_vars;
-        let mat = RowMajorMatrix::new(evals.to_vec(), width);
+        let mat = RowMajorMatrix::new(evals.as_slice().to_vec(), width);
 
         // Deconstruct the challenge object `r_all`
         //
@@ -358,7 +361,7 @@ mod tests {
             w1 * factor, // 3 * 4 = 12
         ];
 
-        assert_eq!(&*accumulator, &expected);
+        assert_eq!(accumulator.as_slice(), &expected);
     }
 
     #[test]
@@ -380,7 +383,7 @@ mod tests {
         let mut expected = vec![F::ZERO, F::ZERO];
         eval_eq::<_, _, true>(point.as_slice(), &mut expected, factor);
 
-        assert_eq!(&*accumulator, &expected);
+        assert_eq!(accumulator.as_slice(), &expected);
     }
 
     #[test]
@@ -631,7 +634,7 @@ mod tests {
 
         // The result of interpolation should be a single scalar.
         assert_eq!(
-            final_poly.len(),
+            final_poly.num_evals(),
             1,
             "Folding all variables should result in a single value"
         );

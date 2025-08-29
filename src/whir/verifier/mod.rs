@@ -352,7 +352,7 @@ where
                     let width = 1 << num_remaining_vars;
 
                     // Reshape the flat `2^n` evaluations into a `2^k x 2^(n-k)` matrix.
-                    let mat = RowMajorMatrix::new(evals.to_vec(), width);
+                    let mat = RowMajorMatrix::new(evals.as_slice().to_vec(), width);
 
                     // The `folding_randomness` for a skip round is the special `(n-k)+1` challenge object.
                     let r_all = folding_randomness.clone();

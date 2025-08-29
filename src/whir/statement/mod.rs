@@ -245,7 +245,7 @@ mod tests {
         // Expected sum remains unchanged since there is only one constraint
         let expected_combined_sum = sum;
 
-        assert_eq!(&*combined_evals, &expected_combined_evals);
+        assert_eq!(combined_evals.as_slice(), &expected_combined_evals);
         assert_eq!(combined_sum, expected_combined_sum);
     }
 
@@ -307,7 +307,7 @@ mod tests {
         // \end{equation}
         let expected_combined_sum = sum1 + challenge * sum2; // 5 + 2 * 7 = 19
 
-        assert_eq!(&*combined_evals, &expected_combined_evals);
+        assert_eq!(combined_evals.as_slice(), &expected_combined_evals);
         assert_eq!(combined_sum, expected_combined_sum);
     }
 
@@ -441,6 +441,7 @@ mod tests {
         // Evaluate f at every Boolean input in {0,1}²
         // Corner ordering: (0,0), (0,1), (1,0), (1,1)
         let evals = coeffs.clone().to_evaluations();
+        let evals = evals.as_slice();
 
         // Define linear weights w_i for each corner:
         let w0 = F::from_u64(10);

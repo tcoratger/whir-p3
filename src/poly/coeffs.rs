@@ -477,6 +477,7 @@ mod tests {
         let coeff_list = CoefficientList::new(coeffs);
 
         let evaluations = coeff_list.to_evaluations();
+        let evaluations = evaluations.as_slice();
 
         // Expected results after wavelet transform (manually derived)
         assert_eq!(evaluations[0], coeff0);
@@ -993,7 +994,7 @@ mod tests {
             F::from_u64(1 + 2 + 3 + 4 + 5 + 6 + 7 + 8),
         ];
 
-        assert_eq!(&*eval_list, &expected);
+        assert_eq!(eval_list.as_slice(), &expected);
     }
 
     proptest! {

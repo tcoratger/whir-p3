@@ -71,7 +71,7 @@ where
         DFT: TwoAdicSubgroupDft<F>,
     {
         let evals_repeated = info_span!("repeating evals")
-            .in_scope(|| parallel_repeat(&polynomial, 1 << self.starting_log_inv_rate));
+            .in_scope(|| parallel_repeat(polynomial.as_slice(), 1 << self.starting_log_inv_rate));
 
         // Perform DFT on the padded evaluations matrix
         let width = 1 << self.folding_factor.at_round(0);
