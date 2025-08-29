@@ -178,6 +178,7 @@ where
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
+    use p3_dft::Radix2DFTSmallBatch;
     use p3_field::PrimeCharacteristicRing;
     use p3_multilinear_util::point::MultilinearPoint;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -185,7 +186,6 @@ mod tests {
 
     use super::*;
     use crate::{
-        dft::EvalsDft,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
         whir::{DomainSeparator, committer::writer::CommitmentWriter},
@@ -254,7 +254,7 @@ mod tests {
         let committer = CommitmentWriter::new(&params);
 
         // Use a DFT engine to expand/fold the polynomial for evaluation.
-        let dft = EvalsDft::default();
+        let dft = Radix2DFTSmallBatch::default();
 
         // Set up Fiat-Shamir transcript and commit the protocol parameters.
         let mut ds = DomainSeparator::new(vec![]);
@@ -297,7 +297,7 @@ mod tests {
 
         // Set up the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);
-        let dft = EvalsDft::default();
+        let dft = Radix2DFTSmallBatch::default();
 
         // Begin the transcript and commit to the statement parameters.
         let mut ds = DomainSeparator::new(vec![]);
@@ -342,7 +342,7 @@ mod tests {
 
         // Initialize the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);
-        let dft = EvalsDft::default();
+        let dft = Radix2DFTSmallBatch::default();
 
         // Start a new transcript and commit to the public parameters.
         let mut ds = DomainSeparator::new(vec![]);
@@ -383,7 +383,7 @@ mod tests {
 
         // Instantiate a committer and DFT backend.
         let committer = CommitmentWriter::new(&params);
-        let dft = EvalsDft::default();
+        let dft = Radix2DFTSmallBatch::default();
 
         // Set up Fiat-Shamir transcript and commit to the public parameters.
         let mut ds = DomainSeparator::new(vec![]);
