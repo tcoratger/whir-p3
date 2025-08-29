@@ -186,7 +186,7 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
     let eval_1 = c0 + c1 + c2;
     let eval_2 = eval_1 + c1 + c2 + c2.double();
 
-    SumcheckPolynomial::new(vec![eval_0, eval_1, eval_2], 1)
+    SumcheckPolynomial::new(vec![eval_0, eval_1, eval_2])
 }
 
 /// Implements the single-round sumcheck protocol for verifying a multilinear polynomial evaluation.
