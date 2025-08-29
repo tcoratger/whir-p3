@@ -131,7 +131,7 @@ where
     };
 
     // Return h(X) as a SumcheckPolynomial, along with the raw pre-LDE matrices
-    (SumcheckPolynomial::new(out_vec, 1), f, w)
+    (SumcheckPolynomial::new(out_vec), f, w)
 }
 
 #[cfg(test)]
@@ -213,7 +213,10 @@ mod tests {
         // - Only includes values at X1 = 0 and X1 = 1
         // - Since the polynomial is zero everywhere, sum = 0
         // ----------------------------------------------------------------
-        assert_eq!(poly.sum_over_boolean_hypercube(), EF4::ZERO);
+        assert_eq!(
+            poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
+            EF4::ZERO
+        );
     }
 
     #[test]
@@ -274,7 +277,10 @@ mod tests {
         // Finally, the sum over {0,1} values of X2 must also be zero
         // because the polynomial is identically zero on the full domain.
         // ----------------------------------------------------------------
-        assert_eq!(poly.sum_over_boolean_hypercube(), EF4::ZERO);
+        assert_eq!(
+            poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
+            EF4::ZERO
+        );
     }
 
     #[test]

@@ -75,7 +75,7 @@ where
             verifier_state.next_extension_scalars_const()?;
 
         // Interpolate into a univariate polynomial (over the coset domain)
-        let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+        let poly = SumcheckPolynomial::new(evals.to_vec());
 
         // Verify that the sum over the subgroup H of size 2^k matches the claimed sum.
         //
@@ -120,7 +120,7 @@ where
         let rand: EF = verifier_state.sample();
 
         // Update claimed sum using folding randomness
-        *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2], 1)
+        *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
             .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
 
         // Store this round’s randomness
@@ -293,7 +293,7 @@ mod tests {
             let c1 = current_sum - c0;
             let c2 = verifier_state.next_extension_scalar().unwrap();
 
-            let poly = SumcheckPolynomial::new(vec![c0, c1, c2], 1);
+            let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
 
             // Sample random challenge r_i ∈ F and evaluate h_i(r_i)
             let r: EF4 = verifier_state.sample();
@@ -417,7 +417,7 @@ mod tests {
 
         // First skipped round (wide DFT LDE)
         let evals: [_; 1 << (K_SKIP + 1)] = verifier_state.next_extension_scalars_const().unwrap();
-        let poly = SumcheckPolynomial::new(evals.to_vec(), 1);
+        let poly = SumcheckPolynomial::new(evals.to_vec());
         let r0: EF4 = verifier_state.sample();
         expected.push((poly, r0));
 
@@ -429,7 +429,7 @@ mod tests {
             let c0 = verifier_state.next_extension_scalar().unwrap();
             let c1 = current_sum - c0;
             let c2 = verifier_state.next_extension_scalar().unwrap();
-            let poly = SumcheckPolynomial::new(vec![c0, c1, c2], 1);
+            let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
             let r: EF4 = verifier_state.sample();
             current_sum = poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
             expected.push((poly, r));
