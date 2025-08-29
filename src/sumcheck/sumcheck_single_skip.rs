@@ -86,10 +86,10 @@ where
         //
         // This aligns with the goal of computing:
         //   h(X) = ∑_{b ∈ {0,1}^{n−k}} f(X, b) · w(X, b)
-        let f_mat = RowMajorMatrix::new(evals.to_vec(), width);
+        let f_mat = RowMajorMatrix::new(evals.as_slice().to_vec(), width);
 
         // Do the same for the weight polynomial w(X): shape = (2^k × 2^{n-k})
-        let weights_mat = RowMajorMatrix::new(weights.to_vec(), width);
+        let weights_mat = RowMajorMatrix::new(weights.as_slice().to_vec(), width);
 
         // Apply a low-degree extension (LDE) to each row of f_mat and weights_mat.
         // The LDE maps each row of length 2^k to 2^{k+1} evaluations over a multiplicative coset.

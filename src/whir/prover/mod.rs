@@ -228,7 +228,7 @@ where
         let inv_rate = new_domain_size / folded_evaluations.num_evals();
         let folded_matrix = info_span!("fold matrix").in_scope(|| {
             let evals_repeated = info_span!("repeating evals")
-                .in_scope(|| parallel_repeat(folded_evaluations, inv_rate));
+                .in_scope(|| parallel_repeat(folded_evaluations.as_slice(), inv_rate));
             // Do DFT on only interleaved polys to be folded.
             info_span!(
                 "dft",
@@ -337,7 +337,7 @@ where
                         let width = 1 << num_remaining_vars;
 
                         // Reshape the `answer` evaluations into the `2^k x 2^(n-k)` matrix format.
-                        let mat = RowMajorMatrix::new(evals.to_vec(), width);
+                        let mat = RowMajorMatrix::new(evals.as_slice().to_vec(), width);
 
                         // For a skip round, `folding_randomness` is the special `(n-k)+1` challenge object.
                         let r_all = round_state.folding_randomness.clone();
@@ -475,7 +475,7 @@ where
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        prover_state.add_extension_scalars(&round_state.sumcheck_prover.evals);
+        prover_state.add_extension_scalars(round_state.sumcheck_prover.evals.as_slice());
 
         // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
         //
