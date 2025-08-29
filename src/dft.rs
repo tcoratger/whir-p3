@@ -544,7 +544,7 @@ mod test {
         let dft = EvalsDft::<F>::default();
         let mut matrix = vec![F::ZERO; (1 << n_vars) * width];
         for (i, pol) in pols.iter().enumerate() {
-            for (j, &eval) in pol.iter().enumerate() {
+            for (j, &eval) in pol.as_slice().iter().enumerate() {
                 matrix[i + j * width] = eval;
             }
         }

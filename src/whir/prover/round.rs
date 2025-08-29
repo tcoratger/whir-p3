@@ -406,10 +406,10 @@ mod tests {
         let sumcheck_randomness = state.folding_randomness.clone();
 
         // With a folding factor of 3, all variables are collapsed in 1 round, so we expect only 1 evaluation left
-        assert_eq!(sumcheck.evals.len(), 1);
+        assert_eq!(sumcheck.evals.num_evals(), 1);
 
         // The value of f at the folding point should match the evaluation
-        let eval_at_point = sumcheck.evals[0];
+        let eval_at_point = sumcheck.evals.as_slice()[0];
         let expected = f(
             sumcheck_randomness[0],
             sumcheck_randomness[1],
@@ -420,8 +420,9 @@ mod tests {
         // Check that dot product of evaluations and weights matches the final sum
         let dot_product: EF4 = sumcheck
             .evals
+            .as_slice()
             .iter()
-            .zip(sumcheck.weights.as_ref())
+            .zip(sumcheck.weights.as_slice())
             .map(|(f, w)| *f * *w)
             .sum();
         assert_eq!(dot_product, sumcheck.sum);
@@ -488,7 +489,12 @@ mod tests {
         let sumcheck = &state.sumcheck_prover;
         let sumcheck_randomness = state.folding_randomness.clone();
 
-        for (f, w) in sumcheck.evals.iter().zip(sumcheck.weights.as_ref()) {
+        for (f, w) in sumcheck
+            .evals
+            .as_slice()
+            .iter()
+            .zip(sumcheck.weights.as_slice())
+        {
             // Each evaluation should be 0
             assert_eq!(*f, EF4::ZERO);
             // Their contribution to the weighted sum should also be 0
@@ -591,11 +597,14 @@ mod tests {
             )
         );
 
+        let evals_f = evals_f.as_slice();
+        let weights = sumcheck.weights.as_slice();
+
         // Manually verify that ⟨f, w⟩ = claimed sum
-        let dot_product = evals_f[0] * sumcheck.weights[0]
-            + evals_f[1] * sumcheck.weights[1]
-            + evals_f[2] * sumcheck.weights[2]
-            + evals_f[3] * sumcheck.weights[3];
+        let dot_product = evals_f[0] * weights[0]
+            + evals_f[1] * weights[1]
+            + evals_f[2] * weights[2]
+            + evals_f[3] * weights[3];
         assert_eq!(dot_product, sumcheck.sum);
 
         // No Merkle tree data has been created for folded rounds yet

@@ -165,7 +165,7 @@ mod tests {
         //
         // expected = Σ_i w_i * f_i
         let expected_sum = (0..8)
-            .map(|i| weight_vec[i] * evals[i])
+            .map(|i| weight_vec[i] * evals.as_slice()[i])
             .fold(F::ZERO, |acc, x| acc + x);
 
         let constraint = Constraint {

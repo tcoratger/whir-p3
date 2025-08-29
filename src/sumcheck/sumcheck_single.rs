@@ -54,10 +54,10 @@ pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
     //
     // This was chosen based on experiments with the `compress` function.
     // It is possible that the threshold can be tuned further.
-    let folded = if evals.len() >= PARALLEL_THRESHOLD {
-        evals.par_chunks_exact(2).map(fold).collect()
+    let folded = if evals.num_evals() >= PARALLEL_THRESHOLD {
+        evals.as_slice().par_chunks_exact(2).map(fold).collect()
     } else {
-        evals.chunks_exact(2).map(fold).collect()
+        evals.as_slice().chunks_exact(2).map(fold).collect()
     };
 
     EvaluationsList::new(folded)
@@ -86,20 +86,21 @@ pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
     assert_ne!(evals.num_variables(), 0);
 
     // For large inputs, we use the original parallel, out-of-place strategy for maximum speed.
-    if evals.len() >= PARALLEL_THRESHOLD {
+    if evals.num_evals() >= PARALLEL_THRESHOLD {
         // Define the folding operation for a pair of elements.
         let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
         // Execute the fold in parallel and collect into a new vector.
-        let folded = evals.par_chunks_exact(2).map(fold).collect();
+        let folded = evals.as_slice().par_chunks_exact(2).map(fold).collect();
         // Replace the old evaluations with the new, folded evaluations.
         *evals = EvaluationsList::new(folded);
     } else {
         // For smaller inputs, we use the sequential, in-place strategy to save memory.
-        let mid = evals.len() / 2;
+        let mid = evals.num_evals() / 2;
+        let evals_slice = evals.as_mut_slice();
         for i in 0..mid {
-            let p0 = evals[2 * i];
-            let p1 = evals[2 * i + 1];
-            evals[i] = r * (p1 - p0) + p0;
+            let p0 = evals_slice[2 * i];
+            let p1 = evals_slice[2 * i + 1];
+            evals_slice[i] = r * (p1 - p0) + p0;
         }
         evals.truncate(mid);
     }
@@ -229,8 +230,9 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
     assert!(evals.num_variables() >= 1);
 
     let (c0, c2) = evals
+        .as_slice()
         .par_chunks_exact(2)
-        .zip(weights.par_chunks_exact(2))
+        .zip(weights.as_slice().par_chunks_exact(2))
         .map(sumcheck_quadratic::<F, EF>)
         .par_fold_reduce(
             || (EF::ZERO, EF::ZERO),
@@ -503,7 +505,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter())
                 .for_each(|(point, &rand)| {
-                    eval_eq::<_, _, true>(point.as_slice(), &mut self.weights, rand);
+                    eval_eq::<_, _, true>(point.as_slice(), self.weights.as_mut_slice(), rand);
                 });
         });
 
@@ -552,7 +554,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter())
                 .for_each(|(point, &rand)| {
-                    eval_eq_base::<_, _, true>(point.as_slice(), &mut self.weights, rand);
+                    eval_eq_base::<_, _, true>(point.as_slice(), self.weights.as_mut_slice(), rand);
                 });
         });
 
