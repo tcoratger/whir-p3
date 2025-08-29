@@ -36,7 +36,7 @@ where
     /// # Panics
     /// Panics if `evals.len()` is not a power of two.
     #[must_use]
-    pub fn new(evals: Vec<F>) -> Self {
+    pub const fn new(evals: Vec<F>) -> Self {
         let len = evals.len();
         assert!(
             len.is_power_of_two(),
