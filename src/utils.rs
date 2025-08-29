@@ -61,6 +61,24 @@ pub unsafe fn uninitialized_vec<A>(len: usize) -> Vec<A> {
 /// select(pow(z), b) = z^int(b)
 /// ```
 ///
+/// TODO: This function is not optimized for performance. The current implementation has an
+/// horrible time complexity because it recomputes the product for each of the 2^n
+/// evaluations independently.
+///
+/// This can be optimized using a dynamic programming approach.
+/// The idea is to build the vector of all 2^n evaluations
+/// iteratively, one variable at a time, which also provides much better memory locality.
+///
+/// Proposition of an algorithm:
+/// 1. Initialize a temporary vector `evals` of size 2^n, with `evals[0] = combination_randomness`.
+/// 2. For each variable `z_j` (from j=0 to n-1):
+///    - Let `chunk_size = 2^j`.
+///    - For `i` from `0` to `chunk_size - 1`:
+///      - Set `evals[i + chunk_size] = evals[i] * z_j`.
+/// 3. Finally, add the completed `evals` vector to the `weights` vector.
+///
+/// For reference, see the trick in Section 4.1 of https://eprint.iacr.org/2024/524.pdf.
+///
 /// # Arguments
 /// * `point`: The multilinear point `p` (which corresponds to `pow(z)`).
 /// * `weights`: The slice of weights to be updated.
