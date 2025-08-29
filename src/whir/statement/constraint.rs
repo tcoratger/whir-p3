@@ -48,13 +48,13 @@ mod tests {
 
         // Define a weight enforcing evaluation at point X0 = 1
         let point = MultilinearPoint::new(vec![F::ONE]);
-        let point = ConstraintPoint::new(point);
+        let constraint_point = ConstraintPoint::new(point);
 
         // Compute f(1):
         let expected_evaluation = f(F::ONE);
 
         let constraint = Constraint {
-            point,
+            point: constraint_point,
             expected_evaluation,
             defer_evaluation: false,
         };

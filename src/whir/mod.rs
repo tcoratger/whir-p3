@@ -96,8 +96,8 @@ pub fn make_whir_things(
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
         let eval = polynomial.evaluate(point);
-        let weights = ConstraintPoint::new(point.clone());
-        statement.add_constraint(weights, eval);
+        let constraint_point = ConstraintPoint::new(point.clone());
+        statement.add_constraint(constraint_point, eval);
     }
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving

@@ -112,11 +112,11 @@ fn prepare_inputs() -> (
     let eval = polynomial.evaluate(&point);
 
     // Construct a constraint: enforces that the polynomial evaluates to `eval` at `point`.
-    let evaluation_point = ConstraintPoint::new(point);
+    let constraint_point = ConstraintPoint::new(point);
 
     // Create a new WHIR `Statement` with one constraint.
     let mut statement = Statement::<EF>::new(num_variables);
-    statement.add_constraint(evaluation_point, eval);
+    statement.add_constraint(constraint_point, eval);
 
     // Fiat-Shamir setup
 

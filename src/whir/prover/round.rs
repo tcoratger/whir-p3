@@ -105,11 +105,10 @@ where
             .into_iter()
             .zip(witness.ood_answers)
             .map(|(point, evaluation)| {
-                let weights = ConstraintPoint::new(MultilinearPoint::expand_from_univariate(
-                    point,
-                    prover.num_variables,
-                ));
-                (weights, evaluation)
+                let constraint_point = ConstraintPoint::new(
+                    MultilinearPoint::expand_from_univariate(point, prover.num_variables),
+                );
+                (constraint_point, evaluation)
             })
             .collect();
 
