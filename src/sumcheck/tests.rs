@@ -447,7 +447,7 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     assert_eq!(sumcheck.evals.num_evals(), 1);
 
     // Final folded value must match f(r)
-    let final_folded_value = sumcheck.evals.get_constant().unwrap();
+    let final_folded_value = sumcheck.evals.as_constant().unwrap();
     assert_eq!(poly.evaluate(&prover_randomness), final_folded_value);
     prover.add_extension_scalar(final_folded_value);
 
@@ -614,7 +614,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     assert_eq!(sumcheck.evals.num_evals(), 1);
 
     // Final constant should be f(r), where r is the accumulated challenge point
-    let constant = sumcheck.evals.get_constant().unwrap();
+    let constant = sumcheck.evals.as_constant().unwrap();
 
     // Final constant should be f̂(r0, r_{k+1..}) under skip semantics
     let expected = eval_with_skip::<F, EF>(&poly, K_SKIP_SUMCHECK, &prover_randomness);

@@ -55,9 +55,16 @@ where
         Self(evals)
     }
 
+    /// Evaluates the polynomial as a constant.
+    /// This is only valid for constant polynomials (i.e., when `num_variables` is 0).
+    /// 
+    /// Returns None in other cases.
+    ///
+    /// # Panics
+    /// Panics if `num_variables` is not 0.
     #[must_use]
-    pub fn get_constant(&self) -> Option<F> {
-        (self.0.len() == 1).then(|| self.0[0])
+    pub fn as_constant(&self) -> Option<F> {
+        (self.num_evals() == 1).then_some(self.0[0])
     }
 
     /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`
