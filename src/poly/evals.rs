@@ -48,7 +48,10 @@ where
     /// Creates an `EvaluationsList` for the `eq` polynomial from a given point.
     ///
     /// Given a point `p = (p_1, ..., p_n)`, this computes the evaluations of the polynomial
-    /// `eq(x, p) = Π_{i=1}^{n} (x_i * p_i + (1 - x_i) * (1 - p_i))` over the boolean hypercube.
+    /// ```text
+    ///     eq(x, p) = \prod_{i=1}^{n} (x_i * p_i + (1 - x_i) * (1 - p_i)),
+    /// ```
+    /// over the boolean hypercube.
     pub fn eval_eq(eval: &[F]) -> Self {
         // Alloc memory without initializing it to zero.
         // This is safe because we overwrite it inside `eval_eq`.
@@ -62,11 +65,6 @@ where
     }
 
     /// Returns the total number of stored evaluations.
-    ///
-    /// Mathematical Invariant:
-    /// ```ignore
-    /// num_evals = 2^{num_variables}
-    /// ```
     #[must_use]
     pub const fn num_evals(&self) -> usize {
         self.0.len()
@@ -97,9 +95,14 @@ where
     /// Evaluates the multilinear polynomial at `point ∈ [0,1]^n`.
     ///
     /// - If `point ∈ {0,1}^n`, returns the precomputed evaluation `f(point)`.
-    /// - Otherwise, computes `f(point) = ∑_{x ∈ {0,1}^n} eq(x, point) * f(x)`, where `eq(x, point)
-    ///   = ∏_{i=1}^{n} (1 - p_i + 2 p_i x_i)`.
-    /// - Uses fast multilinear interpolation for efficiency.
+    /// - Otherwise, computes
+    /// ```text
+    ///     f(point) = \sum_{x ∈ {0,1}^n} eq(x, point) * f(x),
+    /// ```
+    /// where
+    /// ```text
+    ///     eq(x, point) = \prod_{i=1}^{n} (1 - p_i + 2 p_i x_i).
+    /// ```
     #[must_use]
     pub fn evaluate<EF>(&self, point: &MultilinearPoint<EF>) -> EF
     where
@@ -127,9 +130,9 @@ where
     ///
     /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
     ///
-    /// \[
+    /// ```text
     /// g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
-    /// \]
+    /// ```
     ///
     /// where `folding_randomness = (r_0, ..., r_{k-1})` is a fixed assignment to the last `k` variables.
     ///
@@ -204,8 +207,7 @@ impl<F> DerefMut for EvaluationsList<F> {
 
 /// Evaluates a multilinear polynomial at an arbitrary point using fast interpolation.
 ///
-/// This function is the workhorse for evaluating a multilinear polynomial `f`. It's given
-/// the polynomial's evaluations over all corners of the boolean hypercube `{0,1}^n` and
+/// It's given the polynomial's evaluations over all corners of the boolean hypercube `{0,1}^n` and
 /// can find the value at any other point `p` (even with coordinates outside of `{0,1}`).
 ///
 /// ## Algorithm
@@ -218,8 +220,10 @@ impl<F> DerefMut for EvaluationsList<F> {
 /// 3.  Finally, use those 2 points to find the single value at `p` along the z-axis.
 ///
 /// This function implements this idea using the recurrence relation:
-/// `f(x₀, ..., xₙ₋₁) = f_0(x₁, ..., xₙ₋₁) * (1 - x₀) + f_1(x₁, ..., xₙ₋₁) * x₀`
-/// where `f_0` is the polynomial with `x₀` fixed to `0` and `f_1` is with `x₀` fixed to `1`.
+/// ```text
+///     f(x_0, ..., x_{n-1}) = f_0(x_1, ..., x_{n-1}) * (1 - x_0) + f_1(x_1, ..., x_{n-1}) * x_0,
+/// ```
+/// where `f_0` is the polynomial with `x_0` fixed to `0` and `f_1` is with `x_0` fixed to `1`.
 ///
 /// ## Implementation Strategies
 ///
