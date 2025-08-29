@@ -16,6 +16,7 @@ use crate::{
     sumcheck::{
         sumcheck_single_skip::compute_skipping_sumcheck_polynomial, utils::sumcheck_quadratic,
     },
+    utils::eval_select,
     whir::statement::Statement,
 };
 
@@ -559,6 +560,38 @@ where
         });
 
         // Accumulate the weighted sum
+        self.sum += combination_randomness
+            .iter()
+            .zip(evaluations.iter())
+            .map(|(&rand, &eval)| rand * eval)
+            .sum::<EF>();
+    }
+
+    /// Adds new weighted constraints using the "select" polynomial method.
+    #[instrument(skip_all, fields(
+           num_points = points.len(),
+       ))]
+    pub fn add_new_select_equality<IF>(
+        &mut self,
+        points: &[MultilinearPoint<IF>],
+        evaluations: &[EF],
+        combination_randomness: &[EF],
+    ) where
+        IF: Field,
+        EF: ExtensionField<IF>,
+    {
+        assert_eq!(combination_randomness.len(), points.len());
+        assert_eq!(evaluations.len(), points.len());
+
+        tracing::info_span!("accumulate_weight_buffer_select").in_scope(|| {
+            points
+                .iter()
+                .zip(combination_randomness.iter())
+                .for_each(|(point, &rand)| {
+                    eval_select(point.as_slice(), self.weights.as_mut_slice(), rand);
+                });
+        });
+
         self.sum += combination_randomness
             .iter()
             .zip(evaluations.iter())
