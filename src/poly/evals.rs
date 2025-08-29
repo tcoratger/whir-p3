@@ -1,14 +1,16 @@
 use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::{eq::eval_eq, point::MultilinearPoint};
+use p3_multilinear_util::{eq::{eval_eq, eval_eq_base}, point::MultilinearPoint};
 use tracing::instrument;
 
 use super::{coeffs::CoefficientList, wavelet::Radix2WaveletKernel};
 use crate::{
     constant::MLE_RECURSION_THRESHOLD,
-    utils::{parallel_clone, uninitialized_vec},
+    utils::{uninitialized_vec},
 };
+
+const PARALLEL_THRESHOLD: usize = 4096;
 
 /// Represents a multilinear polynomial `f` in `n` variables, stored by its evaluations
 /// over the boolean hypercube `{0,1}^n`.
@@ -43,23 +45,22 @@ where
         Self(evals)
     }
 
-    /// Creates an `EvaluationsList` for the `eq` polynomial from a given point.
-    ///
-    /// Given a point `p = (p_1, ..., p_n)`, this computes the evaluations of the polynomial
-    /// ```text
-    ///     eq(x, p) = \prod_{i=1}^{n} (x_i * p_i + (1 - x_i) * (1 - p_i)),
-    /// ```
-    /// over the boolean hypercube.
-    pub fn eval_eq(eval: &[F]) -> Self {
-        // Alloc memory without initializing it to zero.
-        // This is safe because we overwrite it inside `eval_eq`.
-        let mut out: Vec<F> = Vec::with_capacity(1 << eval.len());
-        #[allow(clippy::uninit_vec)]
-        unsafe {
-            out.set_len(1 << eval.len());
-        }
-        eval_eq::<_, _, false>(eval, &mut out, F::ONE);
-        Self(out)
+    pub fn new_from_point(point: &MultilinearPoint<F>, value: F) -> Self {
+        let n = point.num_variables();
+        let mut evals = F::zero_vec(1 << n);
+        eval_eq::<_, _, false>(point.as_slice(), &mut evals, value);
+        Self(evals)
+    }
+
+    pub fn accumulate(&mut self, point: &MultilinearPoint<F>, value: F) {
+        eval_eq::<_, _, true>(point.as_slice(), &mut self.0, value);
+    }
+
+    pub fn accumulate_base<BF: Field>(&mut self, point: &MultilinearPoint<BF>, value: F)
+    where
+        F: ExtensionField<BF>,
+    {
+        eval_eq_base::<_, _, true>(point.as_slice(), &mut self.0, value);
     }
 
     /// Returns the total number of stored evaluations.
@@ -73,21 +74,6 @@ where
     pub const fn num_variables(&self) -> usize {
         // Safety: The length is guaranteed to be a power of two.
         self.0.len().ilog2() as usize
-    }
-
-    /// Truncates the list of evaluations to a new length.
-    ///
-    /// This is used in protocols like sumcheck where the number of evaluations is
-    /// halved in each round. The new length must be a power of two.
-    ///
-    /// # Panics
-    /// Panics if `new_len` is not a power of two.
-    pub fn truncate(&mut self, new_len: usize) {
-        assert!(
-            new_len.is_power_of_two(),
-            "New evaluation list length must be a power of two."
-        );
-        self.0.truncate(new_len);
     }
 
     /// Evaluates the multilinear polynomial at `point ∈ [0,1]^n`.
@@ -109,27 +95,12 @@ where
         eval_multilinear(&self.0, point)
     }
 
-    /// Evaluates the polynomial as a constant.
-    /// This is only valid for constant polynomials (i.e., when `num_variables` is 0).
-    ///
-    /// # Panics
-    /// Panics if `num_variables` is not 0.
-    #[must_use]
-    pub fn as_constant(&self) -> F {
-        assert_eq!(
-            self.num_variables(),
-            0,
-            "`as_constant` is only valid for constant polynomials."
-        );
-        self.0[0]
-    }
-
     /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
     ///
     /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
     ///
     /// ```text
-    /// g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
+    ///     g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
     /// ```
     ///
     /// where `folding_randomness = (r_0, ..., r_{k-1})` is a fixed assignment to the last `k` variables.
@@ -163,32 +134,11 @@ where
         EvaluationsList(evals)
     }
 
-    #[must_use]
-    #[instrument(skip_all)]
-    pub fn parallel_clone(&self) -> Self {
-        let mut evals = unsafe { uninitialized_vec(self.0.len()) };
-        parallel_clone(&self.0, &mut evals);
-        Self(evals)
-    }
-
-    /// Multiply the polynomial by a scalar factor.
-    #[must_use]
-    pub fn scale<EF: ExtensionField<F>>(&self, factor: EF) -> EvaluationsList<EF> {
-        EvaluationsList(self.0.par_iter().map(|&e| factor * e).collect())
-    }
-
     /// Returns a reference to the underlying slice of evaluations.
     #[inline]
     #[must_use]
     pub fn as_slice(&self) -> &[F] {
         &self.0
-    }
-
-    /// Returns a mutable reference to the underlying slice of evaluations.
-    #[inline]
-    #[must_use]
-    pub fn as_mut_slice(&mut self) -> &mut [F] {
-        &mut self.0
     }
 
     /// Convert from a list of evaluations to a list of multilinear coefficients.
@@ -201,6 +151,76 @@ where
         let kernel = Radix2WaveletKernel::<B>::default();
         let evals = kernel.inverse_wavelet_transform_algebra(self.0);
         CoefficientList::new(evals)
+    }
+
+    /// Compresses a list of evaluations in-place using a random challenge.
+    ///
+    /// ## Arguments
+    /// * `evals`: A mutable reference to an `EvaluationsList<F>`, which will be modified in-place.
+    /// * `r`: A value from the field `F`, used as the random folding challenge.
+    ///
+    /// ## Mathematical Formula
+    /// The compression is achieved by applying the following formula to pairs of evaluations:
+    /// ```text
+    ///     p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)
+    /// ```
+    pub fn compress(&mut self, r: F) {
+        // Ensure the polynomial is not a constant (i.e., has variables to fold).
+        assert_ne!(self.num_variables(), 0);
+
+        // For large inputs, we use a parallel, out-of-place strategy.
+        if self.num_evals() >= PARALLEL_THRESHOLD {
+            // Define the folding operation for a pair of elements.
+            let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
+            // Execute the fold in parallel and collect into a new vector.
+            let folded = self.as_slice().par_chunks_exact(2).map(fold).collect();
+            // Replace the old evaluations with the new, folded evaluations.
+            self.0 = folded;
+        } else {
+            // For smaller inputs, we use a sequential, in-place strategy.
+            let mid = self.num_evals() / 2;
+            for i in 0..mid {
+                let p0 = self.0[2 * i];
+                let p1 = self.0[2 * i + 1];
+                self.0[i] = r * (p1 - p0) + p0;
+            }
+            self.0.truncate(mid);
+        }
+    }
+
+    /// Folds a list of evaluations from a base field `F` into an extension field `EF`.
+    ///
+    /// ## Arguments
+    /// * `r`: A value `r` from the extension field `EF`, used as the random challenge for folding.
+    ///
+    /// ## Returns
+    /// A new `EvaluationsList<EF>` containing the compressed evaluations in the extension field.
+    ///
+    /// The compression is achieved by applying the following formula to pairs of evaluations:
+    /// ```text
+    ///     p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)
+    /// ```
+    #[instrument(skip_all)]
+    pub fn compress_ext<EF: ExtensionField<F>>(
+        &self,
+        r: EF,
+    ) -> EvaluationsList<EF> {
+        assert_ne!(self.num_variables(), 0);
+
+        // Fold between base and extension field elements
+        let fold = |slice: &[F]| -> EF { r * (slice[1] - slice[0]) + slice[0] };
+
+        // Threshold below which sequential computation is faster
+        //
+        // This was chosen based on experiments with the `compress` function.
+        // It is possible that the threshold can be tuned further.
+        let folded = if self.num_evals() >= PARALLEL_THRESHOLD {
+            self.as_slice().par_chunks_exact(2).map(fold).collect()
+        } else {
+            self.as_slice().chunks_exact(2).map(fold).collect()
+        };
+
+        EvaluationsList::new(folded)
     }
 }
 
@@ -401,8 +421,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, PrimeField64, extension::BinomialExtensionField};
     use proptest::prelude::*;
@@ -413,21 +431,6 @@ mod tests {
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
-
-    #[test]
-    #[allow(clippy::redundant_clone)]
-    fn test_parallel_clone() {
-        let mut rng = StdRng::seed_from_u64(0);
-        let evals =
-            EvaluationsList::<F>::new((0..1 << 25).map(|_| F::from_u64(rng.random())).collect());
-        let time = Instant::now();
-        let seq_clone = evals.clone();
-        println!("Sequential clone took: {:?}", time.elapsed());
-        let time = Instant::now();
-        let par_clone = evals.parallel_clone();
-        println!("Parallel clone took: {:?}", time.elapsed());
-        assert_eq!(seq_clone, par_clone);
-    }
 
     #[test]
     fn test_new_evaluations_list() {
@@ -989,19 +992,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_eval_eq() {
-        let c0 = F::from_u64(11);
-        let c1 = F::from_u64(22);
-        let evals = [c0, c1];
-        let poly = EvaluationsList::eval_eq(&evals);
-        let poly = poly.as_slice();
-        assert_eq!(poly[0], (F::ONE - c0) * (F::ONE - c1));
-        assert_eq!(poly[1], (F::ONE - c0) * c1);
-        assert_eq!(poly[2], c0 * (F::ONE - c1));
-        assert_eq!(poly[3], c0 * c1);
-    }
-
     proptest! {
         #[test]
         fn prop_eval_eq_matches_naive_for_eval_list(
@@ -1036,126 +1026,6 @@ mod tests {
 
             prop_assert_eq!(out, expected);
         }
-    }
-
-    #[test]
-    fn test_scale_by_zero() {
-        let list = EvaluationsList::<F>::new(vec![
-            F::from_u64(1),
-            F::from_u64(2),
-            F::from_u64(3),
-            F::from_u64(4),
-        ]);
-
-        let result = list.scale(EF4::ZERO);
-
-        assert_eq!(result.0.len(), 4);
-        for val in &result.0 {
-            assert_eq!(val.clone(), EF4::ZERO);
-        }
-        assert_eq!(result.num_variables(), 2);
-    }
-
-    #[test]
-    fn test_scale_by_one() {
-        let list = EvaluationsList::<F>::new(vec![
-            F::from_u64(10),
-            F::from_u64(20),
-            F::from_u64(30),
-            F::from_u64(40),
-        ]);
-
-        let result = list.scale(EF4::ONE);
-
-        assert_eq!(result.num_evals(), 4);
-        for (i, val) in result.0.iter().enumerate() {
-            assert_eq!(*val, EF4::from(list.as_slice()[i]));
-        }
-        assert_eq!(result.num_variables(), 2);
-    }
-
-    #[test]
-    fn test_scale_by_nontrivial_scalar() {
-        let list = EvaluationsList::<F>::new(vec![
-            F::from_u64(2),
-            F::from_u64(5),
-            F::from_u64(7),
-            F::from_u64(8),
-        ]);
-
-        let factor = EF4::from_u64(9);
-        let result = list.scale(factor);
-
-        assert_eq!(result.num_evals(), 4);
-        for (i, val) in result.0.iter().enumerate() {
-            assert_eq!(*val, EF4::from(list.as_slice()[i]) * factor);
-        }
-        assert_eq!(result.num_variables(), 2);
-    }
-
-    #[test]
-    fn test_scale_preserves_length_and_variables() {
-        let list = EvaluationsList::<F>(vec![
-            F::from_u64(0),
-            F::from_u64(1),
-            F::from_u64(2),
-            F::from_u64(3),
-        ]);
-
-        let result = list.scale(EF4::from_u64(7));
-
-        assert_eq!(result.num_evals(), 4);
-        assert_eq!(result.num_variables(), 2);
-    }
-
-    #[test]
-    fn test_truncate_halves_length() {
-        let evals = vec![F::ONE, F::from_u64(2), F::from_u64(3), F::from_u64(4)];
-        let mut list = EvaluationsList::new(evals.clone());
-
-        // Truncate to half
-        list.truncate(2);
-
-        // Only the first two elements should remain
-        assert_eq!(list.as_slice(), &evals[..2]);
-        assert_eq!(list.num_variables(), 1); // log2(2) = 1
-    }
-
-    #[test]
-    fn test_truncate_to_one() {
-        let evals = vec![
-            F::from_u64(7),
-            F::from_u64(8),
-            F::from_u64(9),
-            F::from_u64(10),
-        ];
-        let mut list = EvaluationsList::new(evals);
-
-        list.truncate(1);
-
-        assert_eq!(list.as_slice(), &[F::from_u64(7)]);
-        assert_eq!(list.num_variables(), 0); // log2(1) = 0
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_truncate_to_non_power_of_two_should_panic() {
-        let evals = vec![F::ONE, F::ONE, F::ONE, F::ONE];
-        let mut list = EvaluationsList::new(evals);
-
-        // Not a power of two — should panic
-        list.truncate(3);
-    }
-
-    #[test]
-    fn test_truncate_noop_when_length_unchanged() {
-        let evals = vec![F::from_u64(1), F::from_u64(2)];
-        let mut list = EvaluationsList::new(evals.clone());
-
-        list.truncate(2); // Same length, should remain unchanged
-
-        assert_eq!(list.as_slice(), &evals);
-        assert_eq!(list.num_variables(), 1);
     }
 
     #[test]

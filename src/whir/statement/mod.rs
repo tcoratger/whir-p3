@@ -161,7 +161,7 @@ impl<F: Field> Statement<F> {
 
         // Apply the first constraint's weights directly into the buffer,
         // overwriting any uninitialized values.
-        first.point.accumulate::<Base, false>(&mut combined, gamma);
+        combined.accumulate(&first.point.0, gamma);
 
         // Initialize the combined expected sum with the first term: s_1 * γ^0.
         let mut sum = first.expected_evaluation * gamma;
@@ -172,7 +172,7 @@ impl<F: Field> Statement<F> {
             gamma *= challenge;
 
             // Add this constraint's weighted polynomial evaluations into the buffer
-            c.point.accumulate::<Base, true>(&mut combined, gamma);
+            combined.accumulate(&c.point.0, gamma);
 
             // Add this constraint's contribution to the combined expected sum:
             sum += c.expected_evaluation * gamma;
