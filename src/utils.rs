@@ -291,9 +291,9 @@ mod tests {
         // Manually calculate the expected result for each point `b` on the hypercube.
         // The formula is `alpha * z^int(b)`. Since alpha is 1, this is just `z^i`.
         let mut expected_val = F::ONE;
-        for i in 0..(1 << n_vars) {
+        for (i, &weight) in weights.iter().enumerate().take(1 << n_vars) {
             // The expected value at index `i` is `z^i`.
-            assert_eq!(weights[i], expected_val, "Mismatch at index {}", i);
+            assert_eq!(weight, expected_val, "Mismatch at index {i}");
             // Update the expected value for the next iteration.
             expected_val *= z;
         }
