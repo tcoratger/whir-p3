@@ -310,44 +310,25 @@ where
         //
         // This handles all other cases, using one of two different strategies.
         [x, tail @ ..] => {
-            // For a very large number of variables, the recursive approach is not the most efficient.
-            //
-            // We switch to a more direct, non-recursive algorithm that is better suited for wide parallelization.
+            // For a very large number of variables we use a non-recursive algorithm better suited for wide parallelization.
             if point.num_variables() >= MLE_RECURSION_THRESHOLD {
-                // The `evals` are ordered lexicographically, meaning the first variable's bit changes the slowest.
-                //
-                // To align our computation with this memory layout, we process the point's coordinates in reverse.
-                let point_rev = MultilinearPoint::new(point.iter().rev().copied().collect());
-
-                // Split the reversed point's coordinates into two halves:
-                // - `z0` (low-order vars)
-                // - `z1` (high-order vars).
-                let mid = point_rev.num_variables() / 2;
-                let (z0, z1) = point_rev.as_slice().split_at(mid);
+                let mid = point.num_variables() / 2;
+                let (hi, lo) = point.as_slice().split_at(mid);
 
                 // Precomputation of Basis Polynomials
                 //
                 // The basis polynomial eq(v, p) can be split: eq(v, p) = eq(v_low, p_low) * eq(v_high, p_high).
                 //
-                // We precompute all `2^|z0|` values of eq(v_low, p_low) and store them in `left`.
-                // We precompute all `2^|z1|` values of eq(v_high, p_high) and store them in `right`.
+                // We precompute all `2^|lo|` values of eq(v_low, p_low) and store them in `left`.
+                // We precompute all `2^|hi|` values of eq(v_high, p_high) and store them in `right`.
 
-                // Allocate uninitialized memory for the low-order basis polynomial evaluations.
-                let mut left = unsafe { uninitialized_vec(1 << z0.len()) };
-                // Allocate uninitialized memory for the high-order basis polynomial evaluations.
-                let mut right = unsafe { uninitialized_vec(1 << z1.len()) };
+                // Allocate uninitialized memory for the polynomial evaluations.
+                let mut left = unsafe { uninitialized_vec(1 << lo.len()) };
+                let mut right = unsafe { uninitialized_vec(1 << hi.len()) };
 
-                // The `eval_eq` function requires the variables in their original order, so we reverse the halves back.
-                let mut z0_ordered = z0.to_vec();
-                z0_ordered.reverse();
-                // Compute all eq(v_low, p_low) values and fill the `left` vector.
-                eval_eq::<_, _, false>(&z0_ordered, &mut left, EF::ONE);
-
-                // Repeat the process for the high-order variables.
-                let mut z1_ordered = z1.to_vec();
-                z1_ordered.reverse();
-                // Compute all eq(v_high, p_high) values and fill the `right` vector.
-                eval_eq::<_, _, false>(&z1_ordered, &mut right, EF::ONE);
+                // Compute all eq(v_low, p_low) values and fill the `left` and `right` vectors.
+                eval_eq::<_, _, false>(lo, &mut left, EF::ONE);
+                eval_eq::<_, _, false>(hi, &mut right, EF::ONE);
 
                 // Parallelized Final Summation
                 //
