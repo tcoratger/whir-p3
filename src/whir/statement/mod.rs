@@ -218,10 +218,7 @@ mod tests {
         // For x=0, eq=0. For x=1, eq=1.
         let expected_combined_evals_vec = EvaluationsList::new_from_point(&point.0, F::ONE);
 
-        assert_eq!(
-            combined_evals,
-            expected_combined_evals_vec
-        );
+        assert_eq!(combined_evals, expected_combined_evals_vec);
         assert_eq!(combined_sum, expected_eval);
     }
 
@@ -249,10 +246,7 @@ mod tests {
         // Expected sum: S = s1 + challenge * s2
         let expected_combined_sum = eval1 + challenge * eval2;
 
-        assert_eq!(
-            combined_evals,
-            expected_combined_evals_vec
-        );
+        assert_eq!(combined_evals, expected_combined_evals_vec);
         assert_eq!(combined_sum, expected_combined_sum);
     }
 

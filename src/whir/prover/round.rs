@@ -490,11 +490,7 @@ mod tests {
         let sumcheck = &state.sumcheck_prover;
         let sumcheck_randomness = state.folding_randomness.clone();
 
-        for (f, w) in sumcheck
-            .evals
-            .iter()
-            .zip(&sumcheck.weights)
-        {
+        for (f, w) in sumcheck.evals.iter().zip(&sumcheck.weights) {
             // Each evaluation should be 0
             assert_eq!(*f, EF4::ZERO);
             // Their contribution to the weighted sum should also be 0

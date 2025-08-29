@@ -4,7 +4,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::{Dimensions};
+use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_multilinear_util::point::MultilinearPoint;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};

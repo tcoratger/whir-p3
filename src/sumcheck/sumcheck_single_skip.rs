@@ -90,7 +90,7 @@ where
 
         // Do the same for the weight polynomial w(X): shape = (2^k × 2^{n-k})
         let weights_mat = weights.clone().into_mat(width);
-        
+
         // Apply a low-degree extension (LDE) to each row of f_mat and weights_mat.
         // The LDE maps each row of length 2^k to 2^{k+1} evaluations over a multiplicative coset.
         //

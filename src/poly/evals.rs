@@ -2,14 +2,14 @@ use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::{eq::{eval_eq, eval_eq_base}, point::MultilinearPoint};
+use p3_multilinear_util::{
+    eq::{eval_eq, eval_eq_base},
+    point::MultilinearPoint,
+};
 use tracing::instrument;
 
 use super::{coeffs::CoefficientList, wavelet::Radix2WaveletKernel};
-use crate::{
-    constant::MLE_RECURSION_THRESHOLD,
-    utils::{uninitialized_vec},
-};
+use crate::{constant::MLE_RECURSION_THRESHOLD, utils::uninitialized_vec};
 
 const PARALLEL_THRESHOLD: usize = 4096;
 
@@ -68,7 +68,7 @@ where
 
     /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`
     /// for all points `X` in the boolean hypercube and add it to the current evaluation vector.
-    /// 
+    ///
     /// This is a variant of `accumulate` where the new point lies in a sub-field.
     pub fn accumulate_base<BF: Field>(&mut self, point: &MultilinearPoint<BF>, value: F)
     where
@@ -101,8 +101,7 @@ where
     ///     eq(x, point) = \prod_{i=1}^{n} (1 - p_i + 2 p_i x_i).
     /// ```
     #[must_use]
-    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF
-    {
+    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         eval_multilinear(&self.0, point)
     }
 
@@ -216,10 +215,7 @@ where
     ///     p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)
     /// ```
     #[instrument(skip_all)]
-    pub fn compress_ext<EF: ExtensionField<F>>(
-        &self,
-        r: EF,
-    ) -> EvaluationsList<EF> {
+    pub fn compress_ext<EF: ExtensionField<F>>(&self, r: EF) -> EvaluationsList<EF> {
         assert_ne!(self.num_variables(), 0);
 
         // Fold between base and extension field elements

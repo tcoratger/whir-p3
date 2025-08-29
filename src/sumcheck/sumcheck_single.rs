@@ -3,9 +3,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::{
-    point::MultilinearPoint,
-};
+use p3_multilinear_util::point::MultilinearPoint;
 use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
