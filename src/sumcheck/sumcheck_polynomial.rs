@@ -1,5 +1,6 @@
 use p3_field::Field;
-use p3_multilinear_util::point::MultilinearPoint;
+
+use crate::poly::multilinear::MultilinearPoint;
 
 /// A constant to determine when to switch from sequential to parallel execution.
 ///

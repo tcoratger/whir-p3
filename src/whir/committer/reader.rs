@@ -179,7 +179,6 @@ mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_field::PrimeCharacteristicRing;
-    use p3_multilinear_util::point::MultilinearPoint;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -187,7 +186,7 @@ mod tests {
     use crate::{
         dft::EvalsDft,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::evals::EvaluationsList,
+        poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
         whir::{DomainSeparator, committer::writer::CommitmentWriter},
     };
 

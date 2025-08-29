@@ -141,13 +141,12 @@ mod tests {
     use p3_challenger::DuplexChallenger;
     use p3_dft::NaiveDft;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
-    use p3_multilinear_util::point::MultilinearPoint;
     use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
-        poly::coeffs::CoefficientList,
+        poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
         whir::statement::{Statement, point::ConstraintPoint},
     };
 

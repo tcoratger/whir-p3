@@ -90,10 +90,9 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
-    use p3_multilinear_util::point::MultilinearPoint;
 
     use super::*;
-    use crate::poly::coeffs::CoefficientList;
+    use crate::poly::{coeffs::CoefficientList, multilinear::MultilinearPoint};
 
     type F = BabyBear;
 
