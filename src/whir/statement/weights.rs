@@ -5,11 +5,7 @@ use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::{eq::eval_eq, point::MultilinearPoint};
 use tracing::instrument;
 
-use crate::{
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::utils::eval_select,
-};
-use crate::poly::evals::EvaluationsList;
+use crate::{poly::evals::EvaluationsList, sumcheck::utils::eval_select};
 
 /// Represents a weight function used in polynomial evaluations.
 ///
