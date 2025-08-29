@@ -37,6 +37,7 @@ where
     ///
     /// # Panics
     /// Panics if `evals.len()` is not a power of two.
+    #[inline]
     pub const fn new(evals: Vec<F>) -> Self {
         assert!(
             evals.len().is_power_of_two(),
@@ -48,6 +49,7 @@ where
 
     /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`
     /// for all points `X` in the boolean hypercube.
+    #[inline]
     pub fn new_from_point(point: &MultilinearPoint<F>, value: F) -> Self {
         let n = point.num_variables();
         let mut evals = F::zero_vec(1 << n);
@@ -63,12 +65,14 @@ where
     /// # Panics
     /// Panics if `num_variables` is not 0.
     #[must_use]
+    #[inline]
     pub fn as_constant(&self) -> Option<F> {
         (self.num_evals() == 1).then_some(self.0[0])
     }
 
     /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`
     /// for all points `X` in the boolean hypercube and add it to the current evaluation vector.
+    #[inline]
     pub fn accumulate(&mut self, point: &MultilinearPoint<F>, value: F) {
         assert_eq!(self.num_variables(), point.num_variables());
         eval_eq::<_, _, true>(point.as_slice(), &mut self.0, value);
@@ -78,6 +82,7 @@ where
     /// for all points `X` in the boolean hypercube and add it to the current evaluation vector.
     ///
     /// This is a variant of `accumulate` where the new point lies in a sub-field.
+    #[inline]
     pub fn accumulate_base<BF: Field>(&mut self, point: &MultilinearPoint<BF>, value: F)
     where
         F: ExtensionField<BF>,
@@ -88,12 +93,14 @@ where
 
     /// Returns the total number of stored evaluations.
     #[must_use]
+    #[inline]
     pub const fn num_evals(&self) -> usize {
         self.0.len()
     }
 
     /// Returns the number of variables in the multilinear polynomial.
     #[must_use]
+    #[inline]
     pub const fn num_variables(&self) -> usize {
         // Safety: The length is guaranteed to be a power of two.
         self.0.len().ilog2() as usize
@@ -110,6 +117,7 @@ where
     ///     eq(x, point) = \prod_{i=1}^{n} (1 - p_i + 2 p_i x_i).
     /// ```
     #[must_use]
+    #[inline]
     pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         eval_multilinear(&self.0, point)
     }
@@ -131,7 +139,7 @@ where
     /// # Panics
     /// - If the evaluation list is not sized `2^n` for some `n`.
     #[instrument(skip_all)]
-    #[must_use]
+    #[inline]
     pub fn fold<EF>(&self, folding_randomness: &MultilinearPoint<EF>) -> EvaluationsList<EF>
     where
         EF: ExtensionField<F>,
@@ -166,6 +174,7 @@ where
 
     /// Convert from a list of evaluations to a list of multilinear coefficients.
     #[must_use]
+    #[inline]
     #[instrument(skip_all)]
     pub fn to_coefficients<B: Field>(self) -> CoefficientList<F>
     where
@@ -187,6 +196,7 @@ where
     /// ```text
     ///     p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)
     /// ```
+    #[inline]
     pub fn compress(&mut self, r: F) {
         // Ensure the polynomial is not a constant (i.e., has variables to fold).
         assert_ne!(self.num_variables(), 0);
@@ -223,6 +233,7 @@ where
     /// ```text
     ///     p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)
     /// ```
+    #[inline]
     #[instrument(skip_all)]
     pub fn compress_ext<EF: ExtensionField<F>>(&self, r: EF) -> EvaluationsList<EF> {
         assert_ne!(self.num_variables(), 0);
@@ -248,6 +259,7 @@ impl<'a, F> IntoIterator for &'a EvaluationsList<F> {
     type Item = &'a F;
     type IntoIter = std::slice::Iter<'a, F>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
     }
@@ -257,6 +269,7 @@ impl<F> IntoIterator for EvaluationsList<F> {
     type Item = F;
     type IntoIter = std::vec::IntoIter<F>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
