@@ -3,7 +3,7 @@ use point::ConstraintPoint;
 use tracing::instrument;
 
 use crate::{
-    poly::evals::EvaluationsList, utils::uninitialized_vec, whir::statement::constraint::Constraint,
+    poly::evals::EvaluationsList, whir::statement::constraint::Constraint,
 };
 
 pub mod constraint;
@@ -142,29 +142,18 @@ impl<F: Field> Statement<F> {
             );
         }
 
-        // Compute the number of evaluation points: 2^(num_variables).
-        let len = 1usize << self.num_variables;
-
-        // Allocate the vector for combined evaluations without initializing it to zero.
-        // Safety: we guarantee that the very first accumulate() call will overwrite
-        // the entire buffer before any read occurs.
-        let mut combined = EvaluationsList::new(unsafe { uninitialized_vec::<F>(len) });
-
         // Separate the first constraint from the rest.
         // This allows us to treat the first one specially:
         //   - We overwrite the buffer.
         //   - We avoid a runtime branch in the main loop.
         let (first, rest) = self.constraints.split_first().unwrap();
 
-        // Start with γ^0 = 1 for the first constraint.
+        // Initialize the combined evaluations with the first constraint's polynomial.
+        let mut combined = EvaluationsList::new_from_point(&first.point.0, F::ONE);
+
+        // Initialize the combined expected sum with the first term: s_1 * γ^0 = s_1.
         let mut gamma = F::ONE;
-
-        // Apply the first constraint's weights directly into the buffer,
-        // overwriting any uninitialized values.
-        combined.accumulate(&first.point.0, gamma);
-
-        // Initialize the combined expected sum with the first term: s_1 * γ^0.
-        let mut sum = first.expected_evaluation * gamma;
+        let mut sum = first.expected_evaluation;
 
         // Process the remaining constraints.
         for c in rest {
