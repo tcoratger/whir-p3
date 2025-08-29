@@ -7,7 +7,7 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
 use prover::Prover;
 use rand::{SeedableRng, rngs::SmallRng};
-use statement::{Statement, weights::Weights};
+use statement::{Statement, point::ConstraintPoint};
 use verifier::Verifier;
 
 use crate::{
@@ -96,17 +96,9 @@ pub fn make_whir_things(
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
         let eval = polynomial.evaluate(point);
-        let weights = Weights::evaluation(point.clone());
-        statement.add_constraint(weights, eval);
+        let constraint_point = ConstraintPoint::new(point.clone());
+        statement.add_constraint(constraint_point, eval);
     }
-
-    // Construct a linear constraint to test sumcheck
-    let input = CoefficientList::new((0..1 << num_variables).map(EF::from_u64).collect());
-    let linear_claim_weight = Weights::linear(input.to_evaluations::<F>());
-
-    // Evaluate the weighted sum and add it as a linear constraint
-    let sum = linear_claim_weight.evaluate_evals(&polynomial);
-    statement.add_constraint(linear_claim_weight, sum);
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
     let mut domainsep = DomainSeparator::new(vec![]);

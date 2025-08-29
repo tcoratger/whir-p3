@@ -18,7 +18,7 @@ use crate::{
     },
     poly::evals::EvaluationsList,
     whir::{
-        statement::{Statement, constraint::Constraint, weights::Weights},
+        statement::{Statement, constraint::Constraint, point::ConstraintPoint},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -108,7 +108,7 @@ where
         prover.add_extension_scalar(eval);
 
         // Add the constraint: poly(point) = eval.
-        statement.add_constraint(Weights::evaluation(point), eval);
+        statement.add_constraint(ConstraintPoint::new(point), eval);
     }
 
     // Return the complete statement.
@@ -167,7 +167,7 @@ where
             prover.add_extension_scalar(eval);
 
             // Add the evaluation constraint: poly(point) == eval.
-            statement.add_constraint(Weights::evaluation(point.clone()), eval);
+            statement.add_constraint(ConstraintPoint::new(point.clone()), eval);
 
             // Return the sampled point and its evaluation.
             (point, eval)
@@ -222,7 +222,7 @@ where
         let eval = verifier.next_extension_scalar().unwrap();
 
         // Add the constraint: poly(point) == eval.
-        statement.add_constraint(Weights::evaluation(point), eval);
+        statement.add_constraint(ConstraintPoint::new(point), eval);
     }
 
     // Return the fully reconstructed statement.
@@ -275,7 +275,7 @@ fn combine_constraints<EF: Field>(
     let weighted_sum: EF = constraints
         .iter()
         .zip(&alpha)
-        .map(|(c, &rand)| rand * c.sum)
+        .map(|(c, &rand)| rand * c.expected_evaluation)
         .sum();
 
     // Add the result to the claimed sum
@@ -340,15 +340,13 @@ where
                 let single_eval = if is_skip_round {
                     // ROUND 0 with SKIP: Use the special skip-aware evaluation.
                     // The constraints for this round are over the full `num_vars` domain.
-                    assert_eq!(constraint.weights.num_variables(), num_vars);
-                    constraint
-                        .weights
-                        .compute_with_skip(final_challenges, k_skip)
+                    assert_eq!(constraint.point.num_variables(), num_vars);
+                    constraint.point.compute_with_skip(final_challenges, k_skip)
                 } else {
                     // STANDARD ROUND: Use the standard multilinear evaluation.
                     // The constraints and challenge point are over the smaller `num_vars_at_round` domain.
-                    assert_eq!(constraint.weights.num_variables(), num_vars_at_round);
-                    constraint.weights.compute(&challenges_for_round)
+                    assert_eq!(constraint.point.num_variables(), num_vars_at_round);
+                    constraint.point.compute(&challenges_for_round)
                 };
                 alpha_pow * single_eval
             })
