@@ -23,7 +23,7 @@ use whir_p3::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         parameters::WhirConfig,
         prover::Prover,
-        statement::{Statement, weights::Weights},
+        statement::{Statement, weights::EvaluationPoint},
         verifier::Verifier,
     },
 };
@@ -144,7 +144,7 @@ fn main() {
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
         let eval = polynomial.evaluate(point);
-        let weights = Weights::evaluation(point.clone());
+        let weights = EvaluationPoint::new(point.clone());
         statement.add_constraint(weights, eval);
     }
 

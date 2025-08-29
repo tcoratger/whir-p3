@@ -90,13 +90,12 @@ impl ConstraintPolyEvaluator {
                         deferred_it.next().expect("missing deferred evaluation")
                     } else if is_skip_round {
                         // Skip-aware evaluation over r_rest || r_skip.
-                        debug_assert_eq!(c.weights.num_variables(), self.num_variables);
-                        c.weights
-                            .compute_with_skip(&point_for_round, K_SKIP_SUMCHECK)
+                        debug_assert_eq!(c.point.num_variables(), self.num_variables);
+                        c.point.compute_with_skip(&point_for_round, K_SKIP_SUMCHECK)
                     } else {
                         // Standard multilinear evaluation on the current domain.
-                        debug_assert_eq!(c.weights.num_variables(), vars_left);
-                        c.weights.compute(&point_for_round)
+                        debug_assert_eq!(c.point.num_variables(), vars_left);
+                        c.point.compute(&point_for_round)
                     };
 
                     // Multiply by its random combination coefficient.
@@ -141,7 +140,7 @@ mod tests {
     use crate::{
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
-        whir::statement::{Statement, weights::Weights},
+        whir::statement::{Statement, weights::EvaluationPoint},
     };
 
     type F = BabyBear;
@@ -202,7 +201,7 @@ mod tests {
             let mut statement = Statement::new(num_vars_at_round);
             for _ in 0..*num_constraints {
                 statement.add_constraint(
-                    Weights::evaluation(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
+                    EvaluationPoint::new(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
                     rng.random(),
                 );
             }
@@ -346,7 +345,7 @@ mod tests {
                 // Add the random number of constraints for this round.
                 for _ in 0..num_constraints_per_round[i] {
                     statement.add_constraint(
-                        Weights::evaluation(MultilinearPoint::rand(&mut rng, num_vars_current)),
+                        EvaluationPoint::new(MultilinearPoint::rand(&mut rng, num_vars_current)),
                         rng.random(),
                     );
                 }
@@ -459,7 +458,7 @@ mod tests {
             let mut statement = Statement::new(num_vars_at_round);
             for _ in 0..num_constraints {
                 statement.add_constraint(
-                    Weights::evaluation(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
+                    EvaluationPoint::new(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
                     rng.random(),
                 );
             }
@@ -602,7 +601,7 @@ mod tests {
                 let mut statement = Statement::new(num_vars_current);
                 for _ in 0..num_constraints_per_round[i] {
                     statement.add_constraint(
-                        Weights::evaluation(MultilinearPoint::rand(&mut rng, num_vars_current)),
+                        EvaluationPoint::new(MultilinearPoint::rand(&mut rng, num_vars_current)),
                         rng.random(),
                     );
                 }

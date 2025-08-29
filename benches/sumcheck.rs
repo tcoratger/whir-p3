@@ -8,7 +8,7 @@ use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::evals::EvaluationsList,
     sumcheck::sumcheck_single::SumcheckSingle,
-    whir::statement::{Statement, weights::Weights},
+    whir::statement::{Statement, weights::EvaluationPoint},
 };
 
 type F = BabyBear;
@@ -45,7 +45,7 @@ where
     for _ in 0..num_constraints {
         let point = MultilinearPoint::expand_from_univariate(prover.sample(), num_vars);
         let eval = poly.evaluate(&point);
-        statement.add_constraint(Weights::evaluation(point), eval);
+        statement.add_constraint(EvaluationPoint::new(point), eval);
     }
     statement
 }

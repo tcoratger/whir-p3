@@ -155,7 +155,7 @@ mod tests {
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
             parameters::WhirConfig,
-            statement::{Statement, weights::Weights},
+            statement::{Statement, weights::EvaluationPoint},
         },
     };
 
@@ -243,11 +243,11 @@ mod tests {
         let f_111 = f(EF4::ONE, EF4::ONE, EF4::ONE);
         let f_011 = f(EF4::ZERO, EF4::ONE, EF4::ONE);
 
-        statement.add_constraint(Weights::evaluation(x_000), f_000);
-        statement.add_constraint(Weights::evaluation(x_100), f_100);
-        statement.add_constraint(Weights::evaluation(x_110), f_110);
-        statement.add_constraint(Weights::evaluation(x_111), f_111);
-        statement.add_constraint(Weights::evaluation(x_011), f_011);
+        statement.add_constraint(EvaluationPoint::new(x_000), f_000);
+        statement.add_constraint(EvaluationPoint::new(x_100), f_100);
+        statement.add_constraint(EvaluationPoint::new(x_110), f_110);
+        statement.add_constraint(EvaluationPoint::new(x_111), f_111);
+        statement.add_constraint(EvaluationPoint::new(x_011), f_011);
 
         let folding_factor = 3;
         let pow_bits = 0;
@@ -365,7 +365,7 @@ mod tests {
                 .collect();
             let ml_point = MultilinearPoint::new(bool_point.clone());
             let expected_val = coeffs.evaluate(&ml_point);
-            statement.add_constraint(Weights::evaluation(ml_point), expected_val);
+            statement.add_constraint(EvaluationPoint::new(ml_point), expected_val);
         }
 
         // -------------------------------------------------------------

@@ -8,7 +8,7 @@ use crate::{
     fiat_shamir::{errors::ProofResult, verifier::VerifierState},
     whir::{
         parameters::WhirConfig,
-        statement::{constraint::Constraint, weights::Weights},
+        statement::{constraint::Constraint, weights::EvaluationPoint},
     },
 };
 
@@ -108,9 +108,9 @@ where
         self.ood_points
             .iter()
             .zip(&self.ood_answers)
-            .map(|(&point, &eval)| Constraint {
-                weights: Weights::univariate(point, self.num_variables),
-                sum: eval,
+            .map(|(&point, &expected_evaluation)| Constraint {
+                point: EvaluationPoint::univariate(point, self.num_variables),
+                expected_evaluation,
                 defer_evaluation: false,
             })
             .collect()
@@ -423,14 +423,14 @@ mod tests {
                 point,
             ]);
 
-            let expected_weight = Weights::evaluation(expanded);
+            let expected_point = EvaluationPoint::new(expanded);
 
             assert_eq!(
-                constraint.weights, expected_weight,
+                constraint.point, expected_point,
                 "Constraint {i} has incorrect weight"
             );
             assert_eq!(
-                constraint.sum, expected_eval,
+                constraint.expected_evaluation, expected_eval,
                 "Constraint {i} has incorrect sum"
             );
             assert!(
