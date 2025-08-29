@@ -57,7 +57,7 @@ where
 
     /// Evaluates the polynomial as a constant.
     /// This is only valid for constant polynomials (i.e., when `num_variables` is 0).
-    /// 
+    ///
     /// Returns None in other cases.
     ///
     /// # Panics
@@ -70,6 +70,7 @@ where
     /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`
     /// for all points `X` in the boolean hypercube and add it to the current evaluation vector.
     pub fn accumulate(&mut self, point: &MultilinearPoint<F>, value: F) {
+        assert_eq!(self.num_variables(), point.num_variables());
         eval_eq::<_, _, true>(point.as_slice(), &mut self.0, value);
     }
 
@@ -81,6 +82,7 @@ where
     where
         F: ExtensionField<BF>,
     {
+        assert_eq!(self.num_variables(), point.num_variables());
         eval_eq_base::<_, _, true>(point.as_slice(), &mut self.0, value);
     }
 
