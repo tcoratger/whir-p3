@@ -1,8 +1,6 @@
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::dense::RowMajorMatrix;
-use p3_multilinear_util::{eq::eval_eq, point::MultilinearPoint};
-use tracing::instrument;
+use p3_multilinear_util::point::MultilinearPoint;
 
 use crate::poly::evals::EvaluationsList;
 
@@ -33,20 +31,6 @@ impl<F: Field> ConstraintPoint<F> {
     /// a point `y` is mapped to a multilinear point `(y, y^2, y^4, ...)`.
     pub fn univariate(point: F, size: usize) -> Self {
         Self(MultilinearPoint::expand_from_univariate(point, size))
-    }
-
-    /// Accumulates the contribution of the weight function `eq_z(X)` into `accumulator`, scaled by `factor`.
-    #[instrument(skip_all)]
-    pub fn accumulate<Base, const INITIALIZED: bool>(
-        &self,
-        accumulator: &mut EvaluationsList<F>,
-        factor: F,
-    ) where
-        Base: Field,
-        F: ExtensionField<Base>,
-    {
-        assert_eq!(accumulator.num_variables(), self.num_variables());
-        eval_eq::<Base, F, INITIALIZED>(self.0.as_slice(), accumulator.as_mut_slice(), factor);
     }
 
     /// Evaluates the weight function `eq_z(X)` at a given folding point.
@@ -81,8 +65,7 @@ impl<F: Field> ConstraintPoint<F> {
         );
 
         // Construct the evaluation table for the polynomial eq_z(X).
-        let mut evals = EvaluationsList::new(F::zero_vec(1 << n));
-        eval_eq::<_, _, false>(self.0.as_slice(), evals.as_mut_slice(), F::ONE);
+        let evals = EvaluationsList::new_from_point(&self.0, F::ONE);
 
         // Reshape the evaluation table into a matrix for folding
         //
@@ -91,7 +74,7 @@ impl<F: Field> ConstraintPoint<F> {
         // Columns correspond to the remaining variables (Xk, ..., Xn-1).
         let num_remaining_vars = n - k_skip;
         let width = 1 << num_remaining_vars;
-        let mat = RowMajorMatrix::new(evals.as_slice().to_vec(), width);
+        let mat = evals.into_mat(width);
 
         // Deconstruct the challenge object `r_all`
         //
@@ -117,6 +100,7 @@ impl<F: Field> ConstraintPoint<F> {
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_matrix::dense::RowMajorMatrix;
 
     use super::*;
 
@@ -140,19 +124,17 @@ mod tests {
 
         // Define an evaluation point
         let point = MultilinearPoint::new(vec![F::ONE]);
-        let constraint_point = ConstraintPoint::new(point.clone());
 
         // Define a multiplication factor
         let factor = F::from_u64(5);
 
         // Accumulate weighted values
-        constraint_point.accumulate::<_, true>(&mut accumulator, factor);
+        accumulator.accumulate(&point, factor);
 
         // Compute expected result manually
-        let mut expected = vec![F::ZERO, F::ZERO];
-        eval_eq::<_, _, true>(point.as_slice(), &mut expected, factor);
+        let expected = EvaluationsList::new_from_point(&point, factor);
 
-        assert_eq!(accumulator.as_slice(), &expected);
+        assert_eq!(accumulator, expected);
     }
 
     #[test]

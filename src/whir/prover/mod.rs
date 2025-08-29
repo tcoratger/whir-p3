@@ -337,7 +337,7 @@ where
                         let width = 1 << num_remaining_vars;
 
                         // Reshape the `answer` evaluations into the `2^k x 2^(n-k)` matrix format.
-                        let mat = RowMajorMatrix::new(evals.as_slice().to_vec(), width);
+                        let mat = evals.into_mat(width);
 
                         // For a skip round, `folding_randomness` is the special `(n-k)+1` challenge object.
                         let r_all = round_state.folding_randomness.clone();

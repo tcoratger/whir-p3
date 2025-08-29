@@ -3,10 +3,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::{
-    eq::{eval_eq, eval_eq_base},
-    point::MultilinearPoint,
-};
+use p3_multilinear_util::point::MultilinearPoint;
 use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
@@ -20,91 +17,6 @@ use crate::{
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;
-
-/// Folds a list of evaluations from a base field `F` into an extension field `EF`.
-///
-/// This function performs an out-of-place compression of a polynomial's evaluations. It takes evaluations
-/// over a base field `F`, folds them using a random value `r` from an extension field `EF`, and returns a new
-/// list of evaluations in `EF`. This operation effectively reduces the number of variables in the
-/// represented multilinear polynomial by one.
-///
-/// ## Arguments
-/// * `evals`: A reference to an `EvaluationsList<F>` containing the evaluations of a multilinear
-///   polynomial over the boolean hypercube in the base field `F`.
-/// * `r`: A value `r` from the extension field `EF`, used as the random challenge for folding.
-///
-/// ## Returns
-/// A new `EvaluationsList<EF>` containing the compressed evaluations in the extension field.
-///
-/// The compression is achieved by applying the following formula to pairs of evaluations:
-///
-/// The compression is achieved by applying the following formula to pairs of evaluations:
-/// $p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)$
-#[instrument(skip_all)]
-pub fn compress_ext<F: Field, EF: ExtensionField<F>>(
-    evals: &EvaluationsList<F>,
-    r: EF,
-) -> EvaluationsList<EF> {
-    assert_ne!(evals.num_variables(), 0);
-
-    // Fold between base and extension field elements
-    let fold = |slice: &[F]| -> EF { r * (slice[1] - slice[0]) + slice[0] };
-
-    // Threshold below which sequential computation is faster
-    //
-    // This was chosen based on experiments with the `compress` function.
-    // It is possible that the threshold can be tuned further.
-    let folded = if evals.num_evals() >= PARALLEL_THRESHOLD {
-        evals.as_slice().par_chunks_exact(2).map(fold).collect()
-    } else {
-        evals.as_slice().chunks_exact(2).map(fold).collect()
-    };
-
-    EvaluationsList::new(folded)
-}
-
-/// Compresses a list of evaluations in-place using a random challenge.
-///
-/// This function performs an in-place memory optimization for the folding step
-/// in the sumcheck protocol.
-///
-/// ## Algorithm
-/// For smaller inputs, this function avoids allocating a new vector by overwriting
-/// the first half of the existing evaluation list and then truncating it.
-/// For larger inputs (determined by `PARALLEL_THRESHOLD`), it uses a parallel,
-/// out-of-place method to maximize performance, consistent with the original implementation.
-///
-/// ## Arguments
-/// * `evals`: A mutable reference to an `EvaluationsList<F>`, which will be modified in-place.
-/// * `r`: A value from the field `F`, used as the random folding challenge.
-///
-/// ## Mathematical Formula
-/// The compression is achieved by applying the following formula to pairs of evaluations:
-/// $p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)$
-pub fn compress<F: Field>(evals: &mut EvaluationsList<F>, r: F) {
-    // Ensure the polynomial is not a constant (i.e., has variables to fold).
-    assert_ne!(evals.num_variables(), 0);
-
-    // For large inputs, we use the original parallel, out-of-place strategy for maximum speed.
-    if evals.num_evals() >= PARALLEL_THRESHOLD {
-        // Define the folding operation for a pair of elements.
-        let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
-        // Execute the fold in parallel and collect into a new vector.
-        let folded = evals.as_slice().par_chunks_exact(2).map(fold).collect();
-        // Replace the old evaluations with the new, folded evaluations.
-        *evals = EvaluationsList::new(folded);
-    } else {
-        // For smaller inputs, we use the sequential, in-place strategy to save memory.
-        let mid = evals.num_evals() / 2;
-        let evals_slice = evals.as_mut_slice();
-        for i in 0..mid {
-            let p0 = evals_slice[2 * i];
-            let p1 = evals_slice[2 * i + 1];
-            evals_slice[i] = r * (p1 - p0) + p0;
-        }
-        evals.truncate(mid);
-    }
-}
 
 /// Executes the initial round of the sumcheck protocol.
 ///
@@ -145,7 +57,7 @@ where
     prover_state.pow_grinding(pow_bits);
 
     // Compress polynomials and update the sum.
-    let evals = join(|| compress(weights, r), || compress_ext(evals, r)).1;
+    let evals = join(|| weights.compress(r), || evals.compress_ext(r)).1;
 
     *sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
 
@@ -189,7 +101,7 @@ where
     prover_state.pow_grinding(pow_bits);
 
     // Compress polynomials and update the sum.
-    join(|| compress(evals, r), || compress(weights, r));
+    join(|| evals.compress(r), || weights.compress(r));
 
     *sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
 
@@ -505,7 +417,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter())
                 .for_each(|(point, &rand)| {
-                    eval_eq::<_, _, true>(point.as_slice(), self.weights.as_mut_slice(), rand);
+                    self.weights.accumulate(point, rand);
                 });
         });
 
@@ -554,7 +466,7 @@ where
                 .iter()
                 .zip(combination_randomness.iter())
                 .for_each(|(point, &rand)| {
-                    eval_eq_base::<_, _, true>(point.as_slice(), self.weights.as_mut_slice(), rand);
+                    self.weights.accumulate_base(point, rand);
                 });
         });
 

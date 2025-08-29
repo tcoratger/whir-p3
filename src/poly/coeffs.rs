@@ -192,7 +192,6 @@ impl<F> CoefficientList<F> {
 
     /// Convert from a list of multilinear coefficients to a list of
     /// evaluations over the hypercube.
-    #[must_use]
     pub fn to_evaluations<B: Field>(self) -> EvaluationsList<F>
     where
         F: ExtensionField<B>,

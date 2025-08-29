@@ -2,9 +2,7 @@ use p3_field::{ExtensionField, Field};
 use point::ConstraintPoint;
 use tracing::instrument;
 
-use crate::{
-    poly::evals::EvaluationsList, utils::uninitialized_vec, whir::statement::constraint::Constraint,
-};
+use crate::{poly::evals::EvaluationsList, whir::statement::constraint::Constraint};
 
 pub mod constraint;
 pub mod evaluator;
@@ -142,29 +140,18 @@ impl<F: Field> Statement<F> {
             );
         }
 
-        // Compute the number of evaluation points: 2^(num_variables).
-        let len = 1usize << self.num_variables;
-
-        // Allocate the vector for combined evaluations without initializing it to zero.
-        // Safety: we guarantee that the very first accumulate() call will overwrite
-        // the entire buffer before any read occurs.
-        let mut combined = EvaluationsList::new(unsafe { uninitialized_vec::<F>(len) });
-
         // Separate the first constraint from the rest.
         // This allows us to treat the first one specially:
         //   - We overwrite the buffer.
         //   - We avoid a runtime branch in the main loop.
         let (first, rest) = self.constraints.split_first().unwrap();
 
-        // Start with γ^0 = 1 for the first constraint.
+        // Initialize the combined evaluations with the first constraint's polynomial.
+        let mut combined = EvaluationsList::new_from_point(&first.point.0, F::ONE);
+
+        // Initialize the combined expected sum with the first term: s_1 * γ^0 = s_1.
         let mut gamma = F::ONE;
-
-        // Apply the first constraint's weights directly into the buffer,
-        // overwriting any uninitialized values.
-        first.point.accumulate::<Base, false>(&mut combined, gamma);
-
-        // Initialize the combined expected sum with the first term: s_1 * γ^0.
-        let mut sum = first.expected_evaluation * gamma;
+        let mut sum = first.expected_evaluation;
 
         // Process the remaining constraints.
         for c in rest {
@@ -172,7 +159,7 @@ impl<F: Field> Statement<F> {
             gamma *= challenge;
 
             // Add this constraint's weighted polynomial evaluations into the buffer
-            c.point.accumulate::<Base, true>(&mut combined, gamma);
+            combined.accumulate(&c.point.0, gamma);
 
             // Add this constraint's contribution to the combined expected sum:
             sum += c.expected_evaluation * gamma;
@@ -197,7 +184,6 @@ impl<F: Field> Statement<F> {
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
-    use p3_multilinear_util::eq::eval_eq;
 
     use super::*;
     use crate::whir::MultilinearPoint;
@@ -217,13 +203,9 @@ mod tests {
 
         // Expected evals for eq_z(X) where z = (1).
         // For x=0, eq=0. For x=1, eq=1.
-        let mut expected_combined_evals_vec = F::zero_vec(2);
-        eval_eq::<F, F, false>(point.0.as_slice(), &mut expected_combined_evals_vec, F::ONE);
+        let expected_combined_evals_vec = EvaluationsList::new_from_point(&point.0, F::ONE);
 
-        assert_eq!(
-            combined_evals.as_slice(),
-            expected_combined_evals_vec.as_slice()
-        );
+        assert_eq!(combined_evals, expected_combined_evals_vec);
         assert_eq!(combined_sum, expected_eval);
     }
 
@@ -245,25 +227,13 @@ mod tests {
         let (combined_evals, combined_sum) = statement.combine::<F>(challenge);
 
         // Expected evals: W(X) = eq_z1(X) + challenge * eq_z2(X)
-        let mut expected_combined_evals_vec = F::zero_vec(4);
-        eval_eq::<F, F, false>(
-            point1.0.as_slice(),
-            &mut expected_combined_evals_vec,
-            F::ONE,
-        );
-        eval_eq::<F, F, true>(
-            point2.0.as_slice(),
-            &mut expected_combined_evals_vec,
-            challenge,
-        );
+        let mut expected_combined_evals_vec = EvaluationsList::new_from_point(&point1.0, F::ONE);
+        expected_combined_evals_vec.accumulate(&point2.0, challenge);
 
         // Expected sum: S = s1 + challenge * s2
         let expected_combined_sum = eval1 + challenge * eval2;
 
-        assert_eq!(
-            combined_evals.as_slice(),
-            expected_combined_evals_vec.as_slice()
-        );
+        assert_eq!(combined_evals, expected_combined_evals_vec);
         assert_eq!(combined_sum, expected_combined_sum);
     }
 

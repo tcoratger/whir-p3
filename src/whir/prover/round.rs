@@ -419,10 +419,9 @@ mod tests {
         // Check that dot product of evaluations and weights matches the final sum
         let dot_product: EF4 = sumcheck
             .evals
-            .as_slice()
             .iter()
-            .zip(sumcheck.weights.as_slice())
-            .map(|(f, w)| *f * *w)
+            .zip(&sumcheck.weights)
+            .map(|(&f, &w)| f * w)
             .sum();
         assert_eq!(dot_product, sumcheck.sum);
 
@@ -491,12 +490,7 @@ mod tests {
         let sumcheck = &state.sumcheck_prover;
         let sumcheck_randomness = state.folding_randomness.clone();
 
-        for (f, w) in sumcheck
-            .evals
-            .as_slice()
-            .iter()
-            .zip(sumcheck.weights.as_slice())
-        {
+        for (f, w) in sumcheck.evals.iter().zip(&sumcheck.weights) {
             // Each evaluation should be 0
             assert_eq!(*f, EF4::ZERO);
             // Their contribution to the weighted sum should also be 0

@@ -131,7 +131,6 @@ mod tests {
     use p3_challenger::DuplexChallenger;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_interpolation::interpolate_subgroup;
-    use p3_matrix::dense::RowMajorMatrix;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng, rngs::SmallRng};
@@ -506,7 +505,7 @@ mod tests {
             .expect("skip challenge must be present");
 
         // b) Reshape the W_0(X) evaluation table into a matrix.
-        let w0_mat = RowMajorMatrix::new(w0_combined.as_slice().to_vec(), 1 << num_remaining);
+        let w0_mat = w0_combined.into_mat(1 << num_remaining);
 
         // c) "Fold" the skipped variables by interpolating the matrix at `r_skip`.
         let folded_row = interpolate_subgroup(&w0_mat, r_skip);
@@ -641,7 +640,7 @@ mod tests {
             let r_rest = final_point.get_subpoint_over_range(0..num_remaining);
             let r_skip = *final_point.last_variable().expect("skip challenge must be present");
 
-            let w0_mat = RowMajorMatrix::new(w0_combined.as_slice().to_vec(), 1 << num_remaining);
+            let w0_mat = w0_combined.into_mat(1 << num_remaining);
             let folded_row = interpolate_subgroup(&w0_mat, r_skip);
             let w0_eval = EvaluationsList::new(folded_row).evaluate(&r_rest);
             expected_result += w0_eval;
