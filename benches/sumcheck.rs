@@ -8,7 +8,7 @@ use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::evals::EvaluationsList,
     sumcheck::sumcheck_single::SumcheckSingle,
-    whir::statement::{Statement, weights::EvaluationPoint},
+    whir::statement::{Statement, point::EvaluationPoint},
 };
 
 type F = BabyBear;

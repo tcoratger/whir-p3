@@ -155,7 +155,7 @@ mod tests {
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
             parameters::WhirConfig,
-            statement::{Statement, weights::EvaluationPoint},
+            statement::{Statement, point::EvaluationPoint},
         },
     };
 

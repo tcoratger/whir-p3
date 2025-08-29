@@ -14,7 +14,7 @@ use tracing::instrument;
 use super::{
     committer::reader::ParsedCommitment,
     parameters::RoundConfig,
-    statement::{constraint::Constraint, weights::EvaluationPoint},
+    statement::{constraint::Constraint, point::EvaluationPoint},
     utils::get_challenge_stir_queries,
 };
 use crate::{

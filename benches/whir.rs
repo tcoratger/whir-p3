@@ -18,7 +18,7 @@ use whir_p3::{
         committer::writer::CommitmentWriter,
         parameters::WhirConfig,
         prover::Prover,
-        statement::{Statement, weights::EvaluationPoint},
+        statement::{Statement, point::EvaluationPoint},
     },
 };
 

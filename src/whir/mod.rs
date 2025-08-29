@@ -7,7 +7,7 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
 use prover::Prover;
 use rand::{SeedableRng, rngs::SmallRng};
-use statement::{Statement, weights::EvaluationPoint};
+use statement::{Statement, point::EvaluationPoint};
 use verifier::Verifier;
 
 use crate::{

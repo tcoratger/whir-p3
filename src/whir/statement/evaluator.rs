@@ -140,7 +140,7 @@ mod tests {
     use crate::{
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
-        whir::statement::{Statement, weights::EvaluationPoint},
+        whir::statement::{Statement, point::EvaluationPoint},
     };
 
     type F = BabyBear;

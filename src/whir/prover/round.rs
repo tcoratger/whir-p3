@@ -14,7 +14,7 @@ use crate::{
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{RoundMerkleTree, Witness},
-        statement::{Statement, weights::EvaluationPoint},
+        statement::{Statement, point::EvaluationPoint},
     },
 };
 

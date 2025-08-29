@@ -1,6 +1,6 @@
 use p3_field::{ExtensionField, Field};
+use point::EvaluationPoint;
 use tracing::instrument;
-use weights::EvaluationPoint;
 
 use crate::{
     poly::evals::EvaluationsList, utils::uninitialized_vec, whir::statement::constraint::Constraint,
@@ -8,7 +8,7 @@ use crate::{
 
 pub mod constraint;
 pub mod evaluator;
-pub mod weights;
+pub mod point;
 
 /// Represents a system of polynomial evaluation constraints over a Boolean hypercube.
 ///

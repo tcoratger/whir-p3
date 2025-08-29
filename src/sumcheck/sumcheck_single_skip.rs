@@ -148,7 +148,7 @@ mod tests {
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
         poly::coeffs::CoefficientList,
-        whir::statement::{Statement, weights::EvaluationPoint},
+        whir::statement::{Statement, point::EvaluationPoint},
     };
 
     type F = BabyBear;

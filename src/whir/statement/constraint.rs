@@ -1,6 +1,6 @@
 use p3_field::Field;
 
-use super::weights::EvaluationPoint;
+use super::point::EvaluationPoint;
 use crate::poly::evals::EvaluationsList;
 
 /// Represents a single constraint in a polynomial statement, of the form `p(z) = s`.

@@ -18,7 +18,7 @@ use crate::{
     },
     poly::evals::EvaluationsList,
     whir::{
-        statement::{Statement, constraint::Constraint, weights::EvaluationPoint},
+        statement::{Statement, constraint::Constraint, point::EvaluationPoint},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };

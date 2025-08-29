@@ -8,7 +8,7 @@ use crate::{
     fiat_shamir::{errors::ProofResult, verifier::VerifierState},
     whir::{
         parameters::WhirConfig,
-        statement::{constraint::Constraint, weights::EvaluationPoint},
+        statement::{constraint::Constraint, point::EvaluationPoint},
     },
 };
 
