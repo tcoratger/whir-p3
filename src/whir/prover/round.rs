@@ -4,13 +4,13 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
-use p3_multilinear_util::point::MultilinearPoint;
 use tracing::{info_span, instrument};
 
 use super::Prover;
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
+    poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{RoundMerkleTree, Witness},

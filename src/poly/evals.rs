@@ -2,13 +2,10 @@ use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::{
-    eq::{eval_eq, eval_eq_base},
-    point::MultilinearPoint,
-};
+use p3_multilinear_util::eq::{eval_eq, eval_eq_base};
 use tracing::instrument;
 
-use super::{coeffs::CoefficientList, wavelet::Radix2WaveletKernel};
+use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
 use crate::{constant::MLE_RECURSION_THRESHOLD, utils::uninitialized_vec};
 
 const PARALLEL_THRESHOLD: usize = 4096;

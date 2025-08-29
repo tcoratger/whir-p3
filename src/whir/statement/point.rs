@@ -1,8 +1,7 @@
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_multilinear_util::point::MultilinearPoint;
 
-use crate::poly::evals::EvaluationsList;
+use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
 /// Represents a multilinear point `z` used in an evaluation constraint of the form `p(z) = s`.
 ///

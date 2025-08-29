@@ -2,11 +2,13 @@ use std::ops::Deref;
 
 use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue};
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::point::MultilinearPoint;
 use p3_util::log2_strict_usize;
 use tracing::instrument;
 
-use super::{dense::WhirDensePolynomial, evals::EvaluationsList, wavelet::Radix2WaveletKernel};
+use super::{
+    dense::WhirDensePolynomial, evals::EvaluationsList, multilinear::MultilinearPoint,
+    wavelet::Radix2WaveletKernel,
+};
 
 /// Represents a multilinear polynomial `f` in `n` variables, stored by its coefficients.
 ///

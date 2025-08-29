@@ -2,7 +2,6 @@ use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
-use p3_multilinear_util::point::MultilinearPoint;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
 use prover::Prover;
@@ -14,7 +13,7 @@ use crate::{
     dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    poly::coeffs::CoefficientList,
+    poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
 };
 
 pub mod committer;

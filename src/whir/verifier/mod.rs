@@ -6,7 +6,6 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_multilinear_util::point::MultilinearPoint;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -23,7 +22,7 @@ use crate::{
         errors::{ProofError, ProofResult},
         verifier::VerifierState,
     },
-    poly::evals::EvaluationsList,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         Statement, parameters::WhirConfig, statement::evaluator::ConstraintPolyEvaluator,
         verifier::sumcheck::verify_sumcheck_rounds,

@@ -4,7 +4,6 @@ use p3_field::{
     ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
 };
 use p3_interpolation::interpolate_subgroup;
-use p3_multilinear_util::point::MultilinearPoint;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use proptest::prelude::*;
 use rand::{Rng, SeedableRng, rngs::SmallRng};
@@ -15,7 +14,7 @@ use crate::{
     fiat_shamir::{
         domain_separator::DomainSeparator, prover::ProverState, verifier::VerifierState,
     },
-    poly::evals::EvaluationsList,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         statement::{Statement, constraint::Constraint, point::ConstraintPoint},
         verifier::sumcheck::verify_sumcheck_rounds,

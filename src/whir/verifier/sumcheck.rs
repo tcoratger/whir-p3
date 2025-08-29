@@ -2,7 +2,6 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
-use p3_multilinear_util::point::MultilinearPoint;
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
@@ -10,6 +9,7 @@ use crate::{
         errors::{ProofError, ProofResult},
         verifier::VerifierState,
     },
+    poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
 };
 

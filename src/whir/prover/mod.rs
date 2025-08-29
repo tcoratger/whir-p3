@@ -6,7 +6,6 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_multilinear_util::point::MultilinearPoint;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use round::RoundState;
 use serde::{Deserialize, Serialize};
@@ -17,7 +16,7 @@ use crate::{
     constant::K_SKIP_SUMCHECK,
     dft::EvalsDft,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
-    poly::evals::EvaluationsList,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::parallel_repeat,
     whir::{
         parameters::RoundConfig,
