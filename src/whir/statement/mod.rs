@@ -2,9 +2,7 @@ use p3_field::{ExtensionField, Field};
 use point::ConstraintPoint;
 use tracing::instrument;
 
-use crate::{
-    poly::evals::EvaluationsList, whir::statement::constraint::Constraint,
-};
+use crate::{poly::evals::EvaluationsList, whir::statement::constraint::Constraint};
 
 pub mod constraint;
 pub mod evaluator;
