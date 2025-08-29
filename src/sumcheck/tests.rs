@@ -4,7 +4,6 @@ use p3_field::{
     ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
 };
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::dense::RowMajorMatrix;
 use p3_multilinear_util::point::MultilinearPoint;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use proptest::prelude::*;
@@ -448,7 +447,7 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     assert_eq!(sumcheck.evals.num_evals(), 1);
 
     // Final folded value must match f(r)
-    let final_folded_value = sumcheck.evals.as_slice()[0];
+    let final_folded_value = sumcheck.evals.get_constant().unwrap();
     assert_eq!(poly.evaluate(&prover_randomness), final_folded_value);
     prover.add_extension_scalar(final_folded_value);
 
@@ -615,7 +614,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     assert_eq!(sumcheck.evals.num_evals(), 1);
 
     // Final constant should be f(r), where r is the accumulated challenge point
-    let constant = sumcheck.evals.as_slice()[0];
+    let constant = sumcheck.evals.get_constant().unwrap();
 
     // Final constant should be f̂(r0, r_{k+1..}) under skip semantics
     let expected = eval_with_skip::<F, EF>(&poly, K_SKIP_SUMCHECK, &prover_randomness);
@@ -741,7 +740,7 @@ where
     // Reshape f into 2^k × 2^{n-k}, interpolate along the skipped dimension at r0,
     // then evaluate the resulting EF-table on the remaining variables.
     let width = 1 << (n - k_skip);
-    let f_mat = RowMajorMatrix::new(poly.as_slice().to_vec(), width);
+    let f_mat = poly.clone().into_mat(width);
     let folded_row = interpolate_subgroup::<F, EF, _>(&f_mat, r0);
 
     EvaluationsList::new(folded_row).evaluate(&rest)

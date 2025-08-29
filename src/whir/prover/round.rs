@@ -419,10 +419,9 @@ mod tests {
         // Check that dot product of evaluations and weights matches the final sum
         let dot_product: EF4 = sumcheck
             .evals
-            .as_slice()
             .iter()
-            .zip(sumcheck.weights.as_slice())
-            .map(|(f, w)| *f * *w)
+            .zip(&sumcheck.weights)
+            .map(|(&f, &w)| f * w)
             .sum();
         assert_eq!(dot_product, sumcheck.sum);
 
@@ -493,9 +492,8 @@ mod tests {
 
         for (f, w) in sumcheck
             .evals
-            .as_slice()
             .iter()
-            .zip(sumcheck.weights.as_slice())
+            .zip(&sumcheck.weights)
         {
             // Each evaluation should be 0
             assert_eq!(*f, EF4::ZERO);

@@ -1,6 +1,5 @@
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::dense::RowMajorMatrix;
 use p3_multilinear_util::{point::MultilinearPoint};
 
 use crate::poly::evals::EvaluationsList;
@@ -75,7 +74,7 @@ impl<F: Field> ConstraintPoint<F> {
         // Columns correspond to the remaining variables (Xk, ..., Xn-1).
         let num_remaining_vars = n - k_skip;
         let width = 1 << num_remaining_vars;
-        let mat = RowMajorMatrix::new(evals.as_slice().to_vec(), width);
+        let mat = evals.into_mat(width);
 
         // Deconstruct the challenge object `r_all`
         //
@@ -101,6 +100,7 @@ impl<F: Field> ConstraintPoint<F> {
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_matrix::dense::RowMajorMatrix;
 
     use super::*;
 
@@ -134,7 +134,7 @@ mod tests {
         // Compute expected result manually
         let expected = EvaluationsList::new_from_point(&point, factor);
 
-        assert_eq!(accumulator.as_slice(), expected.as_slice());
+        assert_eq!(accumulator, expected);
     }
 
     #[test]

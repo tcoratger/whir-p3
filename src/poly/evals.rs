@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
+use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::{eq::{eval_eq, eval_eq_base}, point::MultilinearPoint};
 use tracing::instrument;
@@ -19,6 +20,7 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// order. The number of variables `n` is inferred from the length of this vector, where
 /// `self.len() = 2^n`.
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[must_use]
 pub struct EvaluationsList<F>(Vec<F>);
 
 impl<F> EvaluationsList<F>
@@ -35,7 +37,6 @@ where
     ///
     /// # Panics
     /// Panics if `evals.len()` is not a power of two.
-    #[must_use]
     pub const fn new(evals: Vec<F>) -> Self {
         assert!(
             evals.len().is_power_of_two(),
@@ -45,6 +46,8 @@ where
         Self(evals)
     }
 
+    /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`
+    /// for all points `X` in the boolean hypercube.
     pub fn new_from_point(point: &MultilinearPoint<F>, value: F) -> Self {
         let n = point.num_variables();
         let mut evals = F::zero_vec(1 << n);
@@ -52,10 +55,21 @@ where
         Self(evals)
     }
 
+    #[must_use]
+    pub fn get_constant(&self) -> Option<F> {
+        (self.0.len() == 1).then(|| self.0[0])
+    }
+
+    /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`
+    /// for all points `X` in the boolean hypercube and add it to the current evaluation vector.
     pub fn accumulate(&mut self, point: &MultilinearPoint<F>, value: F) {
         eval_eq::<_, _, true>(point.as_slice(), &mut self.0, value);
     }
 
+    /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`
+    /// for all points `X` in the boolean hypercube and add it to the current evaluation vector.
+    /// 
+    /// This is a variant of `accumulate` where the new point lies in a sub-field.
     pub fn accumulate_base<BF: Field>(&mut self, point: &MultilinearPoint<BF>, value: F)
     where
         F: ExtensionField<BF>,
@@ -76,10 +90,9 @@ where
         self.0.len().ilog2() as usize
     }
 
-    /// Evaluates the multilinear polynomial at `point ∈ [0,1]^n`.
+    /// Evaluates the multilinear polynomial at `point ∈ EF^n`.
     ///
-    /// - If `point ∈ {0,1}^n`, returns the precomputed evaluation `f(point)`.
-    /// - Otherwise, computes
+    /// Computes
     /// ```text
     ///     f(point) = \sum_{x ∈ {0,1}^n} eq(x, point) * f(x),
     /// ```
@@ -88,9 +101,7 @@ where
     ///     eq(x, point) = \prod_{i=1}^{n} (1 - p_i + 2 p_i x_i).
     /// ```
     #[must_use]
-    pub fn evaluate<EF>(&self, point: &MultilinearPoint<EF>) -> EF
-    where
-        EF: ExtensionField<F>,
+    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF
     {
         eval_multilinear(&self.0, point)
     }
@@ -102,13 +113,6 @@ where
     /// ```text
     ///     g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
     /// ```
-    ///
-    /// where `folding_randomness = (r_0, ..., r_{k-1})` is a fixed assignment to the last `k` variables.
-    ///
-    /// This operation reduces the dimensionality of the polynomial:
-    ///
-    /// - Input: `f ∈ F^{2^n}`
-    /// - Output: `g ∈ EF^{2^{n-k}}`, where `EF` is an extension field of `F`
     ///
     /// # Arguments
     /// - `folding_randomness`: The extension-field values to substitute for the last `k` variables.
@@ -134,11 +138,22 @@ where
         EvaluationsList(evals)
     }
 
+    #[inline]
+    #[must_use]
+    pub fn into_mat(self, width: usize) -> RowMajorMatrix<F> {
+        RowMajorMatrix::new(self.0, width)
+    }
+
     /// Returns a reference to the underlying slice of evaluations.
     #[inline]
     #[must_use]
     pub fn as_slice(&self) -> &[F] {
         &self.0
+    }
+
+    #[inline]
+    pub fn iter(&self) -> std::slice::Iter<'_, F> {
+        self.0.iter()
     }
 
     /// Convert from a list of evaluations to a list of multilinear coefficients.
@@ -173,7 +188,7 @@ where
             // Define the folding operation for a pair of elements.
             let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
             // Execute the fold in parallel and collect into a new vector.
-            let folded = self.as_slice().par_chunks_exact(2).map(fold).collect();
+            let folded = self.0.par_chunks_exact(2).map(fold).collect();
             // Replace the old evaluations with the new, folded evaluations.
             self.0 = folded;
         } else {
@@ -215,12 +230,30 @@ where
         // This was chosen based on experiments with the `compress` function.
         // It is possible that the threshold can be tuned further.
         let folded = if self.num_evals() >= PARALLEL_THRESHOLD {
-            self.as_slice().par_chunks_exact(2).map(fold).collect()
+            self.0.par_chunks_exact(2).map(fold).collect()
         } else {
-            self.as_slice().chunks_exact(2).map(fold).collect()
+            self.0.chunks_exact(2).map(fold).collect()
         };
 
         EvaluationsList::new(folded)
+    }
+}
+
+impl<'a, F> IntoIterator for &'a EvaluationsList<F> {
+    type Item = &'a F;
+    type IntoIter = std::slice::Iter<'a, F>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl<F> IntoIterator for EvaluationsList<F> {
+    type Item = F;
+    type IntoIter = std::vec::IntoIter<F>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 

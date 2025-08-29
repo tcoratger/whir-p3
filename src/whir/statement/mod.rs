@@ -197,7 +197,6 @@ impl<F: Field> Statement<F> {
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
-    use p3_multilinear_util::eq::eval_eq;
 
     use super::*;
     use crate::whir::MultilinearPoint;
@@ -217,12 +216,11 @@ mod tests {
 
         // Expected evals for eq_z(X) where z = (1).
         // For x=0, eq=0. For x=1, eq=1.
-        let mut expected_combined_evals_vec = F::zero_vec(2);
-        eval_eq::<F, F, false>(point.0.as_slice(), &mut expected_combined_evals_vec, F::ONE);
+        let expected_combined_evals_vec = EvaluationsList::new_from_point(&point.0, F::ONE);
 
         assert_eq!(
-            combined_evals.as_slice(),
-            expected_combined_evals_vec.as_slice()
+            combined_evals,
+            expected_combined_evals_vec
         );
         assert_eq!(combined_sum, expected_eval);
     }
@@ -245,24 +243,15 @@ mod tests {
         let (combined_evals, combined_sum) = statement.combine::<F>(challenge);
 
         // Expected evals: W(X) = eq_z1(X) + challenge * eq_z2(X)
-        let mut expected_combined_evals_vec = F::zero_vec(4);
-        eval_eq::<F, F, false>(
-            point1.0.as_slice(),
-            &mut expected_combined_evals_vec,
-            F::ONE,
-        );
-        eval_eq::<F, F, true>(
-            point2.0.as_slice(),
-            &mut expected_combined_evals_vec,
-            challenge,
-        );
+        let mut expected_combined_evals_vec = EvaluationsList::new_from_point(&point1.0, F::ONE);
+        expected_combined_evals_vec.accumulate(&point2.0, challenge);
 
         // Expected sum: S = s1 + challenge * s2
         let expected_combined_sum = eval1 + challenge * eval2;
 
         assert_eq!(
-            combined_evals.as_slice(),
-            expected_combined_evals_vec.as_slice()
+            combined_evals,
+            expected_combined_evals_vec
         );
         assert_eq!(combined_sum, expected_combined_sum);
     }
