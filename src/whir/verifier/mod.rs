@@ -4,7 +4,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::{Dimensions, dense::RowMajorMatrix};
+use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_multilinear_util::point::MultilinearPoint;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
@@ -14,7 +14,7 @@ use tracing::instrument;
 use super::{
     committer::reader::ParsedCommitment,
     parameters::RoundConfig,
-    statement::{constraint::Constraint, weights::Weights},
+    statement::{constraint::Constraint, point::ConstraintPoint},
     utils::get_challenge_stir_queries,
 };
 use crate::{
@@ -248,7 +248,7 @@ where
         *claimed_sum += constraints
             .iter()
             .zip(&combination_randomness)
-            .map(|(c, &rand)| rand * c.sum)
+            .map(|(c, &rand)| rand * c.expected_evaluation)
             .sum::<EF>();
 
         Ok(combination_randomness)
@@ -352,7 +352,7 @@ where
                     let width = 1 << num_remaining_vars;
 
                     // Reshape the flat `2^n` evaluations into a `2^k x 2^(n-k)` matrix.
-                    let mat = RowMajorMatrix::new(evals.as_slice().to_vec(), width);
+                    let mat = evals.into_mat(width);
 
                     // The `folding_randomness` for a skip round is the special `(n-k)+1` challenge object.
                     let r_all = folding_randomness.clone();
@@ -383,9 +383,9 @@ where
             .iter()
             .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
             .zip(&folds)
-            .map(|(point, &value)| Constraint {
-                weights: Weights::univariate(EF::from(point), params.num_variables),
-                sum: value,
+            .map(|(point, &expected_evaluation)| Constraint {
+                point: ConstraintPoint::univariate(EF::from(point), params.num_variables),
+                expected_evaluation,
                 defer_evaluation: false,
             })
             .collect();

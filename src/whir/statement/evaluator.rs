@@ -90,13 +90,12 @@ impl ConstraintPolyEvaluator {
                         deferred_it.next().expect("missing deferred evaluation")
                     } else if is_skip_round {
                         // Skip-aware evaluation over r_rest || r_skip.
-                        debug_assert_eq!(c.weights.num_variables(), self.num_variables);
-                        c.weights
-                            .compute_with_skip(&point_for_round, K_SKIP_SUMCHECK)
+                        debug_assert_eq!(c.point.num_variables(), self.num_variables);
+                        c.point.compute_with_skip(&point_for_round, K_SKIP_SUMCHECK)
                     } else {
                         // Standard multilinear evaluation on the current domain.
-                        debug_assert_eq!(c.weights.num_variables(), vars_left);
-                        c.weights.compute(&point_for_round)
+                        debug_assert_eq!(c.point.num_variables(), vars_left);
+                        c.point.compute(&point_for_round)
                     };
 
                     // Multiply by its random combination coefficient.
@@ -132,7 +131,6 @@ mod tests {
     use p3_challenger::DuplexChallenger;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_interpolation::interpolate_subgroup;
-    use p3_matrix::dense::RowMajorMatrix;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng, rngs::SmallRng};
@@ -141,7 +139,7 @@ mod tests {
     use crate::{
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
-        whir::statement::{Statement, weights::Weights},
+        whir::statement::{Statement, point::ConstraintPoint},
     };
 
     type F = BabyBear;
@@ -202,7 +200,7 @@ mod tests {
             let mut statement = Statement::new(num_vars_at_round);
             for _ in 0..*num_constraints {
                 statement.add_constraint(
-                    Weights::evaluation(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
+                    ConstraintPoint::new(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
                     rng.random(),
                 );
             }
@@ -346,7 +344,7 @@ mod tests {
                 // Add the random number of constraints for this round.
                 for _ in 0..num_constraints_per_round[i] {
                     statement.add_constraint(
-                        Weights::evaluation(MultilinearPoint::rand(&mut rng, num_vars_current)),
+                        ConstraintPoint::new(MultilinearPoint::rand(&mut rng, num_vars_current)),
                         rng.random(),
                     );
                 }
@@ -459,7 +457,7 @@ mod tests {
             let mut statement = Statement::new(num_vars_at_round);
             for _ in 0..num_constraints {
                 statement.add_constraint(
-                    Weights::evaluation(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
+                    ConstraintPoint::new(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
                     rng.random(),
                 );
             }
@@ -507,7 +505,7 @@ mod tests {
             .expect("skip challenge must be present");
 
         // b) Reshape the W_0(X) evaluation table into a matrix.
-        let w0_mat = RowMajorMatrix::new(w0_combined.as_slice().to_vec(), 1 << num_remaining);
+        let w0_mat = w0_combined.into_mat(1 << num_remaining);
 
         // c) "Fold" the skipped variables by interpolating the matrix at `r_skip`.
         let folded_row = interpolate_subgroup(&w0_mat, r_skip);
@@ -602,7 +600,7 @@ mod tests {
                 let mut statement = Statement::new(num_vars_current);
                 for _ in 0..num_constraints_per_round[i] {
                     statement.add_constraint(
-                        Weights::evaluation(MultilinearPoint::rand(&mut rng, num_vars_current)),
+                        ConstraintPoint::new(MultilinearPoint::rand(&mut rng, num_vars_current)),
                         rng.random(),
                     );
                 }
@@ -642,7 +640,7 @@ mod tests {
             let r_rest = final_point.get_subpoint_over_range(0..num_remaining);
             let r_skip = *final_point.last_variable().expect("skip challenge must be present");
 
-            let w0_mat = RowMajorMatrix::new(w0_combined.as_slice().to_vec(), 1 << num_remaining);
+            let w0_mat = w0_combined.into_mat(1 << num_remaining);
             let folded_row = interpolate_subgroup(&w0_mat, r_skip);
             let w0_eval = EvaluationsList::new(folded_row).evaluate(&r_rest);
             expected_result += w0_eval;
