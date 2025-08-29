@@ -1,8 +1,6 @@
 use p3_field::Field;
 use p3_multilinear_util::eq::eval_eq;
 
-use crate::poly::multilinear::MultilinearPoint;
-
 /// A query to a multilinear polynomial over an extension field.
 ///
 /// This enum represents the type of query made to a multilinear polynomial.
@@ -56,7 +54,7 @@ where
     ///
     /// # Example
     /// ```text
-    /// let q = MlQuery::Eq(MultilinearPoint(vec![x0, x1, x2]));
+    /// let q = MlQuery::Eq(MultilinearPoint::new(vec![x0, x1, x2]));
     /// assert_eq!(q.log_b(), 3);
     /// ```
     ///
@@ -170,7 +168,7 @@ mod tests {
         let z = vec![F::ONE, F::ZERO];
         let scalar = F::from_u8(3);
 
-        let mle = MlQuery::Eq(MultilinearPoint(z)).to_mle(scalar);
+        let mle = MlQuery::Eq(MultilinearPoint::new(z)).to_mle(scalar);
 
         // Manually compute:
         // eq((0,0), z) = (1 - z0)(1 - z1) = 0
@@ -191,7 +189,7 @@ mod tests {
         let z = vec![F::ONE, F::ONE, F::ZERO];
         let scalar = F::from_u8(2);
 
-        let mle = MlQuery::Eq(MultilinearPoint(z.clone())).to_mle(scalar);
+        let mle = MlQuery::Eq(MultilinearPoint::new(z.clone())).to_mle(scalar);
         let expected = naive_eq(&z, scalar);
 
         assert_eq!(mle, expected);
@@ -207,7 +205,7 @@ mod tests {
         let mid = 1;
 
         // Compute using the actual implementation
-        let mle = MlQuery::EqRotateRight(MultilinearPoint(z.clone()), mid).to_mle(scalar);
+        let mle = MlQuery::EqRotateRight(MultilinearPoint::new(z.clone()), mid).to_mle(scalar);
 
         // Expected behavior:
         // - First compute the equality polynomial: naive_eq(z, scalar)
@@ -224,7 +222,7 @@ mod tests {
         let z = vec![];
         let scalar = F::from_u8(7);
 
-        let mle = MlQuery::Eq(MultilinearPoint(z)).to_mle(scalar);
+        let mle = MlQuery::Eq(MultilinearPoint::new(z)).to_mle(scalar);
         let expected = vec![scalar];
 
         assert_eq!(mle, expected);
@@ -240,7 +238,7 @@ mod tests {
         let mid = 2;
 
         // Actual mle computation with rotation
-        let mle = MlQuery::EqRotateRight(MultilinearPoint(z.clone()), mid).to_mle(scalar);
+        let mle = MlQuery::EqRotateRight(MultilinearPoint::new(z.clone()), mid).to_mle(scalar);
 
         // Expected behavior:
         // - Compute eq(x, z) for all x ∈ {0,1}⁴ → output has 2⁴ = 16 values
@@ -254,7 +252,7 @@ mod tests {
     #[test]
     fn test_log_b_all_supported_lengths() {
         for log_b in 0..=4 {
-            let point: MultilinearPoint<F> = MultilinearPoint(vec![F::from_u32(1); log_b]);
+            let point: MultilinearPoint<F> = MultilinearPoint::new(vec![F::from_u32(1); log_b]);
 
             // Test regular Eq query
             let query_eq = MlQuery::Eq(point.clone());

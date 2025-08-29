@@ -2,6 +2,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
+use p3_multilinear_util::point::MultilinearPoint;
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
@@ -9,7 +10,6 @@ use crate::{
         errors::{ProofError, ProofResult},
         verifier::VerifierState,
     },
-    poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
 };
 
@@ -121,7 +121,7 @@ where
 
         // Update claimed sum using folding randomness
         *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2], 1)
-            .evaluate_on_standard_domain(&MultilinearPoint(vec![rand]));
+            .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
 
         // Store this round’s randomness
         randomness.push(rand);
@@ -134,7 +134,7 @@ where
     // This is because the randomness points are originally reverted at the end of the sumcheck rounds.
     randomness.reverse();
 
-    Ok(MultilinearPoint(randomness))
+    Ok(MultilinearPoint::new(randomness))
 }
 #[cfg(test)]
 mod tests {
@@ -151,7 +151,7 @@ mod tests {
             pattern::{Observe, Sample},
         },
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
+        poly::coeffs::CoefficientList,
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
             parameters::WhirConfig,
@@ -231,11 +231,11 @@ mod tests {
         // Create a constraint system with evaluations of f at various points
         let mut statement = Statement::new(n_vars);
 
-        let x_000 = MultilinearPoint(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]);
-        let x_100 = MultilinearPoint(vec![EF4::ONE, EF4::ZERO, EF4::ZERO]);
-        let x_110 = MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ZERO]);
-        let x_111 = MultilinearPoint(vec![EF4::ONE, EF4::ONE, EF4::ONE]);
-        let x_011 = MultilinearPoint(vec![EF4::ZERO, EF4::ONE, EF4::ONE]);
+        let x_000 = MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]);
+        let x_100 = MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ZERO]);
+        let x_110 = MultilinearPoint::new(vec![EF4::ONE, EF4::ONE, EF4::ZERO]);
+        let x_111 = MultilinearPoint::new(vec![EF4::ONE, EF4::ONE, EF4::ONE]);
+        let x_011 = MultilinearPoint::new(vec![EF4::ZERO, EF4::ONE, EF4::ONE]);
 
         let f_000 = f(EF4::ZERO, EF4::ZERO, EF4::ZERO);
         let f_100 = f(EF4::ONE, EF4::ZERO, EF4::ZERO);
@@ -297,7 +297,7 @@ mod tests {
 
             // Sample random challenge r_i ∈ F and evaluate h_i(r_i)
             let r: EF4 = verifier_state.sample();
-            current_sum = poly.evaluate_on_standard_domain(&MultilinearPoint(vec![r]));
+            current_sum = poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
 
             if pow_bits > 0 {
                 // verifier_state.challenge_pow::<Blake3PoW>(pow_bits).unwrap();
@@ -324,7 +324,7 @@ mod tests {
 
         // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
         let expected_randomness =
-            MultilinearPoint(expected.iter().map(|&(_, r)| r).rev().collect());
+            MultilinearPoint::new(expected.iter().map(|&(_, r)| r).rev().collect());
         assert_eq!(
             randomness, expected_randomness,
             "Mismatch in full MultilinearPoint folding randomness"
@@ -363,7 +363,7 @@ mod tests {
                     }
                 })
                 .collect();
-            let ml_point = MultilinearPoint(bool_point.clone());
+            let ml_point = MultilinearPoint::new(bool_point.clone());
             let expected_val = coeffs.evaluate(&ml_point);
             statement.add_constraint(Weights::evaluation(ml_point), expected_val);
         }
@@ -431,7 +431,7 @@ mod tests {
             let c2 = verifier_state.next_extension_scalar().unwrap();
             let poly = SumcheckPolynomial::new(vec![c0, c1, c2], 1);
             let r: EF4 = verifier_state.sample();
-            current_sum = poly.evaluate_on_standard_domain(&MultilinearPoint(vec![r]));
+            current_sum = poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
             expected.push((poly, r));
         }
 
@@ -451,7 +451,7 @@ mod tests {
 
         // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
         let expected_randomness =
-            MultilinearPoint(expected.iter().map(|&(_, r)| r).rev().collect());
+            MultilinearPoint::new(expected.iter().map(|&(_, r)| r).rev().collect());
         assert_eq!(
             randomness, expected_randomness,
             "Mismatch in full MultilinearPoint folding randomness"

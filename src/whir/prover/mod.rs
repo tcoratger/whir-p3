@@ -7,6 +7,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
+use p3_multilinear_util::point::MultilinearPoint;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use round::RoundState;
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,7 @@ use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{errors::ProofResult, prover::ProverState},
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::evals::EvaluationsList,
     utils::parallel_repeat,
     whir::{
         parameters::RoundConfig,
@@ -174,7 +175,7 @@ where
         // These challenges were pushed in round order; we reverse them to use as a single
         // evaluation point for final statement consistency checks.
         round_state.randomness_vec.reverse();
-        let constraint_eval = MultilinearPoint(round_state.randomness_vec);
+        let constraint_eval = MultilinearPoint::new(round_state.randomness_vec);
 
         // Hints for deferred constraints
         let deferred = round_state
@@ -346,9 +347,11 @@ where
                         // Deconstruct the special challenge object `r_all`.
                         //
                         // The last element is the single challenge for the `k_skip` variables being folded.
-                        let r_skip = *r_all.0.last().expect("skip challenge must be present");
+                        let r_skip = *r_all
+                            .last_variable()
+                            .expect("skip challenge must be present");
                         // The first `n - k_skip` elements are the challenges for the remaining variables.
-                        let r_rest = MultilinearPoint(r_all.0[..num_remaining_vars].to_vec());
+                        let r_rest = r_all.get_subpoint_over_range(0..num_remaining_vars);
 
                         // Perform the two-stage skip-aware evaluation:
                         //

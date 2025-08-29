@@ -292,7 +292,7 @@ where
         self.log_inv_rate_at(round) + self.num_variables - self.folding_factor.total_number(round)
     }
 
-    pub fn n_vars_of_final_polynomial(&self) -> usize {
+    pub const fn n_vars_of_final_polynomial(&self) -> usize {
         self.num_variables - self.folding_factor.total_number(self.n_rounds())
     }
 

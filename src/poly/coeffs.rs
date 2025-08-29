@@ -2,11 +2,11 @@ use std::ops::Deref;
 
 use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue};
 use p3_maybe_rayon::prelude::*;
+use p3_multilinear_util::point::MultilinearPoint;
 use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use super::{dense::WhirDensePolynomial, evals::EvaluationsList, wavelet::Radix2WaveletKernel};
-use crate::poly::multilinear::MultilinearPoint;
 
 /// Represents a multilinear polynomial `f` in `n` variables, stored by its coefficients.
 ///
@@ -141,7 +141,7 @@ where
             b0 + b1 * *x0
         }
         [x, tail @ ..] => {
-            let sub_point = MultilinearPoint(tail.to_vec());
+            let sub_point = MultilinearPoint::new(tail.to_vec());
             let (b0t, b1t) = coeffs.split_at(coeffs.len() / 2);
             let (b0t, b1t) = {
                 let work_size: usize = (1 << 15) / size_of::<F>();
@@ -238,9 +238,9 @@ where
     // eval_extension_packed. Instead we set a (slightly arbitrary) threshold of 15.
     if size > (1 << 15) {
         let chunk_size = size / num_threads;
-        let (head, tail) = point.0.split_at(log_num_threads);
-        let head_point = MultilinearPoint(head.to_vec());
-        let tail_point = MultilinearPoint(tail.to_vec());
+        let (head, tail) = point.as_slice().split_at(log_num_threads);
+        let head_point = MultilinearPoint::new(head.to_vec());
+        let tail_point = MultilinearPoint::new(tail.to_vec());
         let partial_sum = coeff
             .par_chunks_exact(chunk_size)
             .map(|chunk| eval_extension_packed(chunk, &tail_point))
@@ -281,7 +281,7 @@ where
         // If the size of eval is > log_packing_width + 2, it makes sense to start using packings.
         // As coeffs lie in F, we do the first round manually as it's a little cheaper.
         let packed_coeff = F::Packing::pack_slice(coeff);
-        let packed_eval: E::ExtensionPacking = point.0[0].into();
+        let packed_eval: E::ExtensionPacking = point[0].into();
         let (lo, hi) = packed_coeff.split_at(packed_coeff.len() / 2);
         let mut buffer = lo
             .iter()
@@ -289,7 +289,7 @@ where
             .map(|(l, h)| packed_eval * *h + *l)
             .collect::<Vec<_>>();
 
-        for &ef_eval in &point.0[1..(point.num_variables() - log_packing_width)] {
+        for &ef_eval in &point.as_slice()[1..(point.num_variables() - log_packing_width)] {
             let half_buffer_len = buffer.len() / 2;
             let (lo, hi) = buffer.split_at_mut(half_buffer_len);
             lo.iter_mut().zip(hi.iter()).for_each(|(l, &h)| {
@@ -303,7 +303,9 @@ where
         let base_elems = E::ExtensionPacking::to_ext_iter(buffer).collect::<Vec<_>>();
         eval_extension_unpacked(
             &base_elems,
-            &MultilinearPoint(point.0[point.num_variables() - log_packing_width..].to_vec()),
+            &MultilinearPoint::new(
+                point.as_slice()[point.num_variables() - log_packing_width..].to_vec(),
+            ),
         )
     }
 }
@@ -326,42 +328,42 @@ where
     F: Field,
     E: ExtensionField<F>,
 {
-    debug_assert_eq!(coeff.len(), 1 << point.num_variables());
+    let num_vars = point.num_variables();
+    debug_assert_eq!(coeff.len(), 1 << num_vars);
 
-    match point.num_variables() {
+    let point = point.as_slice();
+
+    match num_vars {
         0 => coeff[0].into(),
-        1 => point.0[0] * coeff[1] + coeff[0],
-        2 => point.0[0] * (point.0[1] * coeff[3] + coeff[2]) + point.0[1] * coeff[1] + coeff[0],
+        1 => point[0] * coeff[1] + coeff[0],
+        2 => point[0] * (point[1] * coeff[3] + coeff[2]) + point[1] * coeff[1] + coeff[0],
         3 => {
-            point.0[0]
-                * (point.0[1] * (point.0[2] * coeff[7] + coeff[6])
-                    + point.0[2] * coeff[5]
-                    + coeff[4])
-                + point.0[1] * (point.0[2] * coeff[3] + coeff[2])
-                + point.0[2] * coeff[1]
+            point[0]
+                * (point[1] * (point[2] * coeff[7] + coeff[6]) + point[2] * coeff[5] + coeff[4])
+                + point[1] * (point[2] * coeff[3] + coeff[2])
+                + point[2] * coeff[1]
                 + coeff[0]
         }
         4 => {
-            point.0[0]
-                * (point.0[1]
-                    * (point.0[2] * (point.0[3] * coeff[15] + coeff[14])
-                        + point.0[3] * coeff[13]
+            point[0]
+                * (point[1]
+                    * (point[2] * (point[3] * coeff[15] + coeff[14])
+                        + point[3] * coeff[13]
                         + coeff[12])
-                    + point.0[2] * (point.0[3] * coeff[11] + coeff[10])
-                    + point.0[3] * coeff[9]
+                    + point[2] * (point[3] * coeff[11] + coeff[10])
+                    + point[3] * coeff[9]
                     + coeff[8])
-                + point.0[1]
-                    * (point.0[2] * (point.0[3] * coeff[7] + coeff[6])
-                        + point.0[3] * coeff[5]
-                        + coeff[4])
-                + point.0[2] * (point.0[3] * coeff[3] + coeff[2])
-                + point.0[3] * coeff[1]
+                + point[1]
+                    * (point[2] * (point[3] * coeff[7] + coeff[6]) + point[3] * coeff[5] + coeff[4])
+                + point[2] * (point[3] * coeff[3] + coeff[2])
+                + point[3] * coeff[1]
                 + coeff[0]
         }
         _ => {
             let (lo, hi) = coeff.split_at(coeff.len() / 2);
-            eval_extension_unpacked(lo, &MultilinearPoint(point.0[1..].to_vec()))
-                + point.0[0] * eval_extension_unpacked(hi, &MultilinearPoint(point.0[1..].to_vec()))
+            eval_extension_unpacked(lo, &MultilinearPoint::new(point[1..].to_vec()))
+                + point[0]
+                    * eval_extension_unpacked(hi, &MultilinearPoint::new(point[1..].to_vec()))
         }
     }
 }
@@ -409,7 +411,7 @@ mod tests {
 
         let x0 = F::from_u64(2);
         let x1 = F::from_u64(3);
-        let point = MultilinearPoint(vec![x0, x1]);
+        let point = MultilinearPoint::new(vec![x0, x1]);
 
         // Expected value based on multilinear evaluation
         let expected_value = coeff0 + coeff1 * x1 + coeff2 * x0 + coeff3 * x0 * x1;
@@ -427,15 +429,16 @@ mod tests {
         let coeff_list = CoefficientList::new(coeffs);
 
         let folding_value = F::from_u64(3);
-        let folding_point = MultilinearPoint(vec![folding_value]);
+        let folding_point = MultilinearPoint::new(vec![folding_value]);
         let folded = coeff_list.fold(&folding_point);
 
         let eval_value = F::from_u64(5);
-        let expected_eval = coeff_list.evaluate(&MultilinearPoint(vec![eval_value, folding_value]));
+        let expected_eval =
+            coeff_list.evaluate(&MultilinearPoint::new(vec![eval_value, folding_value]));
 
         // Ensure folding preserves evaluation correctness
         assert_eq!(
-            folded.evaluate(&MultilinearPoint(vec![eval_value])),
+            folded.evaluate(&MultilinearPoint::new(vec![eval_value])),
             expected_eval
         );
     }
@@ -448,17 +451,17 @@ mod tests {
 
         let fold_x1 = F::from_u64(4);
         let fold_x2 = F::from_u64(2);
-        let folding_point = MultilinearPoint(vec![fold_x1, fold_x2]);
+        let folding_point = MultilinearPoint::new(vec![fold_x1, fold_x2]);
 
         let folded = coeff_list.fold(&folding_point);
 
         let eval_x0 = F::from_u64(6);
-        let full_point = MultilinearPoint(vec![eval_x0, fold_x1, fold_x2]);
+        let full_point = MultilinearPoint::new(vec![eval_x0, fold_x1, fold_x2]);
         let expected_eval = coeff_list.evaluate(&full_point);
 
         // Ensure correctness of folding and evaluation
         assert_eq!(
-            folded.evaluate(&MultilinearPoint(vec![eval_x0])),
+            folded.evaluate(&MultilinearPoint::new(vec![eval_x0])),
             expected_eval
         );
     }
@@ -530,18 +533,18 @@ mod tests {
             let eval_part = randomness[k..].to_vec();
 
             // Convert `fold_part` into a MultilinearPoint to fold the polynomial
-            let fold_random = MultilinearPoint(fold_part.clone());
+            let fold_random = MultilinearPoint::new(fold_part.clone());
 
             // Evaluate the original polynomial at the point [eval_part || fold_part]
             // to check folding + evaluation match full evaluation
-            let eval_point = MultilinearPoint([eval_part.clone(), fold_part].concat());
+            let eval_point = MultilinearPoint::new([eval_part.clone(), fold_part].concat());
 
             // Perform the folding step: reduce the polynomial to fewer variables
             let folded = coeffs_list.fold(&fold_random);
 
             // Check that folding followed by evaluation matches direct evaluation
             assert_eq!(
-                folded.evaluate(&MultilinearPoint(eval_part)),
+                folded.evaluate(&MultilinearPoint::new(eval_part)),
                 coeffs_list.evaluate(&eval_point)
             );
         }
@@ -557,7 +560,7 @@ mod tests {
 
         let x = EF4::from_u64(2); // Evaluation at x = 2 in extension field
         let expected_value = EF4::from_u64(3) + EF4::from_u64(7) * x; // f(2) = 3 + 7 * 2
-        let eval_result = coeff_list.evaluate(&MultilinearPoint(vec![x]));
+        let eval_result = coeff_list.evaluate(&MultilinearPoint::new(vec![x]));
 
         assert_eq!(eval_result, expected_value);
     }
@@ -579,7 +582,7 @@ mod tests {
             + EF4::from_u64(5) * x1
             + EF4::from_u64(3) * x0
             + EF4::from_u64(7) * x0 * x1;
-        let eval_result = coeff_list.evaluate(&MultilinearPoint(vec![x0, x1]));
+        let eval_result = coeff_list.evaluate(&MultilinearPoint::new(vec![x0, x1]));
 
         assert_eq!(eval_result, expected_value);
     }
@@ -613,7 +616,7 @@ mod tests {
             + EF4::from_u64(7) * x0 * x1
             + EF4::from_u64(8) * x0 * x1 * x2;
 
-        let eval_result = coeff_list.evaluate(&MultilinearPoint(vec![x0, x1, x2]));
+        let eval_result = coeff_list.evaluate(&MultilinearPoint::new(vec![x0, x1, x2]));
 
         assert_eq!(eval_result, expected_value);
     }
@@ -625,7 +628,7 @@ mod tests {
 
         let x0 = EF4::from_u64(5);
         let x1 = EF4::from_u64(7);
-        let eval_result = coeff_list.evaluate(&MultilinearPoint(vec![x0, x1]));
+        let eval_result = coeff_list.evaluate(&MultilinearPoint::new(vec![x0, x1]));
 
         assert_eq!(eval_result, EF4::ZERO);
     }
@@ -723,21 +726,21 @@ mod tests {
 
         let eval_extension = eval_multivariate(
             &coeffs,
-            &MultilinearPoint(vec![EF4::from(x0), EF4::from(x1)]),
+            &MultilinearPoint::new(vec![EF4::from(x0), EF4::from(x1)]),
         );
         let expected = c0 + c1 * x1 + c2 * x0 + c3 * x0 * x1;
 
         assert_eq!(eval_extension, EF4::from(expected));
 
         // Compare with base field evaluation
-        let eval_base = eval_multivariate(&coeffs, &MultilinearPoint(vec![x0, x1]));
+        let eval_base = eval_multivariate(&coeffs, &MultilinearPoint::new(vec![x0, x1]));
         assert_eq!(eval_extension, EF4::from(eval_base));
 
         // Now test with some random extension points
         let e: EF4 = rng.random();
         let f: EF4 = rng.random();
 
-        let eval = eval_multivariate(&coeffs, &MultilinearPoint(vec![e, f]));
+        let eval = eval_multivariate(&coeffs, &MultilinearPoint::new(vec![e, f]));
 
         let expected =
             EF4::from(c0) + EF4::from(c1) * f + EF4::from(c2) * e + EF4::from(c3) * e * f;
@@ -752,7 +755,7 @@ mod tests {
 
         let points: Vec<EF4> = vec![]; // Zero variables
 
-        let result = eval_multivariate(&coeffs, &MultilinearPoint(points));
+        let result = eval_multivariate(&coeffs, &MultilinearPoint::new(points));
         assert_eq!(result, EF4::from(c));
     }
 
@@ -766,7 +769,7 @@ mod tests {
         ];
         let zeros = vec![EF4::ZERO, EF4::ZERO];
 
-        let result = eval_multivariate(&coeffs, &MultilinearPoint(zeros));
+        let result = eval_multivariate(&coeffs, &MultilinearPoint::new(zeros));
         assert_eq!(result, EF4::from(coeffs[0])); // Only constant survives
     }
 
@@ -780,7 +783,7 @@ mod tests {
         ];
 
         let one = EF4::ONE;
-        let result = eval_multivariate(&coeffs, &MultilinearPoint(vec![one, one]));
+        let result = eval_multivariate(&coeffs, &MultilinearPoint::new(vec![one, one]));
 
         let expected = EF4::from(coeffs[0])
             + EF4::from(coeffs[1])
@@ -824,7 +827,7 @@ mod tests {
         .unwrap(); // x₂ is a custom EF4 element
 
         // Evaluate the multilinear polynomial at (x₀, x₁, x₂)
-        let result = eval_multivariate(&coeffs, &MultilinearPoint(vec![x0, x1, x2]));
+        let result = eval_multivariate(&coeffs, &MultilinearPoint::new(vec![x0, x1, x2]));
 
         // Manually expand the expected result:
         //
@@ -866,13 +869,13 @@ mod tests {
 
         // Fold with X₁ = 5 (in EF4)
         let r1 = EF4::from_u64(5);
-        let folded = poly.fold(&MultilinearPoint(vec![r1]));
+        let folded = poly.fold(&MultilinearPoint::new(vec![r1]));
 
         // Should produce polynomial in X₀ only
         for x0_f in 0..10 {
             let x0 = EF4::from_u64(x0_f);
-            let full_point = MultilinearPoint(vec![x0, r1]);
-            let folded_point = MultilinearPoint(vec![x0]);
+            let full_point = MultilinearPoint::new(vec![x0, r1]);
+            let folded_point = MultilinearPoint::new(vec![x0]);
 
             let expected = poly.evaluate(&full_point);
             let actual = folded.evaluate(&folded_point);
@@ -892,12 +895,12 @@ mod tests {
         )
         .unwrap();
 
-        let folded = poly.fold(&MultilinearPoint(vec![r1, r2]));
+        let folded = poly.fold(&MultilinearPoint::new(vec![r1, r2]));
 
         for x0_f in 0..10 {
             let x0 = EF4::from_u64(x0_f);
-            let full_point = MultilinearPoint(vec![x0, r1, r2]);
-            let folded_point = MultilinearPoint(vec![x0]);
+            let full_point = MultilinearPoint::new(vec![x0, r1, r2]);
+            let folded_point = MultilinearPoint::new(vec![x0]);
 
             let expected = poly.evaluate(&full_point);
             let actual = folded.evaluate(&folded_point);
@@ -917,13 +920,13 @@ mod tests {
         let poly = CoefficientList::new(coeffs);
 
         let zero = EF4::ZERO;
-        let folded = poly.fold(&MultilinearPoint(vec![zero]));
+        let folded = poly.fold(&MultilinearPoint::new(vec![zero]));
 
         // Should be equivalent to evaluating X₁ = 0 in original poly
         for x0_f in 0..5 {
             let x0 = EF4::from_u64(x0_f);
-            let full_point = MultilinearPoint(vec![x0, zero]);
-            let folded_point = MultilinearPoint(vec![x0]);
+            let full_point = MultilinearPoint::new(vec![x0, zero]);
+            let folded_point = MultilinearPoint::new(vec![x0]);
 
             let expected = poly.evaluate(&full_point);
             let actual = folded.evaluate(&folded_point);

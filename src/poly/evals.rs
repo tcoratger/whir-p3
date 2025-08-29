@@ -3,10 +3,10 @@ use std::ops::{Deref, DerefMut};
 use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::eq::eval_eq;
+use p3_multilinear_util::{eq::eval_eq, point::MultilinearPoint};
 use tracing::instrument;
 
-use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
+use super::{coeffs::CoefficientList, wavelet::Radix2WaveletKernel};
 use crate::{
     constant::MLE_RECURSION_THRESHOLD,
     utils::{parallel_clone, uninitialized_vec},
@@ -36,10 +36,9 @@ where
     /// # Panics
     /// Panics if `evals.len()` is not a power of two.
     #[must_use]
-    pub fn new(evals: Vec<F>) -> Self {
-        let len = evals.len();
+    pub const fn new(evals: Vec<F>) -> Self {
         assert!(
-            len.is_power_of_two(),
+            evals.len().is_power_of_two(),
             "Evaluation list length must be a power of two."
         );
 
@@ -49,7 +48,10 @@ where
     /// Creates an `EvaluationsList` for the `eq` polynomial from a given point.
     ///
     /// Given a point `p = (p_1, ..., p_n)`, this computes the evaluations of the polynomial
-    /// `eq(x, p) = Π_{i=1}^{n} (x_i * p_i + (1 - x_i) * (1 - p_i))` over the boolean hypercube.
+    /// ```text
+    ///     eq(x, p) = \prod_{i=1}^{n} (x_i * p_i + (1 - x_i) * (1 - p_i)),
+    /// ```
+    /// over the boolean hypercube.
     pub fn eval_eq(eval: &[F]) -> Self {
         // Alloc memory without initializing it to zero.
         // This is safe because we overwrite it inside `eval_eq`.
@@ -63,11 +65,6 @@ where
     }
 
     /// Returns the total number of stored evaluations.
-    ///
-    /// Mathematical Invariant:
-    /// ```ignore
-    /// num_evals = 2^{num_variables}
-    /// ```
     #[must_use]
     pub const fn num_evals(&self) -> usize {
         self.0.len()
@@ -98,9 +95,14 @@ where
     /// Evaluates the multilinear polynomial at `point ∈ [0,1]^n`.
     ///
     /// - If `point ∈ {0,1}^n`, returns the precomputed evaluation `f(point)`.
-    /// - Otherwise, computes `f(point) = ∑_{x ∈ {0,1}^n} eq(x, point) * f(x)`, where `eq(x, point)
-    ///   = ∏_{i=1}^{n} (1 - p_i + 2 p_i x_i)`.
-    /// - Uses fast multilinear interpolation for efficiency.
+    /// - Otherwise, computes
+    /// ```text
+    ///     f(point) = \sum_{x ∈ {0,1}^n} eq(x, point) * f(x),
+    /// ```
+    /// where
+    /// ```text
+    ///     eq(x, point) = \prod_{i=1}^{n} (1 - p_i + 2 p_i x_i).
+    /// ```
     #[must_use]
     pub fn evaluate<EF>(&self, point: &MultilinearPoint<EF>) -> EF
     where
@@ -128,9 +130,9 @@ where
     ///
     /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
     ///
-    /// \[
+    /// ```text
     /// g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
-    /// \]
+    /// ```
     ///
     /// where `folding_randomness = (r_0, ..., r_{k-1})` is a fixed assignment to the last `k` variables.
     ///
@@ -205,8 +207,7 @@ impl<F> DerefMut for EvaluationsList<F> {
 
 /// Evaluates a multilinear polynomial at an arbitrary point using fast interpolation.
 ///
-/// This function is the workhorse for evaluating a multilinear polynomial `f`. It's given
-/// the polynomial's evaluations over all corners of the boolean hypercube `{0,1}^n` and
+/// It's given the polynomial's evaluations over all corners of the boolean hypercube `{0,1}^n` and
 /// can find the value at any other point `p` (even with coordinates outside of `{0,1}`).
 ///
 /// ## Algorithm
@@ -219,8 +220,10 @@ impl<F> DerefMut for EvaluationsList<F> {
 /// 3.  Finally, use those 2 points to find the single value at `p` along the z-axis.
 ///
 /// This function implements this idea using the recurrence relation:
-/// `f(x₀, ..., xₙ₋₁) = f_0(x₁, ..., xₙ₋₁) * (1 - x₀) + f_1(x₁, ..., xₙ₋₁) * x₀`
-/// where `f_0` is the polynomial with `x₀` fixed to `0` and `f_1` is with `x₀` fixed to `1`.
+/// ```text
+///     f(x_0, ..., x_{n-1}) = f_0(x_1, ..., x_{n-1}) * (1 - x_0) + f_1(x_1, ..., x_{n-1}) * x_0,
+/// ```
+/// where `f_0` is the polynomial with `x_0` fixed to `0` and `f_1` is with `x_0` fixed to `1`.
 ///
 /// ## Implementation Strategies
 ///
@@ -315,14 +318,13 @@ where
                 // The `evals` are ordered lexicographically, meaning the first variable's bit changes the slowest.
                 //
                 // To align our computation with this memory layout, we process the point's coordinates in reverse.
-                let mut point_rev = point.clone();
-                point_rev.0.reverse();
+                let point_rev = MultilinearPoint::new(point.iter().rev().copied().collect());
 
                 // Split the reversed point's coordinates into two halves:
                 // - `z0` (low-order vars)
                 // - `z1` (high-order vars).
                 let mid = point_rev.num_variables() / 2;
-                let (z0, z1) = point_rev.0.split_at(mid);
+                let (z0, z1) = point_rev.as_slice().split_at(mid);
 
                 // Precomputation of Basis Polynomials
                 //
@@ -366,7 +368,7 @@ where
                     .sum()
             } else {
                 // Create a new point with the remaining coordinates.
-                let sub_point = MultilinearPoint(tail.to_vec());
+                let sub_point = MultilinearPoint::new(tail.to_vec());
 
                 // For moderately sized inputs (5 to 19 variables), use the recursive strategy.
                 //
@@ -492,12 +494,21 @@ mod tests {
 
         // Evaluating at a binary hypercube point should return the direct value
         assert_eq!(
-            evals.evaluate(&MultilinearPoint(vec![F::ZERO, F::ZERO])),
+            evals.evaluate(&MultilinearPoint::new(vec![F::ZERO, F::ZERO])),
             e1
         );
-        assert_eq!(evals.evaluate(&MultilinearPoint(vec![F::ZERO, F::ONE])), e2);
-        assert_eq!(evals.evaluate(&MultilinearPoint(vec![F::ONE, F::ZERO])), e3);
-        assert_eq!(evals.evaluate(&MultilinearPoint(vec![F::ONE, F::ONE])), e4);
+        assert_eq!(
+            evals.evaluate(&MultilinearPoint::new(vec![F::ZERO, F::ONE])),
+            e2
+        );
+        assert_eq!(
+            evals.evaluate(&MultilinearPoint::new(vec![F::ONE, F::ZERO])),
+            e3
+        );
+        assert_eq!(
+            evals.evaluate(&MultilinearPoint::new(vec![F::ONE, F::ONE])),
+            e4
+        );
     }
 
     #[test]
@@ -521,7 +532,7 @@ mod tests {
             F::from_u64(4),
         ]);
 
-        let point = MultilinearPoint(vec![F::from_u64(2), F::from_u64(3)]);
+        let point = MultilinearPoint::new(vec![F::from_u64(2), F::from_u64(3)]);
 
         let result = evals.evaluate(&point);
 
@@ -542,7 +553,7 @@ mod tests {
         let expected = a + (b - a) * x;
 
         assert_eq!(
-            eval_multilinear(&evals, &MultilinearPoint(vec![x])),
+            eval_multilinear(&evals, &MultilinearPoint::new(vec![x])),
             expected
         );
     }
@@ -570,7 +581,7 @@ mod tests {
             + x * y * d;
 
         assert_eq!(
-            eval_multilinear(&evals, &MultilinearPoint(vec![x, y])),
+            eval_multilinear(&evals, &MultilinearPoint::new(vec![x, y])),
             expected
         );
     }
@@ -606,7 +617,7 @@ mod tests {
             + x * y * z * h;
 
         assert_eq!(
-            eval_multilinear(&evals, &MultilinearPoint(vec![x, y, z])),
+            eval_multilinear(&evals, &MultilinearPoint::new(vec![x, y, z])),
             expected
         );
     }
@@ -658,7 +669,7 @@ mod tests {
 
         // Validate against the function output
         assert_eq!(
-            eval_multilinear(&evals, &MultilinearPoint(vec![x, y, z, w])),
+            eval_multilinear(&evals, &MultilinearPoint::new(vec![x, y, z, w])),
             expected
         );
     }
@@ -680,7 +691,7 @@ mod tests {
             let poly_ef = EvaluationsList::new(coeffs_ef);
 
             // Evaluation point in EF4
-            let point_ef = MultilinearPoint(vec![
+            let point_ef = MultilinearPoint::new(vec![
                 EF4::from_u64(x0),
                 EF4::from_u64(x1),
                 EF4::from_u64(x2),
@@ -729,7 +740,7 @@ mod tests {
         // Let's pick (x₁, x₂) = (2, 1)
         let x1 = F::from_u64(2);
         let x2 = F::from_u64(1);
-        let coords = MultilinearPoint(vec![x1, x2]);
+        let coords = MultilinearPoint::new(vec![x1, x2]);
 
         // Manually compute the expected value step-by-step:
         //
@@ -781,7 +792,7 @@ mod tests {
         let x1 = F::from_u64(3);
         let x2 = F::from_u64(4);
 
-        let point = MultilinearPoint(vec![x0, x1, x2]);
+        let point = MultilinearPoint::new(vec![x0, x1, x2]);
 
         // Manually compute:
         //
@@ -843,7 +854,7 @@ mod tests {
         let x1 = EF4::from_u64(3);
         let x2 = EF4::from_u64(4);
 
-        let point = MultilinearPoint(vec![x0, x1, x2]);
+        let point = MultilinearPoint::new(vec![x0, x1, x2]);
 
         // Manually compute expected value
         //
@@ -903,11 +914,11 @@ mod tests {
             let eval_part = randomness[k..randomness.len()].to_vec();
 
             // Convert to a MultilinearPoint (in EF) for folding
-            let fold_random = MultilinearPoint(fold_part.clone());
+            let fold_random = MultilinearPoint::new(fold_part.clone());
 
             // Reconstruct the full point (x₀, ..., xₙ₋₁) = [eval_part || fold_part]
             // Used to evaluate the original uncompressed polynomial
-            let eval_point = MultilinearPoint([eval_part.clone(), fold_part].concat());
+            let eval_point = MultilinearPoint::new([eval_part.clone(), fold_part].concat());
 
             // Fold the evaluation list over the last `k` variables
             let folded_evals = evals_list.fold(&fold_random);
@@ -924,13 +935,13 @@ mod tests {
             // Verify correctness:
             // folded(e) == original([e, r]) for all k
             assert_eq!(
-                folded_evals.evaluate(&MultilinearPoint(eval_part.clone())),
+                folded_evals.evaluate(&MultilinearPoint::new(eval_part.clone())),
                 evals_list.evaluate(&eval_point)
             );
 
             // Compare with the coefficient list equivalent
             assert_eq!(
-                folded_coeffs.evaluate(&MultilinearPoint(eval_part)),
+                folded_coeffs.evaluate(&MultilinearPoint::new(eval_part)),
                 evals_list.evaluate(&eval_point)
             );
         }
@@ -955,7 +966,7 @@ mod tests {
         let r1 = EF4::from_u64(5);
 
         // Perform the fold: f(X₀, 5) becomes a new function g(X₀)
-        let folded = evals_list.fold(&MultilinearPoint(vec![r1]));
+        let folded = evals_list.fold(&MultilinearPoint::new(vec![r1]));
 
         // For 10 test points x₀ = 0, 1, ..., 9
         for x0_f in 0..10 {
@@ -963,10 +974,10 @@ mod tests {
             let x0 = EF4::from_u64(x0_f);
 
             // Construct the full point (x₀, X₁ = 5)
-            let full_point = MultilinearPoint(vec![x0, r1]);
+            let full_point = MultilinearPoint::new(vec![x0, r1]);
 
             // Construct folded point (x₀)
-            let folded_point = MultilinearPoint(vec![x0]);
+            let folded_point = MultilinearPoint::new(vec![x0]);
 
             // Evaluate original poly at (x₀, 5)
             let expected = poly.evaluate(&full_point);
@@ -1166,7 +1177,7 @@ mod tests {
 
         // Create a random point `p` where we will evaluate the polynomial.
         let point_vec: Vec<EF4> = (0..NUM_VARS).map(|_| rng.random()).collect();
-        let point = MultilinearPoint(point_vec);
+        let point = MultilinearPoint::new(point_vec);
 
         // BRUTE-FORCE CALCULATION (GROUND TRUTH)
         //
@@ -1192,7 +1203,7 @@ mod tests {
                 let v_j = (i >> (NUM_VARS - 1 - j)) & 1;
 
                 // Get the corresponding j-th coordinate of our evaluation point `p`.
-                let p_j = point.0[j];
+                let p_j = point.as_slice()[j];
 
                 if v_j == 1 {
                     // If the hypercube coordinate v_j is 1, the factor is p_j.

@@ -12,7 +12,7 @@ use p3_multilinear_util::eq::eval_eq;
 use p3_util::log2_ceil_usize;
 
 use crate::{
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::evals::EvaluationsList,
     whir::{pcs::query::MlQuery, statement::weights::Weights},
 };
 
@@ -189,7 +189,7 @@ impl ConcatMatsMeta {
                         .collect()
                 };
 
-                Weights::evaluation(MultilinearPoint(point))
+                Weights::evaluation(MultilinearPoint::new(point))
             }
 
             MlQuery::EqRotateRight(_, _) => {
@@ -580,7 +580,7 @@ mod tests {
         let meta = &concat.meta;
 
         // Rotated query.
-        let query = MlQuery::EqRotateRight(MultilinearPoint(vec![F::from_u8(7)]), 1);
+        let query = MlQuery::EqRotateRight(MultilinearPoint::new(vec![F::from_u8(7)]), 1);
 
         let y0 = F::from_u8(9);
         let y1 = F::from_u8(10);
@@ -645,7 +645,7 @@ mod tests {
 
         // Index 1 (second matrix): shape 2x3
         // log2_ceil(3) = 2
-        let query = MlQuery::Eq(MultilinearPoint(vec![F::from_u8(0)])); // z selects row 0
+        let query = MlQuery::Eq(MultilinearPoint::new(vec![F::from_u8(0)])); // z selects row 0
         let ys = vec![F::from_u8(5), F::from_u8(6), F::from_u8(7)];
         let r = vec![F::from_u8(1), F::from_u8(2), F::from_u8(9)]; // extra bits; truncated
 
@@ -730,7 +730,8 @@ mod tests {
         // The rotated z is treated as a Boolean point representing a row index.
         // So this selects the row (0,1), i.e., row index 1.
         // -----------------------------------------------
-        let query = MlQuery::EqRotateRight(MultilinearPoint(vec![F::from_u8(1), F::from_u8(0)]), 1);
+        let query =
+            MlQuery::EqRotateRight(MultilinearPoint::new(vec![F::from_u8(1), F::from_u8(0)]), 1);
 
         // ys: values associated with each row in the matrix.
         //
@@ -863,7 +864,7 @@ mod tests {
         //
         // Note: meta.log_b = 4 because total input dim is 4 bits.
         // -----------------------------------------------------
-        let query = MlQuery::Eq(MultilinearPoint(vec![F::ZERO, F::ONE]));
+        let query = MlQuery::Eq(MultilinearPoint::new(vec![F::ZERO, F::ONE]));
 
         // -----------------------------------------------------
         // Select a random challenge r = (1, 2) ∉ {0,1}^2
@@ -962,7 +963,7 @@ mod tests {
         //
         // Note: meta.log_b = 4 because total input dim is 4 bits.
         // -----------------------------------------------------
-        let query = MlQuery::Eq(MultilinearPoint(vec![F::ZERO, F::ONE]));
+        let query = MlQuery::Eq(MultilinearPoint::new(vec![F::ZERO, F::ONE]));
 
         // -----------------------------------------------------
         // Select a random challenge r = (1, 2) ∉ {0,1}^2

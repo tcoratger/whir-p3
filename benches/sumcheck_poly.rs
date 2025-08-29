@@ -2,10 +2,9 @@ use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
+use p3_multilinear_util::point::MultilinearPoint;
 use rand::Rng;
-use whir_p3::{
-    poly::multilinear::MultilinearPoint, sumcheck::sumcheck_polynomial::SumcheckPolynomial,
-};
+use whir_p3::sumcheck::sumcheck_polynomial::SumcheckPolynomial;
 
 type F = BabyBear;
 

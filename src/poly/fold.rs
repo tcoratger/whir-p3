@@ -90,9 +90,10 @@ where
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+    use p3_multilinear_util::point::MultilinearPoint;
 
     use super::*;
-    use crate::poly::{coeffs::CoefficientList, multilinear::MultilinearPoint};
+    use crate::poly::coeffs::CoefficientList;
 
     type F = BabyBear;
 
@@ -152,7 +153,7 @@ mod tests {
 
         // Step 3: Compute the expected folded value using the polynomial's `fold` function
         let truth_value = poly
-            .fold(&MultilinearPoint(folding_randomness)) // Fold the polynomial
+            .fold(&MultilinearPoint::new(folding_randomness)) // Fold the polynomial
             .evaluate(&MultilinearPoint::expand_from_univariate(
                 root_of_unity.exp_u64(folding_factor_exp * index),
                 2,

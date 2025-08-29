@@ -2,13 +2,14 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::eq::eval_eq;
+use p3_multilinear_util::{eq::eval_eq, point::MultilinearPoint};
 use tracing::instrument;
 
 use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::utils::eval_select,
 };
+use crate::poly::evals::EvaluationsList;
 
 /// Represents a weight function used in polynomial evaluations.
 ///
@@ -246,9 +247,11 @@ impl<F: Field> Weights<F> {
         // Deconstruct the challenge object `r_all`
         //
         // The last element is the challenge for the `k_skip` variables being folded.
-        let r_skip = *r_all.0.last().expect("skip challenge must be present");
+        let r_skip = *r_all
+            .last_variable()
+            .expect("skip challenge must be present");
         // The first `n - k_skip` elements are the challenges for the remaining variables.
-        let r_rest = MultilinearPoint(r_all.0[..num_remaining_vars].to_vec());
+        let r_rest = MultilinearPoint::new(r_all.as_slice()[..num_remaining_vars].to_vec());
 
         // Perform the two-stage evaluation
         //
@@ -275,7 +278,7 @@ mod tests {
     #[test]
     fn test_weights_evaluation() {
         // Define a point in the multilinear space
-        let point = MultilinearPoint(vec![F::ONE, F::ZERO]);
+        let point = MultilinearPoint::new(vec![F::ONE, F::ZERO]);
         let weight = Weights::evaluation(point);
 
         // The number of variables in the weight should match the number of variables in the point
@@ -300,7 +303,7 @@ mod tests {
         let evals = EvaluationsList::new(vec![e0, e1]);
 
         // Define an evaluation weight at a specific point
-        let point = MultilinearPoint(vec![F::ONE]);
+        let point = MultilinearPoint::new(vec![F::ONE]);
         let weight = Weights::evaluation(point);
 
         // Expected result: polynomial evaluation at the given point
@@ -368,7 +371,7 @@ mod tests {
         let mut accumulator = EvaluationsList::new(vec![F::ZERO, F::ZERO]);
 
         // Define an evaluation point
-        let point = MultilinearPoint(vec![F::ONE]);
+        let point = MultilinearPoint::new(vec![F::ONE]);
         let weight = Weights::evaluation(point.clone());
 
         // Define a multiplication factor
@@ -391,7 +394,7 @@ mod tests {
         let weight = Weights::univariate(y, 1);
 
         // Expect point to be [3]
-        let expected = MultilinearPoint(vec![y]);
+        let expected = MultilinearPoint::new(vec![y]);
         assert_eq!(weight, Weights::evaluation(expected));
     }
 
@@ -401,7 +404,7 @@ mod tests {
         let y = F::from_u64(4);
         let weight = Weights::univariate(y, 2);
 
-        let expected = MultilinearPoint(vec![y.square(), y]);
+        let expected = MultilinearPoint::new(vec![y.square(), y]);
         assert_eq!(weight, Weights::evaluation(expected));
     }
 
@@ -411,7 +414,7 @@ mod tests {
         let y = F::from_u64(3);
         let weight = Weights::univariate(y, 4);
 
-        let expected = MultilinearPoint(vec![y.exp_u64(8), y.exp_u64(4), y.square(), y]);
+        let expected = MultilinearPoint::new(vec![y.exp_u64(8), y.exp_u64(4), y.square(), y]);
 
         assert_eq!(weight, Weights::evaluation(expected));
     }
@@ -422,7 +425,7 @@ mod tests {
         let weight = Weights::univariate(y, 0);
 
         // Expect empty point
-        let expected = MultilinearPoint(vec![]);
+        let expected = MultilinearPoint::new(vec![]);
         assert_eq!(weight, Weights::evaluation(expected));
     }
 
@@ -454,9 +457,9 @@ mod tests {
         // so the layout is [r_rest..., r_skip].
         // - r_rest corresponds to the remaining variables (X2).
         // - r_skip is the single challenge for the combined (X0, X1) domain.
-        let r_rest = MultilinearPoint(vec![EF4::from_u32(5)]);
+        let r_rest = MultilinearPoint::new(vec![EF4::from_u32(5)]);
         let r_skip = EF4::from_u32(7);
-        let r_all = MultilinearPoint([r_rest.as_slice(), &[r_skip]].concat());
+        let r_all = MultilinearPoint::new([r_rest.as_slice(), &[r_skip]].concat());
 
         // ACTION: Compute W(r) using the function under test.
         let result = weights.compute_with_skip(&r_all, k_skip);
@@ -514,7 +517,7 @@ mod tests {
 
         // The weight polynomial is W(X) = eq_z(X0, X1, X2), where z=(2,3,4).
         // The constraint point MUST be full-dimensional.
-        let point = MultilinearPoint(vec![F::from_u32(2), F::from_u32(3), F::from_u32(4)]);
+        let point = MultilinearPoint::new(vec![F::from_u32(2), F::from_u32(3), F::from_u32(4)]);
         let weights = Weights::Evaluation {
             point: point.clone(),
         };
@@ -523,18 +526,18 @@ mod tests {
         // It has (n - k_skip) + 1 = (3 - 2) + 1 = 2 elements.
         // - r_rest for remaining variable (X2).
         // - r_skip for the combined (X0, X1) domain.
-        let r_rest = MultilinearPoint(vec![EF4::from_u32(5)]);
+        let r_rest = MultilinearPoint::new(vec![EF4::from_u32(5)]);
         let r_skip = EF4::from_u32(7);
-        let r_all = MultilinearPoint([r_rest.as_slice(), &[r_skip]].concat());
+        let r_all = MultilinearPoint::new([r_rest.as_slice(), &[r_skip]].concat());
 
         // ACTION: Compute W(r) using the function under test.
         let result = weights.compute_with_skip(&r_all, k_skip);
 
         // MANUAL VERIFICATION:
         // 1. Manually construct the full 8-element table for W(X) = eq_z(X0, X1, X2).
-        let z0 = EF4::from(point.0[0]);
-        let z1 = EF4::from(point.0[1]);
-        let z2 = EF4::from(point.0[2]);
+        let z0 = EF4::from(point.as_slice()[0]);
+        let z1 = EF4::from(point.as_slice()[1]);
+        let z2 = EF4::from(point.as_slice()[2]);
         let mut full_evals_vec = Vec::with_capacity(1 << n);
         for i in 0..(1 << n) {
             // Index `i` corresponds to the point (x0, x1, x2)
@@ -577,7 +580,7 @@ mod tests {
         let k_skip = 5;
 
         // The weight polynomial is W(X) = eq_z(X0..X4), where z is a random 5-element point.
-        let point = MultilinearPoint(vec![
+        let point = MultilinearPoint::new(vec![
             F::from_u32(2),
             F::from_u32(3),
             F::from_u32(5),
@@ -592,9 +595,9 @@ mod tests {
         // It has (n - k_skip) + 1 = (5 - 5) + 1 = 1 element.
         // - r_rest is an empty vector for the 0 remaining variables.
         // - r_skip is the single challenge for the combined (X0..X4) domain.
-        let r_rest = MultilinearPoint(vec![]);
+        let r_rest = MultilinearPoint::new(vec![]);
         let r_skip = EF4::from_u32(13);
-        let r_all = MultilinearPoint(vec![r_skip]);
+        let r_all = MultilinearPoint::new(vec![r_skip]);
 
         // Compute W(r) using the function under test.
         let result = weights.compute_with_skip(&r_all, k_skip);
@@ -607,7 +610,7 @@ mod tests {
             let eq_val: EF4 = (0..n)
                 .map(|j| {
                     // Get the j-th coordinate of the constraint point z.
-                    let z_j = EF4::from(point.0[j]);
+                    let z_j = EF4::from(point.as_slice()[j]);
                     // Get the j-th coordinate of the hypercube point x by checking the j-th bit of i.
                     let x_j = EF4::from_u32((i >> (n - 1 - j)) & 1);
                     // Calculate the j-th term of the product.
@@ -669,10 +672,10 @@ mod tests {
             // --- SETUP ---
 
             // Define the random constraint point `z` from the generated values.
-            let point = MultilinearPoint(point_vals.into_iter().map(F::from_u32).collect());
+            let point = MultilinearPoint::new(point_vals.into_iter().map(F::from_u32).collect());
 
             // Define the random challenge object `r_all`.
-            let r_all = MultilinearPoint(r_all_vals.into_iter().map(EF4::from_u32).collect());
+            let r_all = MultilinearPoint::new(r_all_vals.into_iter().map(EF4::from_u32).collect());
 
             // --- WEIGHT 1: The symbolic `Evaluation` variant ---
             // This represents the constraint `eq_z(X)` symbolically.
@@ -688,7 +691,7 @@ mod tests {
                 // eq_z(x) = Π [z_j * x_j + (1-z_j)*(1-x_j)] for j=0..n-1
                 let eq_val: EF4 = (0..n).map(|j| {
                     // Get the j-th coordinate of the constraint point z.
-                    let z_j = EF4::from(point.0[j]);
+                    let z_j = EF4::from(point.as_slice()[j]);
                     // Get the j-th coordinate of the hypercube point x by checking the j-th bit of i.
                     // We use (n - 1 - j) to match the (X0, X1, ...) significance order.
                     let x_j = EF4::from_u32((i >> (n - 1 - j)) & 1);

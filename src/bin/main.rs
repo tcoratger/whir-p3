@@ -7,6 +7,7 @@ use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeField64, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
+use p3_multilinear_util::point::MultilinearPoint;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{
     Rng, SeedableRng,
@@ -17,7 +18,7 @@ use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::Subscr
 use whir_p3::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::evals::EvaluationsList,
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         parameters::WhirConfig,

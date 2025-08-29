@@ -6,6 +6,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::{Dimensions, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
+use p3_multilinear_util::point::MultilinearPoint;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -22,7 +23,7 @@ use crate::{
         errors::{ProofError, ProofResult},
         verifier::VerifierState,
     },
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::evals::EvaluationsList,
     whir::{
         Statement, parameters::WhirConfig, statement::evaluator::ConstraintPolyEvaluator,
         verifier::sumcheck::verify_sumcheck_rounds,
@@ -100,7 +101,7 @@ where
             assert!(statement.constraints.is_empty());
             round_constraints.push((vec![], vec![]));
 
-            let folding_randomness = MultilinearPoint(
+            let folding_randomness = MultilinearPoint::new(
                 (0..self.folding_factor.at_round(0))
                     .map(|_| verifier_state.sample())
                     .collect::<Vec<_>>(),
@@ -187,11 +188,11 @@ where
         round_folding_randomness.push(final_sumcheck_randomness.clone());
 
         // Compute folding randomness across all rounds.
-        let folding_randomness = MultilinearPoint(
+        let folding_randomness = MultilinearPoint::new(
             round_folding_randomness
                 .into_iter()
                 .rev()
-                .flat_map(|poly| poly.0.into_iter())
+                .flat_map(IntoIterator::into_iter)
                 .collect(),
         );
 
@@ -359,9 +360,12 @@ where
                     // Deconstruct the challenge object `r_all` into its two components.
                     //
                     // The last element is the single challenge `r_skip` used to evaluate the skipped variables.
-                    let r_skip = *r_all.0.last().expect("skip challenge must be present");
+                    let r_skip = *r_all
+                        .last_variable()
+                        .expect("skip challenge must be present");
                     // The first `n - k_skip` elements are the challenges `r_rest` for the remaining variables.
-                    let r_rest = MultilinearPoint(r_all.0[..num_remaining_vars].to_vec());
+                    let r_rest =
+                        MultilinearPoint::new(r_all.as_slice()[..num_remaining_vars].to_vec());
 
                     // Perform the two-stage skip-aware evaluation:
                     //

@@ -3,6 +3,7 @@ use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_multilinear_util::point::MultilinearPoint;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
 use prover::Prover;
@@ -13,12 +14,11 @@ use verifier::Verifier;
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
+    poly::coeffs::CoefficientList,
 };
 
 pub mod committer;
 pub mod parameters;
-pub mod pcs;
 pub mod prover;
 pub mod statement;
 pub mod utils;
@@ -85,7 +85,9 @@ pub fn make_whir_things(
 
     // Sample `num_points` multilinear points
     let points: Vec<_> = (0..num_points)
-        .map(|_| MultilinearPoint((0..num_variables).map(|i| EF::from_u64(i as u64)).collect()))
+        .map(|_| {
+            MultilinearPoint::new((0..num_variables).map(|i| EF::from_u64(i as u64)).collect())
+        })
         .collect();
 
     // Construct a new statement with the correct number of variables
