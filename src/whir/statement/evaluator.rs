@@ -140,7 +140,7 @@ mod tests {
     use crate::{
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
-        whir::statement::{Statement, point::EvaluationPoint},
+        whir::statement::{Statement, point::ConstraintPoint},
     };
 
     type F = BabyBear;
@@ -201,7 +201,7 @@ mod tests {
             let mut statement = Statement::new(num_vars_at_round);
             for _ in 0..*num_constraints {
                 statement.add_constraint(
-                    EvaluationPoint::new(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
+                    ConstraintPoint::new(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
                     rng.random(),
                 );
             }
@@ -345,7 +345,7 @@ mod tests {
                 // Add the random number of constraints for this round.
                 for _ in 0..num_constraints_per_round[i] {
                     statement.add_constraint(
-                        EvaluationPoint::new(MultilinearPoint::rand(&mut rng, num_vars_current)),
+                        ConstraintPoint::new(MultilinearPoint::rand(&mut rng, num_vars_current)),
                         rng.random(),
                     );
                 }
@@ -458,7 +458,7 @@ mod tests {
             let mut statement = Statement::new(num_vars_at_round);
             for _ in 0..num_constraints {
                 statement.add_constraint(
-                    EvaluationPoint::new(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
+                    ConstraintPoint::new(MultilinearPoint::rand(&mut rng, num_vars_at_round)),
                     rng.random(),
                 );
             }
@@ -601,7 +601,7 @@ mod tests {
                 let mut statement = Statement::new(num_vars_current);
                 for _ in 0..num_constraints_per_round[i] {
                     statement.add_constraint(
-                        EvaluationPoint::new(MultilinearPoint::rand(&mut rng, num_vars_current)),
+                        ConstraintPoint::new(MultilinearPoint::rand(&mut rng, num_vars_current)),
                         rng.random(),
                     );
                 }

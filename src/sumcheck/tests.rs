@@ -18,7 +18,7 @@ use crate::{
     },
     poly::evals::EvaluationsList,
     whir::{
-        statement::{Statement, constraint::Constraint, point::EvaluationPoint},
+        statement::{Statement, constraint::Constraint, point::ConstraintPoint},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -108,7 +108,7 @@ where
         prover.add_extension_scalar(eval);
 
         // Add the constraint: poly(point) = eval.
-        statement.add_constraint(EvaluationPoint::new(point), eval);
+        statement.add_constraint(ConstraintPoint::new(point), eval);
     }
 
     // Return the complete statement.
@@ -167,7 +167,7 @@ where
             prover.add_extension_scalar(eval);
 
             // Add the evaluation constraint: poly(point) == eval.
-            statement.add_constraint(EvaluationPoint::new(point.clone()), eval);
+            statement.add_constraint(ConstraintPoint::new(point.clone()), eval);
 
             // Return the sampled point and its evaluation.
             (point, eval)
@@ -222,7 +222,7 @@ where
         let eval = verifier.next_extension_scalar().unwrap();
 
         // Add the constraint: poly(point) == eval.
-        statement.add_constraint(EvaluationPoint::new(point), eval);
+        statement.add_constraint(ConstraintPoint::new(point), eval);
     }
 
     // Return the fully reconstructed statement.

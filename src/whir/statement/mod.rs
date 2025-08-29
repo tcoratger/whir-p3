@@ -1,5 +1,5 @@
 use p3_field::{ExtensionField, Field};
-use point::EvaluationPoint;
+use point::ConstraintPoint;
 use tracing::instrument;
 
 use crate::{
@@ -69,7 +69,7 @@ impl<F: Field> Statement<F> {
     ///
     /// # Panics
     /// Panics if the number of variables in the `point` does not match the statement.
-    pub fn add_constraint(&mut self, point: EvaluationPoint<F>, expected_evaluation: F) {
+    pub fn add_constraint(&mut self, point: ConstraintPoint<F>, expected_evaluation: F) {
         assert_eq!(point.num_variables(), self.num_variables());
         self.constraints.push(Constraint {
             point,
@@ -82,7 +82,7 @@ impl<F: Field> Statement<F> {
     ///
     /// # Panics
     /// Panics if the number of variables in the `point` does not match the statement.
-    pub fn add_constraint_in_front(&mut self, point: EvaluationPoint<F>, expected_evaluation: F) {
+    pub fn add_constraint_in_front(&mut self, point: ConstraintPoint<F>, expected_evaluation: F) {
         assert_eq!(point.num_variables(), self.num_variables());
         self.constraints.insert(
             0,
@@ -97,7 +97,7 @@ impl<F: Field> Statement<F> {
     /// Inserts multiple constraints at the front of the system.
     ///
     /// Panics if any constraint's number of variables does not match the system.
-    pub fn add_constraints_in_front(&mut self, constraints: Vec<(EvaluationPoint<F>, F)>) {
+    pub fn add_constraints_in_front(&mut self, constraints: Vec<(ConstraintPoint<F>, F)>) {
         // Store the number of variables expected by this statement.
         let n = self.num_variables();
 
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn test_statement_combine_single_constraint() {
         let mut statement = Statement::new(1);
-        let point = EvaluationPoint::new(MultilinearPoint::new(vec![F::ONE]));
+        let point = ConstraintPoint::new(MultilinearPoint::new(vec![F::ONE]));
         let expected_eval = F::from_u64(7);
         statement.add_constraint(point.clone(), expected_eval);
 
@@ -232,12 +232,12 @@ mod tests {
         let mut statement = Statement::new(2);
 
         // Constraint 1: evaluate at z1 = (1,0), expected value 5
-        let point1 = EvaluationPoint::new(MultilinearPoint::new(vec![F::ONE, F::ZERO]));
+        let point1 = ConstraintPoint::new(MultilinearPoint::new(vec![F::ONE, F::ZERO]));
         let eval1 = F::from_u64(5);
         statement.add_constraint(point1.clone(), eval1);
 
         // Constraint 2: evaluate at z2 = (0,1), expected value 7
-        let point2 = EvaluationPoint::new(MultilinearPoint::new(vec![F::ZERO, F::ONE]));
+        let point2 = ConstraintPoint::new(MultilinearPoint::new(vec![F::ZERO, F::ONE]));
         let eval2 = F::from_u64(7);
         statement.add_constraint(point2.clone(), eval2);
 
@@ -271,7 +271,7 @@ mod tests {
     fn test_compute_evaluation_weight() {
         // Define an evaluation weight at a specific point
         let point = MultilinearPoint::new(vec![F::from_u64(3)]);
-        let weight = EvaluationPoint::new(point.clone());
+        let weight = ConstraintPoint::new(point.clone());
 
         // Define a randomness point for folding
         let folding_randomness = MultilinearPoint::new(vec![F::from_u64(2)]);

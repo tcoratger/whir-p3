@@ -8,7 +8,7 @@ use crate::{
     fiat_shamir::{errors::ProofResult, verifier::VerifierState},
     whir::{
         parameters::WhirConfig,
-        statement::{constraint::Constraint, point::EvaluationPoint},
+        statement::{constraint::Constraint, point::ConstraintPoint},
     },
 };
 
@@ -109,7 +109,7 @@ where
             .iter()
             .zip(&self.ood_answers)
             .map(|(&point, &expected_evaluation)| Constraint {
-                point: EvaluationPoint::univariate(point, self.num_variables),
+                point: ConstraintPoint::univariate(point, self.num_variables),
                 expected_evaluation,
                 defer_evaluation: false,
             })
@@ -423,7 +423,7 @@ mod tests {
                 point,
             ]);
 
-            let expected_point = EvaluationPoint::new(expanded);
+            let expected_point = ConstraintPoint::new(expanded);
 
             assert_eq!(
                 constraint.point, expected_point,

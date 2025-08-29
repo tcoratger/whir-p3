@@ -7,7 +7,7 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
 use prover::Prover;
 use rand::{SeedableRng, rngs::SmallRng};
-use statement::{Statement, point::EvaluationPoint};
+use statement::{Statement, point::ConstraintPoint};
 use verifier::Verifier;
 
 use crate::{
@@ -96,7 +96,7 @@ pub fn make_whir_things(
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
         let eval = polynomial.evaluate(point);
-        let weights = EvaluationPoint::new(point.clone());
+        let weights = ConstraintPoint::new(point.clone());
         statement.add_constraint(weights, eval);
     }
 

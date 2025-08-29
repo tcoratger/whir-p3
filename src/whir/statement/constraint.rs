@@ -1,13 +1,13 @@
 use p3_field::Field;
 
-use super::point::EvaluationPoint;
+use super::point::ConstraintPoint;
 use crate::poly::evals::EvaluationsList;
 
 /// Represents a single constraint in a polynomial statement, of the form `p(z) = s`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Constraint<F> {
     /// The point `z` at which the polynomial is constrained.
-    pub point: EvaluationPoint<F>,
+    pub point: ConstraintPoint<F>,
 
     /// The expected evaluation `s` that the polynomial should have at `point`.
     pub expected_evaluation: F,
@@ -48,7 +48,7 @@ mod tests {
 
         // Define a weight enforcing evaluation at point X0 = 1
         let point = MultilinearPoint::new(vec![F::ONE]);
-        let point = EvaluationPoint::new(point);
+        let point = ConstraintPoint::new(point);
 
         // Compute f(1):
         let expected_evaluation = f(F::ONE);
@@ -74,7 +74,7 @@ mod tests {
 
         // Weight: evaluate at X0 = 1
         let point = MultilinearPoint::new(vec![F::ONE]);
-        let point = EvaluationPoint::new(point);
+        let point = ConstraintPoint::new(point);
 
         // Wrong sum: f(1) = 5, but sum = 6
         let expected_evaluation = F::from_u64(6);

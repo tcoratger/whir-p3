@@ -14,7 +14,7 @@ use tracing::instrument;
 use super::{
     committer::reader::ParsedCommitment,
     parameters::RoundConfig,
-    statement::{constraint::Constraint, point::EvaluationPoint},
+    statement::{constraint::Constraint, point::ConstraintPoint},
     utils::get_challenge_stir_queries,
 };
 use crate::{
@@ -384,7 +384,7 @@ where
             .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
             .zip(&folds)
             .map(|(point, &expected_evaluation)| Constraint {
-                point: EvaluationPoint::univariate(EF::from(point), params.num_variables),
+                point: ConstraintPoint::univariate(EF::from(point), params.num_variables),
                 expected_evaluation,
                 defer_evaluation: false,
             })

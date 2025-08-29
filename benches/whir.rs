@@ -18,7 +18,7 @@ use whir_p3::{
         committer::writer::CommitmentWriter,
         parameters::WhirConfig,
         prover::Prover,
-        statement::{Statement, point::EvaluationPoint},
+        statement::{Statement, point::ConstraintPoint},
     },
 };
 
@@ -112,7 +112,7 @@ fn prepare_inputs() -> (
     let eval = polynomial.evaluate(&point);
 
     // Construct a constraint: enforces that the polynomial evaluates to `eval` at `point`.
-    let evaluation_point = EvaluationPoint::new(point);
+    let evaluation_point = ConstraintPoint::new(point);
 
     // Create a new WHIR `Statement` with one constraint.
     let mut statement = Statement::<EF>::new(num_variables);

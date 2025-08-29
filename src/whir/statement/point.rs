@@ -12,9 +12,9 @@ use crate::poly::evals::EvaluationsList;
 /// specific multilinear point. The actual weight polynomial `w(X) = eq_z(X)` is
 /// materialized from this point on-demand when needed.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EvaluationPoint<F>(pub MultilinearPoint<F>);
+pub struct ConstraintPoint<F>(pub MultilinearPoint<F>);
 
-impl<F: Field> EvaluationPoint<F> {
+impl<F: Field> ConstraintPoint<F> {
     /// Constructs a new evaluation point constraint.
     #[must_use]
     pub const fn new(point: MultilinearPoint<F>) -> Self {
@@ -127,7 +127,7 @@ mod tests {
     fn test_evaluation_point_new() {
         // Define a point in the multilinear space
         let point = MultilinearPoint::new(vec![F::ONE, F::ZERO]);
-        let weight = EvaluationPoint::new(point);
+        let weight = ConstraintPoint::new(point);
 
         // The number of variables in the weight should match the number of variables in the point
         assert_eq!(weight.num_variables(), 2);
@@ -140,7 +140,7 @@ mod tests {
 
         // Define an evaluation point
         let point = MultilinearPoint::new(vec![F::ONE]);
-        let weight = EvaluationPoint::new(point.clone());
+        let weight = ConstraintPoint::new(point.clone());
 
         // Define a multiplication factor
         let factor = F::from_u64(5);
@@ -159,42 +159,42 @@ mod tests {
     fn test_univariate_weights_one_variable() {
         // y = 3, n = 1 → [3]
         let y = F::from_u64(3);
-        let weight = EvaluationPoint::univariate(y, 1);
+        let weight = ConstraintPoint::univariate(y, 1);
 
         // Expect point to be [3]
         let expected = MultilinearPoint::new(vec![y]);
-        assert_eq!(weight, EvaluationPoint::new(expected));
+        assert_eq!(weight, ConstraintPoint::new(expected));
     }
 
     #[test]
     fn test_univariate_weights_two_variables() {
         // y = 4, n = 2 → [y^2, y] = [16, 4]
         let y = F::from_u64(4);
-        let weight = EvaluationPoint::univariate(y, 2);
+        let weight = ConstraintPoint::univariate(y, 2);
 
         let expected = MultilinearPoint::new(vec![y.square(), y]);
-        assert_eq!(weight, EvaluationPoint::new(expected));
+        assert_eq!(weight, ConstraintPoint::new(expected));
     }
 
     #[test]
     fn test_univariate_weights_four_variables() {
         // y = 3, n = 4 → [3^8, 3^4, 3^2, 3]
         let y = F::from_u64(3);
-        let weight = EvaluationPoint::univariate(y, 4);
+        let weight = ConstraintPoint::univariate(y, 4);
 
         let expected = MultilinearPoint::new(vec![y.exp_u64(8), y.exp_u64(4), y.square(), y]);
 
-        assert_eq!(weight, EvaluationPoint::new(expected));
+        assert_eq!(weight, ConstraintPoint::new(expected));
     }
 
     #[test]
     fn test_univariate_weights_zero_variables() {
         let y = F::from_u64(10);
-        let weight = EvaluationPoint::univariate(y, 0);
+        let weight = ConstraintPoint::univariate(y, 0);
 
         // Expect empty point
         let expected = MultilinearPoint::new(vec![]);
-        assert_eq!(weight, EvaluationPoint::new(expected));
+        assert_eq!(weight, ConstraintPoint::new(expected));
     }
 
     #[test]
@@ -209,7 +209,7 @@ mod tests {
         // The weight polynomial is W(X) = eq_z(X0, X1, X2), where z=(2,3,4).
         // The constraint point MUST be full-dimensional.
         let point = MultilinearPoint::new(vec![F::from_u32(2), F::from_u32(3), F::from_u32(4)]);
-        let weights = EvaluationPoint::new(point.clone());
+        let weights = ConstraintPoint::new(point.clone());
 
         // The verifier's full challenge object `r_all`.
         // It has (n - k_skip) + 1 = (3 - 2) + 1 = 2 elements.
@@ -276,7 +276,7 @@ mod tests {
             F::from_u32(7),
             F::from_u32(11),
         ]);
-        let weights = EvaluationPoint::new(point.clone());
+        let weights = ConstraintPoint::new(point.clone());
 
         // The verifier's challenge object `r_all`.
         // It has (n - k_skip) + 1 = (5 - 5) + 1 = 1 element.
