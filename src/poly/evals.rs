@@ -154,6 +154,7 @@ where
         EvaluationsList(evals)
     }
 
+    /// Create a matrix representation of the evaluation list.
     #[inline]
     #[must_use]
     pub fn into_mat(self, width: usize) -> RowMajorMatrix<F> {
@@ -167,6 +168,7 @@ where
         &self.0
     }
 
+    /// Returns an iterator over the evaluations.
     #[inline]
     pub fn iter(&self) -> std::slice::Iter<'_, F> {
         self.0.iter()
@@ -1130,5 +1132,271 @@ mod tests {
 
         // Finally, assert that the results are equal.
         assert_eq!(actual_result, expected_sum);
+    }
+
+    #[test]
+    fn test_new_from_point_zero_vars() {
+        let point = MultilinearPoint::<F>::new(vec![]);
+        let value = F::from_u64(42);
+        let evals_list = EvaluationsList::new_from_point(&point, value);
+
+        // For n=0, the hypercube has one point, and the `eq` polynomial is the constant 1.
+        // The result should be a list with a single element: `value`.
+        assert_eq!(evals_list.num_variables(), 0);
+        assert_eq!(evals_list.as_slice(), &[value]);
+    }
+
+    #[test]
+    fn test_new_from_point_one_var() {
+        let p0 = F::from_u64(7);
+        let point = MultilinearPoint::new(vec![p0]);
+        let value = F::from_u64(3);
+        let evals_list = EvaluationsList::new_from_point(&point, value);
+
+        // For a point `p = [p0]`, the `eq` evaluations over `X={0,1}` are:
+        // - eq(p, 0) = 1 - p0
+        // - eq(p, 1) = p0
+        // These are then scaled by `value`.
+        let expected = vec![value * (F::ONE - p0), value * p0];
+
+        assert_eq!(evals_list.num_variables(), 1);
+        assert_eq!(evals_list.as_slice(), &expected);
+    }
+
+    #[test]
+    #[allow(clippy::identity_op)]
+    fn test_new_from_point_three_vars() {
+        let p = [F::from_u64(2), F::from_u64(3), F::from_u64(5)];
+        let point = MultilinearPoint::new(p.to_vec());
+        let value = F::from_u64(10);
+        let evals_list = EvaluationsList::new_from_point(&point, value);
+
+        // Manually compute the expected result for eq(p, b) * value for all 8 points `b`.
+        // The implementation's lexicographical order means the index `i` is formed as
+        // i = 4*b0 + 2*b1 + 1*b2, where `b` is the hypercube point (b0, b1, b2).
+        let mut expected = Vec::with_capacity(8);
+        for i in 0..8 {
+            // We extract the bits of `i` to determine the coordinates of the hypercube point `b`.
+            //
+            // MSB of `i` corresponds to the first variable, p[0].
+            let b0 = (i >> 2) & 1;
+            // Middle bit of `i` corresponds to the second variable, p[1].
+            let b1 = (i >> 1) & 1;
+            // LSB of `i` corresponds to the last variable, p[2].
+            let b2 = (i >> 0) & 1;
+
+            // Calculate the eq(p, b) term for this specific point `b`.
+            let term0 = if b0 == 1 { p[0] } else { F::ONE - p[0] };
+            let term1 = if b1 == 1 { p[1] } else { F::ONE - p[1] };
+            let term2 = if b2 == 1 { p[2] } else { F::ONE - p[2] };
+
+            expected.push(value * term0 * term1 * term2);
+        }
+
+        assert_eq!(evals_list.num_variables(), 3);
+        assert_eq!(evals_list.as_slice(), &expected);
+    }
+
+    #[test]
+    fn test_as_constant_for_constant_poly() {
+        // A polynomial with 0 variables is a constant. Its evaluation
+        // list contains a single value.
+        let constant_value = F::from_u64(42);
+        let evals = EvaluationsList::new(vec![constant_value]);
+
+        // `as_constant` should return the value wrapped in `Some`.
+        assert_eq!(evals.num_variables(), 0);
+        assert_eq!(evals.as_constant(), Some(constant_value));
+    }
+
+    #[test]
+    fn test_as_constant_for_non_constant_poly() {
+        // A polynomial with 2 variables is not a constant. Its evaluation
+        // list has 2^2 = 4 entries.
+        let evals = EvaluationsList::new(vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
+
+        // For any non-constant polynomial, `as_constant` should return `None`.
+        assert_ne!(evals.num_variables(), 0);
+        assert_eq!(evals.as_constant(), None);
+    }
+
+    #[test]
+    #[allow(clippy::identity_op)]
+    fn test_accumulate() {
+        // Set up an initial list of evaluations.
+        let n = 2;
+        let initial_values = vec![
+            F::from_u64(10),
+            F::from_u64(20),
+            F::from_u64(30),
+            F::from_u64(40),
+        ];
+        let mut evals_list = EvaluationsList::new(initial_values.clone());
+
+        // Define the point and value to accumulate.
+        let p = [F::from_u64(2), F::from_u64(3)];
+        let point = MultilinearPoint::new(p.to_vec());
+        let value = F::from_u64(5);
+
+        // Manually compute the `eq` evaluations that should be added.
+        let mut eq_evals_to_add = Vec::with_capacity(1 << n);
+        for i in 0..(1 << n) {
+            let b0 = (i >> 1) & 1; // MSB for p[0]
+            let b1 = (i >> 0) & 1; // LSB for p[1]
+            let term0 = if b0 == 1 { p[0] } else { F::ONE - p[0] };
+            let term1 = if b1 == 1 { p[1] } else { F::ONE - p[1] };
+            eq_evals_to_add.push(value * term0 * term1);
+        }
+
+        // Calculate the final expected evaluations after addition.
+        let expected: Vec<F> = initial_values
+            .iter()
+            .zip(eq_evals_to_add.iter())
+            .map(|(&initial, &to_add)| initial + to_add)
+            .collect();
+
+        // Call accumulate and assert that the result matches the expected sum.
+        evals_list.accumulate(&point, value);
+        assert_eq!(evals_list.as_slice(), &expected);
+    }
+
+    #[test]
+    #[allow(clippy::identity_op)]
+    fn test_accumulate_base() {
+        // Set up an initial list of evaluations.
+        let n = 2;
+        // Initial evaluations in the extension field.
+        let initial_values: Vec<EF4> = vec![
+            EF4::from_u64(10),
+            EF4::from_u64(20),
+            EF4::from_u64(30),
+            EF4::from_u64(40),
+        ];
+        let mut evals_list = EvaluationsList::new(initial_values.clone());
+
+        // Point in the base field `F`, value in the extension field `EF4`.
+        let p_base = [F::from_u64(2), F::from_u64(3)];
+        let point_base = MultilinearPoint::new(p_base.to_vec());
+        let value_ext = EF4::from_u64(5);
+
+        // Manually compute `eq` evals,
+        // lifting base field elements to extension field.
+        let mut eq_evals_to_add = Vec::with_capacity(1 << n);
+        for i in 0..(1 << n) {
+            let b0 = (i >> 1) & 1; // MSB
+            let b1 = (i >> 0) & 1; // LSB
+            let term0 = if b0 == 1 {
+                EF4::from(p_base[0])
+            } else {
+                EF4::ONE - EF4::from(p_base[0])
+            };
+            let term1 = if b1 == 1 {
+                EF4::from(p_base[1])
+            } else {
+                EF4::ONE - EF4::from(p_base[1])
+            };
+            eq_evals_to_add.push(value_ext * term0 * term1);
+        }
+
+        // Calculate the final expected sum in the extension field.
+        let expected: Vec<EF4> = initial_values
+            .iter()
+            .zip(eq_evals_to_add.iter())
+            .map(|(&initial, &to_add)| initial + to_add)
+            .collect();
+
+        // Accumulate and assert the result.
+        evals_list.accumulate_base(&point_base, value_ext);
+        assert_eq!(evals_list.as_slice(), &expected);
+    }
+
+    #[test]
+    fn test_compress() {
+        let initial_evals: Vec<F> = (1..=8).map(F::from_u64).collect();
+        let mut evals_list = EvaluationsList::new(initial_evals);
+        let r = F::from_u64(10);
+
+        // Manually compute the expected folded values using the formula:
+        // p' = r * (p1 - p0) + p0
+        let expected = vec![
+            r * (F::from_u64(2) - F::from_u64(1)) + F::from_u64(1),
+            r * (F::from_u64(4) - F::from_u64(3)) + F::from_u64(3),
+            r * (F::from_u64(6) - F::from_u64(5)) + F::from_u64(5),
+            r * (F::from_u64(8) - F::from_u64(7)) + F::from_u64(7),
+        ];
+
+        // The method modifies the list in-place.
+        evals_list.compress(r);
+
+        assert_eq!(evals_list.num_variables(), 2);
+        assert_eq!(evals_list.num_evals(), 4);
+        assert_eq!(evals_list.as_slice(), &expected);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_compress_panics_on_constant() {
+        // A constant polynomial has 0 variables and cannot be compressed.
+        let mut evals_list = EvaluationsList::new(vec![F::from_u64(42)]);
+        evals_list.compress(F::ONE); // This should panic.
+    }
+
+    #[test]
+    fn test_compress_ext() {
+        // This test verifies the out-of-place compression into an extension field.
+        let initial_evals: Vec<F> = (1..=8).map(F::from_u64).collect();
+        let evals_list = EvaluationsList::new(initial_evals);
+        let r_ext = EF4::from_u64(10);
+
+        // The expected result is the same as `test_compress`, but with elements
+        // lifted into the extension field EF4.
+        let expected: Vec<EF4> = vec![
+            r_ext * (EF4::from_u64(2) - EF4::from_u64(1)) + EF4::from_u64(1),
+            r_ext * (EF4::from_u64(4) - EF4::from_u64(3)) + EF4::from_u64(3),
+            r_ext * (EF4::from_u64(6) - EF4::from_u64(5)) + EF4::from_u64(5),
+            r_ext * (EF4::from_u64(8) - EF4::from_u64(7)) + EF4::from_u64(7),
+        ];
+
+        // The method returns a new list and does not modify the original.
+        let compressed_ext_list = evals_list.compress_ext(r_ext);
+
+        assert_eq!(compressed_ext_list.num_variables(), 2);
+        assert_eq!(compressed_ext_list.num_evals(), 4);
+        assert_eq!(compressed_ext_list.as_slice(), &expected);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_compress_ext_panics_on_constant() {
+        // A constant polynomial has 0 variables and cannot be compressed.
+        let evals_list = EvaluationsList::new(vec![F::from_u64(42)]);
+        let _ = evals_list.compress_ext(EF4::ONE); // This should panic.
+    }
+
+    proptest! {
+        #[test]
+        fn prop_compress_and_compress_ext_agree(
+            n in 1..=6,
+            seed in any::<u64>(),
+        ) {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let num_evals = 1 << n;
+            let evals: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
+            let r_base: F = rng.random();
+
+            // Path A: Use the in-place `compress` method.
+            let mut list_a = EvaluationsList::new(evals.clone());
+            list_a.compress(r_base);
+            // Lift the result into the extension field for comparison.
+            let result_a_lifted: Vec<EF4> = list_a.as_slice().iter().map(|&x| EF4::from(x)).collect();
+
+            // Path B: Use the `compress_ext` method with the same challenge, lifted.
+            let list_b = EvaluationsList::new(evals);
+            let r_ext = EF4::from(r_base);
+            let result_b_ext = list_b.compress_ext(r_ext);
+
+            // The results should be identical.
+            prop_assert_eq!(result_a_lifted, result_b_ext.as_slice());
+        }
     }
 }
