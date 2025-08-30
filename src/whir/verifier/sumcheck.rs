@@ -86,6 +86,9 @@ where
             return Err(ProofError::InvalidProof);
         }
 
+        // Optional: apply proof-of-work query
+        verifier_state.check_pow_grinding(pow_bits)?;
+
         // Sample the challenge scalar r₀ ∈ 𝔽 for this round
         let rand = verifier_state.sample();
 
@@ -97,9 +100,6 @@ where
 
         // Record this round’s randomness
         randomness.push(rand);
-
-        // Optional: apply proof-of-work query
-        verifier_state.check_pow_grinding(pow_bits)?;
     }
 
     // Continue with the remaining sumcheck rounds (each using 3 evaluations)
@@ -116,6 +116,9 @@ where
         let c1 = *claimed_sum - c0;
         let c2 = verifier_state.next_extension_scalar()?;
 
+        // Optional PoW interaction (grinding resistance)
+        verifier_state.check_pow_grinding(pow_bits)?;
+
         // Sample the next verifier folding randomness rᵢ
         let rand: EF = verifier_state.sample();
 
@@ -125,9 +128,6 @@ where
 
         // Store this round’s randomness
         randomness.push(rand);
-
-        // Optional PoW interaction (grinding resistance)
-        verifier_state.check_pow_grinding(pow_bits)?;
     }
 
     // We should reverse the order of the randomness points:
