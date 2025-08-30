@@ -50,10 +50,10 @@ where
     prover_state.add_extension_scalar(sumcheck_poly.evaluations()[0]);
     prover_state.add_extension_scalar(sumcheck_poly.evaluations()[2]);
 
+    prover_state.pow_grinding(pow_bits);
+
     // Sample verifier challenge.
     let r: EF = prover_state.sample();
-
-    prover_state.pow_grinding(pow_bits);
 
     // Compress polynomials and update the sum.
     let evals = join(|| weights.compress(r), || evals.compress_ext(r)).1;
@@ -94,10 +94,10 @@ where
     prover_state.add_extension_scalar(sumcheck_poly.evaluations()[0]);
     prover_state.add_extension_scalar(sumcheck_poly.evaluations()[2]);
 
+    prover_state.pow_grinding(pow_bits);
+
     // Sample verifier challenge.
     let r: EF = prover_state.sample();
-
-    prover_state.pow_grinding(pow_bits);
 
     // Compress polynomials and update the sum.
     join(|| evals.compress(r), || weights.compress(r));
@@ -336,12 +336,12 @@ where
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
         prover_state.add_extension_scalars(sumcheck_poly.evaluations());
 
+        // Proof-of-work challenge to delay prover.
+        prover_state.pow_grinding(pow_bits);
+
         // Receive the verifier challenge for this entire collapsed round.
         let r: EF = prover_state.sample();
         res.push(r);
-
-        // Proof-of-work challenge to delay prover.
-        prover_state.pow_grinding(pow_bits);
 
         // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
         let new_p = interpolate_subgroup(&f_mat, r);
