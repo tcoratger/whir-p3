@@ -181,7 +181,7 @@ where
             .constraints
             .iter()
             .filter(|constraint| constraint.defer_evaluation)
-            .map(|constraint| constraint.point.compute(&constraint_eval))
+            .map(|constraint| constraint.point.eq_poly(&constraint_eval))
             .collect::<Vec<_>>();
 
         prover_state.hint_extension_scalars(&deferred);

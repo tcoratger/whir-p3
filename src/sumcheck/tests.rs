@@ -16,7 +16,7 @@ use crate::{
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        statement::{Statement, constraint::Constraint, point::ConstraintPoint},
+        statement::{Statement, constraint::Constraint},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -106,7 +106,7 @@ where
         prover.add_extension_scalar(eval);
 
         // Add the constraint: poly(point) = eval.
-        statement.add_constraint(ConstraintPoint::new(point), eval);
+        statement.add_constraint(point, eval);
     }
 
     // Return the complete statement.
@@ -165,7 +165,7 @@ where
             prover.add_extension_scalar(eval);
 
             // Add the evaluation constraint: poly(point) == eval.
-            statement.add_constraint(ConstraintPoint::new(point.clone()), eval);
+            statement.add_constraint(point.clone(), eval);
 
             // Return the sampled point and its evaluation.
             (point, eval)
@@ -220,7 +220,7 @@ where
         let eval = verifier.next_extension_scalar().unwrap();
 
         // Add the constraint: poly(point) == eval.
-        statement.add_constraint(ConstraintPoint::new(point), eval);
+        statement.add_constraint(point, eval);
     }
 
     // Return the fully reconstructed statement.
@@ -339,12 +339,12 @@ where
                     // ROUND 0 with SKIP: Use the special skip-aware evaluation.
                     // The constraints for this round are over the full `num_vars` domain.
                     assert_eq!(constraint.point.num_variables(), num_vars);
-                    constraint.point.compute_with_skip(final_challenges, k_skip)
+                    constraint.point.eq_poly_with_skip(final_challenges, k_skip)
                 } else {
                     // STANDARD ROUND: Use the standard multilinear evaluation.
                     // The constraints and challenge point are over the smaller `num_vars_at_round` domain.
                     assert_eq!(constraint.point.num_variables(), num_vars_at_round);
-                    constraint.point.compute(&challenges_for_round)
+                    constraint.point.eq_poly(&challenges_for_round)
                 };
                 alpha_pow * single_eval
             })

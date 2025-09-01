@@ -6,10 +6,8 @@ use p3_symmetric::Hash;
 
 use crate::{
     fiat_shamir::{errors::ProofResult, verifier::VerifierState},
-    whir::{
-        parameters::WhirConfig,
-        statement::{constraint::Constraint, point::ConstraintPoint},
-    },
+    poly::multilinear::MultilinearPoint,
+    whir::{parameters::WhirConfig, statement::constraint::Constraint},
 };
 
 /// Represents a parsed commitment from the prover in the WHIR protocol.
@@ -109,7 +107,7 @@ where
             .iter()
             .zip(&self.ood_answers)
             .map(|(&point, &expected_evaluation)| Constraint {
-                point: ConstraintPoint::univariate(point, self.num_variables),
+                point: MultilinearPoint::expand_from_univariate(point, self.num_variables),
                 expected_evaluation,
                 defer_evaluation: false,
             })
@@ -415,14 +413,12 @@ mod tests {
             let expected_eval = parsed.ood_answers[i];
 
             // Manually compute the expanded univariate point
-            let expanded = MultilinearPoint::new(vec![
+            let expected_point = MultilinearPoint::new(vec![
                 point.exp_u64(8),
                 point.exp_u64(4),
                 point.exp_u64(2),
                 point,
             ]);
-
-            let expected_point = ConstraintPoint::new(expanded);
 
             assert_eq!(
                 constraint.point, expected_point,

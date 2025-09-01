@@ -14,10 +14,8 @@ use whir_p3::{
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        committer::writer::CommitmentWriter,
-        parameters::WhirConfig,
-        prover::Prover,
-        statement::{Statement, point::ConstraintPoint},
+        committer::writer::CommitmentWriter, parameters::WhirConfig, prover::Prover,
+        statement::Statement,
     },
 };
 
@@ -110,12 +108,9 @@ fn prepare_inputs() -> (
     // Evaluate the polynomial at that point to get the expected value.
     let eval = polynomial.evaluate(&point);
 
-    // Construct a constraint: enforces that the polynomial evaluates to `eval` at `point`.
-    let constraint_point = ConstraintPoint::new(point);
-
     // Create a new WHIR `Statement` with one constraint.
     let mut statement = Statement::<EF>::new(num_variables);
-    statement.add_constraint(constraint_point, eval);
+    statement.add_constraint(point, eval);
 
     // Fiat-Shamir setup
 

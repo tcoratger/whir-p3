@@ -11,10 +11,8 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use super::{
-    committer::reader::ParsedCommitment,
-    parameters::RoundConfig,
-    statement::{constraint::Constraint, point::ConstraintPoint},
-    utils::get_challenge_stir_queries,
+    committer::reader::ParsedCommitment, parameters::RoundConfig,
+    statement::constraint::Constraint, utils::get_challenge_stir_queries,
 };
 use crate::{
     constant::K_SKIP_SUMCHECK,
@@ -383,7 +381,10 @@ where
             .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
             .zip(&folds)
             .map(|(point, &expected_evaluation)| Constraint {
-                point: ConstraintPoint::univariate(EF::from(point), params.num_variables),
+                point: MultilinearPoint::expand_from_univariate(
+                    EF::from(point),
+                    params.num_variables,
+                ),
                 expected_evaluation,
                 defer_evaluation: false,
             })

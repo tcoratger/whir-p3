@@ -147,7 +147,7 @@ mod tests {
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
         poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
-        whir::statement::{Statement, point::ConstraintPoint},
+        whir::statement::Statement,
     };
 
     type F = BabyBear;
@@ -356,11 +356,11 @@ mod tests {
         // Constraints
         let mut statement = Statement::new(3);
         statement.add_constraint(
-            ConstraintPoint::new(MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO])),
+            MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]),
             f_extension(EF4::ZERO, EF4::ZERO, EF4::ZERO),
         );
         statement.add_constraint(
-            ConstraintPoint::new(MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE])),
+            MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE]),
             f_extension(EF4::ONE, EF4::ZERO, EF4::ONE),
         );
 

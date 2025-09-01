@@ -1,12 +1,13 @@
 use p3_field::{ExtensionField, Field};
-use point::ConstraintPoint;
 use tracing::instrument;
 
-use crate::{poly::evals::EvaluationsList, whir::statement::constraint::Constraint};
+use crate::{
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    whir::statement::constraint::Constraint,
+};
 
 pub mod constraint;
 pub mod evaluator;
-pub mod point;
 
 /// Represents a system of polynomial evaluation constraints over a Boolean hypercube.
 ///
@@ -67,7 +68,7 @@ impl<F: Field> Statement<F> {
     ///
     /// # Panics
     /// Panics if the number of variables in the `point` does not match the statement.
-    pub fn add_constraint(&mut self, point: ConstraintPoint<F>, expected_evaluation: F) {
+    pub fn add_constraint(&mut self, point: MultilinearPoint<F>, expected_evaluation: F) {
         assert_eq!(point.num_variables(), self.num_variables());
         self.constraints.push(Constraint {
             point,
@@ -80,7 +81,7 @@ impl<F: Field> Statement<F> {
     ///
     /// # Panics
     /// Panics if the number of variables in the `point` does not match the statement.
-    pub fn add_constraint_in_front(&mut self, point: ConstraintPoint<F>, expected_evaluation: F) {
+    pub fn add_constraint_in_front(&mut self, point: MultilinearPoint<F>, expected_evaluation: F) {
         assert_eq!(point.num_variables(), self.num_variables());
         self.constraints.insert(
             0,
@@ -95,7 +96,7 @@ impl<F: Field> Statement<F> {
     /// Inserts multiple constraints at the front of the system.
     ///
     /// Panics if any constraint's number of variables does not match the system.
-    pub fn add_constraints_in_front(&mut self, constraints: Vec<(ConstraintPoint<F>, F)>) {
+    pub fn add_constraints_in_front(&mut self, constraints: Vec<(MultilinearPoint<F>, F)>) {
         // Store the number of variables expected by this statement.
         let n = self.num_variables();
 
@@ -147,7 +148,7 @@ impl<F: Field> Statement<F> {
         let (first, rest) = self.constraints.split_first().unwrap();
 
         // Initialize the combined evaluations with the first constraint's polynomial.
-        let mut combined = EvaluationsList::new_from_point(&first.point.0, F::ONE);
+        let mut combined = EvaluationsList::new_from_point(&first.point, F::ONE);
 
         // Initialize the combined expected sum with the first term: s_1 * γ^0 = s_1.
         let mut gamma = F::ONE;
@@ -159,7 +160,7 @@ impl<F: Field> Statement<F> {
             gamma *= challenge;
 
             // Add this constraint's weighted polynomial evaluations into the buffer
-            combined.accumulate(&c.point.0, gamma);
+            combined.accumulate(&c.point, gamma);
 
             // Add this constraint's contribution to the combined expected sum:
             sum += c.expected_evaluation * gamma;
@@ -194,7 +195,7 @@ mod tests {
     #[test]
     fn test_statement_combine_single_constraint() {
         let mut statement = Statement::new(1);
-        let point = ConstraintPoint::new(MultilinearPoint::new(vec![F::ONE]));
+        let point = MultilinearPoint::new(vec![F::ONE]);
         let expected_eval = F::from_u64(7);
         statement.add_constraint(point.clone(), expected_eval);
 
@@ -203,7 +204,7 @@ mod tests {
 
         // Expected evals for eq_z(X) where z = (1).
         // For x=0, eq=0. For x=1, eq=1.
-        let expected_combined_evals_vec = EvaluationsList::new_from_point(&point.0, F::ONE);
+        let expected_combined_evals_vec = EvaluationsList::new_from_point(&point, F::ONE);
 
         assert_eq!(combined_evals, expected_combined_evals_vec);
         assert_eq!(combined_sum, expected_eval);
@@ -214,12 +215,12 @@ mod tests {
         let mut statement = Statement::new(2);
 
         // Constraint 1: evaluate at z1 = (1,0), expected value 5
-        let point1 = ConstraintPoint::new(MultilinearPoint::new(vec![F::ONE, F::ZERO]));
+        let point1 = MultilinearPoint::new(vec![F::ONE, F::ZERO]);
         let eval1 = F::from_u64(5);
         statement.add_constraint(point1.clone(), eval1);
 
         // Constraint 2: evaluate at z2 = (0,1), expected value 7
-        let point2 = ConstraintPoint::new(MultilinearPoint::new(vec![F::ZERO, F::ONE]));
+        let point2 = MultilinearPoint::new(vec![F::ZERO, F::ONE]);
         let eval2 = F::from_u64(7);
         statement.add_constraint(point2.clone(), eval2);
 
@@ -227,8 +228,8 @@ mod tests {
         let (combined_evals, combined_sum) = statement.combine::<F>(challenge);
 
         // Expected evals: W(X) = eq_z1(X) + challenge * eq_z2(X)
-        let mut expected_combined_evals_vec = EvaluationsList::new_from_point(&point1.0, F::ONE);
-        expected_combined_evals_vec.accumulate(&point2.0, challenge);
+        let mut expected_combined_evals_vec = EvaluationsList::new_from_point(&point1, F::ONE);
+        expected_combined_evals_vec.accumulate(&point2, challenge);
 
         // Expected sum: S = s1 + challenge * s2
         let expected_combined_sum = eval1 + challenge * eval2;
@@ -241,7 +242,6 @@ mod tests {
     fn test_compute_evaluation_weight() {
         // Define an evaluation weight at a specific point
         let point = MultilinearPoint::new(vec![F::from_u64(3)]);
-        let weight = ConstraintPoint::new(point.clone());
 
         // Define a randomness point for folding
         let folding_randomness = MultilinearPoint::new(vec![F::from_u64(2)]);
@@ -249,6 +249,6 @@ mod tests {
         // Expected result is the evaluation of eq_poly at the given randomness
         let expected = point.eq_poly(&folding_randomness);
 
-        assert_eq!(weight.compute(&folding_randomness), expected);
+        assert_eq!(point.eq_poly(&folding_randomness), expected);
     }
 }
