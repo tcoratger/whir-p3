@@ -1,3 +1,5 @@
+// Objetivo: Implementar el Procedure 7 en https://eprint.iacr.org/2025/1117.pdf
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 enum EvaluationPoint {
     Infinity,
