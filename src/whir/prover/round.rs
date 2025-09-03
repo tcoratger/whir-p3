@@ -14,7 +14,7 @@ use crate::{
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{RoundMerkleTree, Witness},
-        statement::{Statement, point::ConstraintPoint},
+        statement::Statement,
     },
 };
 
@@ -105,9 +105,8 @@ where
             .into_iter()
             .zip(witness.ood_answers)
             .map(|(point, evaluation)| {
-                let constraint_point = ConstraintPoint::new(
-                    MultilinearPoint::expand_from_univariate(point, prover.num_variables),
-                );
+                let constraint_point =
+                    MultilinearPoint::expand_from_univariate(point, prover.num_variables);
                 (constraint_point, evaluation)
             })
             .collect();
@@ -384,7 +383,7 @@ mod tests {
         // Add a single equality constraint to the statement: f(1,1,1) = expected value
         let mut statement = Statement::<EF4>::new(num_variables);
         statement.add_constraint(
-            ConstraintPoint::new(MultilinearPoint::new(vec![EF4::ONE, EF4::ONE, EF4::ONE])),
+            MultilinearPoint::new(vec![EF4::ONE, EF4::ONE, EF4::ONE]),
             f(EF4::ONE, EF4::ONE, EF4::ONE),
         );
 
@@ -471,10 +470,7 @@ mod tests {
             let point = (0..num_variables)
                 .map(|b| EF4::from_u64(((i >> b) & 1) as u64))
                 .collect();
-            statement.add_constraint(
-                ConstraintPoint::new(MultilinearPoint::new(point)),
-                EF4::ZERO,
-            );
+            statement.add_constraint(MultilinearPoint::new(point), EF4::ZERO);
         }
 
         // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
@@ -559,7 +555,7 @@ mod tests {
         // Construct a statement with one evaluation constraint at the point (1, 0, 1)
         let mut statement = Statement::<EF4>::new(num_variables);
         statement.add_constraint(
-            ConstraintPoint::new(MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE])),
+            MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE]),
             f(EF4::ONE, EF4::ZERO, EF4::ONE),
         );
 

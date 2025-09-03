@@ -6,7 +6,7 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
 use prover::Prover;
 use rand::{SeedableRng, rngs::SmallRng};
-use statement::{Statement, point::ConstraintPoint};
+use statement::Statement;
 use verifier::Verifier;
 
 use crate::{
@@ -95,8 +95,7 @@ pub fn make_whir_things(
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
         let eval = polynomial.evaluate(point);
-        let constraint_point = ConstraintPoint::new(point.clone());
-        statement.add_constraint(constraint_point, eval);
+        statement.add_constraint(point.clone(), eval);
     }
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
