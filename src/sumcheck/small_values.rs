@@ -1,6 +1,15 @@
+use p3_field::{ExtensionField, Field, TwoAdicField};
+use crate::{
+    fiat_shamir::prover::ProverState,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    whir::statement::Statement,
+};
+
+
+const NUM_OF_ROUNDS: usize = 3;
 // Objetivo: Implementar el Procedure 7 en https://eprint.iacr.org/2025/1117.pdf (page 34)
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Copy)]
 enum EvaluationPoint {
     Infinity,
     Zero,
@@ -14,7 +23,24 @@ impl EvaluationPoint {
             EvaluationPoint::One => 1,
         }
     }
+
+    fn from_usize_representation(n: usize) -> Self {
+        match n {
+            0 => EvaluationPoint::Zero,
+            1 => EvaluationPoint::One,
+            2 => EvaluationPoint::Infinity,
+            _ => unreachable!()
+        }
+
+    }
 }
+
+// For round i, RoundAccumulators has all the accumulators of the form A_i(u, v).
+struct RoundAccumlators<F: Field> {
+    round: usize,
+    accumulators: Vec<F>
+}
+
 
 // Esta función mapea una tupla del tipo (i,v,u,y) que resulta de aplicar indx4(\beta) a un indice que correpende a un acumulador especifico.
 // Recall: v in {0, 1, inf}^{i-1}, u in {0, 1, inf}, y in {0, 1}^{3-i}, where i is the number of round.
@@ -70,9 +96,75 @@ fn from_beta_to_index(
     }
 }
 
+// Ojo: no es la inversa de la función anterior. (No incluye el round)
+// `index` in {0, ..., 27}
+fn from_index_to_beta(index: usize) -> [EvaluationPoint; 3] {
+    let mut index = index;
+    let mut res = [EvaluationPoint::Zero; NUM_OF_ROUNDS];
+    for i in (0..NUM_OF_ROUNDS).rev() {
+        res[i] = EvaluationPoint::from_usize_representation(index % 3);
+        index /= 3;
+    }
+    res
+}
+
+fn calculate_p_beta<F: Field>(current_evals: &mut Vec<F>) {
+    
+    // Round 1:
+    // TODO: refactorizar esto!!
+    let v: Vec<usize> = (0..8).collect();
+
+    for (k0, k1) in v.iter()
+        .take(v.len() / 2)
+        .zip(v.iter().skip(v.len() / 2))
+    {
+        current_evals.push(current_evals[*k1] - current_evals[*k0]);        
+    }
+}
+
+// L is the number of variables of the multilinear polynomials.
+// fn compute_accumulators<F: Field>(poly_1: EvaluationsList<F>, poly_2: EvaluationsList<F>) -> [RoundAccumlators<F>; NUM_OF_ROUNDS] {
+//     assert_eq!(poly_1.num_variables(), poly_2.num_variables());
+//     let l = poly_1.num_variables();
+//     // x'' in {0 .. 2^{l - 3}}
+//     (0 .. 1 << (l-NUM_OF_ROUNDS)).map(|x|  {
+//         // Procedure 6
+
+
+//         // 27 = 3 ^ NUM_OF_ROUNDS
+//         (0..27).map(|beta_index| {
+//             let beta = from_index_to_beta(beta_index);
+
+//             // We need to implement the evaluation p(beta, x'')
+
+//             let poly_1_eval = evaluate(poly_1, ); 
+//             let poly_2_eval = evaluate();
+
+//         })
+//     })
+    
+// }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use p3_baby_bear::BabyBear;
+    use p3_field::integers::QuotientMap;
+    type F = BabyBear;
+    
+
+    #[test]
+    fn test_calculate_p_beta() {
+        let mut current_evals: Vec<F> = (100..=107).map(|i| F::from_int(i)).collect();
+
+        println!("{:?}", current_evals);
+        
+        calculate_p_beta(&mut current_evals);
+
+        println!("{:?}", current_evals);
+    }
+
+
     #[test]
     fn test_from_beta_to_index() {
         let inf = EvaluationPoint::Infinity;
@@ -159,4 +251,72 @@ mod tests {
         assert_eq!(from_beta_to_index(3, &inf, &inf, &one), 25);
         assert_eq!(from_beta_to_index(3, &inf, &inf, &inf), 26);
     }
+    
+
+    #[test]
+    fn test_from_index_to_beta() {
+        let inf = EvaluationPoint::Infinity;
+        let zero = EvaluationPoint::Zero;
+        let one = EvaluationPoint::One;
+        
+        assert_eq!(from_index_to_beta(0), [zero, zero, zero]);
+        assert_eq!(from_index_to_beta(1), [zero, zero, one]);
+        assert_eq!(from_index_to_beta(2), [zero, zero, inf]);
+        assert_eq!(from_index_to_beta(3), [zero, one, zero]);
+        assert_eq!(from_index_to_beta(4), [zero, one, one]);
+        assert_eq!(from_index_to_beta(5), [zero, one, inf]);
+        assert_eq!(from_index_to_beta(6), [zero, inf, zero]);
+        assert_eq!(from_index_to_beta(7), [zero, inf, one]);
+        assert_eq!(from_index_to_beta(8), [zero, inf, inf]);
+    
+        assert_eq!(from_index_to_beta(9), [one, zero, zero]);
+        assert_eq!(from_index_to_beta(10), [one, zero, one]);
+        assert_eq!(from_index_to_beta(11), [one, zero, inf]);
+        assert_eq!(from_index_to_beta(12), [one, one, zero]);
+        assert_eq!(from_index_to_beta(13), [one, one, one]);
+        assert_eq!(from_index_to_beta(14), [one, one, inf]);
+        assert_eq!(from_index_to_beta(15), [one, inf, zero]);
+        assert_eq!(from_index_to_beta(16), [one, inf, one]);
+        assert_eq!(from_index_to_beta(17), [one, inf, inf]);
+
+        assert_eq!(from_index_to_beta(18), [inf, zero, zero]);
+        assert_eq!(from_index_to_beta(19), [inf, zero, one]);
+        assert_eq!(from_index_to_beta(20), [inf, zero, inf]);
+        assert_eq!(from_index_to_beta(21), [inf, one, zero]);
+        assert_eq!(from_index_to_beta(22), [inf, one, one]);
+        assert_eq!(from_index_to_beta(23), [inf, one, inf]);
+        assert_eq!(from_index_to_beta(24), [inf, inf, zero]);
+        assert_eq!(from_index_to_beta(25), [inf, inf, one]);
+        assert_eq!(from_index_to_beta(26), [inf, inf, inf]);
+    }
 }
+
+//     Ronda 1:        Ronda 2:        Ronda 3:
+
+// 000         1               1               1
+// 001         2               2               1
+// 002                                        (1)
+// 010         3               1               2
+// 011         4               2               2
+// 012                                        (2)
+// 020                        (1)              3
+// 021                        (2)              3
+// 022                                        (3)
+// 100         1               3               4
+// 101         2               4               4
+// 102                                        (4)
+// 110         3               3               5
+// 111         4               4               5
+// 112                                        (5)
+// 120                        (3)              6
+// 121                        (4)              6
+// 122                                        (6)
+// 200        (1)              5               7
+// 201        (2)              6               7
+// 202                                        (7)
+// 210        (3)              5               8
+// 211        (4)              6               8
+// 212                                        (8)
+// 220                        (5)              9
+// 221                        (6)              9
+// 222                                        (9)
