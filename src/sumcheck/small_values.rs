@@ -34,9 +34,26 @@ impl EvaluationPoint {
 }
 
 // For round i, RoundAccumulators has all the accumulators of the form A_i(u, v).
+#[derive(Debug, Clone, Eq, PartialEq)]
 struct RoundAccumlators<F: Field> {
     round: usize,
     accumulators: Vec<F>,
+}
+
+impl<F> RoundAccumlators<F>
+where
+    F: Field,
+{
+    fn new(round: usize, accumulators: Vec<F>) -> Self {
+        RoundAccumlators {
+            round,
+            accumulators,
+        }
+    }
+
+    fn accumulate_eval(&mut self, eval: F, index: usize) {
+        self.accumulators[index] += eval;
+    }
 }
 
 // CAMBIAR COMENTARIO.
@@ -56,44 +73,35 @@ fn idx4(
 
     match round {
         1 => {
+            // (beta_1, beta_2, beta_3) = (u, y1_ y2) where:
+            // u in {0, 1, inf}, y1 in {0, 1}, y2 in {0, 1}.
             if beta_2 == 2 || beta_3 == 2 {
                 return None; // y1 and y2 must be in {0, 1}
             }
-            // (beta_1, beta_2, beta_3) = (u, y1, y2) where:
-            // u in {0, 1, inf}, y1 in {0, 1}, y2 in {0, 1}.
-            // There are 3 * 2^2 = 12 tuples.
-            // We order the tuples by representing u in binary and concatenating it with y1 and y2.
-            // So, the index is the concatenation u || y
-            let u = beta_1;
-            let y = (beta_2 << 1) | beta_3;
-            let index = (u << 2) | y;
-            return Some(index);
+            // We have only three accumulators in round 1: A_1(0), A_1(1) and A_1(inf).
+            // Index 0 -> A_1(0)
+            // Index 1 -> A_1(1)
+            // Index 2 -> A_1(inf)
+            return Some(beta_1);
         }
         2 => {
+            // (beta_1, beta_2, beta_3) = (v, u, y) where:
+            // v in {0, 1, inf}, u in {0, 1, inf}, y in {0, 1}.
             if beta_3 == 2 {
                 return None; // y must be in {0, 1}
             }
-            // (beta_1, beta_2, beta_3) = (v, u, y) where:
-            // v in {0, 1, inf}, u in {0, 1, inf}, y in {0, 1}.
-            // There are 3 * 3 * 2 = 18 tuples.
-            // We order the tuples in the following way:
-            // We think (v, u) as the coefficients of a base 3 number, and then we concatenate its binary representation with y.
-            // So, the index is the concatenation (v * 3 + u) || y.
-            let v = beta_1;
-            let u = beta_2;
-            let y = beta_3;
-            let index = ((v * 3 + u) << 1) | y;
+            // We think (v, u) as the coefficients of a base 3 number.
+            // So, the index is v * 3 + u
+            let index = beta_1 * 3 + beta_2;
             return Some(index);
         }
         3 => {
             // (beta_1, beta_2, beta_3) = (v1, v2, u) where:
             // v1 in {0, 1, inf}, v2 in {0, 1, inf}, u in {0, 1, inf}.
+            // There are 3 * 3 * 3 = 27 tuples.
             // We order the tuples according to the number we get when using (v1, v2, u) as the coefficients in base 3.
             // So, the index is v1 * 3^2 + v2 * 3 + u.
-            let v1 = beta_1;
-            let v2 = beta_2;
-            let u = beta_3;
-            let index = v1 * 9 + v2 * 3 + u;
+            let index = beta_1 * 9 + beta_2 * 3 + beta_3;
             return Some(index);
         }
         _ => unreachable!(),
@@ -186,45 +194,66 @@ fn calculate_p_beta<F: Field>(current_evals: Vec<F>) -> Vec<F> {
 }
 
 fn compute_accumulators<F: Field>(
-    poly_1: Vec<F>,
-    poly_2: Vec<F>,
+    poly_1: EvaluationsList<F>,
+    poly_2: EvaluationsList<F>,
 ) -> [RoundAccumlators<F>; NUM_OF_ROUNDS] {
     assert_eq!(poly_1.num_variables(), poly_2.num_variables());
     let l = poly_1.num_variables();
-    // x'' in {0 .. 2^{l - 3}}
-    (0..1 << (l - NUM_OF_ROUNDS)).map(|x| {
-        //for offset in 0..p {
-        // let res: Vec<_> = poly_1
-        //     .iter()
-        //     .skip(x)
-        //     .step_by(1 << (l - NUM_OF_ROUNDS))
-        //     .map(|current_evals| calculate_p_beta(current_evals))
-        //     .collect();
 
-        let current_evals = poly_1.skip(x).step_by(1 << (l - NUM_OF_ROUNDS)).collect();
-        calculate_p_beta(current_evals);
+    let mut round_1_accumulator = RoundAccumlators::<F>::new(1, vec![F::ZERO; 12]);
+    let mut round_2_accumulator = RoundAccumlators::<F>::new(2, vec![F::ZERO; 18]);
+    let mut round_3_accumulator = RoundAccumlators::<F>::new(3, vec![F::ZERO; 27]);
 
-        // Procedure 6
+    // For x'' in {0 .. 2^{l - 3}}:
+    for x in 0..1 << (l - NUM_OF_ROUNDS) {
+        // println!("x'': {:?}", x);
+        // We compute p(beta, x'') for all beta in {0, 1, inf}^3
+        let current_evals_1: Vec<F> = poly_1
+            .iter()
+            .skip(x)
+            .step_by(1 << (l - NUM_OF_ROUNDS))
+            .cloned()
+            .collect();
 
-        // 27 = 3 ^ NUM_OF_ROUNDS
-        (0..27).map(|beta_index| {
-            let beta = from_index_to_beta(beta_index);
+        let evals_1 = calculate_p_beta(current_evals_1);
 
-            // We need to implement the evaluation p(beta, x'')
+        let current_evals_2: Vec<F> = poly_1
+            .iter()
+            .skip(x)
+            .step_by(1 << (l - NUM_OF_ROUNDS))
+            .cloned()
+            .collect();
 
-            let poly_1_eval = evaluate(poly_1);
-            //let poly_2_eval = evaluate();
-        })
-    })
+        let evals_2 = calculate_p_beta(current_evals_2);
+
+        // For each beta in {0, 1, inf}^3
+        // We have 27 = 3 ^ NUM_OF_ROUNDS number of betas.
+        for beta_index in 0..27 {
+            let [beta_1, beta_2, beta_3] = from_index_to_beta(beta_index);
+
+            let index_accumulator_1 = idx4(1, &beta_1, &beta_2, &beta_3);
+            let index_accumulator_2 = idx4(2, &beta_1, &beta_2, &beta_3);
+            let index_accumulator_3 = idx4(3, &beta_1, &beta_2, &beta_3);
+
+            for (index_opt, acc) in [
+                (index_accumulator_1, &mut round_1_accumulator),
+                (index_accumulator_2, &mut round_2_accumulator),
+                (index_accumulator_3, &mut round_3_accumulator),
+            ] {
+                if let Some(index) = index_opt {
+                    acc.accumulate_eval(evals_1[beta_index] * evals_2[beta_index], index);
+                }
+            }
+        }
+    }
+
+    let result = [
+        round_1_accumulator,
+        round_2_accumulator,
+        round_3_accumulator,
+    ];
+    result
 }
-
-// for offset in 0..p {
-//     let res: Vec<_> = v
-//         .iter()
-//         .skip(offset)
-//         .step_by(p)
-//         .map(|x| x * 2) // <-- uso el map directo
-//         .collect();
 
 #[cfg(test)]
 mod tests {
@@ -364,11 +393,87 @@ mod tests {
         assert_eq!(from_index_to_beta(26), [inf, inf, inf]);
     }
 
+    // #[test]
+    // fn print_calculate_p_beta() {
+    //     let current_evals: Vec<&F> = (1..9).map(|i| F::from_int(i)).collect();
+    //     println!("Current_evals: {:?}", current_evals);
+    //     let result = calculate_p_beta(current_evals);
+    //     println!("Result: {:?}", result);
+    // }
+
     #[test]
-    fn print_calculate_p_beta() {
-        let current_evals: Vec<F> = (1..9).map(|i| F::from_int(i)).collect();
-        println!("Current_evals: {:?}", current_evals);
-        let result = calculate_p_beta(current_evals);
-        println!("Result: {:?}", result);
+    fn test_compute_acumulators_2() {
+        let poly_1: EvaluationsList<F> =
+            EvaluationsList::new((0..16).map(|i| F::from_int(i)).collect());
+        let poly_2: EvaluationsList<F> =
+            EvaluationsList::new((0..16).map(|i| F::from_int(i)).collect());
+        let [
+            accumulator_round_1,
+            accumulator_round_2,
+            accumulator_round_3,
+        ] = compute_accumulators(poly_1, poly_2);
+
+        // p(x) = q(x) => p(x)q(x) = p(x)ˆ2
+
+        // A3(0,0,0) = p(0,0,0,0)^2 + p(0,0,0,1)^2 = 0^2 + 1^2 = 1
+        assert_eq!(accumulator_round_3.accumulators[0], F::from_int(1));
+
+        // A3(0,0,1) = p(0,0,1,0)^2 + p(0,0,1,1)^2 = 2^2 + 3^2 = 4 + 9 = 13
+        assert_eq!(accumulator_round_3.accumulators[1], F::from_int(13));
+
+        // A3(0,0,inf) = p(0,0,inf,0)^2 + p(0,0,inf,1)^2
+        //             = (p(0,0,1,0) - p(0,0,0,0))^2 + (p(0,0,1,1) - p(0,0,0,1))^2
+        //             = (2 - 0)^2 + (3 - 1)^2 = 2^2 + 2^
+        //             = 8
+        assert_eq!(accumulator_round_3.accumulators[2], F::from_int(8));
+
+        // A3(inf,1,inf) = p(inf,1,inf,0)^2 + p(inf,1,inf,1)^2
+        //             = (p(1,1,inf,0) - p(0,1,inf,0))^2 + (p(1,1,inf,1) - p(0,1,inf,1)))^2
+        //             = (p(1,1,1,0)- p(1,1,0,0) - (p(0,1,1,0) - p(0,1,0,0)))ˆ2 + (p(1,1,1,1)- p(1,1,0,1) - (p(0,1,1,1) - p(0,1,0,1)))ˆ2
+        //             = ((14 - 12) - (6 - 4))ˆ2 + ((15 - 13) - (7 - 5))ˆ2
+        //             = (2 - 2)^2 + (2 - 2)^2
+        //             = 0
+        assert_eq!(accumulator_round_3.accumulators[23], F::from_int(0));
+
+        // A2(0,0) = p(0,0,0,0)ˆ2 + p(0,0,0,1)ˆ2 + p(0,0,1,0)ˆ2 + p(0,0,1,1)ˆ2
+        //         = 0ˆ2 + 1ˆ2 + 2ˆ2 + 3ˆ2
+        //         = 14
+        assert_eq!(accumulator_round_2.accumulators[0], F::from_int(14));
+
+        // A2(0,1) = p(0,1,0,0)ˆ2 + p(0,1,0,1)ˆ2 + p(0,1,1,0)ˆ2 + p(0,1,1,1)ˆ2
+        //         = 4ˆ2 + 5ˆ2 + 6ˆ2 + 7ˆ2
+        //         = 126
+        assert_eq!(accumulator_round_2.accumulators[1], F::from_int(126));
+
+        // A2(0,inf) = p(0,inf,0,0)ˆ2 + p(0,inf,0,1)ˆ2 + p(0,inf,1,0)ˆ2 + p(0,inf,1,1)ˆ2
+        //           = (p(0,1,0,0)- p(0,0,0,0))ˆ2 + (p(0,1,0,1)- p(0,0,0,1))ˆ2 + (p(0,1,1,0)- p(0,0,1,0))ˆ2 + (p(0,1,1,1)- p(0,0,1,1))ˆ2
+        //           = (4 - 0)ˆ2 + (5 - 1)ˆ2 + (6 - 2)ˆ2 + (7 - 3)ˆ2
+        //           = 4 * 4ˆ2
+        //           = 64
+        assert_eq!(accumulator_round_2.accumulators[2], F::from_int(64));
+
+        // A2(inf, 1) = = p(inf,1,0,0)ˆ2 + p(inf,1,0,1)ˆ2 + p(inf,1,1,0)ˆ2 + p(inf,1,1,1)ˆ2
+        //         = 8^2 + 8^2 + 8^2 + 8^2 (haciendo la cuenta se ve que los 4 términos valen 8^2)
+        //         = 4 * 8^2
+        //         = 256
+        assert_eq!(accumulator_round_2.accumulators[7], F::from_int(256));
+
+        // A1(0) = p(0,0,0,0)^2 + p(0,0,0,1)^2 + p(0,0,1,0)^2 + p(0,0,1,1)^2
+        //       + p(0,1,0,0)^2 + p(0,1,0,1)^2 + p(0,1,1,0)^2 + p(0,1,1,1)^2
+        //       = 0^2 + 1^2 + 2^2 + 3^2 + 4^2 + 5^2 + 6^2 + 7^2
+        //       = 140
+        assert_eq!(accumulator_round_1.accumulators[0], F::from_int(140));
+
+        // A1(1) = p(1,0,0,0)^2 + p(1,0,0,1)^2 + p(1,0,1,0)^2 + p(1,0,1,1)^2
+        //       + p(1,1,0,0)^2 + p(1,1,0,1)^2 + p(1,1,1,0)^2 + p(1,1,1,1)^2
+        //       = 8^2 + 9^2 + 10^2 + 11^2 + 12^2 + 13^2 + 14^2 + 15^2
+        //       = 1100
+        assert_eq!(accumulator_round_1.accumulators[1], F::from_int(1100));
+
+        // A1(inf) = p(inf,0,0,0)^2 + p(inf,0,0,1)^2 + p(inf,0,1,0)^2 + p(inf,0,1,1)^2
+        //         + p(inf,1,0,0)^2 + p(inf,1,0,1)^2 + p(inf,1,1,0)^2 + p(inf,1,1,1)^2
+        //         = (8^2) * 8 (haciendo la cuetna se ve que los 8 términos valen 8^2)
+        //         = 512
+        assert_eq!(accumulator_round_1.accumulators[2], F::from_int(512));
     }
 }
