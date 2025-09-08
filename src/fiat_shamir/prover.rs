@@ -4,7 +4,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
 
 use super::domain_separator::DomainSeparator;
-use crate::fiat_shamir::ChallengSampler;
+use crate::fiat_shamir::ChallengeSampler;
 
 /// State held by the prover in a Fiat-Shamir protocol.
 ///
@@ -154,7 +154,7 @@ where
     }
 }
 
-impl<F, EF, Challenger> ChallengSampler<EF> for ProverState<F, EF, Challenger>
+impl<F, EF, Challenger> ChallengeSampler<EF> for ProverState<F, EF, Challenger>
 where
     EF: ExtensionField<F>,
     F: Field,

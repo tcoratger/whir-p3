@@ -5,7 +5,7 @@ use p3_util::log2_ceil_usize;
 use tracing::instrument;
 
 use crate::{
-    fiat_shamir::{ChallengSampler, errors::ProofResult, prover::ProverState},
+    fiat_shamir::{ChallengeSampler, errors::ProofResult, prover::ProverState},
     poly::multilinear::MultilinearPoint,
 };
 
@@ -35,7 +35,7 @@ pub const fn workload_size<T: Sized>() -> usize {
 ///
 /// ## Returns
 /// A sorted and deduplicated list of random query indices in the folded domain.
-pub fn get_challenge_stir_queries<Chal: ChallengSampler<EF>, F, EF>(
+pub fn get_challenge_stir_queries<Chal: ChallengeSampler<EF>, F, EF>(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,

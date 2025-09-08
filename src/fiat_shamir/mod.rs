@@ -12,7 +12,7 @@ pub mod verifier;
 /// deterministically generate random challenges from a transcript using a cryptographic
 /// challenger. The challenges are used to drive non-interactive proofs or interactive
 /// proof reductions.
-pub trait ChallengSampler<F> {
+pub trait ChallengeSampler<F> {
     /// Sample a new random element from the extension field `F`.
     ///
     /// # Returns

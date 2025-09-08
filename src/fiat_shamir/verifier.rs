@@ -2,7 +2,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
 
 use super::domain_separator::DomainSeparator;
-use crate::fiat_shamir::{ChallengSampler, errors::ProofError};
+use crate::fiat_shamir::{ChallengeSampler, errors::ProofError};
 
 /// State held by the verifier in a Fiat-Shamir protocol.
 ///
@@ -219,7 +219,7 @@ where
     }
 }
 
-impl<F, EF, Challenger> ChallengSampler<EF> for VerifierState<F, EF, Challenger>
+impl<F, EF, Challenger> ChallengeSampler<EF> for VerifierState<F, EF, Challenger>
 where
     EF: ExtensionField<F>,
     F: Field,
