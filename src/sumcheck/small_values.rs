@@ -6,7 +6,6 @@ use crate::{
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 const NUM_OF_ROUNDS: usize = 3;
-// Objetivo: Implementar el Procedure 7 en https://eprint.iacr.org/2025/1117.pdf (page 34)
 
 #[derive(Debug, Clone, Eq, PartialEq, Copy)]
 enum EvaluationPoint {
@@ -51,11 +50,36 @@ where
         }
     }
 
+    // Given the round i, it returns the accumulators A_i(u, v) all initialized in zero.
+    fn new_empty(round: usize) -> Self {
+        match round {
+            // In the round 1, there are 3 accumulators: A_1(0), A_1(1) and A_1(inf).
+            1 => RoundAccumlators {
+                round,
+                accumulators: vec![F::ZERO; 3],
+            },
+            // In round 2, there are 3 * 3 = 9 accumulators,
+            // since v in {0, 1, inf} and u in {0, 1, inf}.
+            2 => RoundAccumlators {
+                round,
+                accumulators: vec![F::ZERO; 9],
+            },
+            // In round 3, there are 3^2 * 3 = 27 accumulators,
+            // since v in {0, 1, inf}^2 and u in {0, 1, inf}.
+            3 => RoundAccumlators {
+                round,
+                accumulators: vec![F::ZERO; 27],
+            },
+            _ => unreachable!(),
+        }
+    }
+
     fn accumulate_eval(&mut self, eval: F, index: usize) {
         self.accumulators[index] += eval;
     }
 }
-
+// TODO: En vez de tener que llamar a esta función 3 veces en cumpute_accumulators, cambiar esta función idx4 para que
+// la llamemos ahi una sola vez. El input debería ser solo beta (sin la round) y tiene que determinar para cada round qué devuelve.
 // CAMBIAR COMENTARIO.
 // Esta función mapea una tupla del tipo (i,v,u,y) que resulta de aplicar indx4(\beta) a un indice que correpende a un acumulador especifico.
 // Recall: v in {0, 1, inf}^{i-1}, u in {0, 1, inf}, y in {0, 1}^{3-i}, where i is the number of round.
@@ -108,6 +132,52 @@ fn idx4(
     }
 }
 
+fn idx4_v2(beta: [EvaluationPoint; 3]) -> [Option<usize>; 3] {
+    let beta_1 = beta[0].to_usize_representation();
+    let beta_2 = beta[1].to_usize_representation();
+    let beta_3 = beta[2].to_usize_representation();
+
+    match beta {
+        [_, _, EvaluationPoint::Infinity] => {
+            let index_3 = beta_1 * 9 + beta_2 * 3 + beta_3;
+            return [None, None, Some(index_3)];
+        }
+        [_, EvaluationPoint::Infinity, _] => {
+            let index_2 = beta_1 * 3 + beta_2;
+            let index_3 = beta_1 * 9 + beta_2 * 3 + beta_3;
+            return [None, Some(index_2), Some(index_3)];
+        }
+        _ => {
+            let index_1 = beta_1;
+            let index_2 = beta_1 * 3 + beta_2;
+            let index_3 = beta_1 * 9 + beta_2 * 3 + beta_3;
+            return [Some(index_1), Some(index_2), Some(index_3)];
+        }
+    }
+}
+
+// We asseume n in {0, ..., 26}
+fn to_base_three_coeff(n: usize) -> [usize; 3] {
+    let mut n = n;
+    let mut coeffs = [0; 3];
+    for i in (0..NUM_OF_ROUNDS).rev() {
+        coeffs[i] = n % 3;
+        n /= 3;
+    }
+    coeffs
+}
+
+fn idx4_v3(index_beta: usize) -> [Option<usize>; 3] {
+    let [b1, b2, b3] = to_base_three_coeff(index_beta);
+
+    match (b1, b2, b3) {
+        (_, _, 2) => [None, None, Some(b1 * 9 + b2 * 3 + b3)],
+        (_, 2, _) => [None, Some(b1 * 3 + b2), Some(b1 * 9 + b2 * 3 + b3)],
+        _ => [Some(b1), Some(b1 * 3 + b2), Some(b1 * 9 + b2 * 3 + b3)],
+    }
+}
+
+// TODO: En vez de pasar de indice a beta y despues de beta a indice, hay que buscar la manera de hacerlo sin tener que pasar al beta.
 // Ojo: no es la inversa de la función anterior. (No incluye el round)
 // `index` in {0, ..., 27}
 fn from_index_to_beta(index: usize) -> [EvaluationPoint; 3] {
@@ -120,7 +190,6 @@ fn from_index_to_beta(index: usize) -> [EvaluationPoint; 3] {
     res
 }
 
-// Procedure 6. Page 34
 //     Ronda 1:        Ronda 2:        Ronda 3:
 
 // 000-00         1               1               1
@@ -151,6 +220,7 @@ fn from_index_to_beta(index: usize) -> [EvaluationPoint; 3] {
 // 221-25                        (6)              9
 // 222-26                                        (9)
 //
+// Implement Procedure 6 (Page 34).
 // Fijado x'' en {0, 1}^{l-3}, dadas las evaluaciones del multilineal q(x1, x2, x3) = p(x1, x2, x3, x'') en el booleano devuelve las
 // evaluaciones de q en beta para todo beta in {0, 1, inf}^3.
 fn calculate_p_beta<F: Field>(current_evals: Vec<F>) -> Vec<F> {
@@ -193,6 +263,8 @@ fn calculate_p_beta<F: Field>(current_evals: Vec<F>) -> Vec<F> {
     next_evals
 }
 
+// Implements the Procedure 7 in https://eprint.iacr.org/2025/1117.pdf (page 34).
+
 fn compute_accumulators<F: Field>(
     poly_1: EvaluationsList<F>,
     poly_2: EvaluationsList<F>,
@@ -200,40 +272,39 @@ fn compute_accumulators<F: Field>(
     assert_eq!(poly_1.num_variables(), poly_2.num_variables());
     let l = poly_1.num_variables();
 
-    let mut round_1_accumulator = RoundAccumlators::<F>::new(1, vec![F::ZERO; 12]);
-    let mut round_2_accumulator = RoundAccumlators::<F>::new(2, vec![F::ZERO; 18]);
-    let mut round_3_accumulator = RoundAccumlators::<F>::new(3, vec![F::ZERO; 27]);
+    // We initialize the accumulators for each round: A_1, A_2 and A_3.
+    let mut round_1_accumulator = RoundAccumlators::<F>::new_empty(1);
+    let mut round_2_accumulator = RoundAccumlators::<F>::new_empty(2);
+    let mut round_3_accumulator = RoundAccumlators::<F>::new_empty(3);
 
     // For x'' in {0 .. 2^{l - 3}}:
     for x in 0..1 << (l - NUM_OF_ROUNDS) {
-        // println!("x'': {:?}", x);
-        // We compute p(beta, x'') for all beta in {0, 1, inf}^3
+        // We compute p_1(beta, x'') for all beta in {0, 1, inf}^3
         let current_evals_1: Vec<F> = poly_1
             .iter()
             .skip(x)
             .step_by(1 << (l - NUM_OF_ROUNDS))
             .cloned()
             .collect();
-
         let evals_1 = calculate_p_beta(current_evals_1);
 
+        // We compute p_1(beta, x'') for all beta in {0, 1, inf}^3
         let current_evals_2: Vec<F> = poly_1
             .iter()
             .skip(x)
             .step_by(1 << (l - NUM_OF_ROUNDS))
             .cloned()
             .collect();
-
         let evals_2 = calculate_p_beta(current_evals_2);
 
-        // For each beta in {0, 1, inf}^3
-        // We have 27 = 3 ^ NUM_OF_ROUNDS number of betas.
+        // For each beta in {0, 1, inf}^3:
+        // (We have 27 = 3 ^ NUM_OF_ROUNDS number of betas)
         for beta_index in 0..27 {
-            let [beta_1, beta_2, beta_3] = from_index_to_beta(beta_index);
-
-            let index_accumulator_1 = idx4(1, &beta_1, &beta_2, &beta_3);
-            let index_accumulator_2 = idx4(2, &beta_1, &beta_2, &beta_3);
-            let index_accumulator_3 = idx4(3, &beta_1, &beta_2, &beta_3);
+            let [
+                index_accumulator_1,
+                index_accumulator_2,
+                index_accumulator_3,
+            ] = idx4_v3(beta_index);
 
             for (index_opt, acc) in [
                 (index_accumulator_1, &mut round_1_accumulator),
@@ -402,7 +473,7 @@ mod tests {
     // }
 
     #[test]
-    fn test_compute_acumulators_2() {
+    fn test_compute_acumulators() {
         let poly_1: EvaluationsList<F> =
             EvaluationsList::new((0..16).map(|i| F::from_int(i)).collect());
         let poly_2: EvaluationsList<F> =
