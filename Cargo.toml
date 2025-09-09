@@ -38,21 +38,21 @@ cast_sign_loss = "allow"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 rayon = { version = "1.0", optional = true }
-p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-merkle-tree = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-commit = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-dft = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-maybe-rayon = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b", features = [
+p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-merkle-tree = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-commit = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-dft = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-maybe-rayon = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f", features = [
 ] }
-p3-interpolation = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
-p3-multilinear-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "2117e4b" }
+p3-interpolation = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
+p3-multilinear-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "c68270f" }
 
 itertools = "0.14"
 thiserror = "2.0"
