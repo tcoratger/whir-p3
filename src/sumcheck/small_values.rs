@@ -3,6 +3,7 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::statement::Statement,
 };
+use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 const NUM_OF_ROUNDS: usize = 3;
@@ -326,6 +327,149 @@ fn compute_accumulators<F: Field>(
     result
 }
 
+// Algorithm 4. Page 15.
+// Compute three sumcheck rounds using the small value optimizaition.
+// It Returns the two challenges r_1 and r_2 (TODO: creo que debería devolver también los polys foldeados).
+fn small_value_sumcheck_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
+    prover_state: &mut ProverState<F, EF, Challenger>,
+    poly_1: EvaluationsList<F>,
+    poly_2: EvaluationsList<F>,
+) -> [EF; 2]
+where
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+{
+    let round_accumulators = compute_accumulators(poly_1, poly_2);
+    // Round 1
+
+    // 1. For u in {0, 1, inf} compute S_1(u).
+    // Recall: S_1(u) = A_1(u).
+
+    let round_poly_evals = &round_accumulators[0].accumulators;
+
+    // 2. Send S_1(u) to the verifier.
+    // TODO: En realidad no hace falta mandar S_1(1) porque se deduce usando S_1(0).
+    prover_state.add_base_scalars(&round_poly_evals);
+
+    // 3. Receive the challenge r_1 from the verifier.
+    let r_1: EF = prover_state.sample();
+
+    // 4. Compte R_2 = [L_0(r_1), L_1(r_1), L_inf(r_1)]
+    // L_0 (x) = 1 - x
+    // L_1 (x) = x
+    // L_inf (x) = (1 - x)x
+    let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1, (-r_1 + F::ONE) * r_1];
+
+    // Round 2
+
+    // 1. For u in {0, 1, inf} compute S_2(u).
+    // First we take the accumulators A_2(v, u).
+    // There are 9 accumulators, since v in {0, 1, inf} and u in {0, 1, inf}.
+    let accumulators_2 = &round_accumulators[1].accumulators;
+
+    // TODO: Hacer las tres evaluaciones en una sola iteración de accumulators_2 en vez de tres veces.
+    // We compute S_2(0):
+    let round_poly_in_0: EF = accumulators_2
+        .iter()
+        .step_by(3)
+        .zip(lagrange_evals_r_1.iter())
+        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
+        .sum();
+
+    // We compute S_2(1):
+    let round_poly_in_1: EF = accumulators_2
+        .iter()
+        .skip(1)
+        .step_by(3)
+        .zip(lagrange_evals_r_1.iter())
+        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
+        .sum();
+
+    // We compute S_2(inf):
+    let round_poly_in_inf: EF = accumulators_2
+        .iter()
+        .skip(2)
+        .step_by(3)
+        .zip(lagrange_evals_r_1.iter())
+        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
+        .sum();
+
+    let round_poly_evals = [round_poly_in_0, round_poly_in_1, round_poly_in_inf];
+
+    // 2. Send S_2(u) to the verifier.
+    // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
+    prover_state.add_extension_scalars(&round_poly_evals);
+
+    // 3. Receive the challenge r_2 from the verifier.
+    let r_2: EF = prover_state.sample();
+
+    // 4. Compute R_3 = [L_00(r_1, r_2), L_01(r_1, r_2), ..., L_{inf inf}(r_1, r_2)]
+    // L_00 (x1, x2) = (1 - x1) * (1 - x2)
+    // L_01 (x1, x2) = (1 - x1) * x2
+    // ...
+    // L_{inf inf} (x1, x2) = (1 - x1) * x1 * (1 - x2) * x2
+
+    let l_0 = lagrange_evals_r_1[0];
+    let l_1 = lagrange_evals_r_1[1];
+    let l_inf = lagrange_evals_r_1[2];
+
+    // TODO: calcular `(-r_2 + F::ONE) * r_2` una sola vez. Lo dejo por ahora así por claridad.
+    let lagrange_evals_r_2 = [
+        l_0 * (-r_2 + F::ONE),         // L_0 0
+        l_0 * r_2,                     // L_0 1
+        l_0 * (-r_2 + F::ONE) * r_2,   // L_0 inf
+        l_1 * (-r_2 + F::ONE),         // L_1 0
+        l_1 * r_2,                     // L_1 1
+        l_1 * (-r_2 + F::ONE) * r_2,   // L_1 inf
+        l_inf * (-r_2 + F::ONE),       // L_inf 0
+        l_inf * r_2,                   // L_inf 1
+        l_inf * (-r_2 + F::ONE) * r_2, // L_inf inf
+    ];
+
+    // Round 3
+
+    // 1. For u in {0, 1, inf} compute S_3(u).
+
+    // First we take the accumulators A_2(v, u).
+    // There are 27 accumulators, since v in {0, 1, inf}^2 and u in {0, 1, inf}.
+    let accumulators_3 = &round_accumulators[3].accumulators;
+
+    // TODO: hacer las tres evalucaiones con un solo iterador.
+    // We compute S_3(0):
+    let round_poly_in_0: EF = accumulators_3
+        .iter()
+        .step_by(3)
+        .zip(lagrange_evals_r_2.iter())
+        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
+        .sum();
+
+    // We compute S_3(1):
+    let round_poly_in_1: EF = accumulators_3
+        .iter()
+        .skip(1)
+        .step_by(3)
+        .zip(lagrange_evals_r_2.iter())
+        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
+        .sum();
+
+    // We compute S_3(inf):
+    let round_poly_in_inf: EF = accumulators_3
+        .iter()
+        .skip(2)
+        .step_by(3)
+        .zip(lagrange_evals_r_2.iter())
+        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
+        .sum();
+
+    let round_poly_evals = [round_poly_in_0, round_poly_in_1, round_poly_in_inf];
+
+    // 2. Send S_3(u) to the verifier.
+    // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
+    prover_state.add_extension_scalars(&round_poly_evals);
+
+    // TODO: Me parece que también va a haber que devolver poly_1 y poly_2 foldeados (con r_1 y r_2) para seguir con el sumcheck.
+    [r_1, r_2]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,6 +477,7 @@ mod tests {
     use p3_field::integers::QuotientMap;
     type F = BabyBear;
 
+    // TEST NOT WORKING. We changed the function idx4.
     #[test]
     fn test_idx4() {
         let inf = EvaluationPoint::Infinity;
@@ -543,7 +688,7 @@ mod tests {
 
         // A1(inf) = p(inf,0,0,0)^2 + p(inf,0,0,1)^2 + p(inf,0,1,0)^2 + p(inf,0,1,1)^2
         //         + p(inf,1,0,0)^2 + p(inf,1,0,1)^2 + p(inf,1,1,0)^2 + p(inf,1,1,1)^2
-        //         = (8^2) * 8 (haciendo la cuetna se ve que los 8 términos valen 8^2)
+        //         = (8^2) * 8 (haciendo la cuenta se ve que los 8 términos valen 8^2)
         //         = 512
         assert_eq!(accumulator_round_1.accumulators[2], F::from_int(512));
     }
