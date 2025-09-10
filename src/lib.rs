@@ -1,5 +1,6 @@
 pub mod constant;
 pub mod dft;
+pub mod dft_multiradix;
 pub mod fiat_shamir;
 pub mod parameters;
 pub mod poly;
