@@ -1,5 +1,3 @@
-// src/whir/constraint_poly_evaluator.rs
-
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use super::constraint::Constraint;
