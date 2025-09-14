@@ -271,6 +271,7 @@ mod tests {
     use p3_field::extension::BinomialExtensionField;
 
     use super::*;
+    use crate::constant::K_SKIP_SUMCHECK;
 
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;
@@ -302,7 +303,7 @@ mod tests {
         let config = StirConfig::builder()
             .initial_statement(true)
             .univariate_skip(true)
-            .folding_factor_at_round(4)
+            .folding_factor_at_round(K_SKIP_SUMCHECK + 1)
             .build();
 
         assert!(config.should_apply_univariate_skip(0));
