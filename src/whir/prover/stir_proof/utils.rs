@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     constant::K_SKIP_SUMCHECK, fiat_shamir::prover::ProverState, poly::evals::EvaluationsList,
-    whir::prover::round::RoundState,
+    whir::prover::round_state::RoundState,
 };
 
 /// Evaluates base field polynomial answers using configuration-dependent methods.

@@ -17,7 +17,7 @@ use super::{
         hint_extension_field_openings,
     },
 };
-use crate::{fiat_shamir::prover::ProverState, whir::prover::round::RoundState};
+use crate::{fiat_shamir::prover::ProverState, whir::prover::round_state::RoundState};
 
 /// STIR proof operations handler for Reed-Solomon proximity testing.
 #[derive(Debug)]
