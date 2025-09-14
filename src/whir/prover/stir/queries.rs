@@ -6,7 +6,7 @@ use p3_matrix::dense::DenseMatrix;
 use crate::{
     fiat_shamir::{ChallengeSampler, errors::ProofResult},
     poly::multilinear::MultilinearPoint,
-    whir::{prover::round::RoundState, utils::get_challenge_stir_queries},
+    whir::{prover::round_state::RoundState, utils::get_challenge_stir_queries},
 };
 
 /// STIR query challenges containing evaluation points and their corresponding domain indices.
