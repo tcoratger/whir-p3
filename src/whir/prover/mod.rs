@@ -6,7 +6,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
-use round::RoundState;
+use round_state::RoundState;
 use serde::{Deserialize, Serialize};
 use stir_proof::{StirConfig, StirProofHandler};
 use tracing::{info_span, instrument};
@@ -23,7 +23,7 @@ use crate::{
     },
 };
 
-pub mod round;
+pub mod round_state;
 pub mod stir_proof;
 
 pub type Proof<W, const DIGEST_ELEMS: usize> = Vec<Vec<[W; DIGEST_ELEMS]>>;
