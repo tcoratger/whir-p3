@@ -162,45 +162,6 @@ where
     }
 }
 
-/// Creates a new base field openings collection with pre-allocated capacity.
-///
-/// Factory function for efficient base field opening collection creation
-/// with optimized memory allocation for batch operations.
-///
-/// # Arguments
-///
-/// * `capacity` - Expected number of base field openings
-#[must_use]
-pub fn create_base_field_openings<F, const DIGEST_ELEMS: usize>(
-    capacity: usize,
-) -> BaseFieldOpenings<F, DIGEST_ELEMS>
-where
-    F: Field,
-{
-    // Delegate to the struct's capacity constructor
-    BaseFieldOpenings::with_capacity(capacity)
-}
-
-/// Creates a new extension field openings collection with pre-allocated capacity.
-///
-/// Factory function for efficient extension field opening collection creation
-/// with optimized memory allocation for batch operations.
-///
-/// # Arguments
-///
-/// * `capacity` - Expected number of extension field openings
-#[must_use]
-pub fn create_extension_field_openings<F, EF, const DIGEST_ELEMS: usize>(
-    capacity: usize,
-) -> ExtensionFieldOpenings<F, EF, DIGEST_ELEMS>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    // Delegate to the struct's capacity constructor
-    ExtensionFieldOpenings::with_capacity(capacity)
-}
-
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
