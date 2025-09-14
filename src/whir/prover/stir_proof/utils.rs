@@ -12,17 +12,17 @@ use crate::{
     whir::prover::round::RoundState,
 };
 
-/// Evaluates polynomial answers using the appropriate method based on configuration.
+/// Evaluates base field polynomial answers using configuration-dependent methods.
 ///
-/// This function encapsulates the logic for choosing between standard multilinear
-/// evaluation and univariate skip evaluation based on the round configuration.
+/// Chooses between standard multilinear evaluation and univariate skip evaluation
+/// based on STIR protocol configuration and round conditions.
 ///
 /// # Arguments
 ///
-/// * `config` - The STIR configuration
-/// * `round_index` - The current round index
-/// * `answers` - The polynomial evaluation answers
-/// * `round_state` - The current round state
+/// * `config` - STIR protocol configuration parameters
+/// * `round_index` - Current round index for optimization decisions
+/// * `answers` - Base field polynomial evaluation answers to process
+/// * `round_state` - Current round state containing folding randomness
 ///
 /// # Returns
 ///
@@ -37,29 +37,34 @@ where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
 {
+    // Determine if univariate skip optimization applies for this round
     let should_skip = config.should_apply_univariate_skip(round_index);
 
+    // Process each answer using the appropriate evaluation method
     answers
         .iter()
         .map(|answer| {
             if should_skip {
+                // Use evaluation for univariate skip
                 evaluate_with_univariate_skip(answer, round_state)
             } else {
+                // Use standard multilinear evaluation
                 evaluate_standard_multilinear(answer, round_state)
             }
         })
         .collect()
 }
 
-/// Evaluates extension field polynomial answers.
+/// Evaluates extension field polynomial answers using standard multilinear evaluation.
 ///
-/// This function handles the evaluation of polynomial answers that are already
-/// in the extension field, using standard multilinear evaluation.
+/// Processes polynomial answers that are already in the extension field.
+/// Always uses standard multilinear evaluation since extension field operations
+/// don't require univariate skip optimization handling.
 ///
 /// # Arguments
 ///
-/// * `answers` - The polynomial evaluation answers in extension field
-/// * `round_state` - The current round state
+/// * `answers` - Extension field polynomial evaluation answers to process
+/// * `round_state` - Current round state containing folding randomness
 ///
 /// # Returns
 ///
@@ -72,9 +77,11 @@ where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
 {
+    // Process each extension field answer using standard multilinear evaluation
     answers
         .iter()
         .map(|answer| {
+            // Create evaluation list and evaluate with folding randomness
             EvaluationsList::new(answer.clone()).evaluate(&round_state.folding_randomness)
         })
         .collect()
@@ -82,17 +89,17 @@ where
 
 /// Evaluates a polynomial using univariate skip optimization.
 ///
-/// This function implements the complex two-stage evaluation process used
-/// when the univariate skip optimization is applicable.
+/// Implements the sophisticated two-stage evaluation process that enables
+/// skipping sumcheck variables for improved verifier efficiency.
 ///
 /// # Arguments
 ///
-/// * `answer` - The polynomial evaluation values
-/// * `round_state` - The current round state
+/// * `answer` - Base field polynomial evaluation values to process
+/// * `round_state` - Current round state containing folding randomness
 ///
 /// # Returns
 ///
-/// The evaluated result in the extension field
+/// Evaluated result in the extension field after univariate skip processing
 pub(crate) fn evaluate_with_univariate_skip<F, EF, const DIGEST_ELEMS: usize>(
     answer: &[F],
     round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
@@ -101,35 +108,43 @@ where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
 {
+    // Create evaluation list from polynomial answers
     let evals = EvaluationsList::new(answer.to_vec());
+    // Calculate remaining variables after skipping
     let num_remaining_vars = evals.num_variables() - K_SKIP_SUMCHECK;
+    // Determine matrix width for restructuring
     let width = 1 << num_remaining_vars;
+    // Convert to matrix form for interpolation
     let matrix = evals.into_mat(width);
     let challenges = &round_state.folding_randomness;
 
-    // Extract skip challenge and remaining challenges
+    // Extract the skip challenge from the last variable
     let skip_challenge = *challenges
         .last_variable()
         .expect("skip challenge must be present");
+    // Get the remaining challenges for final evaluation
     let remaining_challenges = challenges.get_subpoint_over_range(0..num_remaining_vars);
 
-    // Two-stage evaluation: interpolate then evaluate
+    // Stage 1: Interpolate over the subgroup using skip challenge
     let folded_row = interpolate_subgroup(&matrix, skip_challenge);
+    // Stage 2: Evaluate the folded polynomial with remaining challenges
     EvaluationsList::new(folded_row).evaluate(&remaining_challenges)
 }
 
 /// Evaluates a polynomial using standard multilinear evaluation.
 ///
-/// This is the standard evaluation method used when no optimizations apply.
+/// Standard evaluation method used when univariate skip optimization
+/// is not applicable or enabled. Performs direct multilinear evaluation
+/// with all folding randomness values.
 ///
 /// # Arguments
 ///
-/// * `answer` - The polynomial evaluation values
-/// * `round_state` - The current round state
+/// * `answer` - Base field polynomial evaluation values to process
+/// * `round_state` - Current round state containing folding randomness
 ///
 /// # Returns
 ///
-/// The evaluated result in the extension field
+/// Evaluated result in the extension field using standard method
 pub(crate) fn evaluate_standard_multilinear<F, EF, const DIGEST_ELEMS: usize>(
     answer: &[F],
     round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
@@ -138,18 +153,20 @@ where
     F: Field + TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
 {
+    // Direct multilinear evaluation with all folding randomness
     EvaluationsList::new(answer.to_vec()).evaluate(&round_state.folding_randomness)
 }
 
-/// Hints base field opening results to the prover state.
+/// Hints base field opening results to the prover state for transcript inclusion.
 ///
-/// This function provides the opened values and authentication paths to the
-/// prover state for inclusion in the proof transcript.
+/// Provides polynomial evaluation values and authentication paths to the
+/// prover state, enabling the verifier to reconstruct and verify the
+/// STIR proof transcript during verification.
 ///
 /// # Arguments
 ///
-/// * `openings` - The base field opening results
-/// * `prover_state` - The prover state to hint to
+/// * `openings` - Base field opening results containing answers and proofs
+/// * `prover_state` - Prover state to receive the hinted data
 pub(crate) fn hint_base_field_openings<F, EF, Challenger, const DIGEST_ELEMS: usize>(
     openings: &BaseFieldOpenings<F, DIGEST_ELEMS>,
     prover_state: &mut ProverState<F, EF, Challenger>,
@@ -158,24 +175,25 @@ pub(crate) fn hint_base_field_openings<F, EF, Challenger, const DIGEST_ELEMS: us
     EF: ExtensionField<F>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    // Hint the leaf values
+    // Hint all polynomial evaluation values to the prover state
     for answer in openings.answers() {
         prover_state.hint_base_scalars(answer);
     }
 
-    // Hint the authentication paths
+    // Hint all Merkle authentication paths to the prover state
     hint_merkle_proofs(openings.proofs(), prover_state);
 }
 
-/// Hints extension field opening results to the prover state.
+/// Hints extension field opening results to the prover state for transcript inclusion.
 ///
-/// This function provides the opened values and authentication paths to the
-/// prover state for inclusion in the proof transcript.
+/// Provides extension field polynomial evaluation values and base field
+/// authentication paths to the prover state, enabling verification
+/// of STIR operations requiring extension field computations.
 ///
 /// # Arguments
 ///
-/// * `openings` - The extension field opening results
-/// * `prover_state` - The prover state to hint to
+/// * `openings` - Extension field opening results containing answers and proofs
+/// * `prover_state` - Prover state to receive the hinted data
 pub(crate) fn hint_extension_field_openings<F, EF, Challenger, const DIGEST_ELEMS: usize>(
     openings: &ExtensionFieldOpenings<F, EF, DIGEST_ELEMS>,
     prover_state: &mut ProverState<F, EF, Challenger>,
@@ -184,24 +202,25 @@ pub(crate) fn hint_extension_field_openings<F, EF, Challenger, const DIGEST_ELEM
     EF: ExtensionField<F>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    // Hint the leaf values in extension field
+    // Hint all extension field polynomial evaluation values
     for answer in openings.answers() {
         prover_state.hint_extension_scalars(answer);
     }
 
-    // Hint the authentication paths in base field
+    // Hint all base field Merkle authentication paths
     hint_merkle_proofs(openings.proofs(), prover_state);
 }
 
-/// Hints Merkle proof data to the prover state.
+/// Hints Merkle proof data to the prover state for authentication verification.
 ///
-/// This is a utility function that handles the common pattern of hinting
-/// authentication path data to the prover state.
+/// Utility function handling the common pattern of hinting Merkle tree
+/// authentication path data to the prover state. Processes digest arrays
+/// from proof vectors for transcript inclusion.
 ///
 /// # Arguments
 ///
-/// * `proofs` - Iterator over proof vectors
-/// * `prover_state` - The prover state to hint to
+/// * `proofs` - Iterator over proof vectors containing authentication paths
+/// * `prover_state` - Prover state to receive the authentication data
 pub(crate) fn hint_merkle_proofs<F, EF, Challenger, const DIGEST_ELEMS: usize>(
     proofs: impl IntoIterator<Item = impl AsRef<Vec<[F; DIGEST_ELEMS]>>>,
     prover_state: &mut ProverState<F, EF, Challenger>,
@@ -210,7 +229,9 @@ pub(crate) fn hint_merkle_proofs<F, EF, Challenger, const DIGEST_ELEMS: usize>(
     EF: ExtensionField<F>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
+    // Process each proof vector in the collection
     for proof in proofs {
+        // Hint each digest in the authentication path
         for digest in proof.as_ref() {
             prover_state.hint_base_scalars(digest);
         }
@@ -249,10 +270,6 @@ mod tests {
 
     #[test]
     fn test_hint_functions() {
-        // These are integration points with the prover state
-        // In a real implementation, we'd test the hint functions with mock prover states
-        // For now, we test that the openings structures are created correctly
-
         let mut base_openings: BaseFieldOpenings<F, 4> = BaseFieldOpenings::with_capacity(1);
         base_openings.push(vec![F::ONE], vec![[F::ZERO; 4]]);
 

@@ -190,7 +190,6 @@ where
     }
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = self.num_variables - self.folding_factor.total_number(round_index)))]
-    #[allow(clippy::too_many_lines)]
     fn round<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
@@ -286,13 +285,14 @@ where
                 &ood_points,
             )?;
 
-        // Process STIR queries using the clean abstraction
-        let config = StirConfig {
-            initial_statement: self.initial_statement,
-            univariate_skip: self.univariate_skip,
-            folding_factor_at_round: self.folding_factor.at_round(0),
-        };
-        let stir_handler = StirProofHandler::new(&self.merkle_hash, &self.merkle_compress, config);
+        // Process STIR queries
+        let stir_config = StirConfig::builder()
+            .initial_statement(self.initial_statement)
+            .univariate_skip(self.univariate_skip)
+            .folding_factor_at_round(self.folding_factor.at_round(0))
+            .build();
+        let stir_handler =
+            StirProofHandler::new(&self.merkle_hash, &self.merkle_compress, stir_config);
         let stir_evaluations = stir_handler.process_stir_queries(
             round_index,
             &stir_challenges_indexes,
@@ -393,13 +393,14 @@ where
             prover_state,
         )?;
 
-        // Process final proofs using the clean abstraction
-        let config = StirConfig {
-            initial_statement: self.initial_statement,
-            univariate_skip: self.univariate_skip,
-            folding_factor_at_round: self.folding_factor.at_round(round_index),
-        };
-        let stir_handler = StirProofHandler::new(&self.merkle_hash, &self.merkle_compress, config);
+        // Process final proofs
+        let stir_config = StirConfig::builder()
+            .initial_statement(self.initial_statement)
+            .univariate_skip(self.univariate_skip)
+            .folding_factor_at_round(self.folding_factor.at_round(round_index))
+            .build();
+        let stir_handler =
+            StirProofHandler::new(&self.merkle_hash, &self.merkle_compress, stir_config);
         stir_handler.process_final_proofs(final_challenge_indexes, round_state, prover_state);
 
         // Run final sumcheck if required

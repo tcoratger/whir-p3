@@ -1,4 +1,4 @@
-//! STIR proof handling module.
+//! STIR proof handling module for Reed-Solomon proximity testing.
 
 pub mod config;
 pub mod handler;

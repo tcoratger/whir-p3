@@ -8,6 +8,7 @@ use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 
 use super::{
+    ExtensionFieldOpenings,
     config::StirConfig,
     openings::BaseFieldOpenings,
     types::{BaseMmcs, ExtProverData},
@@ -18,7 +19,7 @@ use super::{
 };
 use crate::{fiat_shamir::prover::ProverState, whir::prover::round::RoundState};
 
-/// Handler for STIR proof operations.
+/// STIR proof operations handler for Reed-Solomon proximity testing.
 #[derive(Debug)]
 pub struct StirProofHandler<'a, F, EF, H, C, Challenger, const DIGEST_ELEMS: usize>
 where
@@ -33,13 +34,13 @@ where
     [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    /// Reference to the cryptographic hasher for Merkle trees
+    /// Cryptographic hasher for Merkle tree construction and verification
     hasher: &'a H,
-    /// Reference to the compression function for Merkle trees
+    /// Compression function for Merkle tree internal node computation
     compressor: &'a C,
-    /// Configuration for STIR protocol behavior
+    /// STIR protocol configuration controlling optimization behavior
     config: StirConfig,
-    /// Phantom data to carry generic type information at zero cost
+    /// Phantom data carrying generic type information at zero runtime cost
     _phantom: PhantomData<(F, EF, Challenger)>,
 }
 
@@ -57,18 +58,19 @@ where
     [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    /// Creates a new STIR proof handler.
+    /// Creates a new STIR proof handler with cryptographic primitives and configuration.
     ///
-    /// This constructor follows the pattern used in libraries like `reqwest`
-    /// and `tokio` where configuration is passed as a structured parameter.
+    /// Initializes the handler with the necessary cryptographic components
+    /// for Merkle tree operations and STIR protocol configuration parameters.
     ///
     /// # Arguments
     ///
     /// * `hasher` - Cryptographic hasher for Merkle tree construction
     /// * `compressor` - Compression function for Merkle tree nodes
-    /// * `config` - Protocol configuration parameters
+    /// * `config` - STIR protocol configuration parameters
     #[must_use]
     pub const fn new(hasher: &'a H, compressor: &'a C, config: StirConfig) -> Self {
+        // Initialize handler with provided cryptographic primitives and config
         Self {
             hasher,
             compressor,
@@ -77,22 +79,22 @@ where
         }
     }
 
-    /// Processes STIR queries for a given round.
+    /// Processes STIR queries for a given round with automatic field type dispatch.
     ///
-    /// This is the main entry point for STIR query processing, automatically
-    /// dispatching to the appropriate handler based on the round state's
-    /// Merkle prover data type.
+    /// Main entry point for STIR query processing that automatically selects
+    /// between base field and extension field operations based on the round
+    /// state's Merkle prover data configuration.
     ///
     /// # Arguments
     ///
-    /// * `round_index` - The current round index (0-based)
-    /// * `challenge_indexes` - The positions to query in the commitment
-    /// * `round_state` - The current round state
-    /// * `prover_state` - The prover state for transcript updates
+    /// * `round_index` - Current round index for optimization decisions
+    /// * `challenge_indexes` - Positions to query in the commitment
+    /// * `round_state` - Current round state containing commitment data
+    /// * `prover_state` - Prover state for transcript updates
     ///
     /// # Returns
     ///
-    /// Vector of evaluations corresponding to the STIR challenges
+    /// Vector of evaluations corresponding to the STIR challenge positions
     pub(crate) fn process_stir_queries(
         &self,
         round_index: usize,
@@ -100,13 +102,16 @@ where
         round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
         prover_state: &mut ProverState<F, EF, Challenger>,
     ) -> Vec<EF> {
+        // Dispatch based on the presence of extension field Merkle prover data
         match &round_state.merkle_prover_data {
+            // Base field operations when no extension field data present
             None => self.process_base_field_queries(
                 round_index,
                 challenge_indexes,
                 round_state,
                 prover_state,
             ),
+            // Extension field operations when extension data is available
             Some(data) => self.process_extension_field_queries(
                 challenge_indexes,
                 data,
@@ -116,30 +121,36 @@ where
         }
     }
 
-    /// Processes final round proofs.
+    /// Processes final round proofs for STIR queries.
     ///
-    /// This method handles the final stage of the STIR protocol where the prover
-    /// must open specific positions in the final Merkle tree commitments.
+    /// Handles the final stage of the STIR protocol where the prover must
+    /// open specific positions in Merkle tree commitments. Automatically
+    /// dispatches between base field and extension field commitment opening.
     ///
     /// # Arguments
     ///
-    /// * `challenge_indexes` - The positions to open (flexible iterator)
-    /// * `round_state` - The current round state
-    /// * `prover_state` - The prover state for transcript updates
+    /// * `challenge_indexes` - Positions to open in the final commitment
+    /// * `round_state` - Current round state containing commitment data
+    /// * `prover_state` - Prover state for transcript updates
     pub(crate) fn process_final_proofs(
         &self,
         challenge_indexes: impl IntoIterator<Item = usize>,
         round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
         prover_state: &mut ProverState<F, EF, Challenger>,
     ) {
+        // Collect challenge indexes into a vector for processing
         let indexes: Vec<_> = challenge_indexes.into_iter().collect();
 
+        // Dispatch final proof opening based on commitment type
         match &round_state.merkle_prover_data {
+            // Open base field commitments when no extension data present
             None => self.open_base_field_commitments(&indexes, round_state, prover_state),
+            // Open extension field commitments when extension data available
             Some(data) => self.open_extension_field_commitments(&indexes, data, prover_state),
         }
     }
 
+    /// Processes STIR queries using base field operations.
     fn process_base_field_queries(
         &self,
         round_index: usize,
@@ -147,19 +158,25 @@ where
         round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
         prover_state: &mut ProverState<F, EF, Challenger>,
     ) -> Vec<EF> {
+        // Create base field MMCS for Merkle tree operations
         let mmcs = self.create_base_mmcs();
+        // Pre-allocate openings collection for efficiency
         let mut openings = BaseFieldOpenings::with_capacity(challenge_indexes.len());
 
-        // Open each position and collect results
+        // Process each challenge position by opening the commitment
         for &index in challenge_indexes {
             let opening = mmcs.open_batch(index, &round_state.commitment_merkle_prover_data);
+            // Store the opened values and authentication proof
             openings.push(opening.opened_values[0].clone(), opening.opening_proof);
         }
 
+        // Hint opening data to prover state for transcript inclusion
         hint_base_field_openings(&openings, prover_state);
+        // Evaluate answers using appropriate method based on configuration
         evaluate_base_field_answers(&self.config, round_index, &openings.answers, round_state)
     }
 
+    /// Processes STIR queries using extension field operations.
     fn process_extension_field_queries(
         &self,
         challenge_indexes: &[usize],
@@ -167,59 +184,83 @@ where
         round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
         prover_state: &mut ProverState<F, EF, Challenger>,
     ) -> Vec<EF> {
+        // Create base MMCS and wrap with extension field functionality
         let mmcs = self.create_base_mmcs();
         let ext_mmcs = ExtensionMmcs::new(mmcs);
-        let mut openings =
-            super::openings::ExtensionFieldOpenings::with_capacity(challenge_indexes.len());
+        // Pre-allocate extension field openings collection
+        let mut openings = ExtensionFieldOpenings::with_capacity(challenge_indexes.len());
 
-        // Open each position and collect results
+        // Process each challenge position using extension field operations
         for &index in challenge_indexes {
             let opening = ext_mmcs.open_batch(index, prover_data);
+            // Store extension field values with base field authentication proof
             openings.push(opening.opened_values[0].clone(), opening.opening_proof);
         }
 
+        // Hint extension field opening data to prover state
         hint_extension_field_openings(&openings, prover_state);
+        // Evaluate extension field answers using standard multilinear method
         evaluate_extension_field_answers(&openings.answers, round_state)
     }
 
+    /// Opens base field commitments for final proof generation.
+    ///
+    /// Performs final commitment openings for base field data.
+    ///
+    /// Only hints the opening data to the prover state without performing evaluations.
     fn open_base_field_commitments(
         &self,
         challenge_indexes: &[usize],
         round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
         prover_state: &mut ProverState<F, EF, Challenger>,
     ) {
+        // Create base field MMCS for final openings
         let mmcs = self.create_base_mmcs();
+        // Pre-allocate openings collection for final proof data
         let mut openings = BaseFieldOpenings::with_capacity(challenge_indexes.len());
 
+        // Open each final challenge position
         for &index in challenge_indexes {
             let opening = mmcs.open_batch(index, &round_state.commitment_merkle_prover_data);
+            // Store final opened values and proofs
             openings.push(opening.opened_values[0].clone(), opening.opening_proof);
         }
 
+        // Hint final base field opening data to prover state
         hint_base_field_openings(&openings, prover_state);
     }
 
+    /// Opens extension field commitments for final proof generation.
+    ///
+    /// Performs final commitment openings for extension field data.
+    ///
+    /// Only hints the opening data to the prover state without performing evaluations.
     fn open_extension_field_commitments(
         &self,
         challenge_indexes: &[usize],
         prover_data: &ExtProverData<F, EF, H, C, DIGEST_ELEMS>,
         prover_state: &mut ProverState<F, EF, Challenger>,
     ) {
+        // Create extension field MMCS for final openings
         let mmcs = self.create_base_mmcs();
         let ext_mmcs = ExtensionMmcs::new(mmcs);
-        let mut openings =
-            super::openings::ExtensionFieldOpenings::with_capacity(challenge_indexes.len());
+        // Pre-allocate extension field openings collection for final proof
+        let mut openings = ExtensionFieldOpenings::with_capacity(challenge_indexes.len());
 
+        // Open each final challenge position using extension field operations
         for &index in challenge_indexes {
             let opening = ext_mmcs.open_batch(index, prover_data);
+            // Store final extension field values with base field proofs
             openings.push(opening.opened_values[0].clone(), opening.opening_proof);
         }
 
+        // Hint final extension field opening data to prover state
         hint_extension_field_openings(&openings, prover_state);
     }
 
     /// Creates a base field MMCS instance using the handler's cryptographic primitives.
-    fn create_base_mmcs(&self) -> BaseMmcs<F, H, C, DIGEST_ELEMS> {
+    fn create_base_mmcs(&self) -> BaseMmcs<F::Packing, H, C, DIGEST_ELEMS> {
+        // Create MMCS with cloned references to cryptographic primitives
         BaseMmcs::new(self.hasher.clone(), self.compressor.clone())
     }
 }
@@ -255,10 +296,6 @@ mod tests {
 
     #[test]
     fn test_create_base_mmcs() {
-        // Test that the utility function can be called
-        // In a real test, we'd use concrete hasher and compressor types
-        // For now, we test the configuration logic
-
         let config = StirConfig::new();
         assert!(!config.should_apply_univariate_skip(0));
 
