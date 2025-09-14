@@ -8,7 +8,7 @@ use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use round_state::RoundState;
 use serde::{Deserialize, Serialize};
-use stir_proof::{StirConfig, StirProofHandler};
+use stir::{StirConfig, StirProofHandler, StirQueryGenerator};
 use tracing::{info_span, instrument};
 
 use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
@@ -17,14 +17,11 @@ use crate::{
     fiat_shamir::{errors::ProofResult, prover::ProverState},
     poly::multilinear::MultilinearPoint,
     utils::parallel_repeat,
-    whir::{
-        parameters::RoundConfig,
-        utils::{get_challenge_stir_queries, sample_ood_points},
-    },
+    whir::utils::sample_ood_points,
 };
 
 pub mod round_state;
-pub mod stir_proof;
+pub mod stir;
 
 pub type Proof<W, const DIGEST_ELEMS: usize> = Vec<Vec<[W; DIGEST_ELEMS]>>;
 pub type Leafs<F> = Vec<Vec<F>>;
@@ -275,16 +272,22 @@ where
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
         prover_state.pow_grinding(round_params.pow_bits);
 
-        // STIR Queries
-        let (ood_challenges, stir_challenges, stir_challenges_indexes) = self
-            .compute_stir_queries(
-                round_index,
-                prover_state,
-                round_state,
-                num_variables,
-                round_params,
-                &ood_points,
-            )?;
+        // STIR Queries - Generate challenges using the query generator abstraction
+        let query_generator = StirQueryGenerator::new(round_params.num_queries);
+        let challenges = query_generator.compute_challenges(
+            round_state,
+            prover_state,
+            &ood_points,
+            self.folding_factor.at_round(round_index),
+            num_variables,
+        )?;
+
+        // Extract challenges for compatibility with existing processing code
+        let (ood_challenges, stir_challenges, stir_challenges_indexes) = (
+            challenges.ood_challenges,
+            challenges.stir_challenges,
+            challenges.challenge_indices,
+        );
 
         // Process STIR queries
         let stir_config = StirConfig::builder()
@@ -385,11 +388,13 @@ where
         prover_state.pow_grinding(self.final_pow_bits);
 
         // Final verifier queries and answers. The indices are over the folded domain.
-        let final_challenge_indexes = get_challenge_stir_queries(
+        // Use the STIR query generator for final challenge generation
+        let final_challenge_indexes = StirQueryGenerator::generate_final_queries(
             // The size of the original domain before folding
             round_state.domain_size,
             // The folding factor we used to fold the previous polynomial
             self.folding_factor.at_round(round_index),
+            // Number of final verification queries
             self.final_queries,
             prover_state,
         )?;
@@ -425,46 +430,5 @@ where
         }
 
         Ok(())
-    }
-
-    #[instrument(skip_all, level = "debug")]
-    #[allow(clippy::type_complexity)]
-    fn compute_stir_queries<const DIGEST_ELEMS: usize>(
-        &self,
-        round_index: usize,
-        prover_state: &mut ProverState<F, EF, Challenger>,
-        round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
-        num_variables: usize,
-        round_params: &RoundConfig<F>,
-        ood_points: &[EF],
-    ) -> ProofResult<(
-        Vec<MultilinearPoint<EF>>,
-        Vec<MultilinearPoint<F>>,
-        Vec<usize>,
-    )> {
-        let stir_challenges_indexes = get_challenge_stir_queries(
-            round_state.domain_size,
-            self.folding_factor.at_round(round_index),
-            round_params.num_queries,
-            prover_state,
-        )?;
-
-        // Compute the generator of the folded domain, in the extension field
-        let domain_scaled_gen = round_state.next_domain_gen;
-        let ood_challenges = ood_points
-            .iter()
-            .map(|univariate| MultilinearPoint::expand_from_univariate(*univariate, num_variables))
-            .collect();
-        let stir_challenges = stir_challenges_indexes
-            .iter()
-            .map(|i| {
-                MultilinearPoint::expand_from_univariate(
-                    domain_scaled_gen.exp_u64(*i as u64),
-                    num_variables,
-                )
-            })
-            .collect();
-
-        Ok((ood_challenges, stir_challenges, stir_challenges_indexes))
     }
 }
