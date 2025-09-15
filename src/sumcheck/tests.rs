@@ -278,7 +278,7 @@ where
     let mut challenges_for_round = final_challenges.clone();
 
     // Iterate through each round where constraints were introduced.
-    for (round_idx, constraints_in_round) in statements.iter().enumerate() {
+    for (round_idx, statement) in statements.iter().enumerate() {
         let alpha = alphas[round_idx];
         let alpha_pows = alpha.powers().collect_n(constraints_in_round.len());
 
