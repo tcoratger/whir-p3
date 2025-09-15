@@ -14,7 +14,7 @@ use tracing::{info_span, instrument};
 use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
 use crate::{
     dft::EvalsDft,
-    fiat_shamir::{errors::ProofResult, prover::ProverState},
+    fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::multilinear::MultilinearPoint,
     utils::parallel_repeat,
     whir::utils::sample_ood_points,
@@ -138,7 +138,7 @@ where
         prover_state: &mut ProverState<F, EF, Challenger>,
         statement: Statement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
-    ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
+    ) -> Result<(MultilinearPoint<EF>, Vec<EF>), FiatShamirError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
@@ -194,7 +194,7 @@ where
         dft: &EvalsDft<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
-    ) -> ProofResult<()>
+    ) -> Result<(), FiatShamirError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
@@ -359,7 +359,7 @@ where
         round_index: usize,
         prover_state: &mut ProverState<F, EF, Challenger>,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
-    ) -> ProofResult<()>
+    ) -> Result<(), FiatShamirError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>

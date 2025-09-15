@@ -5,7 +5,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_symmetric::Hash;
 
 use crate::{
-    fiat_shamir::{errors::ProofResult, verifier::VerifierState},
+    fiat_shamir::{errors::FiatShamirError, verifier::VerifierState},
     poly::multilinear::MultilinearPoint,
     whir::{parameters::WhirConfig, statement::constraint::Constraint},
 };
@@ -62,7 +62,7 @@ where
         verifier_state: &mut VerifierState<F, EF, Challenger>,
         num_variables: usize,
         ood_samples: usize,
-    ) -> ProofResult<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>>
+    ) -> Result<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>, FiatShamirError>
     where
         F: TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
@@ -151,7 +151,7 @@ where
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<F, EF, Challenger>,
-    ) -> ProofResult<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>> {
+    ) -> Result<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>, FiatShamirError> {
         ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
             verifier_state,
             self.num_variables,

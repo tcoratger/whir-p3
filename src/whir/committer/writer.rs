@@ -12,7 +12,7 @@ use tracing::{info_span, instrument};
 use super::Witness;
 use crate::{
     dft::EvalsDft,
-    fiat_shamir::{errors::ProofResult, prover::ProverState},
+    fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::evals::EvaluationsList,
     utils::parallel_repeat,
     whir::{committer::DenseMatrix, parameters::WhirConfig, utils::sample_ood_points},
@@ -59,7 +59,7 @@ where
         dft: &EvalsDft<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
         polynomial: EvaluationsList<F>,
-    ) -> ProofResult<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>>
+    ) -> Result<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>, FiatShamirError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>

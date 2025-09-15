@@ -12,7 +12,7 @@ use tracing::instrument;
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::ProofResult, prover::ProverState},
+    fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
@@ -151,7 +151,7 @@ where
         prover_state: &mut ProverState<F, EF, Challenger>,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
-    ) -> ProofResult<Self>
+    ) -> Result<Self, FiatShamirError>
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
         MyChallenger: Clone,

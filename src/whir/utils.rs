@@ -5,7 +5,7 @@ use p3_util::log2_ceil_usize;
 use tracing::instrument;
 
 use crate::{
-    fiat_shamir::{ChallengeSampler, errors::ProofResult, prover::ProverState},
+    fiat_shamir::{ChallengeSampler, errors::FiatShamirError, prover::ProverState},
     poly::multilinear::MultilinearPoint,
 };
 
@@ -55,7 +55,7 @@ pub fn get_challenge_stir_queries<Chal: ChallengeSampler<EF>, F, EF>(
     folding_factor: usize,
     num_queries: usize,
     prover_state: &mut Chal,
-) -> ProofResult<Vec<usize>>
+) -> Result<Vec<usize>, FiatShamirError>
 where
     F: Field,
     EF: ExtensionField<F>,

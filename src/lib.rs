@@ -1,5 +1,6 @@
 pub mod constant;
 pub mod dft;
+pub mod errors;
 pub mod fiat_shamir;
 pub mod parameters;
 pub mod poly;

@@ -4,7 +4,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 
 use crate::{
-    fiat_shamir::{ChallengeSampler, errors::ProofResult},
+    fiat_shamir::{ChallengeSampler, errors::FiatShamirError},
     poly::multilinear::MultilinearPoint,
     whir::{prover::round_state::RoundState, utils::get_challenge_stir_queries},
 };
@@ -125,7 +125,7 @@ impl StirQueryGenerator {
         ood_points: &[EF],
         folding_factor: usize,
         num_variables: usize,
-    ) -> ProofResult<StirChallenges<F, EF>>
+    ) -> Result<StirChallenges<F, EF>, FiatShamirError>
     where
         F: TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
@@ -185,7 +185,7 @@ impl StirQueryGenerator {
         folding_factor: usize,
         num_final_queries: usize,
         prover_state: &mut impl ChallengeSampler<EF>,
-    ) -> ProofResult<Vec<usize>>
+    ) -> Result<Vec<usize>, FiatShamirError>
     where
         F: Field,
         EF: ExtensionField<F>,
