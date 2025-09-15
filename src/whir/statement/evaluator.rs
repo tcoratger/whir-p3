@@ -2,7 +2,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
     constant::K_SKIP_SUMCHECK, parameters::FoldingFactor, poly::multilinear::MultilinearPoint,
-    whir::parameters::WhirConfig,
+    whir::{parameters::WhirConfig, statement::Statement},
 };
 
 /// Lightweight evaluator for the combined constraint polynomial W(r).
@@ -44,8 +44,7 @@ impl ConstraintPolyEvaluator {
     /// - skip case:     length = (n - K_SKIP_SUMCHECK) + 1  (r_rest || r_skip)
     pub fn eval_constraints_poly<EF>(
         &self,
-        constraints: &[(Vec<EF>, Vec<Constraint<EF>>)],
-        deferred: &[EF],
+        constraints: &[(Vec<EF>, Statement<EF>)],
         point: &MultilinearPoint<EF>,
     ) -> EF
     where
@@ -53,9 +52,6 @@ impl ConstraintPolyEvaluator {
     {
         // Remaining variable count for the round we are evaluating.
         let mut vars_left = self.num_variables;
-
-        // Iterator over deferred evaluations.
-        let mut deferred_it = deferred.iter().copied();
 
         let mut acc = EF::ZERO;
 
@@ -79,22 +75,20 @@ impl ConstraintPolyEvaluator {
                 && self.univariate_skip
                 && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
-            let round_sum: EF = round_constraints
+            let round_sum: EF = round_constraints.evaluation_points
                 .iter()
                 .zip(alpha_pows)
-                .map(|(c, &alpha_i)| {
+                .map(|(point, &alpha_i)| {
                     // Each constraint contributes either a deferred evaluation, a skip-aware
                     // evaluation, or a standard evaluation.
-                    let val = if c.defer_evaluation {
-                        deferred_it.next().expect("missing deferred evaluation")
-                    } else if is_skip_round {
+                    let val = if is_skip_round {
                         // Skip-aware evaluation over r_rest || r_skip.
-                        debug_assert_eq!(c.point.num_variables(), self.num_variables);
-                        c.point.eq_poly_with_skip(&point_for_round, K_SKIP_SUMCHECK)
+                        debug_assert_eq!(point.num_variables(), self.num_variables);
+                        point.eq_poly_with_skip(&point_for_round, K_SKIP_SUMCHECK)
                     } else {
                         // Standard multilinear evaluation on the current domain.
-                        debug_assert_eq!(c.point.num_variables(), vars_left);
-                        c.point.eq_poly(&point_for_round)
+                        debug_assert_eq!(point.num_variables(), vars_left);
+                        point.eq_poly(&point_for_round)
                     };
 
                     // Multiply by its random combination coefficient.
@@ -213,11 +207,12 @@ mod tests {
         // Assemble the data in the format that `eval_constraints_poly` expects.
         let round_constraints: Vec<_> = statements
             .iter()
+            .cloned()
             .zip(&alphas)
             .map(|(statement, &alpha)| {
                 (
-                    alpha.powers().collect_n(statement.constraints.len()),
-                    statement.constraints.clone(),
+                    alpha.powers().collect_n(statement.len()),
+                    statement,
                 )
             })
             .collect();
@@ -229,7 +224,7 @@ mod tests {
         //
         // This is the recursive method we want to validate.
         let result_from_eval_poly =
-            evaluator.eval_constraints_poly(&round_constraints, &[], &final_point);
+            evaluator.eval_constraints_poly(&round_constraints, &final_point);
 
         // Manually compute W(r) with explicit recursive evaluation
         let mut expected_result = EF::ZERO;
@@ -357,8 +352,9 @@ mod tests {
             // Assemble the final data structure in the format required by `eval_constraints_poly`.
             let round_constraints: Vec<_> = statements
                 .iter()
+                .cloned()
                 .zip(&alphas)
-                .map(|(s, &a)| (a.powers().collect_n(s.constraints.len()), s.constraints.clone()))
+                .map(|(s, &a)| (a.powers().collect_n(s.len()), s))
                 .collect();
 
             // Generate the final, full n-dimensional challenge point `r`.
@@ -369,7 +365,7 @@ mod tests {
             //
             // This is the recursive method we want to validate.
             let result_from_eval_poly =
-                evaluator.eval_constraints_poly(&round_constraints, &[], &final_point);
+                evaluator.eval_constraints_poly(&round_constraints, &final_point);
 
 
             // Calculate W(r) by materializing and evaluating round-by-round
@@ -468,11 +464,12 @@ mod tests {
         // Assemble the data in the format that `eval_constraints_poly` expects.
         let round_constraints: Vec<_> = statements
             .iter()
+            .cloned()
             .zip(&alphas)
             .map(|(s, &a)| {
                 (
-                    a.powers().collect_n(s.constraints.len()),
-                    s.constraints.clone(),
+                    a.powers().collect_n(s.len()),
+                    s,
                 )
             })
             .collect();
@@ -483,7 +480,7 @@ mod tests {
 
         // Calculate W(r) using the function under test
         let result_from_eval_poly =
-            evaluator.eval_constraints_poly(&round_constraints, &[], &final_point);
+            evaluator.eval_constraints_poly(&round_constraints, &final_point);
 
         // Manually compute W(r) with explicit recursive evaluation
         let mut expected_result = EF::ZERO;
@@ -611,8 +608,9 @@ mod tests {
             // Assemble the data for the function call.
             let round_constraints: Vec<_> = statements
                 .iter()
+                .cloned()
                 .zip(&alphas)
-                .map(|(s, &a)| (a.powers().collect_n(s.constraints.len()), s.constraints.clone()))
+                .map(|(s, &a)| (a.powers().collect_n(s.len()), s))
                 .collect();
 
             // For a skip protocol, the verifier's final challenge object has a special
@@ -623,7 +621,7 @@ mod tests {
 
             // Calculate W(r) using the function under test
             let result_from_eval_poly =
-                evaluator.eval_constraints_poly(&round_constraints, &[], &final_point);
+                evaluator.eval_constraints_poly(&round_constraints, &final_point);
 
 
             // Calculate W(r) by materializing and evaluating round-by-round

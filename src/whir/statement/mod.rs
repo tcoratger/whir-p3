@@ -59,10 +59,31 @@ impl<F: Field> Statement<F> {
         }
     }
 
+    /// Creates a filled `Statement<F>` for polynomials with `num_variables` variables.
+    #[must_use]
+    pub const fn initialize(num_variables: usize, evaluation_points: Vec<MultilinearPoint<F>>, expected_evaluations: Vec<F>) -> Self {
+        Self {
+            num_variables,
+            evaluation_points,
+            expected_evaluations,
+        }
+    }
+
     /// Returns the number of variables defining the polynomial space.
     #[must_use]
     pub const fn num_variables(&self) -> usize {
         self.num_variables
+    }
+
+    /// Returns an iterator over the evaluation constraints in the statement.
+    pub fn iter(&self) -> impl Iterator<Item = (&MultilinearPoint<F>, &F)> {
+        self.evaluation_points.iter().zip(self.expected_evaluations.iter())
+    }
+
+    /// Returns the number of constraints in the statement.
+    pub fn len(&self) -> usize {
+        debug_assert_eq!(self.evaluation_points.len(), self.expected_evaluations.len());
+        self.evaluation_points.len()
     }
 
     /// Adds an evaluation constraint `p(z) = s` to the system.

@@ -13,7 +13,7 @@ use tracing::instrument;
 
 use super::{
     committer::reader::ParsedCommitment, parameters::RoundConfig,
-    statement::constraint::Constraint, utils::get_challenge_stir_queries,
+    utils::get_challenge_stir_queries,
 };
 use crate::{
     constant::K_SKIP_SUMCHECK,

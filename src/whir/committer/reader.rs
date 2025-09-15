@@ -7,7 +7,7 @@ use p3_symmetric::Hash;
 use crate::{
     fiat_shamir::{errors::FiatShamirError, verifier::VerifierState},
     poly::multilinear::MultilinearPoint,
-    whir::{parameters::WhirConfig, statement::constraint::Constraint},
+    whir::{parameters::WhirConfig, statement::Statement},
 };
 
 /// Represents a parsed commitment from the prover in the WHIR protocol.
@@ -102,16 +102,17 @@ where
     /// Each constraint enforces that the committed polynomial evaluates to the
     /// claimed `ood_answer` at the corresponding `ood_point`, using a univariate
     /// equality weight over `num_variables` inputs.
-    pub fn oods_constraints(&self) -> Vec<Constraint<F>> {
-        self.ood_points
-            .iter()
-            .zip(&self.ood_answers)
-            .map(|(&point, &expected_evaluation)| Constraint {
-                point: MultilinearPoint::expand_from_univariate(point, self.num_variables),
-                expected_evaluation,
-                defer_evaluation: false,
-            })
-            .collect()
+    pub fn oods_constraints(&self) -> Statement<F> {
+        Statement::initialize(
+            self.num_variables,
+            self.ood_points
+                .iter()
+                .map(|&point| {
+                    MultilinearPoint::new((0..self.num_variables).rev().map(|i| point.exp_u64(1 << i)).collect())
+                })
+                .collect(),
+            self.ood_answers.clone(),
+        )
     }
 }
 
@@ -408,29 +409,25 @@ mod tests {
         assert_eq!(constraints.len(), parsed.ood_points.len());
 
         // Each constraint should have correct univariate weight, sum, and flag.
-        for (i, constraint) in constraints.iter().enumerate() {
-            let point = parsed.ood_points[i];
+        for (i, (point, &eval)) in constraints.iter().enumerate() {
+            let univariate_point = parsed.ood_points[i];
             let expected_eval = parsed.ood_answers[i];
 
             // Manually compute the expanded univariate point
             let expected_point = MultilinearPoint::new(vec![
-                point.exp_u64(8),
-                point.exp_u64(4),
-                point.exp_u64(2),
-                point,
+                univariate_point.exp_u64(8),
+                univariate_point.exp_u64(4),
+                univariate_point.exp_u64(2),
+                univariate_point,
             ]);
 
             assert_eq!(
-                constraint.point, expected_point,
+                point.clone(), expected_point,
                 "Constraint {i} has incorrect weight"
             );
             assert_eq!(
-                constraint.expected_evaluation, expected_eval,
+                eval, expected_eval,
                 "Constraint {i} has incorrect sum"
-            );
-            assert!(
-                !constraint.defer_evaluation,
-                "Constraint {i} should not defer evaluation"
             );
         }
     }

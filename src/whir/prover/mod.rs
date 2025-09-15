@@ -79,7 +79,7 @@ where
     /// `true` if the statement structure is valid for this protocol instance.
     fn validate_statement(&self, statement: &Statement<EF>) -> bool {
         statement.num_variables() == self.num_variables
-            && (self.initial_statement || statement.constraints.is_empty())
+            && (self.initial_statement || statement.len() == 0)
     }
 
     /// Validates that the witness satisfies the structural requirements of the WHIR prover.
@@ -175,10 +175,8 @@ where
         // Hints for deferred constraints
         let deferred = round_state
             .statement
-            .constraints
             .iter()
-            .filter(|constraint| constraint.defer_evaluation)
-            .map(|constraint| constraint.point.eq_poly(&constraint_eval))
+            .map(|(point, _)| point.eq_poly(&constraint_eval))
             .collect::<Vec<_>>();
 
         prover_state.hint_extension_scalars(&deferred);
