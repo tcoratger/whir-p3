@@ -48,6 +48,8 @@ pub const fn workload_size<T: Sized>() -> usize {
 /// - `num_queries`: Target number of query indices to sample
 /// - `prover_state`: Fiat-Shamir transcript state for deterministic randomness
 ///
+/// **WARNING:** The domain size must be a power of two.
+///
 /// ## Returns
 /// Sorted, deduplicated vector of query indices in [0, folded_domain_size)
 pub fn get_challenge_stir_queries<Challenger, F, EF>(
