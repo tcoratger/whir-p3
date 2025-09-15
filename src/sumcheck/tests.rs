@@ -15,10 +15,7 @@ use crate::{
         domain_separator::DomainSeparator, prover::ProverState, verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{
-        statement::Statement,
-        verifier::sumcheck::verify_sumcheck_rounds,
-    },
+    whir::{statement::Statement, verifier::sumcheck::verify_sumcheck_rounds},
 };
 
 type F = BabyBear;
@@ -289,7 +286,8 @@ where
         let is_skip_round = round_idx == 0 && univariate_skip;
 
         // Calculate the total contribution from this round's constraints.
-        let round_contribution: EF = constraints_in_round.evaluation_points
+        let round_contribution: EF = constraints_in_round
+            .evaluation_points
             .iter()
             .zip(alpha_pows)
             .map(|(point, alpha_pow)| {
@@ -297,8 +295,7 @@ where
                     // ROUND 0 with SKIP: Use the special skip-aware evaluation.
                     // The constraints for this round are over the full `num_vars` domain.
                     assert_eq!(point.num_variables(), num_vars);
-                    point
-                        .eq_poly_with_skip(final_challenges, k_skip)
+                    point.eq_poly_with_skip(final_challenges, k_skip)
                 } else {
                     // STANDARD ROUND: Use the standard multilinear evaluation.
                     // The constraints and challenge point are over the smaller `num_vars_at_round` domain.

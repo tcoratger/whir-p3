@@ -1,9 +1,7 @@
 use p3_field::{ExtensionField, Field};
 use tracing::instrument;
 
-use crate::{
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-};
+use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
 pub mod evaluator;
 
@@ -61,7 +59,11 @@ impl<F: Field> Statement<F> {
 
     /// Creates a filled `Statement<F>` for polynomials with `num_variables` variables.
     #[must_use]
-    pub const fn initialize(num_variables: usize, evaluation_points: Vec<MultilinearPoint<F>>, expected_evaluations: Vec<F>) -> Self {
+    pub const fn initialize(
+        num_variables: usize,
+        evaluation_points: Vec<MultilinearPoint<F>>,
+        expected_evaluations: Vec<F>,
+    ) -> Self {
         Self {
             num_variables,
             evaluation_points,
@@ -78,19 +80,27 @@ impl<F: Field> Statement<F> {
     /// Returns true if the statement contains no constraints.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        debug_assert_eq!(self.evaluation_points.is_empty(), self.expected_evaluations.is_empty());
+        debug_assert_eq!(
+            self.evaluation_points.is_empty(),
+            self.expected_evaluations.is_empty()
+        );
         self.evaluation_points.is_empty()
     }
 
     /// Returns an iterator over the evaluation constraints in the statement.
     pub fn iter(&self) -> impl Iterator<Item = (&MultilinearPoint<F>, &F)> {
-        self.evaluation_points.iter().zip(self.expected_evaluations.iter())
+        self.evaluation_points
+            .iter()
+            .zip(self.expected_evaluations.iter())
     }
 
     /// Returns the number of constraints in the statement.
     #[must_use]
     pub fn len(&self) -> usize {
-        debug_assert_eq!(self.evaluation_points.len(), self.expected_evaluations.len());
+        debug_assert_eq!(
+            self.evaluation_points.len(),
+            self.expected_evaluations.len()
+        );
         self.evaluation_points.len()
     }
 
@@ -125,7 +135,7 @@ impl<F: Field> Statement<F> {
     /// Inserts multiple constraints at the front of the system.
     ///
     /// Panics if any constraint's number of variables does not match the system.
-    pub fn add_constraints_in_front(&mut self, points: &[MultilinearPoint<F>], evaluations: &[F]) {        
+    pub fn add_constraints_in_front(&mut self, points: &[MultilinearPoint<F>], evaluations: &[F]) {
         // Store the number of variables expected by this statement.
         let n = self.num_variables();
         assert_eq!(points.len(), evaluations.len());
@@ -134,7 +144,8 @@ impl<F: Field> Statement<F> {
         }
 
         self.evaluation_points.splice(0..0, points.iter().cloned());
-        self.expected_evaluations.splice(0..0, evaluations.iter().copied());
+        self.expected_evaluations
+            .splice(0..0, evaluations.iter().copied());
     }
     /// Combines all constraints into a single aggregated polynomial and expected sum using a challenge.
     ///
@@ -199,20 +210,12 @@ impl<F: Field> Statement<F> {
     ///
     /// # Returns
     /// A `Vec<EF>` containing the powers of `alpha` used to combine each constraint.
-    pub fn combine_evals(
-        &self,
-        claimed_eval: &mut F,
-        gamma: F,
-    ) -> Vec<F> {
+    pub fn combine_evals(&self, claimed_eval: &mut F, gamma: F) -> Vec<F> {
         combine_evals(claimed_eval, &self.expected_evaluations, gamma)
     }
 }
 
-pub fn combine_evals<F: Field>(
-    claimed_eval: &mut F,
-    evals: &[F],
-    gamma: F,
-) -> Vec<F> {
+pub fn combine_evals<F: Field>(claimed_eval: &mut F, evals: &[F], gamma: F) -> Vec<F> {
     let gammas = gamma.powers().collect_n(evals.len());
 
     for (expected_eval, &gamma) in evals.iter().zip(&gammas) {

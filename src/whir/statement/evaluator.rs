@@ -2,7 +2,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
     constant::K_SKIP_SUMCHECK, parameters::FoldingFactor, poly::multilinear::MultilinearPoint,
-    whir::{parameters::WhirConfig},
+    whir::parameters::WhirConfig,
 };
 
 /// Lightweight evaluator for the combined constraint polynomial W(r).
@@ -467,12 +467,7 @@ mod tests {
             .iter()
             .cloned()
             .zip(&alphas)
-            .map(|(s, &a)| {
-                (
-                    a.powers().collect_n(s.len()),
-                    s.evaluation_points,
-                )
-            })
+            .map(|(s, &a)| (a.powers().collect_n(s.len()), s.evaluation_points))
             .collect();
 
         // For a skip protocol, the verifier's final challenge object has a special

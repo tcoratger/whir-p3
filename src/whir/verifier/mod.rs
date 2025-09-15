@@ -12,15 +12,17 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use super::{
-    committer::reader::ParsedCommitment, parameters::RoundConfig,
-    utils::get_challenge_stir_queries,
+    committer::reader::ParsedCommitment, parameters::RoundConfig, utils::get_challenge_stir_queries,
 };
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::verifier::VerifierState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        parameters::WhirConfig, statement::{combine_evals, evaluator::ConstraintPolyEvaluator}, verifier::sumcheck::verify_sumcheck_rounds, Statement
+        Statement,
+        parameters::WhirConfig,
+        statement::{combine_evals, evaluator::ConstraintPolyEvaluator},
+        verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
 
@@ -74,12 +76,14 @@ where
         if self.initial_statement {
             // Combine OODS and statement constraints to claimed_sum
             let constraint_points: Vec<_> = prev_commitment
-                .oods_constraints().evaluation_points
+                .oods_constraints()
+                .evaluation_points
                 .into_iter()
                 .chain(statement.evaluation_points.clone())
                 .collect();
             let constraint_evals: Vec<_> = prev_commitment
-                .oods_constraints().expected_evaluations
+                .oods_constraints()
+                .expected_evaluations
                 .into_iter()
                 .chain(statement.expected_evaluations.clone())
                 .collect();
@@ -179,7 +183,8 @@ where
         )?;
 
         // Verify stir constraints directly on final polynomial
-        stir_constraints.verify(&final_evaluations)
+        stir_constraints
+            .verify(&final_evaluations)
             .then_some(())
             .ok_or_else(|| VerifierError::StirChallengeFailed {
                 challenge_id: 0,
@@ -384,7 +389,11 @@ where
             })
             .collect();
 
-        Ok(Statement::initialize(params.num_variables, stir_constraints, folds))
+        Ok(Statement::initialize(
+            params.num_variables,
+            stir_constraints,
+            folds,
+        ))
     }
 
     /// Verify a Merkle multi-opening proof for the provided indices.

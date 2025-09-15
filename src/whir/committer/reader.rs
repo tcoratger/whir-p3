@@ -108,7 +108,12 @@ where
             self.ood_points
                 .iter()
                 .map(|&point| {
-                    MultilinearPoint::new((0..self.num_variables).rev().map(|i| point.exp_u64(1 << i)).collect())
+                    MultilinearPoint::new(
+                        (0..self.num_variables)
+                            .rev()
+                            .map(|i| point.exp_u64(1 << i))
+                            .collect(),
+                    )
                 })
                 .collect(),
             self.ood_answers.clone(),
@@ -422,13 +427,11 @@ mod tests {
             ]);
 
             assert_eq!(
-                point.clone(), expected_point,
+                point.clone(),
+                expected_point,
                 "Constraint {i} has incorrect weight"
             );
-            assert_eq!(
-                eval, expected_eval,
-                "Constraint {i} has incorrect sum"
-            );
+            assert_eq!(eval, expected_eval, "Constraint {i} has incorrect sum");
         }
     }
 }
