@@ -278,15 +278,15 @@ where
     let mut challenges_for_round = final_challenges.clone();
 
     // Iterate through each round where constraints were introduced.
-    for (round_idx, statement) in statements.iter().enumerate() {
+    for (round_idx, round_statement) in statements.iter().enumerate() {
         let alpha = alphas[round_idx];
-        let alpha_pows = alpha.powers().collect_n(constraints_in_round.len());
+        let alpha_pows = alpha.powers().collect_n(round_statement.len());
 
         // Determine if this specific round should be evaluated using the skip method.
         let is_skip_round = round_idx == 0 && univariate_skip;
 
         // Calculate the total contribution from this round's constraints.
-        let round_contribution: EF = constraints_in_round
+        let round_contribution: EF = round_statement
             .points
             .iter()
             .zip(alpha_pows)

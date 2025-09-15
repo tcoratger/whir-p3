@@ -96,6 +96,7 @@ impl<F: Field> Statement<F> {
         self.points.len()
     }
 
+    /// Verifies that a given polynomial satisfies all constraints in the statement.
     #[must_use]
     pub fn verify(&self, poly: &EvaluationsList<F>) -> bool {
         self.iter().all(|(point, &expected_eval)| {
@@ -157,6 +158,7 @@ impl<F: Field> Statement<F> {
         self.points.splice(0..0, points.iter().cloned());
         self.evaluations.splice(0..0, evaluations.iter().copied());
     }
+
     /// Combines all constraints into a single aggregated polynomial and expected sum using a challenge.
     ///
     /// # Returns
@@ -210,21 +212,30 @@ impl<F: Field> Statement<F> {
         (combined, sum)
     }
 
-    /// Combines a list of evals into a single linear combination using powers of `alpha`,
-    /// and updates the running claimed sum in place.
+    /// Combines a list of evals into a single linear combination using powers of `gamma`,
+    /// and updates the running claimed_eval in place.
     ///
     /// # Arguments
-    /// - `claimed_sum`: Mutable reference to the total accumulated claimed sum so far. Updated in place.
-    /// - `constraints`: A slice of `Constraint<EF>` each containing a known `sum` field.
-    /// - `alpha`: A random extension field element used to weight the constraints.
+    /// - `claimed_eval`: Mutable reference to the total accumulated claimed eval so far. Updated in place.
+    /// - `gamma`: A random extension field element used to weight the evals.
     ///
     /// # Returns
-    /// A `Vec<EF>` containing the powers of `alpha` used to combine each constraint.
+    /// A `Vec<F>` containing the powers of `gamma` used to combine each constraint.
     pub fn combine_evals(&self, claimed_eval: &mut F, gamma: F) -> Vec<F> {
         combine_evals(claimed_eval, &self.evaluations, gamma)
     }
 }
 
+/// Combines a list of evals into a single linear combination using powers of `gamma`,
+/// and updates the running claimed_eval in place.
+///
+/// # Arguments
+/// - `claimed_eval`: Mutable reference to the total accumulated claimed sum so far. Updated in place.
+/// - `evals`: A slice of constraint evals to be combined.
+/// - `gamma`: A random extension field element used to weight the constraint evals.
+///
+/// # Returns
+/// A `Vec<F>` containing the powers of `gamma` used to combine each constraint.
 pub fn combine_evals<F: Field>(claimed_eval: &mut F, evals: &[F], gamma: F) -> Vec<F> {
     let gammas = gamma.powers().collect_n(evals.len());
 
