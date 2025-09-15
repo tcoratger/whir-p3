@@ -9,9 +9,6 @@ use crate::{
     whir::verifier::VerifierError,
 };
 
-/// The full vector of folding randomness values, in reverse round order.
-type SumcheckRandomness<F> = MultilinearPoint<F>;
-
 /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
 /// and computes the corresponding `MultilinearPoint` folding randomness in reverse order.
 ///
@@ -46,7 +43,7 @@ pub(crate) fn verify_sumcheck_rounds<EF, F, Challenger>(
     rounds: usize,
     pow_bits: usize,
     is_univariate_skip: bool,
-) -> Result<SumcheckRandomness<EF>, VerifierError>
+) -> Result<MultilinearPoint<EF>, VerifierError>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
