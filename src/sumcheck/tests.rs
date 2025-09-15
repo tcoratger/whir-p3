@@ -265,7 +265,7 @@ fn eval_constraints_poly<F, EF>(
     num_vars: usize,
     k_skip: usize,
     folding_factors: &[usize],
-    constraints: &[Statement<EF>],
+    statements: &[Statement<EF>],
     alphas: &[EF],
     final_challenges: &MultilinearPoint<EF>,
 ) -> EF
