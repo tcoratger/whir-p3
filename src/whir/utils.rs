@@ -89,7 +89,7 @@ where
     let total_bits_needed = num_queries * domain_size_bits;
 
     // PHASE 3: Execute sampling
-    let queries = if total_bits_needed > 0 && domain_size_bits > 0 {
+    let queries = if total_bits_needed > 0 {
         // Pre-allocate result vector
         let mut all_queries = Vec::with_capacity(num_queries);
 
