@@ -12,17 +12,14 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use super::{
-    committer::reader::ParsedCommitment, parameters::RoundConfig,
-    statement::constraint::Constraint, utils::get_challenge_stir_queries,
+    committer::reader::ParsedCommitment, parameters::RoundConfig, utils::get_challenge_stir_queries,
 };
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::verifier::VerifierState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        Statement,
-        parameters::WhirConfig,
-        statement::{constraint::linear_combine_constraints, evaluator::ConstraintPolyEvaluator},
+        Statement, parameters::WhirConfig, statement::evaluator::ConstraintPolyEvaluator,
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -75,15 +72,14 @@ where
 
         // Optional initial sumcheck round
         if self.initial_statement {
-            // Combine OODS and statement constraints to claimed_sum
-            let constraints: Vec<_> = prev_commitment
-                .oods_constraints()
-                .into_iter()
-                .chain(statement.constraints.iter().cloned())
-                .collect();
-            let combination_randomness =
-                self.combine_constraints(verifier_state, &mut claimed_sum, &constraints);
-            round_constraints.push((combination_randomness, constraints));
+            // Combine OODS constraints and statement constraints to claimed_sum
+            let mut new_statement = prev_commitment.oods_constraints();
+            new_statement.concatenate(statement);
+
+            let gamma = verifier_state.sample();
+            let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
+
+            round_constraints.push((combination_randomness, new_statement.get_points()));
 
             // Initial sumcheck
             let folding_randomness = verify_sumcheck_rounds(
@@ -96,7 +92,7 @@ where
             round_folding_randomness.push(folding_randomness);
         } else {
             assert!(prev_commitment.ood_points.is_empty());
-            assert!(statement.constraints.is_empty());
+            assert!(statement.is_empty());
             round_constraints.push((vec![], vec![]));
 
             let folding_randomness = MultilinearPoint::new(
@@ -131,15 +127,13 @@ where
             )?;
 
             // Add out-of-domain and in-domain constraints to claimed_sum
-            let constraints: Vec<_> = new_commitment
-                .oods_constraints()
-                .into_iter()
-                .chain(stir_constraints.into_iter())
-                .collect();
+            let mut new_statement = new_commitment.oods_constraints();
+            new_statement.concatenate(&stir_constraints);
 
-            let combination_randomness =
-                self.combine_constraints(verifier_state, &mut claimed_sum, &constraints);
-            round_constraints.push((combination_randomness.clone(), constraints));
+            let gamma = verifier_state.sample();
+            let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
+
+            round_constraints.push((combination_randomness.clone(), new_statement.get_points()));
 
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
@@ -171,8 +165,7 @@ where
 
         // Verify stir constraints directly on final polynomial
         stir_constraints
-            .iter()
-            .all(|c| c.verify(&final_evaluations))
+            .verify(&final_evaluations)
             .then_some(())
             .ok_or_else(|| VerifierError::StirChallengeFailed {
                 challenge_id: 0,
@@ -218,32 +211,6 @@ where
         Ok(folding_randomness)
     }
 
-    /// Combine multiple constraints into a single claim using random linear combination.
-    ///
-    /// This method draws a challenge scalar from the Fiat-Shamir transcript and uses it
-    /// to generate a sequence of powers, one for each constraint. These powers serve as
-    /// coefficients in a random linear combination of the constraint sums.
-    ///
-    /// The resulting linear combination is added to `claimed_sum`, which becomes the new
-    /// target value to verify in the sumcheck protocol.
-    ///
-    /// # Arguments
-    /// - `verifier_state`: Fiat-Shamir transcript reader.
-    /// - `claimed_sum`: Mutable reference to the running sum of combined constraints.
-    /// - `constraints`: List of constraints to combine.
-    ///
-    /// # Returns
-    /// A vector of randomness values used to weight each constraint.
-    pub fn combine_constraints(
-        &self,
-        verifier_state: &mut VerifierState<F, EF, Challenger>,
-        claimed_sum: &mut EF,
-        constraints: &[Constraint<EF>],
-    ) -> Vec<EF> {
-        let combination_randomness_gen: EF = verifier_state.sample();
-        linear_combine_constraints(claimed_sum, constraints, combination_randomness_gen)
-    }
-
     /// Verify STIR in-domain queries and produce associated constraints.
     ///
     /// This method runs the STIR query phase on a given commitment.
@@ -275,7 +242,7 @@ where
         commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
-    ) -> Result<Vec<Constraint<EF>>, VerifierError>
+    ) -> Result<Statement<EF>, VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
@@ -372,16 +339,16 @@ where
         let stir_constraints = stir_challenges_indexes
             .iter()
             .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
-            .zip(&folds)
-            .map(|(point, &expected_evaluation)| {
-                Constraint::new(
-                    MultilinearPoint::expand_from_univariate(EF::from(point), params.num_variables),
-                    expected_evaluation,
-                )
+            .map(|point| {
+                MultilinearPoint::expand_from_univariate(EF::from(point), params.num_variables)
             })
             .collect();
 
-        Ok(stir_constraints)
+        Ok(Statement::new(
+            params.num_variables,
+            stir_constraints,
+            folds,
+        ))
     }
 
     /// Verify a Merkle multi-opening proof for the provided indices.

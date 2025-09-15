@@ -1,6 +1,5 @@
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use super::constraint::Constraint;
 use crate::{
     constant::K_SKIP_SUMCHECK, parameters::FoldingFactor, poly::multilinear::MultilinearPoint,
     whir::parameters::WhirConfig,
@@ -46,7 +45,7 @@ impl ConstraintPolyEvaluator {
     #[must_use]
     pub fn eval_constraints_poly<EF>(
         &self,
-        constraints: &[(Vec<EF>, Vec<Constraint<EF>>)],
+        constraints: &[(Vec<EF>, Vec<MultilinearPoint<EF>>)],
         point: &MultilinearPoint<EF>,
     ) -> EF
     where
@@ -57,7 +56,7 @@ impl ConstraintPolyEvaluator {
 
         let mut acc = EF::ZERO;
 
-        for (round_idx, (alpha_pows, round_constraints)) in constraints.iter().enumerate() {
+        for (round_idx, (alpha_pows, round_constraint_points)) in constraints.iter().enumerate() {
             // Construct the point slice appropriate for this round.
             //
             // For round 0 we use the full `point`:
@@ -77,21 +76,20 @@ impl ConstraintPolyEvaluator {
                 && self.univariate_skip
                 && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
-            let round_sum: EF = round_constraints
+            let round_sum: EF = round_constraint_points
                 .iter()
                 .zip(alpha_pows)
-                .map(|(c, &alpha_i)| {
+                .map(|(point, &alpha_i)| {
                     // Each constraint contributes either a deferred evaluation, a skip-aware
                     // evaluation, or a standard evaluation.
                     let val = if is_skip_round {
                         // Skip-aware evaluation over r_rest || r_skip.
-                        debug_assert_eq!(c.num_variables(), self.num_variables);
-                        c.point()
-                            .eq_poly_with_skip(&point_for_round, K_SKIP_SUMCHECK)
+                        debug_assert_eq!(point.num_variables(), self.num_variables);
+                        point.eq_poly_with_skip(&point_for_round, K_SKIP_SUMCHECK)
                     } else {
                         // Standard multilinear evaluation on the current domain.
-                        debug_assert_eq!(c.num_variables(), vars_left);
-                        c.point().eq_poly(&point_for_round)
+                        debug_assert_eq!(point.num_variables(), vars_left);
+                        point.eq_poly(&point_for_round)
                     };
 
                     // Multiply by its random combination coefficient.
@@ -193,9 +191,9 @@ mod tests {
         // Generate constraints and alpha challenges for each of the 3 rounds.
         for num_constraints in num_constraints_per_round {
             // Create a statement for the current domain size (20, then 15, then 10).
-            let mut statement = Statement::new(num_vars_at_round);
+            let mut statement = Statement::initialize(num_vars_at_round);
             for _ in 0..*num_constraints {
-                statement.add_constraint(
+                statement.add_evaluated_constraint(
                     MultilinearPoint::rand(&mut rng, num_vars_at_round),
                     rng.random(),
                 );
@@ -210,12 +208,10 @@ mod tests {
         // Assemble the data in the format that `eval_constraints_poly` expects.
         let round_constraints: Vec<_> = statements
             .iter()
+            .cloned()
             .zip(&alphas)
             .map(|(statement, &alpha)| {
-                (
-                    alpha.powers().collect_n(statement.constraints.len()),
-                    statement.constraints.clone(),
-                )
+                (alpha.powers().collect_n(statement.len()), statement.points)
             })
             .collect();
 
@@ -336,10 +332,10 @@ mod tests {
             // Generate the statements and alpha challenges for each round based on our dynamic schedule.
             for i in 0..num_rounds {
                 // Create a statement for the current domain size (e.g., 20, then 15, then 10...).
-                let mut statement = Statement::new(num_vars_current);
+                let mut statement = Statement::initialize(num_vars_current);
                 // Add the random number of constraints for this round.
                 for _ in 0..num_constraints_per_round[i] {
-                    statement.add_constraint(
+                    statement.add_evaluated_constraint(
                         MultilinearPoint::rand(&mut rng, num_vars_current),
                         rng.random(),
                     );
@@ -354,8 +350,9 @@ mod tests {
             // Assemble the final data structure in the format required by `eval_constraints_poly`.
             let round_constraints: Vec<_> = statements
                 .iter()
+                .cloned()
                 .zip(&alphas)
-                .map(|(s, &a)| (a.powers().collect_n(s.constraints.len()), s.constraints.clone()))
+                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.points))
                 .collect();
 
             // Generate the final, full n-dimensional challenge point `r`.
@@ -450,9 +447,9 @@ mod tests {
             .enumerate()
             .take(num_rounds)
         {
-            let mut statement = Statement::new(num_vars_at_round);
+            let mut statement = Statement::initialize(num_vars_at_round);
             for _ in 0..num_constraints {
-                statement.add_constraint(
+                statement.add_evaluated_constraint(
                     MultilinearPoint::rand(&mut rng, num_vars_at_round),
                     rng.random(),
                 );
@@ -465,13 +462,9 @@ mod tests {
         // Assemble the data in the format that `eval_constraints_poly` expects.
         let round_constraints: Vec<_> = statements
             .iter()
+            .cloned()
             .zip(&alphas)
-            .map(|(s, &a)| {
-                (
-                    a.powers().collect_n(s.constraints.len()),
-                    s.constraints.clone(),
-                )
-            })
+            .map(|(s, &a)| (a.powers().collect_n(s.len()), s.points))
             .collect();
 
         // For a skip protocol, the verifier's final challenge object has a special
@@ -593,9 +586,9 @@ mod tests {
 
             // Generate the statements and alphas for each round based on our dynamic schedule.
             for i in 0..num_rounds {
-                let mut statement = Statement::new(num_vars_current);
+                let mut statement = Statement::initialize(num_vars_current);
                 for _ in 0..num_constraints_per_round[i] {
-                    statement.add_constraint(
+                    statement.add_evaluated_constraint(
                         MultilinearPoint::rand(&mut rng, num_vars_current),
                         rng.random(),
                     );
@@ -608,8 +601,9 @@ mod tests {
             // Assemble the data for the function call.
             let round_constraints: Vec<_> = statements
                 .iter()
+                .cloned()
                 .zip(&alphas)
-                .map(|(s, &a)| (a.powers().collect_n(s.constraints.len()), s.constraints.clone()))
+                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.points))
                 .collect();
 
             // For a skip protocol, the verifier's final challenge object has a special

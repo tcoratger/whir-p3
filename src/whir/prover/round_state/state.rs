@@ -158,20 +158,17 @@ where
         C: Clone,
     {
         // Convert witness OOD evaluations f(r_j) = v_j into linear constraints
-        let new_constraints = witness
+        let new_constraint_points: Vec<_> = witness
             .ood_points
             .into_iter()
-            .zip(witness.ood_answers)
-            .map(|(point, evaluation)| {
+            .map(|point| {
                 // Expand univariate OOD point to multilinear constraint in (EF)^n
-                let constraint_point =
-                    MultilinearPoint::expand_from_univariate(point, prover.num_variables);
-                (constraint_point, evaluation)
+                MultilinearPoint::expand_from_univariate(point, prover.num_variables)
             })
             .collect();
 
         // Prepend OOD constraints to statement for Reed-Solomon proximity testing
-        statement.add_constraints_in_front(new_constraints);
+        statement.add_constraints_in_front(&new_constraint_points, &witness.ood_answers);
 
         // Protocol branching based on initial statement configuration
         let (sumcheck_prover, folding_randomness) = if prover.initial_statement {
@@ -217,8 +214,11 @@ where
             let num_variables = poly.num_variables();
 
             // Create trivial sumcheck prover (no constraints to batch)
-            let sumcheck =
-                SumcheckSingle::from_extension_evals(poly, &Statement::new(num_variables), EF::ONE);
+            let sumcheck = SumcheckSingle::from_extension_evals(
+                poly,
+                &Statement::initialize(num_variables),
+                EF::ONE,
+            );
 
             // Apply proof-of-work grinding for transcript security
             prover_state.pow_grinding(prover.starting_folding_pow_bits);

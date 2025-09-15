@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(n_vars, 3);
 
         // Create a constraint system with evaluations of f at various points
-        let mut statement = Statement::new(n_vars);
+        let mut statement = Statement::initialize(n_vars);
 
         let x_000 = MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]);
         let x_100 = MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ZERO]);
@@ -237,11 +237,11 @@ mod tests {
         let f_111 = f(EF4::ONE, EF4::ONE, EF4::ONE);
         let f_011 = f(EF4::ZERO, EF4::ONE, EF4::ONE);
 
-        statement.add_constraint(x_000, f_000);
-        statement.add_constraint(x_100, f_100);
-        statement.add_constraint(x_110, f_110);
-        statement.add_constraint(x_111, f_111);
-        statement.add_constraint(x_011, f_011);
+        statement.add_evaluated_constraint(x_000, f_000);
+        statement.add_evaluated_constraint(x_100, f_100);
+        statement.add_evaluated_constraint(x_110, f_110);
+        statement.add_evaluated_constraint(x_111, f_111);
+        statement.add_evaluated_constraint(x_011, f_011);
 
         let folding_factor = 3;
         let pow_bits = 0;
@@ -346,7 +346,7 @@ mod tests {
         // Construct a Statement by evaluating f at several Boolean points
         // These evaluations will serve as equality constraints
         // -------------------------------------------------------------
-        let mut statement = Statement::new(NUM_VARS);
+        let mut statement = Statement::initialize(NUM_VARS);
         for i in 0..5 {
             let bool_point: Vec<_> = (0..NUM_VARS)
                 .map(|j| {
@@ -359,7 +359,7 @@ mod tests {
                 .collect();
             let ml_point = MultilinearPoint::new(bool_point.clone());
             let expected_val = coeffs.evaluate(&ml_point);
-            statement.add_constraint(ml_point, expected_val);
+            statement.add_evaluated_constraint(ml_point, expected_val);
         }
 
         // -------------------------------------------------------------
