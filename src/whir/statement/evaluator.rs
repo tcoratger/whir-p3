@@ -191,7 +191,7 @@ mod tests {
         // Generate constraints and alpha challenges for each of the 3 rounds.
         for num_constraints in num_constraints_per_round {
             // Create a statement for the current domain size (20, then 15, then 10).
-            let mut statement = Statement::new(num_vars_at_round);
+            let mut statement = Statement::initialize(num_vars_at_round);
             for _ in 0..*num_constraints {
                 statement.add_evaluated_constraint(
                     MultilinearPoint::rand(&mut rng, num_vars_at_round),
@@ -332,7 +332,7 @@ mod tests {
             // Generate the statements and alpha challenges for each round based on our dynamic schedule.
             for i in 0..num_rounds {
                 // Create a statement for the current domain size (e.g., 20, then 15, then 10...).
-                let mut statement = Statement::new(num_vars_current);
+                let mut statement = Statement::initialize(num_vars_current);
                 // Add the random number of constraints for this round.
                 for _ in 0..num_constraints_per_round[i] {
                     statement.add_evaluated_constraint(
@@ -447,7 +447,7 @@ mod tests {
             .enumerate()
             .take(num_rounds)
         {
-            let mut statement = Statement::new(num_vars_at_round);
+            let mut statement = Statement::initialize(num_vars_at_round);
             for _ in 0..num_constraints {
                 statement.add_evaluated_constraint(
                     MultilinearPoint::rand(&mut rng, num_vars_at_round),
@@ -586,7 +586,7 @@ mod tests {
 
             // Generate the statements and alphas for each round based on our dynamic schedule.
             for i in 0..num_rounds {
-                let mut statement = Statement::new(num_vars_current);
+                let mut statement = Statement::initialize(num_vars_current);
                 for _ in 0..num_constraints_per_round[i] {
                     statement.add_evaluated_constraint(
                         MultilinearPoint::rand(&mut rng, num_vars_current),

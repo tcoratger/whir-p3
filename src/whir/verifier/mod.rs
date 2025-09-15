@@ -21,7 +21,7 @@ use crate::{
     whir::{
         Statement,
         parameters::WhirConfig,
-        statement::{combine_evals, evaluator::ConstraintPolyEvaluator},
+        statement::evaluator::ConstraintPolyEvaluator,
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -78,12 +78,10 @@ where
             let mut new_statement = prev_commitment.oods_constraints();
             new_statement.concatenate(statement);
 
-            let combination_randomness = self.combine_constraints(
-                verifier_state,
-                &mut claimed_sum,
-                &new_statement.evaluations,
-            );
-            round_constraints.push((combination_randomness, new_statement.points));
+            let gamma = verifier_state.sample();
+            let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
+
+            round_constraints.push((combination_randomness, new_statement.get_points()));
 
             // Initial sumcheck
             let folding_randomness = verify_sumcheck_rounds(
@@ -134,12 +132,10 @@ where
             let mut new_statement = new_commitment.oods_constraints();
             new_statement.concatenate(&stir_constraints);
 
-            let combination_randomness = self.combine_constraints(
-                verifier_state,
-                &mut claimed_sum,
-                &new_statement.evaluations,
-            );
-            round_constraints.push((combination_randomness.clone(), new_statement.points));
+            let gamma = verifier_state.sample();
+            let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
+
+            round_constraints.push((combination_randomness.clone(), new_statement.get_points()));
 
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
@@ -215,32 +211,6 @@ where
         }
 
         Ok(folding_randomness)
-    }
-
-    /// Combine multiple constraints into a single claim using random linear combination.
-    ///
-    /// This method draws a challenge scalar from the Fiat-Shamir transcript and uses it
-    /// to generate a sequence of powers, one for each constraint. These powers serve as
-    /// coefficients in a random linear combination of the constraint sums.
-    ///
-    /// The resulting linear combination is added to `claimed_sum`, which becomes the new
-    /// target value to verify in the sumcheck protocol.
-    ///
-    /// # Arguments
-    /// - `verifier_state`: Fiat-Shamir transcript reader.
-    /// - `claimed_sum`: Mutable reference to the running sum of combined constraints.
-    /// - `constraints`: List of constraints to combine.
-    ///
-    /// # Returns
-    /// A vector of randomness values used to weight each constraint.
-    pub fn combine_constraints(
-        &self,
-        verifier_state: &mut VerifierState<F, EF, Challenger>,
-        claimed_sum: &mut EF,
-        evaluations: &[EF],
-    ) -> Vec<EF> {
-        let combination_randomness_gen: EF = verifier_state.sample();
-        combine_evals(claimed_sum, evaluations, combination_randomness_gen)
     }
 
     /// Verify STIR in-domain queries and produce associated constraints.
@@ -376,7 +346,7 @@ where
             })
             .collect();
 
-        Ok(Statement::initialize(
+        Ok(Statement::new(
             params.num_variables,
             stir_constraints,
             folds,

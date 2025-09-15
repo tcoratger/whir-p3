@@ -103,7 +103,7 @@ where
     /// claimed `ood_answer` at the corresponding `ood_point`, using a univariate
     /// equality weight over `num_variables` inputs.
     pub fn oods_constraints(&self) -> Statement<F> {
-        Statement::initialize(
+        Statement::new(
             self.num_variables,
             self.ood_points
                 .iter()

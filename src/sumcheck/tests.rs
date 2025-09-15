@@ -88,7 +88,7 @@ where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     // Initialize the statement to hold the evaluation constraints.
-    let mut statement = Statement::new(num_vars);
+    let mut statement = Statement::initialize(num_vars);
 
     // In a single pass, sample each point, evaluate the polynomial, commit it,
     // and insert the resulting constraint into the statement.
@@ -142,7 +142,7 @@ where
     let num_vars = sumcheck.num_variables();
 
     // Create a new empty statement of that arity (for evaluation constraints).
-    let mut statement = Statement::new(num_vars);
+    let mut statement = Statement::initialize(num_vars);
 
     // - Sample `num_points` univariate challenge points.
     // - Evaluate the sumcheck polynomial on them.
@@ -206,7 +206,7 @@ where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     // Create a new statement that will hold all reconstructed constraints.
-    let mut statement = Statement::new(num_vars);
+    let mut statement = Statement::initialize(num_vars);
 
     // For each point, sample a challenge and read its corresponding evaluation from the transcript.
     for _ in 0..num_points {
@@ -287,10 +287,9 @@ where
 
         // Calculate the total contribution from this round's constraints.
         let round_contribution: EF = round_statement
-            .points
             .iter()
             .zip(alpha_pows)
-            .map(|(point, alpha_pow)| {
+            .map(|((point, _), alpha_pow)| {
                 let single_eval = if is_skip_round {
                     // ROUND 0 with SKIP: Use the special skip-aware evaluation.
                     // The constraints for this round are over the full `num_vars` domain.

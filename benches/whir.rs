@@ -106,7 +106,7 @@ fn prepare_inputs() -> (
     let point = MultilinearPoint::rand(&mut rng, num_variables);
 
     // Create a new WHIR `Statement` with one constraint.
-    let mut statement = Statement::<EF>::new(num_variables);
+    let mut statement = Statement::<EF>::initialize(num_variables);
     statement.add_unevaluated_constraint(point, &polynomial);
 
     // Fiat-Shamir setup

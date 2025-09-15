@@ -41,15 +41,15 @@ pub struct Statement<F> {
     /// Number of variables in the multilinear polynomial space.
     num_variables: usize,
     /// List of evaluation points.
-    pub points: Vec<MultilinearPoint<F>>,
+    points: Vec<MultilinearPoint<F>>,
     /// List of target evaluations.
-    pub evaluations: Vec<F>,
+    evaluations: Vec<F>,
 }
 
 impl<F: Field> Statement<F> {
     /// Creates an empty `Statement<F>` for polynomials with `num_variables` variables.
     #[must_use]
-    pub const fn new(num_variables: usize) -> Self {
+    pub const fn initialize(num_variables: usize) -> Self {
         Self {
             num_variables,
             points: Vec::new(),
@@ -59,7 +59,7 @@ impl<F: Field> Statement<F> {
 
     /// Creates a filled `Statement<F>` for polynomials with `num_variables` variables.
     #[must_use]
-    pub const fn initialize(
+    pub const fn new(
         num_variables: usize,
         points: Vec<MultilinearPoint<F>>,
         evaluations: Vec<F>,
@@ -110,6 +110,12 @@ impl<F: Field> Statement<F> {
         assert_eq!(self.num_variables, other.num_variables);
         self.points.extend_from_slice(&other.points);
         self.evaluations.extend_from_slice(&other.evaluations);
+    }
+
+    /// Returns the vector of evaluation points.
+    #[must_use]
+    pub fn get_points(self) -> Vec<MultilinearPoint<F>> {
+        self.points
     }
 
     /// Adds an evaluation constraint `p(z) = s` to the system.
@@ -222,28 +228,14 @@ impl<F: Field> Statement<F> {
     /// # Returns
     /// A `Vec<F>` containing the powers of `gamma` used to combine each constraint.
     pub fn combine_evals(&self, claimed_eval: &mut F, gamma: F) -> Vec<F> {
-        combine_evals(claimed_eval, &self.evaluations, gamma)
+        let gammas = gamma.powers().collect_n(self.len());
+
+        for (expected_eval, &gamma) in self.evaluations.iter().zip(&gammas) {
+            *claimed_eval += *expected_eval * gamma;
+        }
+
+        gammas
     }
-}
-
-/// Combines a list of evals into a single linear combination using powers of `gamma`,
-/// and updates the running claimed_eval in place.
-///
-/// # Arguments
-/// - `claimed_eval`: Mutable reference to the total accumulated claimed sum so far. Updated in place.
-/// - `evals`: A slice of constraint evals to be combined.
-/// - `gamma`: A random extension field element used to weight the constraint evals.
-///
-/// # Returns
-/// A `Vec<F>` containing the powers of `gamma` used to combine each constraint.
-pub fn combine_evals<F: Field>(claimed_eval: &mut F, evals: &[F], gamma: F) -> Vec<F> {
-    let gammas = gamma.powers().collect_n(evals.len());
-
-    for (expected_eval, &gamma) in evals.iter().zip(&gammas) {
-        *claimed_eval += *expected_eval * gamma;
-    }
-
-    gammas
 }
 
 #[cfg(test)]
@@ -259,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_statement_combine_single_constraint() {
-        let mut statement = Statement::new(1);
+        let mut statement = Statement::initialize(1);
         let point = MultilinearPoint::new(vec![F::ONE]);
         let expected_eval = F::from_u64(7);
         statement.add_evaluated_constraint(point.clone(), expected_eval);
@@ -277,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_statement_with_multiple_constraints() {
-        let mut statement = Statement::new(2);
+        let mut statement = Statement::initialize(2);
 
         // Constraint 1: evaluate at z1 = (1,0), expected value 5
         let point1 = MultilinearPoint::new(vec![F::ONE, F::ZERO]);

@@ -193,7 +193,7 @@ mod tests {
         //
         // That means f(X) · w(X) = 0 everywhere → result is the zero polynomial.
         // ----------------------------------------------------------------
-        let statement = Statement::<EF4>::new(2);
+        let statement = Statement::<EF4>::initialize(2);
         let (weights, _sum) = statement.combine::<F>(EF4::ONE);
 
         // ----------------------------------------------------------------
@@ -257,7 +257,7 @@ mod tests {
         // Therefore the product f(X)·w(X) = 0 for all X ∈ {0,1}³
         // So the resulting sumcheck polynomial must be identically zero.
         // ----------------------------------------------------------------
-        let statement = Statement::<EF4>::new(3);
+        let statement = Statement::<EF4>::initialize(3);
         let (weights, _sum) = statement.combine::<F>(EF4::ONE);
 
         // ----------------------------------------------------------------
@@ -290,7 +290,7 @@ mod tests {
         let c1 = F::from_u64(2);
         let coeffs = CoefficientList::new(vec![c0, c1]);
 
-        let statement = Statement::<EF4>::new(1);
+        let statement = Statement::<EF4>::initialize(1);
         let (weights, _sum) = statement.combine::<F>(EF4::ONE);
 
         // This should panic because:
@@ -354,7 +354,7 @@ mod tests {
         };
 
         // Constraints
-        let mut statement = Statement::new(3);
+        let mut statement = Statement::initialize(3);
         statement.add_evaluated_constraint(
             MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]),
             f_extension(EF4::ZERO, EF4::ZERO, EF4::ZERO),

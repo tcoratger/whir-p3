@@ -138,7 +138,7 @@ fn main() {
         .collect();
 
     // Construct a new statement with the correct number of variables
-    let mut statement = Statement::<EF>::new(num_variables);
+    let mut statement = Statement::<EF>::initialize(num_variables);
 
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
