@@ -43,10 +43,10 @@ impl ConstraintPolyEvaluator {
     /// `point` is the verifier's final challenge:
     /// - standard case: length = n
     /// - skip case:     length = (n - K_SKIP_SUMCHECK) + 1  (r_rest || r_skip)
+    #[must_use]
     pub fn eval_constraints_poly<EF>(
         &self,
         constraints: &[(Vec<EF>, Vec<Constraint<EF>>)],
-        deferred: &[EF],
         point: &MultilinearPoint<EF>,
     ) -> EF
     where
@@ -54,9 +54,6 @@ impl ConstraintPolyEvaluator {
     {
         // Remaining variable count for the round we are evaluating.
         let mut vars_left = self.num_variables;
-
-        // Iterator over deferred evaluations.
-        let mut deferred_it = deferred.iter().copied();
 
         let mut acc = EF::ZERO;
 
@@ -86,16 +83,14 @@ impl ConstraintPolyEvaluator {
                 .map(|(c, &alpha_i)| {
                     // Each constraint contributes either a deferred evaluation, a skip-aware
                     // evaluation, or a standard evaluation.
-                    let val = if c.defer_evaluation {
-                        deferred_it.next().expect("missing deferred evaluation")
-                    } else if is_skip_round {
+                    let val = if is_skip_round {
                         // Skip-aware evaluation over r_rest || r_skip.
-                        debug_assert_eq!(c.point.num_variables(), self.num_variables);
-                        c.point.eq_poly_with_skip(&point_for_round, K_SKIP_SUMCHECK)
+                        debug_assert_eq!(c.num_variables(), self.num_variables);
+                        c.point().eq_poly_with_skip(&point_for_round, K_SKIP_SUMCHECK)
                     } else {
                         // Standard multilinear evaluation on the current domain.
-                        debug_assert_eq!(c.point.num_variables(), vars_left);
-                        c.point.eq_poly(&point_for_round)
+                        debug_assert_eq!(c.num_variables(), vars_left);
+                        c.point().eq_poly(&point_for_round)
                     };
 
                     // Multiply by its random combination coefficient.
@@ -230,7 +225,7 @@ mod tests {
         //
         // This is the recursive method we want to validate.
         let result_from_eval_poly =
-            evaluator.eval_constraints_poly(&round_constraints, &[], &final_point);
+            evaluator.eval_constraints_poly(&round_constraints, &final_point);
 
         // Manually compute W(r) with explicit recursive evaluation
         let mut expected_result = EF::ZERO;
@@ -370,7 +365,7 @@ mod tests {
             //
             // This is the recursive method we want to validate.
             let result_from_eval_poly =
-                evaluator.eval_constraints_poly(&round_constraints, &[], &final_point);
+                evaluator.eval_constraints_poly(&round_constraints, &final_point);
 
 
             // Calculate W(r) by materializing and evaluating round-by-round
@@ -484,7 +479,7 @@ mod tests {
 
         // Calculate W(r) using the function under test
         let result_from_eval_poly =
-            evaluator.eval_constraints_poly(&round_constraints, &[], &final_point);
+            evaluator.eval_constraints_poly(&round_constraints, &final_point);
 
         // Manually compute W(r) with explicit recursive evaluation
         let mut expected_result = EF::ZERO;
@@ -624,7 +619,7 @@ mod tests {
 
             // Calculate W(r) using the function under test
             let result_from_eval_poly =
-                evaluator.eval_constraints_poly(&round_constraints, &[], &final_point);
+                evaluator.eval_constraints_poly(&round_constraints, &final_point);
 
 
             // Calculate W(r) by materializing and evaluating round-by-round

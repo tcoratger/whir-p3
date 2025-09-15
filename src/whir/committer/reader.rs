@@ -106,11 +106,10 @@ where
         self.ood_points
             .iter()
             .zip(&self.ood_answers)
-            .map(|(&point, &expected_evaluation)| Constraint {
-                point: MultilinearPoint::expand_from_univariate(point, self.num_variables),
+            .map(|(&point, &expected_evaluation)| Constraint::new(
+                MultilinearPoint::expand_from_univariate(point, self.num_variables),
                 expected_evaluation,
-                defer_evaluation: false,
-            })
+            ))
             .collect()
     }
 }
@@ -408,7 +407,7 @@ mod tests {
         assert_eq!(constraints.len(), parsed.ood_points.len());
 
         // Each constraint should have correct univariate weight, sum, and flag.
-        for (i, constraint) in constraints.iter().enumerate() {
+        for (i, constraint) in constraints.into_iter().enumerate() {
             let point = parsed.ood_points[i];
             let expected_eval = parsed.ood_answers[i];
 
@@ -421,16 +420,8 @@ mod tests {
             ]);
 
             assert_eq!(
-                constraint.point, expected_point,
-                "Constraint {i} has incorrect weight"
-            );
-            assert_eq!(
-                constraint.expected_evaluation, expected_eval,
-                "Constraint {i} has incorrect sum"
-            );
-            assert!(
-                !constraint.defer_evaluation,
-                "Constraint {i} should not defer evaluation"
+                constraint, Constraint::new(expected_point, expected_eval),
+                "Constraint {i} is incorrect"
             );
         }
     }
