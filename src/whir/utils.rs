@@ -99,7 +99,7 @@ where
             // SINGLE BATCH PATH
             //
             // All entropy fits in one sponge squeeze - maximum efficiency
-            let all_bits = prover_state.sample_bits(total_bits_needed);
+            let mut all_bits = prover_state.sample_bits(total_bits_needed);
 
             // Bit mask for extracting domain_size_bits chunks
             //
