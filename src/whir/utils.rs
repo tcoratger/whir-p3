@@ -108,12 +108,8 @@ where
 
             // Extract each query index from the packed bit stream
             for i in 0..num_queries {
-                // Bit position for query i: i × bits_per_query
-                let start_bit = i * domain_size_bits;
-
-                // Extract bits [start_bit, start_bit + domain_size_bits)
-                let query_bits = (all_bits >> start_bit) & mask;
-
+                let query_bits = all_bits & mask;
+                let all_bits >>= domain_size_bits;
                 // Map raw bits to valid domain index via modular reduction
                 let query_index = query_bits % folded_domain_size;
                 all_queries.push(query_index);
