@@ -214,8 +214,11 @@ where
             let num_variables = poly.num_variables();
 
             // Create trivial sumcheck prover (no constraints to batch)
-            let sumcheck =
-                SumcheckSingle::from_extension_evals(poly, &Statement::initialize(num_variables), EF::ONE);
+            let sumcheck = SumcheckSingle::from_extension_evals(
+                poly,
+                &Statement::initialize(num_variables),
+                EF::ONE,
+            );
 
             // Apply proof-of-work grinding for transcript security
             prover_state.pow_grinding(prover.starting_folding_pow_bits);
