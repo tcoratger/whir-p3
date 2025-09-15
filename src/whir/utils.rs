@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
-use p3_util::log2_ceil_usize;
+use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use crate::{
@@ -36,42 +36,158 @@ pub const fn workload_size<T: Sized>() -> usize {
     CACHE_SIZE / size_of::<T>()
 }
 
-/// Samples a list of unique query indices from a folded evaluation domain, using transcript randomness.
+/// WHIR STIR Query Sampler: Generates cryptographically secure query indices for Reed–Solomon proximity testing.
 ///
-/// This function is used to select random query locations for verifying proximity to a folded codeword.
-/// The folding reduces the domain size exponentially (e.g. by 2^folding_factor), so we sample indices
-/// in the reduced "folded" domain.
+/// After folding reduces the Reed–Solomon codeword domain, this function selects random
+/// query positions for the proximity test. Uses Fiat-Shamir randomness to ensure unpredictable,
+/// verifier-determined challenge locations.
 ///
 /// ## Parameters
-/// - `domain_size`: The size of the original evaluation domain (e.g., 2^22).
-/// - `folding_factor`: The number of folding rounds applied (e.g., k = 1 means domain halves).
-/// - `num_queries`: The number of query *indices* we want to obtain.
-/// - `challenger`: A Fiat–Shamir transcript used to sample randomness deterministically.
+/// - `domain_size`: Original evaluation domain size before folding
+/// - `folding_factor`: Number of folding rounds (domain reduction = 2^folding_factor)
+/// - `num_queries`: Target number of query indices to sample
+/// - `prover_state`: Fiat-Shamir transcript state for deterministic randomness
+///
+/// **WARNING:** The domain size must be a power of two.
 ///
 /// ## Returns
-/// A sorted and deduplicated list of random query indices in the folded domain.
-pub fn get_challenge_stir_queries<Chal: ChallengeSampler<EF>, F, EF>(
+/// Sorted, deduplicated vector of query indices in [0, folded_domain_size)
+pub fn get_challenge_stir_queries<Challenger, F, EF>(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
-    prover_state: &mut Chal,
+    prover_state: &mut Challenger,
 ) -> Result<Vec<usize>, FiatShamirError>
 where
+    Challenger: ChallengeSampler<EF>,
     F: Field,
     EF: ExtensionField<F>,
 {
-    // Folded domain size = domain_size / 2^folding_factor.
+    // PHASE 1: Compute folded domain parameters
+
+    // Apply WHIR folding: domain_size / 2^folding_factor
+    //
+    // Example: 512 domain → 3 folds → 512 >> 3 = 64 domain
     let folded_domain_size = domain_size >> folding_factor;
 
-    // Number of bits needed to represent an index in the folded domain.
-    let domain_size_bits = log2_ceil_usize(folded_domain_size);
+    // Bits required to index into the folded domain
+    //
+    // The folded domain size is a power of two, so log_2(folded_domain_size) is an integer.
+    //
+    // Example: 64 domain needs log_2(64) ≈ 6 bits per query
+    let domain_size_bits = log2_strict_usize(folded_domain_size);
 
-    // Sample one integer per query, each with domain_size_bits of entropy.
-    let queries = (0..num_queries)
-        .map(|_| prover_state.sample_bits(domain_size_bits) % folded_domain_size)
-        .sorted_unstable()
-        .dedup()
-        .collect();
+    // PHASE 2: Determine batching strategy
+
+    // The maximum number of bits that can be safely sampled in a single call from the challenger.
+    //
+    // To avoid statistical bias when sampling randomness, we use a conservative limit.
+    //
+    // Field elements have F::bits() total bits, but higher-order bits may be biased or correlated.
+    //
+    // We cap at 20 bits to ensure uniform distribution across different field implementations.
+    let max_bits_per_call = (F::bits() - 1).min(20);
+
+    // Total entropy needed: num_queries × bits_per_query
+    //
+    // Example: 100 queries × 4 bits = 400 bits total
+    let total_bits_needed = num_queries * domain_size_bits;
+
+    // PHASE 3: Execute sampling
+    let queries = if total_bits_needed > 0 {
+        // Pre-allocate result vector
+        let mut all_queries = Vec::with_capacity(num_queries);
+
+        if total_bits_needed <= max_bits_per_call {
+            // SINGLE BATCH PATH
+            //
+            // All entropy fits in one sponge squeeze - maximum efficiency
+            let mut all_bits = prover_state.sample_bits(total_bits_needed);
+
+            // Bit mask for extracting `domain_size_bits` chunks
+            //
+            // Example: 4 bits → mask = 0b1111 = 15
+            let mask = domain_size - 1;
+
+            // Extract each query index from the packed bit stream
+            for _ in 0..num_queries {
+                // Extract lowest `domain_size_bits` from the packed integer.
+                //
+                // Mask isolates only the bits we need (e.g., 0b1111 for 4 bits).
+                let query_bits = all_bits & mask;
+
+                // Shift right to prepare next query extraction.
+                //
+                // This "consumes" the bits we just extracted.
+                all_bits >>= domain_size_bits;
+
+                // Map raw bits to valid domain index via modular reduction.
+                //
+                // Handles case where query_bits >= folded_domain_size.
+                let query_index = query_bits % folded_domain_size;
+                all_queries.push(query_index);
+            }
+        } else {
+            // MULTI BATCH PATH
+            //
+            // Too many bits for one call - use chunked sampling
+
+            // Calculate how many complete queries fit within bit limit.
+            let queries_per_batch = max_bits_per_call / domain_size_bits;
+            let mut remaining_queries = num_queries;
+
+            // Process queries in batches until all are sampled
+            while remaining_queries > 0 {
+                // Current batch size (last batch may be smaller than `queries_per_batch`).
+                //
+                // The `min()` ensures we don't sample more queries than needed.
+                let batch_size = remaining_queries.min(queries_per_batch);
+
+                // Total bits needed for this batch: queries × bits_per_query
+                let batch_bits = batch_size * domain_size_bits;
+
+                // Sample entropy for this batch from the Fiat-Shamir transcript.
+                //
+                // This is the expensive sponge operation we're trying to minimize.
+                let all_bits = prover_state.sample_bits(batch_bits);
+
+                // Bit mask for extracting `domain_size_bits` chunks.
+                //
+                // Creates mask with domain_size_bits consecutive 1s.
+                let mask = (1 << domain_size_bits) - 1;
+
+                // Extract all queries from this batch using bit manipulation
+                for i in 0..batch_size {
+                    // Starting bit position for query i within the batch.
+                    // - Query 0 starts at bit 0,
+                    // - Query 1 starts at bit `domain_size_bits`, etc.
+                    let start_bit = i * domain_size_bits;
+
+                    // Extract bits [start_bit, start_bit + domain_size_bits).
+                    //
+                    // Right shift moves target bits to position 0, mask isolates them.
+                    let query_bits = (all_bits >> start_bit) & mask;
+
+                    // Map extracted bits to valid domain index.
+                    //
+                    // Modular reduction ensures index ∈ [0, folded_domain_size).
+                    let query_index = query_bits % folded_domain_size;
+                    all_queries.push(query_index);
+                }
+
+                // Update counter for next iteration
+                remaining_queries -= batch_size;
+            }
+        }
+
+        // PHASE 4: Finalize query list
+        //
+        // Sort indices and remove duplicates (WHIR protocol requirement)
+        all_queries.into_iter().sorted_unstable().dedup().collect()
+    } else {
+        // Edge case: no queries requested or invalid parameters
+        Vec::new()
+    };
 
     Ok(queries)
 }
