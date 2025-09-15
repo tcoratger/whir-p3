@@ -211,10 +211,7 @@ mod tests {
             .cloned()
             .zip(&alphas)
             .map(|(statement, &alpha)| {
-                (
-                    alpha.powers().collect_n(statement.len()),
-                    statement.evaluation_points,
-                )
+                (alpha.powers().collect_n(statement.len()), statement.points)
             })
             .collect();
 
@@ -355,7 +352,7 @@ mod tests {
                 .iter()
                 .cloned()
                 .zip(&alphas)
-                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.evaluation_points))
+                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.points))
                 .collect();
 
             // Generate the final, full n-dimensional challenge point `r`.
@@ -467,7 +464,7 @@ mod tests {
             .iter()
             .cloned()
             .zip(&alphas)
-            .map(|(s, &a)| (a.powers().collect_n(s.len()), s.evaluation_points))
+            .map(|(s, &a)| (a.powers().collect_n(s.len()), s.points))
             .collect();
 
         // For a skip protocol, the verifier's final challenge object has a special
@@ -606,7 +603,7 @@ mod tests {
                 .iter()
                 .cloned()
                 .zip(&alphas)
-                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.evaluation_points))
+                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.points))
                 .collect();
 
             // For a skip protocol, the verifier's final challenge object has a special

@@ -287,7 +287,7 @@ where
 
         // Calculate the total contribution from this round's constraints.
         let round_contribution: EF = constraints_in_round
-            .evaluation_points
+            .points
             .iter()
             .zip(alpha_pows)
             .map(|(point, alpha_pow)| {

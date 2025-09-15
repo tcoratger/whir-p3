@@ -107,14 +107,7 @@ where
             self.num_variables,
             self.ood_points
                 .iter()
-                .map(|&point| {
-                    MultilinearPoint::new(
-                        (0..self.num_variables)
-                            .rev()
-                            .map(|i| point.exp_u64(1 << i))
-                            .collect(),
-                    )
-                })
+                .map(|&point| MultilinearPoint::expand_from_univariate(point, self.num_variables))
                 .collect(),
             self.ood_answers.clone(),
         )
@@ -182,7 +175,6 @@ where
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
-    use p3_field::PrimeCharacteristicRing;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -419,12 +411,7 @@ mod tests {
             let expected_eval = parsed.ood_answers[i];
 
             // Manually compute the expanded univariate point
-            let expected_point = MultilinearPoint::new(vec![
-                univariate_point.exp_u64(8),
-                univariate_point.exp_u64(4),
-                univariate_point.exp_u64(2),
-                univariate_point,
-            ]);
+            let expected_point = MultilinearPoint::expand_from_univariate(univariate_point, 4);
 
             assert_eq!(
                 point.clone(),

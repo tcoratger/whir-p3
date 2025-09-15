@@ -172,15 +172,6 @@ where
         round_state.randomness_vec.reverse();
         let constraint_eval = MultilinearPoint::new(round_state.randomness_vec);
 
-        // Hints for deferred constraints
-        let deferred = round_state
-            .statement
-            .iter()
-            .map(|(point, _)| point.eq_poly(&constraint_eval))
-            .collect::<Vec<_>>();
-
-        prover_state.hint_extension_scalars(&deferred);
-
         Ok(constraint_eval)
     }
 

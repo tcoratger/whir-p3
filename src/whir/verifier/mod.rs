@@ -81,9 +81,9 @@ where
             let combination_randomness = self.combine_constraints(
                 verifier_state,
                 &mut claimed_sum,
-                &new_statement.expected_evaluations,
+                &new_statement.evaluations,
             );
-            round_constraints.push((combination_randomness, new_statement.evaluation_points));
+            round_constraints.push((combination_randomness, new_statement.points));
 
             // Initial sumcheck
             let folding_randomness = verify_sumcheck_rounds(
@@ -137,12 +137,9 @@ where
             let combination_randomness = self.combine_constraints(
                 verifier_state,
                 &mut claimed_sum,
-                &new_statement.expected_evaluations,
+                &new_statement.evaluations,
             );
-            round_constraints.push((
-                combination_randomness.clone(),
-                new_statement.evaluation_points,
-            ));
+            round_constraints.push((combination_randomness.clone(), new_statement.points));
 
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
