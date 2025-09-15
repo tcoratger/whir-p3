@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
-use p3_util::{log2_ceil_usize, log2_strict_usize};
+use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use crate::{
@@ -107,9 +107,9 @@ where
             let mask = domain_size - 1;
 
             // Extract each query index from the packed bit stream
-            for i in 0..num_queries {
+            for _ in 0..num_queries {
                 let query_bits = all_bits & mask;
-                let all_bits >>= domain_size_bits;
+                all_bits >>= domain_size_bits;
                 // Map raw bits to valid domain index via modular reduction
                 let query_index = query_bits % folded_domain_size;
                 all_queries.push(query_index);
