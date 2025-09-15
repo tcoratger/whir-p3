@@ -80,9 +80,7 @@ impl<F: Field> Statement<F> {
     /// Returns true if the statement contains no constraints.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        debug_assert!(
-            self.evaluation_points.is_empty() == self.expected_evaluations.is_empty()
-        );
+        debug_assert!(self.evaluation_points.is_empty() == self.expected_evaluations.is_empty());
         self.evaluation_points.is_empty()
     }
 
@@ -96,9 +94,7 @@ impl<F: Field> Statement<F> {
     /// Returns the number of constraints in the statement.
     #[must_use]
     pub const fn len(&self) -> usize {
-        debug_assert!(
-            self.evaluation_points.len() == self.expected_evaluations.len()
-        );
+        debug_assert!(self.evaluation_points.len() == self.expected_evaluations.len());
         self.evaluation_points.len()
     }
 
@@ -116,8 +112,11 @@ impl<F: Field> Statement<F> {
     ///
     /// # Panics
     /// Panics if the number of variables in the `point` does not match the statement.
-    pub fn add_unevaluated_constraint<BF>(&mut self, point: MultilinearPoint<F>, poly: &EvaluationsList<BF>) 
-    where
+    pub fn add_unevaluated_constraint<BF>(
+        &mut self,
+        point: MultilinearPoint<F>,
+        poly: &EvaluationsList<BF>,
+    ) where
         BF: Field,
         F: ExtensionField<BF>,
     {
@@ -128,7 +127,7 @@ impl<F: Field> Statement<F> {
     }
 
     /// Adds an evaluation constraint `p(z) = s` to the system.
-    /// 
+    ///
     /// Assumes the evaluation `s` is already known.
     ///
     /// # Panics
