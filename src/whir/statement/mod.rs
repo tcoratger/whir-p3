@@ -106,6 +106,15 @@ impl<F: Field> Statement<F> {
         })
     }
 
+    /// Concatenates another statement's constraints into this one.
+    pub fn concatenate(&mut self, other: &Self) {
+        assert_eq!(self.num_variables, other.num_variables);
+        self.evaluation_points
+            .extend_from_slice(&other.evaluation_points);
+        self.expected_evaluations
+            .extend_from_slice(&other.expected_evaluations);
+    }
+
     /// Adds an evaluation constraint `p(z) = s` to the system.
     ///
     /// This method takes the polynomial `p` and uses it to compute the evaluation `s`.

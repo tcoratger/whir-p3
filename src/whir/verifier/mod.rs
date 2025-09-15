@@ -74,22 +74,16 @@ where
 
         // Optional initial sumcheck round
         if self.initial_statement {
-            // Combine OODS and statement constraints to claimed_sum
-            let constraint_points: Vec<_> = prev_commitment
-                .oods_constraints()
-                .evaluation_points
-                .into_iter()
-                .chain(statement.evaluation_points.clone())
-                .collect();
-            let constraint_evals: Vec<_> = prev_commitment
-                .oods_constraints()
-                .expected_evaluations
-                .into_iter()
-                .chain(statement.expected_evaluations.clone())
-                .collect();
-            let combination_randomness =
-                self.combine_constraints(verifier_state, &mut claimed_sum, &constraint_evals);
-            round_constraints.push((combination_randomness, constraint_points));
+            // Combine OODS constraints and statement constraints to claimed_sum
+            let mut new_statement = prev_commitment.oods_constraints();
+            new_statement.concatenate(statement);
+
+            let combination_randomness = self.combine_constraints(
+                verifier_state,
+                &mut claimed_sum,
+                &new_statement.expected_evaluations,
+            );
+            round_constraints.push((combination_randomness, new_statement.evaluation_points));
 
             // Initial sumcheck
             let folding_randomness = verify_sumcheck_rounds(
@@ -137,22 +131,18 @@ where
             )?;
 
             // Add out-of-domain and in-domain constraints to claimed_sum
-            let constraint_points: Vec<_> = new_commitment
-                .oods_constraints()
-                .evaluation_points
-                .into_iter()
-                .chain(stir_constraints.evaluation_points)
-                .collect();
-            let constraint_evals: Vec<_> = new_commitment
-                .oods_constraints()
-                .expected_evaluations
-                .into_iter()
-                .chain(stir_constraints.expected_evaluations)
-                .collect();
+            let mut new_statement = new_commitment.oods_constraints();
+            new_statement.concatenate(&stir_constraints);
 
-            let combination_randomness =
-                self.combine_constraints(verifier_state, &mut claimed_sum, &constraint_evals);
-            round_constraints.push((combination_randomness.clone(), constraint_points));
+            let combination_randomness = self.combine_constraints(
+                verifier_state,
+                &mut claimed_sum,
+                &new_statement.expected_evaluations,
+            );
+            round_constraints.push((
+                combination_randomness.clone(),
+                new_statement.evaluation_points,
+            ));
 
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
