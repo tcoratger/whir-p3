@@ -75,15 +75,31 @@ impl<F: Field> Statement<F> {
         self.num_variables
     }
 
+    /// Returns true if the statement contains no constraints.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        debug_assert_eq!(self.evaluation_points.is_empty(), self.expected_evaluations.is_empty());
+        self.evaluation_points.is_empty()
+    }
+
     /// Returns an iterator over the evaluation constraints in the statement.
     pub fn iter(&self) -> impl Iterator<Item = (&MultilinearPoint<F>, &F)> {
         self.evaluation_points.iter().zip(self.expected_evaluations.iter())
     }
 
     /// Returns the number of constraints in the statement.
+    #[must_use]
     pub fn len(&self) -> usize {
         debug_assert_eq!(self.evaluation_points.len(), self.expected_evaluations.len());
         self.evaluation_points.len()
+    }
+
+    #[must_use]
+    pub fn verify(&self, poly: &EvaluationsList<F>) -> bool {
+        self.iter().all(|(point, &expected_eval)| {
+            let eval = poly.evaluate(point);
+            eval == expected_eval
+        })
     }
 
     /// Adds an evaluation constraint `p(z) = s` to the system.
@@ -113,10 +129,12 @@ impl<F: Field> Statement<F> {
         // Store the number of variables expected by this statement.
         let n = self.num_variables();
         assert_eq!(points.len(), evaluations.len());
-        points.iter().for_each(|p| assert_eq!(p.num_variables(), n));
+        for p in points {
+            assert_eq!(p.num_variables(), n);
+        }
 
         self.evaluation_points.splice(0..0, points.iter().cloned());
-        self.expected_evaluations.splice(0..0, evaluations.iter().cloned());
+        self.expected_evaluations.splice(0..0, evaluations.iter().copied());
     }
     /// Combines all constraints into a single aggregated polynomial and expected sum using a challenge.
     ///
@@ -170,6 +188,38 @@ impl<F: Field> Statement<F> {
         // - The combined expected sum S.
         (combined, sum)
     }
+
+    /// Combines a list of evals into a single linear combination using powers of `alpha`,
+    /// and updates the running claimed sum in place.
+    ///
+    /// # Arguments
+    /// - `claimed_sum`: Mutable reference to the total accumulated claimed sum so far. Updated in place.
+    /// - `constraints`: A slice of `Constraint<EF>` each containing a known `sum` field.
+    /// - `alpha`: A random extension field element used to weight the constraints.
+    ///
+    /// # Returns
+    /// A `Vec<EF>` containing the powers of `alpha` used to combine each constraint.
+    pub fn combine_evals(
+        &self,
+        claimed_eval: &mut F,
+        gamma: F,
+    ) -> Vec<F> {
+        combine_evals(claimed_eval, &self.expected_evaluations, gamma)
+    }
+}
+
+pub fn combine_evals<F: Field>(
+    claimed_eval: &mut F,
+    evals: &[F],
+    gamma: F,
+) -> Vec<F> {
+    let gammas = gamma.powers().collect_n(evals.len());
+
+    for (expected_eval, &gamma) in evals.iter().zip(&gammas) {
+        *claimed_eval += *expected_eval * gamma;
+    }
+
+    gammas
 }
 
 #[cfg(test)]

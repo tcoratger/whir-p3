@@ -268,7 +268,7 @@ fn eval_constraints_poly<F, EF>(
     num_vars: usize,
     k_skip: usize,
     folding_factors: &[usize],
-    constraints: &[Vec<Constraint<EF>>],
+    constraints: &[Statement<EF>],
     alphas: &[EF],
     final_challenges: &MultilinearPoint<EF>,
 ) -> EF
@@ -289,22 +289,21 @@ where
         let is_skip_round = round_idx == 0 && univariate_skip;
 
         // Calculate the total contribution from this round's constraints.
-        let round_contribution: EF = constraints_in_round
+        let round_contribution: EF = constraints_in_round.evaluation_points
             .iter()
             .zip(alpha_pows)
-            .map(|(constraint, alpha_pow)| {
+            .map(|(point, alpha_pow)| {
                 let single_eval = if is_skip_round {
                     // ROUND 0 with SKIP: Use the special skip-aware evaluation.
                     // The constraints for this round are over the full `num_vars` domain.
-                    assert_eq!(constraint.num_variables(), num_vars);
-                    constraint
-                        .point()
+                    assert_eq!(point.num_variables(), num_vars);
+                    point
                         .eq_poly_with_skip(final_challenges, k_skip)
                 } else {
                     // STANDARD ROUND: Use the standard multilinear evaluation.
                     // The constraints and challenge point are over the smaller `num_vars_at_round` domain.
-                    assert_eq!(constraint.num_variables(), num_vars_at_round);
-                    constraint.point().eq_poly(&challenges_for_round)
+                    assert_eq!(point.num_variables(), num_vars_at_round);
+                    point.eq_poly(&challenges_for_round)
                 };
                 alpha_pow * single_eval
             })
@@ -431,10 +430,10 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
         alphas.push(alpha);
 
         // Combine all constraint sums with powers of αᵢ
-        linear_combine_constraints(&mut sum, &st.constraints, alpha);
+        st.combine_evals(&mut sum, alpha);
 
         // Save constraints for later equality test
-        constraints.push(st.constraints.clone());
+        constraints.push(st.clone());
 
         // Extend r with verifier's folding challenges
         verifier_randomness = extend_point(
@@ -449,8 +448,8 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     for (expected, actual) in constraints
         .clone()
         .iter()
-        .flatten()
-        .zip(statement.constraints.clone().iter())
+        .flat_map(Statement::iter)
+        .zip(statement.iter())
     {
         assert_eq!(expected, actual);
     }
@@ -615,10 +614,10 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
         alphas.push(alpha);
 
         // Accumulate the weighted sum of constraint values
-        linear_combine_constraints(&mut sum, &statement.constraints, alpha);
+        statement.combine_evals(&mut sum, alpha);
 
         // Save constraints for later equality check
-        constraints.push(statement.constraints.clone());
+        constraints.push(statement.clone());
 
         // Extend r with verifier's folding randomness
         //

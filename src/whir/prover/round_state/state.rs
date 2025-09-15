@@ -163,9 +163,7 @@ where
             .into_iter()
             .map(|point| {
                 // Expand univariate OOD point to multilinear constraint in (EF)^n
-                let constraint_point =
-                    MultilinearPoint::expand_from_univariate(point, prover.num_variables);
-                constraint_point
+                MultilinearPoint::expand_from_univariate(point, prover.num_variables)
             })
             .collect();
 

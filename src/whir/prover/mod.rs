@@ -79,7 +79,7 @@ where
     /// `true` if the statement structure is valid for this protocol instance.
     fn validate_statement(&self, statement: &Statement<EF>) -> bool {
         statement.num_variables() == self.num_variables
-            && (self.initial_statement || statement.len() == 0)
+            && (self.initial_statement || statement.is_empty())
     }
 
     /// Validates that the witness satisfies the structural requirements of the WHIR prover.
@@ -181,7 +181,7 @@ where
 
         prover_state.hint_extension_scalars(&deferred);
 
-        Ok((constraint_eval, deferred))
+        Ok(constraint_eval)
     }
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = self.num_variables - self.folding_factor.total_number(round_index)))]
