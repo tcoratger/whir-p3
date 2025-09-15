@@ -42,6 +42,7 @@ impl ConstraintPolyEvaluator {
     /// `point` is the verifier's final challenge:
     /// - standard case: length = n
     /// - skip case:     length = (n - K_SKIP_SUMCHECK) + 1  (r_rest || r_skip)
+    #[must_use]
     pub fn eval_constraints_poly<EF>(
         &self,
         constraints: &[(Vec<EF>, Statement<EF>)],
@@ -81,6 +82,7 @@ impl ConstraintPolyEvaluator {
                 .map(|(point, &alpha_i)| {
                     // Each constraint contributes either a deferred evaluation, a skip-aware
                     // evaluation, or a standard evaluation.
+                    let val = if is_skip_round {
                     let val = if is_skip_round {
                         // Skip-aware evaluation over r_rest || r_skip.
                         debug_assert_eq!(point.num_variables(), self.num_variables);

@@ -138,7 +138,7 @@ where
         prover_state: &mut ProverState<F, EF, Challenger>,
         statement: Statement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
-    ) -> Result<(MultilinearPoint<EF>, Vec<EF>), FiatShamirError>
+    ) -> Result<MultilinearPoint<EF>, FiatShamirError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
