@@ -104,7 +104,7 @@ where
             // Bit mask for extracting domain_size_bits chunks
             //
             // Example: 4 bits → mask = 0b1111 = 15
-            let mask = (1 << domain_size_bits) - 1;
+            let mask = domain_size - 1;
 
             // Extract each query index from the packed bit stream
             for i in 0..num_queries {
