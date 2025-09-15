@@ -17,10 +17,12 @@ use super::{
 };
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::FiatShamirError, verifier::VerifierState},
+    fiat_shamir::verifier::VerifierState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        Statement, parameters::WhirConfig, statement::evaluator::ConstraintPolyEvaluator,
+        Statement,
+        parameters::WhirConfig,
+        statement::{constraint::linear_combine_constraints, evaluator::ConstraintPolyEvaluator},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -58,7 +60,7 @@ where
         verifier_state: &mut VerifierState<F, EF, Challenger>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         statement: &Statement<EF>,
-    ) -> Result<(MultilinearPoint<EF>, Vec<EF>), VerifierError>
+    ) -> Result<MultilinearPoint<EF>, VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
@@ -80,7 +82,7 @@ where
                 .chain(statement.constraints.iter().cloned())
                 .collect();
             let combination_randomness =
-                self.combine_constraints(verifier_state, &mut claimed_sum, &constraints)?;
+                self.combine_constraints(verifier_state, &mut claimed_sum, &constraints);
             round_constraints.push((combination_randomness, constraints));
 
             // Initial sumcheck
@@ -136,7 +138,7 @@ where
                 .collect();
 
             let combination_randomness =
-                self.combine_constraints(verifier_state, &mut claimed_sum, &constraints)?;
+                self.combine_constraints(verifier_state, &mut claimed_sum, &constraints);
             round_constraints.push((combination_randomness.clone(), constraints));
 
             let folding_randomness = verify_sumcheck_rounds(
@@ -195,19 +197,13 @@ where
                 .collect(),
         );
 
-        // Compute evaluation of weights in folding randomness
-        // Some weight computations can be deferred and will be returned for the caller
-        // to verify.
-        let deferred =
-            verifier_state.next_extension_scalars_vec(statement.num_deref_constraints())?;
-
         let evaluator = ConstraintPolyEvaluator::new(
             self.num_variables,
             self.folding_factor,
             self.univariate_skip,
         );
         let evaluation_of_weights =
-            evaluator.eval_constraints_poly(&round_constraints, &deferred, &folding_randomness);
+            evaluator.eval_constraints_poly(&round_constraints, &folding_randomness);
 
         // Check the final sumcheck evaluation
         let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
@@ -219,7 +215,7 @@ where
             });
         }
 
-        Ok((folding_randomness, deferred))
+        Ok(folding_randomness)
     }
 
     /// Combine multiple constraints into a single claim using random linear combination.
@@ -243,18 +239,9 @@ where
         verifier_state: &mut VerifierState<F, EF, Challenger>,
         claimed_sum: &mut EF,
         constraints: &[Constraint<EF>],
-    ) -> Result<Vec<EF>, FiatShamirError> {
+    ) -> Vec<EF> {
         let combination_randomness_gen: EF = verifier_state.sample();
-        let combination_randomness = combination_randomness_gen
-            .powers()
-            .collect_n(constraints.len());
-        *claimed_sum += constraints
-            .iter()
-            .zip(&combination_randomness)
-            .map(|(c, &rand)| rand * c.expected_evaluation)
-            .sum::<EF>();
-
-        Ok(combination_randomness)
+        linear_combine_constraints(claimed_sum, constraints, combination_randomness_gen)
     }
 
     /// Verify STIR in-domain queries and produce associated constraints.
@@ -386,13 +373,11 @@ where
             .iter()
             .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
             .zip(&folds)
-            .map(|(point, &expected_evaluation)| Constraint {
-                point: MultilinearPoint::expand_from_univariate(
-                    EF::from(point),
-                    params.num_variables,
-                ),
-                expected_evaluation,
-                defer_evaluation: false,
+            .map(|(point, &expected_evaluation)| {
+                Constraint::new(
+                    MultilinearPoint::expand_from_univariate(EF::from(point), params.num_variables),
+                    expected_evaluation,
+                )
             })
             .collect();
 

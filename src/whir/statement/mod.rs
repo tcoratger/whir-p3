@@ -70,11 +70,8 @@ impl<F: Field> Statement<F> {
     /// Panics if the number of variables in the `point` does not match the statement.
     pub fn add_constraint(&mut self, point: MultilinearPoint<F>, expected_evaluation: F) {
         assert_eq!(point.num_variables(), self.num_variables());
-        self.constraints.push(Constraint {
-            point,
-            expected_evaluation,
-            defer_evaluation: false,
-        });
+        self.constraints
+            .push(Constraint::new(point, expected_evaluation));
     }
 
     /// Inserts an evaluation constraint `p(z) = s` at the front of the system.
@@ -83,14 +80,8 @@ impl<F: Field> Statement<F> {
     /// Panics if the number of variables in the `point` does not match the statement.
     pub fn add_constraint_in_front(&mut self, point: MultilinearPoint<F>, expected_evaluation: F) {
         assert_eq!(point.num_variables(), self.num_variables());
-        self.constraints.insert(
-            0,
-            Constraint {
-                point,
-                expected_evaluation,
-                defer_evaluation: false,
-            },
-        );
+        self.constraints
+            .insert(0, Constraint::new(point, expected_evaluation));
     }
 
     /// Inserts multiple constraints at the front of the system.
@@ -109,11 +100,7 @@ impl<F: Field> Statement<F> {
             assert_eq!(point.num_variables(), n);
 
             // Convert the pair into a full `Constraint` with `defer_evaluation = false`.
-            new_constraints.push(Constraint {
-                point,
-                expected_evaluation,
-                defer_evaluation: false,
-            });
+            new_constraints.push(Constraint::new(point, expected_evaluation));
         }
 
         // Insert all new constraints at the beginning of the existing list.
@@ -148,11 +135,11 @@ impl<F: Field> Statement<F> {
         let (first, rest) = self.constraints.split_first().unwrap();
 
         // Initialize the combined evaluations with the first constraint's polynomial.
-        let mut combined = EvaluationsList::new_from_point(&first.point, F::ONE);
+        let mut combined = EvaluationsList::new_from_point(first.point(), F::ONE);
 
         // Initialize the combined expected sum with the first term: s_1 * γ^0 = s_1.
         let mut gamma = F::ONE;
-        let mut sum = first.expected_evaluation;
+        let mut sum = first.expected_eval();
 
         // Process the remaining constraints.
         for c in rest {
@@ -160,24 +147,16 @@ impl<F: Field> Statement<F> {
             gamma *= challenge;
 
             // Add this constraint's weighted polynomial evaluations into the buffer
-            combined.accumulate(&c.point, gamma);
+            combined.accumulate(c.point(), gamma);
 
             // Add this constraint's contribution to the combined expected sum:
-            sum += c.expected_evaluation * gamma;
+            sum += c.expected_eval() * gamma;
         }
 
         // Return:
         // - The combined polynomial W(X) in evaluation form.
         // - The combined expected sum S.
         (combined, sum)
-    }
-
-    #[must_use]
-    pub fn num_deref_constraints(&self) -> usize {
-        self.constraints
-            .iter()
-            .filter(|constraint| constraint.defer_evaluation)
-            .count()
     }
 }
 

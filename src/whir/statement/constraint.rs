@@ -8,19 +8,22 @@ use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Constraint<F> {
     /// The point at which the polynomial is constrained.
-    pub point: MultilinearPoint<F>,
+    point: MultilinearPoint<F>,
 
     /// The expected evaluation that the polynomial should have at `point`.
-    pub expected_evaluation: F,
-
-    /// - If true, the verifier will not evaluate the weight directly.
-    /// - If false, the verifier will evaluate the weight directly.
-    ///
-    /// This is used for deferred or externally computed evaluations.
-    pub defer_evaluation: bool,
+    expected_evaluation: F,
 }
 
 impl<F: Field> Constraint<F> {
+    /// Creates a new non-deferred constraint.
+    #[must_use]
+    pub const fn new(point: MultilinearPoint<F>, expected_evaluation: F) -> Self {
+        Self {
+            point,
+            expected_evaluation,
+        }
+    }
+
     /// Verify if a polynomial satisfies the constraint.
     ///
     /// This is used by the verifier.
@@ -28,6 +31,48 @@ impl<F: Field> Constraint<F> {
     pub fn verify(&self, poly: &EvaluationsList<F>) -> bool {
         poly.evaluate(&self.point) == self.expected_evaluation
     }
+
+    /// Returns the constraint point.
+    #[must_use]
+    pub const fn point(&self) -> &MultilinearPoint<F> {
+        &self.point
+    }
+
+    /// Returns the number of variables in the constraint point.
+    #[must_use]
+    pub const fn num_variables(&self) -> usize {
+        self.point.num_variables()
+    }
+
+    /// Returns the claimed evaluation at the constraint point.
+    #[must_use]
+    pub const fn expected_eval(&self) -> F {
+        self.expected_evaluation
+    }
+}
+
+/// Combines a list of constraints into a single linear combination using powers of `alpha`,
+/// and updates the running claimed sum in place.
+///
+/// # Arguments
+/// - `claimed_sum`: Mutable reference to the total accumulated claimed sum so far. Updated in place.
+/// - `constraints`: A slice of `Constraint<EF>` each containing a known `sum` field.
+/// - `alpha`: A random extension field element used to weight the constraints.
+///
+/// # Returns
+/// A `Vec<EF>` containing the powers of `alpha` used to combine each constraint.
+pub fn linear_combine_constraints<F: Field>(
+    claimed_eval: &mut F,
+    constraints: &[Constraint<F>],
+    gamma: F,
+) -> Vec<F> {
+    let gammas = gamma.powers().collect_n(constraints.len());
+
+    for (constraint, &gamma) in constraints.iter().zip(&gammas) {
+        *claimed_eval += constraint.expected_evaluation * gamma;
+    }
+
+    gammas
 }
 
 #[cfg(test)]
@@ -62,7 +107,6 @@ mod tests {
         let constraint = Constraint {
             point,
             expected_evaluation,
-            defer_evaluation: false,
         };
 
         // Verify that the polynomial (represented by its evaluations) satisfies the constraint.
@@ -94,7 +138,6 @@ mod tests {
         let constraint = Constraint {
             point,
             expected_evaluation: incorrect_expected_evaluation,
-            defer_evaluation: false,
         };
 
         // Verify that the constraint check fails.
@@ -132,7 +175,6 @@ mod tests {
         let constraint = Constraint {
             point,
             expected_evaluation,
-            defer_evaluation: false,
         };
 
         // Verify that the polynomial (represented by its evaluations) satisfies the constraint.
@@ -169,7 +211,6 @@ mod tests {
         let constraint = Constraint {
             point,
             expected_evaluation: incorrect_expected_evaluation,
-            defer_evaluation: false,
         };
 
         // Verify that the check fails.
