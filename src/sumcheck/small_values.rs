@@ -1,4 +1,4 @@
-use crate::{fiat_shamir::prover::ProverState, poly::evals::EvaluationsList};
+use crate::{dft::DitEvalsButterfly, fiat_shamir::prover::ProverState, poly::evals::EvaluationsList};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 
 use p3_field::{ExtensionField, Field};
@@ -444,6 +444,70 @@ where
 
     // TODO: Me parece que también va a haber que devolver poly_1 y poly_2 foldeados (con r_1 y r_2) para seguir con el sumcheck.
     [r_1, r_2]
+}
+
+// Procedure 9. Page 37.
+
+fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(poly: &EvaluationsList<F>, e_in: Vec<EF>, e_out: [Vec<EF>; NUM_OF_ROUNDS]) -> [RoundAccumlators<EF>; NUM_OF_ROUNDS] {
+    let l = poly.num_variables();
+    let half_l = l / 2;
+    
+    // We initialize the accumulators for each round: A_1, A_2 and A_3.
+    let mut round_1_accumulator = RoundAccumlators::<EF>::new_empty(1);
+    let mut round_2_accumulator = RoundAccumlators::<EF>::new_empty(2);
+    let mut round_3_accumulator = RoundAccumlators::<EF>::new_empty(3);
+
+    let x_out_num_variables = half_l - NUM_OF_ROUNDS;
+
+    for x_out in 0..1 << (x_out_num_variables) {
+
+        let mut temp_accumulators: Vec<EF> = vec![EF::ZERO; 27];
+
+        for x_in in 0..1 << half_l {
+
+            // We collect the evaluations of p(X_0, X_1, X_2, x_in, x_out) where
+            // x_in and  x_out are fixed and X_0, X_1, X_2 are variables.
+            let current_evals: Vec<F> = poly
+            .iter()
+            .skip((x_in << x_out_num_variables) | x_out) // x_in || x_out
+            .step_by(1 << (l - NUM_OF_ROUNDS) )
+            .cloned()
+            .collect();
+
+            // We compute p(beta, x_in, x_out) for all beta in {0, 1, inf}^3
+            let p_evals = calculate_p_beta(current_evals);
+
+            // TODO: change it to a map.
+            for beta_index in 0..27 {
+                temp_accumulators[beta_index] += e_in[x_in] * p_evals[beta_index];
+            }
+        }
+
+        for beta_index in 0..27 {
+
+            let [
+                index_accumulator_1,
+                index_accumulator_2,
+                index_accumulator_3,
+            ] = idx4_v3(beta_index);
+
+            for (index_opt, acc) in [
+                (index_accumulator_1, &mut round_1_accumulator),
+                (index_accumulator_2, &mut round_2_accumulator),
+                (index_accumulator_3, &mut round_3_accumulator),
+            ] {
+                if let Some(index) = index_opt {
+                    acc.accumulate_eval( e_out[index][x_out] * temp_accumulators[beta_index], index);
+                }
+            }
+        }
+    }
+    let result = [
+        round_1_accumulator,
+        round_2_accumulator,
+        round_3_accumulator,
+    ];
+    result
 }
 
 #[cfg(test)]
