@@ -1,6 +1,5 @@
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use super::constraint::Constraint;
 use crate::{
     constant::K_SKIP_SUMCHECK, parameters::FoldingFactor, poly::multilinear::MultilinearPoint,
     whir::parameters::WhirConfig,

@@ -3,10 +3,8 @@ use tracing::instrument;
 
 use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::statement::constraint::Constraint,
 };
 
-pub mod constraint;
 pub mod evaluator;
 
 /// Represents a system of polynomial evaluation constraints over a Boolean hypercube.
@@ -44,8 +42,10 @@ pub mod evaluator;
 pub struct Statement<F> {
     /// Number of variables in the multilinear polynomial space.
     num_variables: usize,
-    /// List of constraints, each pairing an evaluation point with a target evaluation.
-    pub constraints: Vec<Constraint<F>>,
+    /// List of evaluation points.
+    pub evaluation_points: Vec<MultilinearPoint<F>>,
+    /// List of target evaluations.
+    pub expected_evaluations: Vec<F>,
 }
 
 impl<F: Field> Statement<F> {
@@ -54,7 +54,8 @@ impl<F: Field> Statement<F> {
     pub const fn new(num_variables: usize) -> Self {
         Self {
             num_variables,
-            constraints: Vec::new(),
+            evaluation_points: Vec::new(),
+            expected_evaluations: Vec::new(),
         }
     }
 
@@ -70,11 +71,8 @@ impl<F: Field> Statement<F> {
     /// Panics if the number of variables in the `point` does not match the statement.
     pub fn add_constraint(&mut self, point: MultilinearPoint<F>, expected_evaluation: F) {
         assert_eq!(point.num_variables(), self.num_variables());
-        self.constraints.push(Constraint {
-            point,
-            expected_evaluation,
-            defer_evaluation: false,
-        });
+        self.evaluation_points.push(point);
+        self.expected_evaluations.push(expected_evaluation);
     }
 
     /// Inserts an evaluation constraint `p(z) = s` at the front of the system.
@@ -83,43 +81,22 @@ impl<F: Field> Statement<F> {
     /// Panics if the number of variables in the `point` does not match the statement.
     pub fn add_constraint_in_front(&mut self, point: MultilinearPoint<F>, expected_evaluation: F) {
         assert_eq!(point.num_variables(), self.num_variables());
-        self.constraints.insert(
-            0,
-            Constraint {
-                point,
-                expected_evaluation,
-                defer_evaluation: false,
-            },
-        );
+        self.evaluation_points.insert(0, point);
+        self.expected_evaluations.insert(0, expected_evaluation);
     }
 
     /// Inserts multiple constraints at the front of the system.
     ///
     /// Panics if any constraint's number of variables does not match the system.
-    pub fn add_constraints_in_front(&mut self, constraints: Vec<(MultilinearPoint<F>, F)>) {
+    pub fn add_constraints_in_front(&mut self, points: &[MultilinearPoint<F>], evaluations: &[F]) {        
         // Store the number of variables expected by this statement.
         let n = self.num_variables();
+        assert_eq!(points.len(), evaluations.len());
+        points.iter().for_each(|p| assert_eq!(p.num_variables(), n));
 
-        // Preallocate a vector for the converted constraints to avoid reallocations.
-        let mut new_constraints = Vec::with_capacity(constraints.len());
-
-        // Iterate through each (weights, sum) pair in the input.
-        for (point, expected_evaluation) in constraints {
-            // Ensure the number of variables in the weight matches the statement.
-            assert_eq!(point.num_variables(), n);
-
-            // Convert the pair into a full `Constraint` with `defer_evaluation = false`.
-            new_constraints.push(Constraint {
-                point,
-                expected_evaluation,
-                defer_evaluation: false,
-            });
-        }
-
-        // Insert all new constraints at the beginning of the existing list.
-        self.constraints.splice(0..0, new_constraints);
+        self.evaluation_points.splice(0..0, points.iter().cloned());
+        self.expected_evaluations.splice(0..0, evaluations.iter().cloned());
     }
-
     /// Combines all constraints into a single aggregated polynomial and expected sum using a challenge.
     ///
     /// # Returns
@@ -134,7 +111,7 @@ impl<F: Field> Statement<F> {
         // If there are no constraints, the combination is:
         // - The combined polynomial W(X) is identically zero (all evaluations = 0).
         // - The combined expected sum S is zero.
-        if self.constraints.is_empty() {
+        if self.evaluation_points.is_empty() {
             return (
                 EvaluationsList::new(F::zero_vec(1 << self.num_variables)),
                 F::ZERO,
@@ -145,39 +122,32 @@ impl<F: Field> Statement<F> {
         // This allows us to treat the first one specially:
         //   - We overwrite the buffer.
         //   - We avoid a runtime branch in the main loop.
-        let (first, rest) = self.constraints.split_first().unwrap();
+        let (first_point, rest_points) = self.evaluation_points.split_first().unwrap();
+        let (first_eval, rest_evals) = self.expected_evaluations.split_first().unwrap();
 
         // Initialize the combined evaluations with the first constraint's polynomial.
-        let mut combined = EvaluationsList::new_from_point(&first.point, F::ONE);
+        let mut combined = EvaluationsList::new_from_point(first_point, F::ONE);
 
         // Initialize the combined expected sum with the first term: s_1 * γ^0 = s_1.
         let mut gamma = F::ONE;
-        let mut sum = first.expected_evaluation;
+        let mut sum = *first_eval;
 
         // Process the remaining constraints.
-        for c in rest {
+        for (point, &eval) in rest_points.iter().zip(rest_evals) {
             // Update γ to γ^i for this constraint.
             gamma *= challenge;
 
             // Add this constraint's weighted polynomial evaluations into the buffer
-            combined.accumulate(&c.point, gamma);
+            combined.accumulate(point, gamma);
 
             // Add this constraint's contribution to the combined expected sum:
-            sum += c.expected_evaluation * gamma;
+            sum += eval * gamma;
         }
 
         // Return:
         // - The combined polynomial W(X) in evaluation form.
         // - The combined expected sum S.
         (combined, sum)
-    }
-
-    #[must_use]
-    pub fn num_deref_constraints(&self) -> usize {
-        self.constraints
-            .iter()
-            .filter(|constraint| constraint.defer_evaluation)
-            .count()
     }
 }
 
