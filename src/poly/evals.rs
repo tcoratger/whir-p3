@@ -450,6 +450,26 @@ where
     }
 }
 
+// Implement Procedure 2 from the paper
+// https://eprint.iacr.org/2025/1117.pdf Bagad, Dao, Thaler and Domb
+// Compute eq(w,x) for all x∈{0,1}^l
+// This is the same function as new_from_point (which is optimized for parallelization)
+pub fn eval_eq_serial<F: Field>(w: &[F], scaling_factor: Option<F>) -> Vec<F> {
+    let n = w.len();
+    let mut evals: Vec<F> = vec![scaling_factor.unwrap_or(F::ONE); 1 << n];
+    let mut size = 1usize;
+    for j in 0..n {
+        // in each iteration, we double the size
+        size *= 2;
+        for i in (0..size).rev().step_by(2) {
+            let scalar = evals[i / 2];
+            evals[i] = scalar * w[j]; // odd 
+            evals[i - 1] = scalar - evals[i]; // even
+        }
+    }
+    evals
+}
+
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
@@ -1368,6 +1388,44 @@ mod tests {
         // A constant polynomial has 0 variables and cannot be compressed.
         let evals_list = EvaluationsList::new(vec![F::from_u64(42)]);
         let _ = evals_list.compress_ext(EF4::ONE); // This should panic.
+    }
+
+    #[test]
+    fn test_evals_serial_three_vars_hardcoded() {
+        // r = [p0, p1, p2]
+        let p0 = F::from_u64(2);
+        let p1 = F::from_u64(3);
+        let p2 = F::from_u64(5);
+        let s = F::from_u64(10);
+
+        // Índices: 000, 001, 010, 011, 100, 101, 110, 111
+        let expected = vec![
+            s * (F::ONE - p0) * (F::ONE - p1) * (F::ONE - p2), // 000 v[0]
+            s * (F::ONE - p0) * (F::ONE - p1) * p2,            // 001 v[1]
+            s * (F::ONE - p0) * p1 * (F::ONE - p2),            // 010 v[2]
+            s * (F::ONE - p0) * p1 * p2,                       // 011 v[3]
+            s * p0 * (F::ONE - p1) * (F::ONE - p2),            // 100 v[4]
+            s * p0 * (F::ONE - p1) * p2,                       // 101 v[5]
+            s * p0 * p1 * (F::ONE - p2),                       // 110 v[6]
+            s * p0 * p1 * p2,                                  // 111 v[7]
+        ];
+
+        let out = eval_eq_serial::<F>(&[p0, p1, p2], Some(s));
+        assert_eq!(out, expected);
+    }
+    // Test that the serial implementation matches the new_from_point implementation
+    #[test]
+    fn test_evals_serial_three_vars_matches_new_from_point() {
+        let p = [F::from_u64(2), F::from_u64(3), F::from_u64(5)];
+        let point = MultilinearPoint::new(p.to_vec());
+        let value = F::from_u64(10);
+
+        let via_method = EvaluationsList::new_from_point(&point, value)
+            .into_iter()
+            .collect::<Vec<_>>();
+        let via_serial = eval_eq_serial(&p, Some(value));
+
+        assert_eq!(via_serial, via_method);
     }
 
     proptest! {
