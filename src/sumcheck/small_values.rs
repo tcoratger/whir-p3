@@ -76,7 +76,7 @@ where
         self.accumulators[index] += eval;
     }
 }
-// TODO: En vez de tener que llamar a esta función 3 veces en cumpute_accumulators, cambiar esta función idx4 para que
+// ESTA FUNCIÓN YA NO SE USA
 // la llamemos ahi una sola vez. El input debería ser solo beta (sin la round) y tiene que determinar para cada round qué devuelve.
 // CAMBIAR COMENTARIO.
 // Esta función mapea una tupla del tipo (i,v,u,y) que resulta de aplicar indx4(\beta) a un indice que correpende a un acumulador especifico.
@@ -130,6 +130,7 @@ fn idx4(
     }
 }
 
+// ESTA FUNCIÓN YA NO SE USA
 fn idx4_v2(beta: [EvaluationPoint; 3]) -> [Option<usize>; 3] {
     let beta_1 = beta[0].to_usize_representation();
     let beta_2 = beta[1].to_usize_representation();
@@ -175,6 +176,7 @@ fn idx4_v3(index_beta: usize) -> [Option<usize>; 3] {
     }
 }
 
+// ESTA FUNCIÓN NO SE USA.
 // TODO: En vez de pasar de indice a beta y despues de beta a indice, hay que buscar la manera de hacerlo sin tener que pasar al beta.
 // Ojo: no es la inversa de la función anterior. (No incluye el round)
 // `index` in {0, ..., 27}
@@ -262,7 +264,6 @@ fn calculate_p_beta<F: Field>(current_evals: Vec<F>) -> Vec<F> {
 }
 
 // Implements the Procedure 7 in https://eprint.iacr.org/2025/1117.pdf (page 34).
-
 fn compute_accumulators<F: Field>(
     poly_1: &EvaluationsList<F>,
     poly_2: &EvaluationsList<F>,
@@ -335,12 +336,13 @@ fn small_value_sumcheck_three_rounds<Challenger, F: Field, EF: ExtensionField<F>
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
+    // We compute all the accumulators A_i(v, u).
     let round_accumulators = compute_accumulators(&poly_1, &poly_2);
+
     // Round 1
 
     // 1. For u in {0, 1, inf} compute S_1(u).
     // Recall: S_1(u) = A_1(u).
-
     let round_poly_evals = &round_accumulators[0].accumulators;
 
     // 2. Send S_1(u) to the verifier.
@@ -361,36 +363,22 @@ where
     // 1. For u in {0, 1, inf} compute S_2(u).
     // First we take the accumulators A_2(v, u).
     // There are 9 accumulators, since v in {0, 1, inf} and u in {0, 1, inf}.
-    let accumulators_2 = &round_accumulators[1].accumulators;
+    let accumulators_round_2 = &round_accumulators[1].accumulators;
 
-    // TODO: Hacer las tres evaluaciones en una sola iteración de accumulators_2 en vez de tres veces.
-    // We compute S_2(0):
-    let round_poly_in_0: EF = accumulators_2
-        .iter()
-        .step_by(3)
-        .zip(lagrange_evals_r_1.iter())
-        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-        .sum();
+    let mut round_poly_evals = [EF::ZERO; 3];
 
-    // We compute S_2(1):
-    let round_poly_in_1: EF = accumulators_2
-        .iter()
-        .skip(1)
-        .step_by(3)
-        .zip(lagrange_evals_r_1.iter())
-        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-        .sum();
+    // We split accumulators_2 in three chunks of three elements each, where each chunk corresponds to
+    // a fixed v and the three elements in the chunk correspond to the three possible values of u.
+    for (lagrange_index, accumulators_chunk) in accumulators_round_2.chunks_exact(3).enumerate() {
+        // S_2(0) = A_2(0, 0) * L_0(r_1) + A_2(1, 0) * L_1(r_1) + A_2(inf, 0) * L_inf(r_1)
+        round_poly_evals[0] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[0];
 
-    // We compute S_2(inf):
-    let round_poly_in_inf: EF = accumulators_2
-        .iter()
-        .skip(2)
-        .step_by(3)
-        .zip(lagrange_evals_r_1.iter())
-        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-        .sum();
+        // S_2(1) = A_2(0, 1) * L_0(r_1) + A_2(1, 1) * L_1(r_1) + A_2(inf, 1) * L_inf(r_1)
+        round_poly_evals[1] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[1];
 
-    let round_poly_evals = [round_poly_in_0, round_poly_in_1, round_poly_in_inf];
+        // S_2(inf) = A_2(0, inf) * L_0(r_1) + A_2(1, inf) * L_1(r_1) + A_2(inf, inf) * L_inf(r_1)
+        round_poly_evals[2] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[2];
+    }
 
     // 2. Send S_2(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
@@ -409,17 +397,19 @@ where
     let l_1 = lagrange_evals_r_1[1];
     let l_inf = lagrange_evals_r_1[2];
 
+    let mul_inf = (r_2 - F::ONE) * r_2;
+
     // TODO: calcular `(r_2 - F::ONE) * r_2` una sola vez. Lo dejo por ahora así por claridad.
     let lagrange_evals_r_2 = [
-        l_0 * (-r_2 + F::ONE),        // L_0 0
-        l_0 * r_2,                    // L_0 1
-        l_0 * (r_2 - F::ONE) * r_2,   // L_0 inf
-        l_1 * (-r_2 + F::ONE),        // L_1 0
-        l_1 * r_2,                    // L_1 1
-        l_1 * (r_2 - F::ONE) * r_2,   // L_1 inf
-        l_inf * (-r_2 + F::ONE),      // L_inf 0
-        l_inf * r_2,                  // L_inf 1
-        l_inf * (r_2 - F::ONE) * r_2, // L_inf inf
+        l_0 * (-r_2 + F::ONE),   // L_0 0
+        l_0 * r_2,               // L_0 1
+        l_0 * mul_inf,           // L_0 inf
+        l_1 * (-r_2 + F::ONE),   // L_1 0
+        l_1 * r_2,               // L_1 1
+        l_1 * mul_inf,           // L_1 inf
+        l_inf * (-r_2 + F::ONE), // L_inf 0
+        l_inf * r_2,             // L_inf 1
+        l_inf * mul_inf,         // L_inf inf
     ];
 
     // Round 3
@@ -428,36 +418,25 @@ where
 
     // First we take the accumulators A_2(v, u).
     // There are 27 accumulators, since v in {0, 1, inf}^2 and u in {0, 1, inf}.
-    let accumulators_3 = &round_accumulators[2].accumulators;
+    let accumulators_round_3 = &round_accumulators[2].accumulators;
 
-    // TODO: hacer las tres evalucaiones con un solo iterador.
-    // We compute S_3(0):
-    let round_poly_in_0: EF = accumulators_3
-        .iter()
-        .step_by(3)
-        .zip(lagrange_evals_r_2.iter())
-        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-        .sum();
+    round_poly_evals = [EF::ZERO; 3];
 
-    // We compute S_3(1):
-    let round_poly_in_1: EF = accumulators_3
-        .iter()
-        .skip(1)
-        .step_by(3)
-        .zip(lagrange_evals_r_2.iter())
-        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-        .sum();
+    // We split the accumulators in three chunks of 9 elements each, where each chunk corresponds
+    // to fixed v1 and v2,
+    for (lagrange_index, accumulators_chunk) in accumulators_round_3.chunks_exact(9).enumerate() {
+        // Within each chunk of 9, we have 3 groups of 3 elements for each u2 value
+        for (u_index, u_chunk) in accumulators_chunk.chunks_exact(3).enumerate() {
+            // S_3(0) += L_{v1,v2}(r_1, r_2) * A_3(v1, v2, 0)
+            round_poly_evals[0] += lagrange_evals_r_2[lagrange_index * 3 + u_index] * u_chunk[0];
 
-    // We compute S_3(inf):
-    let round_poly_in_inf: EF = accumulators_3
-        .iter()
-        .skip(2)
-        .step_by(3)
-        .zip(lagrange_evals_r_2.iter())
-        .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-        .sum();
+            // S_3(1) += L_{v1,v2}(r_1, r_2) * A_3(v1, v2, 1)
+            round_poly_evals[1] += lagrange_evals_r_2[lagrange_index * 3 + u_index] * u_chunk[1];
 
-    let round_poly_evals = [round_poly_in_0, round_poly_in_1, round_poly_in_inf];
+            // S_3(inf) += L_{v1,v2}(r_1, r_2) * A_3(v1, v2, inf)
+            round_poly_evals[2] += lagrange_evals_r_2[lagrange_index * 3 + u_index] * u_chunk[2];
+        }
+    }
 
     // 2. Send S_3(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
@@ -477,6 +456,7 @@ mod tests {
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;
 
+    // BORRAR
     // TEST NOT WORKING. We changed the function idx4.
     #[test]
     fn test_idx4() {
@@ -572,6 +552,7 @@ mod tests {
         assert_eq!(idx4(3, &inf, &inf, &inf).unwrap(), 26);
     }
 
+    // BORRAR.
     #[test]
     fn test_from_index_to_beta() {
         let inf = EvaluationPoint::Infinity;
@@ -732,34 +713,13 @@ mod tests {
         // There are 9 accumulators, since v in {0, 1, inf} and u in {0, 1, inf}.
         let accumulators_2 = &round_accumulators[1].accumulators;
 
-        // TODO: Hacer las tres evaluaciones en una sola iteración de accumulators_2 en vez de tres veces.
-        // We compute S_2(0):
-        let round_poly_in_0: EF = accumulators_2
-            .iter()
-            .step_by(3)
-            .zip(lagrange_evals_r_1.iter())
-            .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-            .sum();
+        let mut round_poly_evals = [EF::ZERO; 3];
 
-        // We compute S_2(1):
-        let round_poly_in_1: EF = accumulators_2
-            .iter()
-            .skip(1)
-            .step_by(3)
-            .zip(lagrange_evals_r_1.iter())
-            .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-            .sum();
-
-        // We compute S_2(inf):
-        let round_poly_in_inf: EF = accumulators_2
-            .iter()
-            .skip(2)
-            .step_by(3)
-            .zip(lagrange_evals_r_1.iter())
-            .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-            .sum();
-
-        let round_poly_evals = [round_poly_in_0, round_poly_in_1, round_poly_in_inf];
+        for (lagrange_index, chunk) in accumulators_2.chunks_exact(3).enumerate() {
+            round_poly_evals[0] += lagrange_evals_r_1[lagrange_index] * chunk[0];
+            round_poly_evals[1] += lagrange_evals_r_1[lagrange_index] * chunk[1];
+            round_poly_evals[2] += lagrange_evals_r_1[lagrange_index] * chunk[2];
+        }
 
         // 2. We check S_2(x) = 8 * x^2 + 68 * x + 145 (we computed it by hand).
         assert_eq!(round_poly_evals[0], EF::from(F::from_int(145))); // S_2(0)
@@ -800,34 +760,31 @@ mod tests {
         // There are 27 accumulators, since v in {0, 1, inf}^2 and u in {0, 1, inf}.
         let accumulators_3 = &round_accumulators[2].accumulators;
 
-        // TODO: hacer las tres evalucaiones con un solo iterador.
-        // We compute S_3(0):
-        let round_poly_in_0: EF = accumulators_3
-            .iter()
-            .step_by(3)
-            .zip(lagrange_evals_r_2.iter())
-            .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-            .sum();
+        let mut round_poly_evals = [EF::ZERO; 3];
 
-        // We compute S_3(1):
-        let round_poly_in_1: EF = accumulators_3
-            .iter()
-            .skip(1)
-            .step_by(3)
-            .zip(lagrange_evals_r_2.iter())
-            .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-            .sum();
+        // We split
+        for (lagrange_index, accumulators_chunk) in accumulators_3.chunks_exact(9).enumerate() {
+            // Los primeros 3 elementos: u2 = 0
+            round_poly_evals[0] += lagrange_evals_r_2[lagrange_index * 3] * accumulators_chunk[0];
+            round_poly_evals[1] += lagrange_evals_r_2[lagrange_index * 3] * accumulators_chunk[1];
+            round_poly_evals[2] += lagrange_evals_r_2[lagrange_index * 3] * accumulators_chunk[2];
 
-        // We compute S_3(inf):
-        let round_poly_in_inf: EF = accumulators_3
-            .iter()
-            .skip(2)
-            .step_by(3)
-            .zip(lagrange_evals_r_2.iter())
-            .map(|(accumulator, lagrange)| *lagrange * *accumulator)
-            .sum();
+            // Los siguientes 3 elementos: u2 = 1
+            round_poly_evals[0] +=
+                lagrange_evals_r_2[lagrange_index * 3 + 1] * accumulators_chunk[3];
+            round_poly_evals[1] +=
+                lagrange_evals_r_2[lagrange_index * 3 + 1] * accumulators_chunk[4];
+            round_poly_evals[2] +=
+                lagrange_evals_r_2[lagrange_index * 3 + 1] * accumulators_chunk[5];
 
-        let round_poly_evals = [round_poly_in_0, round_poly_in_1, round_poly_in_inf];
+            // Los últimos 3 elementos: u2 = inf
+            round_poly_evals[0] +=
+                lagrange_evals_r_2[lagrange_index * 3 + 2] * accumulators_chunk[6];
+            round_poly_evals[1] +=
+                lagrange_evals_r_2[lagrange_index * 3 + 2] * accumulators_chunk[7];
+            round_poly_evals[2] +=
+                lagrange_evals_r_2[lagrange_index * 3 + 2] * accumulators_chunk[8];
+        }
 
         // 2. We check S_3(x) = x^2 + 20 * x + 100 (we computed it by hand).
         assert_eq!(round_poly_evals[0], EF::from(F::from_int(100))); // S_3(0)
