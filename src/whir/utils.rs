@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
-use p3_util::log2_ceil_usize;
+use p3_util::{log2_ceil_usize, log2_strict_usize};
 use tracing::instrument;
 
 use crate::{
@@ -65,13 +65,13 @@ where
 
     // Apply WHIR folding: domain_size / 2^folding_factor
     //
-    // Example: 1M domain → 3 folds → 1M >> 3 = 125K domain
+    // Example: 512 domain → 3 folds → 512 >> 3 = 64 domain
     let folded_domain_size = domain_size >> folding_factor;
 
     // Bits required to index into the folded domain
     //
-    // Example: 125K domain needs ceil(log_2(125K)) ≈ 17 bits per query
-    let domain_size_bits = log2_ceil_usize(folded_domain_size);
+    // Example: 64 domain needs log_2(64) ≈ 6 bits per query
+    let domain_size_bits = log2_strict_usize(folded_domain_size);
 
     // PHASE 2: Determine batching strategy
 
