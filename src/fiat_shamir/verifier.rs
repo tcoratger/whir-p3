@@ -2,7 +2,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
 
 use super::domain_separator::DomainSeparator;
-use crate::fiat_shamir::{ChallengeSampler, errors::ProofError};
+use crate::fiat_shamir::{ChallengeSampler, errors::FiatShamirError};
 
 /// State held by the verifier in a Fiat-Shamir protocol.
 ///
@@ -70,11 +70,11 @@ where
     /// - `n`: Number of base scalars to read.
     ///
     /// # Errors
-    /// Returns `ProofError::ExceededTranscript` if insufficient data remains.
-    pub fn next_base_scalars_vec(&mut self, n: usize) -> Result<Vec<F>, ProofError> {
+    /// Returns `FiatShamirError::ExceededTranscript` if insufficient data remains.
+    pub fn next_base_scalars_vec(&mut self, n: usize) -> Result<Vec<F>, FiatShamirError> {
         // Check that enough data remains to read `n` elements.
         if n > self.proof_data.len() - self.index {
-            return Err(ProofError::ExceededTranscript);
+            return Err(FiatShamirError::ExceededTranscript);
         }
 
         // Slice out the next `n` scalars and copy them.
@@ -90,8 +90,8 @@ where
     /// Consume and return `N` base scalars as a fixed-size array, observing them in the challenger.
     ///
     /// # Errors
-    /// Returns `ProofError::ExceededTranscript` if insufficient data remains.
-    pub fn next_base_scalars_const<const N: usize>(&mut self) -> Result<[F; N], ProofError> {
+    /// Returns `FiatShamirError::ExceededTranscript` if insufficient data remains.
+    pub fn next_base_scalars_const<const N: usize>(&mut self) -> Result<[F; N], FiatShamirError> {
         // Delegate to vector-based reader, then convert to array.
         Ok(self.next_base_scalars_vec(N)?.try_into().unwrap())
     }
@@ -102,8 +102,8 @@ where
     /// - `n`: Number of extension scalars to read.
     ///
     /// # Errors
-    /// Returns `ProofError::ExceededTranscript` if insufficient data remains.
-    pub fn next_extension_scalars_vec(&mut self, n: usize) -> Result<Vec<EF>, ProofError> {
+    /// Returns `FiatShamirError::ExceededTranscript` if insufficient data remains.
+    pub fn next_extension_scalars_vec(&mut self, n: usize) -> Result<Vec<EF>, FiatShamirError> {
         // Number of base scalars needed
         let need = n * EF::DIMENSION;
 
@@ -117,16 +117,16 @@ where
     /// Consume and return `N` extension scalars as a fixed-size array, observing them in the challenger.
     ///
     /// # Errors
-    /// Returns `ProofError::ExceededTranscript` if insufficient data remains.
-    pub fn next_extension_scalars_const<const N: usize>(&mut self) -> Result<[EF; N], ProofError> {
+    /// Returns `FiatShamirError::ExceededTranscript` if insufficient data remains.
+    pub fn next_extension_scalars_const<const N: usize>(&mut self) -> Result<[EF; N], FiatShamirError> {
         Ok(self.next_extension_scalars_vec(N)?.try_into().unwrap())
     }
 
     /// Consume and return a single extension scalar, observing it in the challenger.
     ///
     /// # Errors
-    /// Returns `ProofError::ExceededTranscript` if insufficient data remains.
-    pub fn next_extension_scalar(&mut self) -> Result<EF, ProofError> {
+    /// Returns `FiatShamirError::ExceededTranscript` if insufficient data remains.
+    pub fn next_extension_scalar(&mut self) -> Result<EF, FiatShamirError> {
         Ok(self.next_extension_scalars_vec(1)?[0])
     }
 
@@ -136,11 +136,11 @@ where
     /// - `n`: Number of base scalars to read.
     ///
     /// # Errors
-    /// Returns `ProofError::ExceededTranscript` if insufficient data remains.
-    pub fn receive_hint_base_scalars(&mut self, n: usize) -> Result<Vec<F>, ProofError> {
+    /// Returns `FiatShamirError::ExceededTranscript` if insufficient data remains.
+    pub fn receive_hint_base_scalars(&mut self, n: usize) -> Result<Vec<F>, FiatShamirError> {
         // Check that enough data remains to read `n` elements.
         if n > self.proof_data.len() - self.index {
-            return Err(ProofError::ExceededTranscript);
+            return Err(FiatShamirError::ExceededTranscript);
         }
 
         // Slice out the next `n` scalars and copy them.
@@ -156,8 +156,8 @@ where
     /// - `n`: Number of extension scalars to read.
     ///
     /// # Errors
-    /// Returns `ProofError::ExceededTranscript` if insufficient data remains.
-    pub fn receive_hint_extension_scalars(&mut self, n: usize) -> Result<Vec<EF>, ProofError> {
+    /// Returns `FiatShamirError::ExceededTranscript` if insufficient data remains.
+    pub fn receive_hint_extension_scalars(&mut self, n: usize) -> Result<Vec<EF>, FiatShamirError> {
         // Number of base scalars needed
         let need = n * EF::DIMENSION;
 
@@ -193,9 +193,9 @@ where
     /// - `bits`: Number of bits of grinding difficulty. If zero, no check is performed.
     ///
     /// # Errors
-    /// Returns `ProofError::ExceededTranscript` if no data remains,
-    /// or `ProofError::InvalidGrindingWitness` if the witness does not satisfy the difficulty.
-    pub fn check_pow_grinding(&mut self, bits: usize) -> Result<(), ProofError> {
+    /// Returns `FiatShamirError::ExceededTranscript` if no data remains,
+    /// or `FiatShamirError::InvalidGrindingWitness` if the witness does not satisfy the difficulty.
+    pub fn check_pow_grinding(&mut self, bits: usize) -> Result<(), FiatShamirError> {
         // If no grinding is required, succeed immediately.
         if bits == 0 {
             return Ok(());
@@ -203,7 +203,7 @@ where
 
         // Ensure there is at least one witness element to consume.
         if self.index >= self.proof_data.len() {
-            return Err(ProofError::ExceededTranscript);
+            return Err(FiatShamirError::ExceededTranscript);
         }
 
         // Consume the next witness element.
@@ -214,7 +214,7 @@ where
         if self.challenger.check_witness(bits, witness) {
             Ok(())
         } else {
-            Err(ProofError::InvalidGrindingWitness)
+            Err(FiatShamirError::InvalidGrindingWitness)
         }
     }
 }

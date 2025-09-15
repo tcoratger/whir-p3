@@ -1,5 +1,6 @@
 use std::{fmt::Debug, ops::Deref};
 
+use errors::VerifierError;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -16,10 +17,7 @@ use super::{
 };
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{
-        errors::{ProofError, ProofResult},
-        verifier::VerifierState,
-    },
+    fiat_shamir::{errors::FiatShamirError, verifier::VerifierState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         Statement, parameters::WhirConfig, statement::evaluator::ConstraintPolyEvaluator,
@@ -27,6 +25,7 @@ use crate::{
     },
 };
 
+pub mod errors;
 pub mod sumcheck;
 
 /// Wrapper around the WHIR verifier configuration.
@@ -59,7 +58,7 @@ where
         verifier_state: &mut VerifierState<F, EF, Challenger>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         statement: &Statement<EF>,
-    ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)>
+    ) -> Result<(MultilinearPoint<EF>, Vec<EF>), VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
@@ -173,7 +172,10 @@ where
             .iter()
             .all(|c| c.verify(&final_evaluations))
             .then_some(())
-            .ok_or(ProofError::InvalidProof)?;
+            .ok_or_else(|| VerifierError::StirChallengeFailed {
+                challenge_id: 0,
+                details: "STIR constraint verification failed on final polynomial".to_string(),
+            })?;
 
         let final_sumcheck_randomness = verify_sumcheck_rounds(
             verifier_state,
@@ -210,7 +212,11 @@ where
         // Check the final sumcheck evaluation
         let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
         if claimed_sum != evaluation_of_weights * final_value {
-            return Err(ProofError::InvalidProof);
+            return Err(VerifierError::SumcheckFailed {
+                round: self.final_sumcheck_rounds,
+                expected: (evaluation_of_weights * final_value).to_string(),
+                actual: claimed_sum.to_string(),
+            });
         }
 
         Ok((folding_randomness, deferred))
@@ -237,7 +243,7 @@ where
         verifier_state: &mut VerifierState<F, EF, Challenger>,
         claimed_sum: &mut EF,
         constraints: &[Constraint<EF>],
-    ) -> ProofResult<Vec<EF>> {
+    ) -> Result<Vec<EF>, FiatShamirError> {
         let combination_randomness_gen: EF = verifier_state.sample();
         let combination_randomness = combination_randomness_gen
             .powers()
@@ -273,7 +279,7 @@ where
     /// to its evaluated, folded value under the prover’s commitment.
     ///
     /// # Errors
-    /// Returns `ProofError::InvalidProof` if Merkle proof verification fails
+    /// Returns `VerifierError::MerkleProofInvalid` if Merkle proof verification fails
     /// or the prover’s data does not match the commitment.
     pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
         &self,
@@ -282,7 +288,7 @@ where
         commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
-    ) -> ProofResult<Vec<Constraint<EF>>>
+    ) -> Result<Vec<Constraint<EF>>, VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
@@ -415,7 +421,7 @@ where
     /// A vector of decoded leaf values, one `Vec<EF>` per queried index.
     ///
     /// # Errors
-    /// Returns `ProofError::InvalidProof` if any Merkle proof fails verification.
+    /// Returns `VerifierError::MerkleProofInvalid` if any Merkle proof fails verification.
     pub fn verify_merkle_proof<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<F, EF, Challenger>,
@@ -424,7 +430,7 @@ where
         dimensions: &[Dimensions],
         leafs_base_field: bool,
         round_index: usize,
-    ) -> ProofResult<Vec<Vec<EF>>>
+    ) -> Result<Vec<Vec<EF>>, VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
@@ -471,7 +477,10 @@ where
                         opening_proof: &merkle_proofs[i],
                     },
                 )
-                .map_err(|_| ProofError::InvalidProof)?;
+                .map_err(|_| VerifierError::MerkleProofInvalid {
+                    position: index,
+                    reason: "Base field Merkle proof verification failed".to_string(),
+                })?;
             }
 
             // Convert the base field values to EF and collect them into a result vector.
@@ -514,7 +523,10 @@ where
                             opening_proof: &merkle_proofs[i],
                         },
                     )
-                    .map_err(|_| ProofError::InvalidProof)?;
+                    .map_err(|_| VerifierError::MerkleProofInvalid {
+                        position: index,
+                        reason: "Extension field Merkle proof verification failed".to_string(),
+                    })?;
             }
 
             // Return the extension field answers as-is.

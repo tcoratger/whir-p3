@@ -4,13 +4,9 @@ use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 
 use crate::{
-    constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{
-        errors::{ProofError, ProofResult},
-        verifier::VerifierState,
-    },
-    poly::multilinear::MultilinearPoint,
-    sumcheck::sumcheck_polynomial::SumcheckPolynomial,
+    constant::K_SKIP_SUMCHECK, fiat_shamir::verifier::VerifierState,
+    poly::multilinear::MultilinearPoint, sumcheck::sumcheck_polynomial::SumcheckPolynomial,
+    whir::verifier::VerifierError,
 };
 
 /// The full vector of folding randomness values, in reverse round order.
@@ -50,7 +46,7 @@ pub(crate) fn verify_sumcheck_rounds<EF, F, Challenger>(
     rounds: usize,
     pow_bits: usize,
     is_univariate_skip: bool,
-) -> ProofResult<SumcheckRandomness<EF>>
+) -> Result<SumcheckRandomness<EF>, VerifierError>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
@@ -83,7 +79,11 @@ where
         // The even-indexed evaluations correspond to the points in H itself.
         let actual_sum: EF = poly.evaluations().iter().step_by(2).copied().sum();
         if actual_sum != *claimed_sum {
-            return Err(ProofError::InvalidProof);
+            return Err(VerifierError::SumcheckFailed {
+                round: 1,
+                expected: claimed_sum.to_string(),
+                actual: actual_sum.to_string(),
+            });
         }
 
         // Optional: apply proof-of-work query
