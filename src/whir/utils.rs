@@ -70,6 +70,8 @@ where
 
     // Bits required to index into the folded domain
     //
+    // The folded domain size is a power of two, so log_2(folded_domain_size) is an integer.
+    //
     // Example: 64 domain needs log_2(64) ≈ 6 bits per query
     let domain_size_bits = log2_strict_usize(folded_domain_size);
 
