@@ -79,10 +79,9 @@ impl<F: Field> Statement<F> {
 
     /// Returns true if the statement contains no constraints.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
-        debug_assert_eq!(
-            self.evaluation_points.is_empty(),
-            self.expected_evaluations.is_empty()
+    pub const fn is_empty(&self) -> bool {
+        debug_assert!(
+            self.evaluation_points.is_empty() == self.expected_evaluations.is_empty()
         );
         self.evaluation_points.is_empty()
     }
@@ -96,10 +95,9 @@ impl<F: Field> Statement<F> {
 
     /// Returns the number of constraints in the statement.
     #[must_use]
-    pub fn len(&self) -> usize {
-        debug_assert_eq!(
-            self.evaluation_points.len(),
-            self.expected_evaluations.len()
+    pub const fn len(&self) -> usize {
+        debug_assert!(
+            self.evaluation_points.len() == self.expected_evaluations.len()
         );
         self.evaluation_points.len()
     }

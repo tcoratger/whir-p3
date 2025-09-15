@@ -278,7 +278,7 @@ where
     let mut challenges_for_round = final_challenges.clone();
 
     // Iterate through each round where constraints were introduced.
-    for (round_idx, constraints_in_round) in constraints.iter().enumerate() {
+    for (round_idx, constraints_in_round) in statements.iter().enumerate() {
         let alpha = alphas[round_idx];
         let alpha_pows = alpha.powers().collect_n(constraints_in_round.len());
 
@@ -309,7 +309,7 @@ where
         eq_eval += round_contribution;
 
         // After processing the round, shrink the domain for the next iteration's challenges.
-        if round_idx < constraints.len() - 1 {
+        if round_idx < statements.len() - 1 {
             num_vars_at_round -= folding_factors[round_idx];
             challenges_for_round = final_challenges.get_subpoint_over_range(0..num_vars_at_round);
         }
