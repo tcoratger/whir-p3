@@ -20,7 +20,10 @@ use crate::{
     fiat_shamir::verifier::VerifierState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        parameters::WhirConfig, statement::{constraint::linear_combine_constraints, evaluator::ConstraintPolyEvaluator}, verifier::sumcheck::verify_sumcheck_rounds, Statement
+        Statement,
+        parameters::WhirConfig,
+        statement::{constraint::linear_combine_constraints, evaluator::ConstraintPolyEvaluator},
+        verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
 
@@ -238,11 +241,7 @@ where
         constraints: &[Constraint<EF>],
     ) -> Vec<EF> {
         let combination_randomness_gen: EF = verifier_state.sample();
-        linear_combine_constraints(
-            claimed_sum,
-            constraints,
-            combination_randomness_gen,
-        )
+        linear_combine_constraints(claimed_sum, constraints, combination_randomness_gen)
     }
 
     /// Verify STIR in-domain queries and produce associated constraints.
@@ -374,13 +373,12 @@ where
             .iter()
             .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
             .zip(&folds)
-            .map(|(point, &expected_evaluation)| Constraint::new(
-                MultilinearPoint::expand_from_univariate(
-                    EF::from(point),
-                    params.num_variables,
-                ),
-                expected_evaluation,
-            ))
+            .map(|(point, &expected_evaluation)| {
+                Constraint::new(
+                    MultilinearPoint::expand_from_univariate(EF::from(point), params.num_variables),
+                    expected_evaluation,
+                )
+            })
             .collect();
 
         Ok(stir_constraints)

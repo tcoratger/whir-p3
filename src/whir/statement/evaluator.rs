@@ -86,7 +86,8 @@ impl ConstraintPolyEvaluator {
                     let val = if is_skip_round {
                         // Skip-aware evaluation over r_rest || r_skip.
                         debug_assert_eq!(c.num_variables(), self.num_variables);
-                        c.point().eq_poly_with_skip(&point_for_round, K_SKIP_SUMCHECK)
+                        c.point()
+                            .eq_poly_with_skip(&point_for_round, K_SKIP_SUMCHECK)
                     } else {
                         // Standard multilinear evaluation on the current domain.
                         debug_assert_eq!(c.num_variables(), vars_left);

@@ -70,7 +70,8 @@ impl<F: Field> Statement<F> {
     /// Panics if the number of variables in the `point` does not match the statement.
     pub fn add_constraint(&mut self, point: MultilinearPoint<F>, expected_evaluation: F) {
         assert_eq!(point.num_variables(), self.num_variables());
-        self.constraints.push(Constraint::new(point, expected_evaluation));
+        self.constraints
+            .push(Constraint::new(point, expected_evaluation));
     }
 
     /// Inserts an evaluation constraint `p(z) = s` at the front of the system.
@@ -79,10 +80,8 @@ impl<F: Field> Statement<F> {
     /// Panics if the number of variables in the `point` does not match the statement.
     pub fn add_constraint_in_front(&mut self, point: MultilinearPoint<F>, expected_evaluation: F) {
         assert_eq!(point.num_variables(), self.num_variables());
-        self.constraints.insert(
-            0,
-            Constraint::new(point, expected_evaluation),
-        );
+        self.constraints
+            .insert(0, Constraint::new(point, expected_evaluation));
     }
 
     /// Inserts multiple constraints at the front of the system.

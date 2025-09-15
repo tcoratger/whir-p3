@@ -16,7 +16,10 @@ use crate::{
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        statement::{constraint::{linear_combine_constraints, Constraint}, Statement},
+        statement::{
+            Statement,
+            constraint::{Constraint, linear_combine_constraints},
+        },
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -297,7 +300,9 @@ where
                     // ROUND 0 with SKIP: Use the special skip-aware evaluation.
                     // The constraints for this round are over the full `num_vars` domain.
                     assert_eq!(constraint.num_variables(), num_vars);
-                    constraint.point().eq_poly_with_skip(final_challenges, k_skip)
+                    constraint
+                        .point()
+                        .eq_poly_with_skip(final_challenges, k_skip)
                 } else {
                     // STANDARD ROUND: Use the standard multilinear evaluation.
                     // The constraints and challenge point are over the smaller `num_vars_at_round` domain.

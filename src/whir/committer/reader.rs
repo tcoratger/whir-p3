@@ -106,10 +106,12 @@ where
         self.ood_points
             .iter()
             .zip(&self.ood_answers)
-            .map(|(&point, &expected_evaluation)| Constraint::new(
-                MultilinearPoint::expand_from_univariate(point, self.num_variables),
-                expected_evaluation,
-            ))
+            .map(|(&point, &expected_evaluation)| {
+                Constraint::new(
+                    MultilinearPoint::expand_from_univariate(point, self.num_variables),
+                    expected_evaluation,
+                )
+            })
             .collect()
     }
 }
@@ -420,7 +422,8 @@ mod tests {
             ]);
 
             assert_eq!(
-                constraint, Constraint::new(expected_point, expected_eval),
+                constraint,
+                Constraint::new(expected_point, expected_eval),
                 "Constraint {i} is incorrect"
             );
         }
