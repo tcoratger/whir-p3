@@ -118,7 +118,9 @@ where
     ///
     /// # Errors
     /// Returns `FiatShamirError::ExceededTranscript` if insufficient data remains.
-    pub fn next_extension_scalars_const<const N: usize>(&mut self) -> Result<[EF; N], FiatShamirError> {
+    pub fn next_extension_scalars_const<const N: usize>(
+        &mut self,
+    ) -> Result<[EF; N], FiatShamirError> {
         Ok(self.next_extension_scalars_vec(N)?.try_into().unwrap())
     }
 
