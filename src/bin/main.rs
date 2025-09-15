@@ -142,8 +142,7 @@ fn main() {
 
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
-        let eval = polynomial.evaluate(point);
-        statement.add_constraint(point.clone(), eval);
+        statement.add_unevaluated_constraint(point.clone(), &polynomial);
     }
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving

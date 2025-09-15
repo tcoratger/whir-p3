@@ -355,11 +355,11 @@ mod tests {
 
         // Constraints
         let mut statement = Statement::new(3);
-        statement.add_constraint(
+        statement.add_evaluated_constraint(
             MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]),
             f_extension(EF4::ZERO, EF4::ZERO, EF4::ZERO),
         );
-        statement.add_constraint(
+        statement.add_evaluated_constraint(
             MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE]),
             f_extension(EF4::ONE, EF4::ZERO, EF4::ONE),
         );

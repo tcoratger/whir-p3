@@ -112,22 +112,31 @@ impl<F: Field> Statement<F> {
 
     /// Adds an evaluation constraint `p(z) = s` to the system.
     ///
-    /// # Panics
-    /// Panics if the number of variables in the `point` does not match the statement.
-    pub fn add_constraint(&mut self, point: MultilinearPoint<F>, expected_evaluation: F) {
-        assert_eq!(point.num_variables(), self.num_variables());
-        self.evaluation_points.push(point);
-        self.expected_evaluations.push(expected_evaluation);
-    }
-
-    /// Inserts an evaluation constraint `p(z) = s` at the front of the system.
+    /// This method takes the polynomial `p` and uses it to compute the evaluation `s`.
     ///
     /// # Panics
     /// Panics if the number of variables in the `point` does not match the statement.
-    pub fn add_constraint_in_front(&mut self, point: MultilinearPoint<F>, expected_evaluation: F) {
+    pub fn add_unevaluated_constraint<BF>(&mut self, point: MultilinearPoint<F>, poly: &EvaluationsList<BF>) 
+    where
+        BF: Field,
+        F: ExtensionField<BF>,
+    {
         assert_eq!(point.num_variables(), self.num_variables());
-        self.evaluation_points.insert(0, point);
-        self.expected_evaluations.insert(0, expected_evaluation);
+        let eval = poly.evaluate(&point);
+        self.evaluation_points.push(point);
+        self.expected_evaluations.push(eval);
+    }
+
+    /// Adds an evaluation constraint `p(z) = s` to the system.
+    /// 
+    /// Assumes the evaluation `s` is already known.
+    ///
+    /// # Panics
+    /// Panics if the number of variables in the `point` does not match the statement.
+    pub fn add_evaluated_constraint(&mut self, point: MultilinearPoint<F>, eval: F) {
+        assert_eq!(point.num_variables(), self.num_variables());
+        self.evaluation_points.push(point);
+        self.expected_evaluations.push(eval);
     }
 
     /// Inserts multiple constraints at the front of the system.
@@ -239,7 +248,7 @@ mod tests {
         let mut statement = Statement::new(1);
         let point = MultilinearPoint::new(vec![F::ONE]);
         let expected_eval = F::from_u64(7);
-        statement.add_constraint(point.clone(), expected_eval);
+        statement.add_evaluated_constraint(point.clone(), expected_eval);
 
         let challenge = F::from_u64(2); // This is unused with one constraint.
         let (combined_evals, combined_sum) = statement.combine::<F>(challenge);
@@ -259,12 +268,12 @@ mod tests {
         // Constraint 1: evaluate at z1 = (1,0), expected value 5
         let point1 = MultilinearPoint::new(vec![F::ONE, F::ZERO]);
         let eval1 = F::from_u64(5);
-        statement.add_constraint(point1.clone(), eval1);
+        statement.add_evaluated_constraint(point1.clone(), eval1);
 
         // Constraint 2: evaluate at z2 = (0,1), expected value 7
         let point2 = MultilinearPoint::new(vec![F::ZERO, F::ONE]);
         let eval2 = F::from_u64(7);
-        statement.add_constraint(point2.clone(), eval2);
+        statement.add_evaluated_constraint(point2.clone(), eval2);
 
         let challenge = F::from_u64(2);
         let (combined_evals, combined_sum) = statement.combine::<F>(challenge);

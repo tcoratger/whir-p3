@@ -103,7 +103,7 @@ where
         prover.add_extension_scalar(eval);
 
         // Add the constraint: poly(point) = eval.
-        statement.add_constraint(point, eval);
+        statement.add_evaluated_constraint(point, eval);
     }
 
     // Return the complete statement.
@@ -162,7 +162,7 @@ where
             prover.add_extension_scalar(eval);
 
             // Add the evaluation constraint: poly(point) == eval.
-            statement.add_constraint(point.clone(), eval);
+            statement.add_evaluated_constraint(point.clone(), eval);
 
             // Return the sampled point and its evaluation.
             (point, eval)
@@ -217,7 +217,7 @@ where
         let eval = verifier.next_extension_scalar().unwrap();
 
         // Add the constraint: poly(point) == eval.
-        statement.add_constraint(point, eval);
+        statement.add_evaluated_constraint(point, eval);
     }
 
     // Return the fully reconstructed statement.

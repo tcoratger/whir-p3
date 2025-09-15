@@ -105,12 +105,9 @@ fn prepare_inputs() -> (
     // Sample a random Boolean point in {0,1}^num_variables.
     let point = MultilinearPoint::rand(&mut rng, num_variables);
 
-    // Evaluate the polynomial at that point to get the expected value.
-    let eval = polynomial.evaluate(&point);
-
     // Create a new WHIR `Statement` with one constraint.
     let mut statement = Statement::<EF>::new(num_variables);
-    statement.add_constraint(point, eval);
+    statement.add_unevaluated_constraint(point, &polynomial);
 
     // Fiat-Shamir setup
 

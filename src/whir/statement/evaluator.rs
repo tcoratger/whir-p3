@@ -193,7 +193,7 @@ mod tests {
             // Create a statement for the current domain size (20, then 15, then 10).
             let mut statement = Statement::new(num_vars_at_round);
             for _ in 0..*num_constraints {
-                statement.add_constraint(
+                statement.add_evaluated_constraint(
                     MultilinearPoint::rand(&mut rng, num_vars_at_round),
                     rng.random(),
                 );
@@ -338,7 +338,7 @@ mod tests {
                 let mut statement = Statement::new(num_vars_current);
                 // Add the random number of constraints for this round.
                 for _ in 0..num_constraints_per_round[i] {
-                    statement.add_constraint(
+                    statement.add_evaluated_constraint(
                         MultilinearPoint::rand(&mut rng, num_vars_current),
                         rng.random(),
                     );
@@ -452,7 +452,7 @@ mod tests {
         {
             let mut statement = Statement::new(num_vars_at_round);
             for _ in 0..num_constraints {
-                statement.add_constraint(
+                statement.add_evaluated_constraint(
                     MultilinearPoint::rand(&mut rng, num_vars_at_round),
                     rng.random(),
                 );
@@ -591,7 +591,7 @@ mod tests {
             for i in 0..num_rounds {
                 let mut statement = Statement::new(num_vars_current);
                 for _ in 0..num_constraints_per_round[i] {
-                    statement.add_constraint(
+                    statement.add_evaluated_constraint(
                         MultilinearPoint::rand(&mut rng, num_vars_current),
                         rng.random(),
                     );

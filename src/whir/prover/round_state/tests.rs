@@ -196,7 +196,7 @@ fn test_initial_statement_with_folding_factor_3() {
 
     // Add a single equality constraint to the statement: f(1,1,1) = expected value
     let mut statement = Statement::<EF4>::new(num_variables);
-    statement.add_constraint(
+    statement.add_evaluated_constraint(
         MultilinearPoint::new(vec![EF4::ONE, EF4::ONE, EF4::ONE]),
         f(EF4::ONE, EF4::ONE, EF4::ONE),
     );
@@ -284,7 +284,7 @@ fn test_zero_poly_multiple_constraints() {
         let point = (0..num_variables)
             .map(|b| EF4::from_u64(((i >> b) & 1) as u64))
             .collect();
-        statement.add_constraint(MultilinearPoint::new(point), EF4::ZERO);
+        statement.add_evaluated_constraint(MultilinearPoint::new(point), EF4::ZERO);
     }
 
     // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
@@ -368,7 +368,7 @@ fn test_initialize_round_state_with_initial_statement() {
 
     // Construct a statement with one evaluation constraint at the point (1, 0, 1)
     let mut statement = Statement::<EF4>::new(num_variables);
-    statement.add_constraint(
+    statement.add_evaluated_constraint(
         MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE]),
         f(EF4::ONE, EF4::ZERO, EF4::ONE),
     );
