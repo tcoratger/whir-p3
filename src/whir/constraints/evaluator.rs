@@ -2,7 +2,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
     constant::K_SKIP_SUMCHECK, parameters::FoldingFactor, poly::multilinear::MultilinearPoint,
-    whir::parameters::WhirConfig,
+    whir::{constraints::statement::Statement, parameters::WhirConfig},
 };
 
 /// Lightweight evaluator for the combined constraint polynomial W(r).
@@ -45,7 +45,7 @@ impl ConstraintPolyEvaluator {
     #[must_use]
     pub fn eval_constraints_poly<EF>(
         &self,
-        constraints: &[(Vec<EF>, Vec<MultilinearPoint<EF>>)],
+        constraints: &[(Vec<EF>, Statement<EF>)],
         point: &MultilinearPoint<EF>,
     ) -> EF
     where
@@ -56,7 +56,7 @@ impl ConstraintPolyEvaluator {
 
         let mut acc = EF::ZERO;
 
-        for (round_idx, (alpha_pows, round_constraint_points)) in constraints.iter().enumerate() {
+        for (round_idx, (alpha_pows, round_statement)) in constraints.iter().enumerate() {
             // Construct the point slice appropriate for this round.
             //
             // For round 0 we use the full `point`:
@@ -76,7 +76,7 @@ impl ConstraintPolyEvaluator {
                 && self.univariate_skip
                 && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
-            let round_sum: EF = round_constraint_points
+            let round_sum: EF = round_statement.points
                 .iter()
                 .zip(alpha_pows)
                 .map(|(point, &alpha_i)| {
@@ -213,7 +213,7 @@ mod tests {
             .map(|(statement, &alpha)| {
                 (
                     alpha.powers().collect_n(statement.len()),
-                    statement.get_points(),
+                    statement,
                 )
             })
             .collect();
@@ -355,7 +355,7 @@ mod tests {
                 .iter()
                 .cloned()
                 .zip(&alphas)
-                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.get_points()))
+                .map(|(s, &a)| (a.powers().collect_n(s.len()), s))
                 .collect();
 
             // Generate the final, full n-dimensional challenge point `r`.
@@ -467,7 +467,7 @@ mod tests {
             .iter()
             .cloned()
             .zip(&alphas)
-            .map(|(s, &a)| (a.powers().collect_n(s.len()), s.get_points()))
+            .map(|(s, &a)| (a.powers().collect_n(s.len()), s))
             .collect();
 
         // For a skip protocol, the verifier's final challenge object has a special
@@ -606,7 +606,7 @@ mod tests {
                 .iter()
                 .cloned()
                 .zip(&alphas)
-                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.get_points()))
+                .map(|(s, &a)| (a.powers().collect_n(s.len()), s))
                 .collect();
 
             // For a skip protocol, the verifier's final challenge object has a special
