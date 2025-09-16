@@ -1,7 +1,9 @@
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
-    constant::K_SKIP_SUMCHECK, parameters::FoldingFactor, poly::multilinear::MultilinearPoint,
+    constant::K_SKIP_SUMCHECK,
+    parameters::FoldingFactor,
+    poly::multilinear::MultilinearPoint,
     whir::{constraints::statement::Statement, parameters::WhirConfig},
 };
 
@@ -76,7 +78,8 @@ impl ConstraintPolyEvaluator {
                 && self.univariate_skip
                 && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
-            let round_sum: EF = round_statement.points
+            let round_sum: EF = round_statement
+                .points
                 .iter()
                 .zip(alpha_pows)
                 .map(|(point, &alpha_i)| {
@@ -210,12 +213,7 @@ mod tests {
             .iter()
             .cloned()
             .zip(&alphas)
-            .map(|(statement, &alpha)| {
-                (
-                    alpha.powers().collect_n(statement.len()),
-                    statement,
-                )
-            })
+            .map(|(statement, &alpha)| (alpha.powers().collect_n(statement.len()), statement))
             .collect();
 
         // Generate the final, full 20-dimensional challenge point `r`.
