@@ -213,13 +213,11 @@ impl<F: Field> Statement<F> {
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::PrimeCharacteristicRing;
 
     use super::*;
-    use crate::whir::MultilinearPoint;
 
     type F = BabyBear;
-    type EF4 = BinomialExtensionField<F, 4>;
 
     #[test]
     fn test_statement_combine_single_constraint() {
