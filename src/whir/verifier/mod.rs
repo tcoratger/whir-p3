@@ -93,17 +93,6 @@ where
         } else {
             assert!(prev_commitment.ood_points.is_empty());
             assert!(statement.is_empty());
-            round_constraints.push((vec![], vec![]));
-
-            let folding_randomness = MultilinearPoint::new(
-                (0..self.folding_factor.at_round(0))
-                    .map(|_| verifier_state.sample())
-                    .collect::<Vec<_>>(),
-            );
-
-            round_folding_randomness.push(folding_randomness);
-
-            verifier_state.check_pow_grinding(self.starting_folding_pow_bits)?;
         }
 
         for round_index in 0..self.n_rounds() {
