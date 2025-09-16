@@ -1,4 +1,8 @@
 use p3_field::{ExtensionField, Field};
+use rayon::{
+    iter::{IndexedParallelIterator, ParallelIterator},
+    slice::{ParallelSlice, ParallelSliceMut},
+};
 use tracing::instrument;
 
 use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
@@ -158,36 +162,54 @@ impl<F: Field> Statement<F> {
             );
         }
 
-        // Separate the first constraint from the rest.
-        // This allows us to treat the first one specially:
-        //   - We overwrite the buffer.
-        //   - We avoid a runtime branch in the main loop.
-        let (first_point, rest_points) = self.points.split_first().unwrap();
-        let (first_eval, rest_evals) = self.evaluations.split_first().unwrap();
+        let n = self.len();
+        let k = self.num_variables();
 
-        // Initialize the combined evaluations with the first constraint's polynomial.
-        let mut combined = EvaluationsList::new_from_point(first_point, F::ONE);
+        // Allocate space for all eqs at once
+        let mut eq: Vec<F> = unsafe { crate::utils::uninitialized_vec((1 << k) * n) };
 
-        // Initialize the combined expected sum with the first term: s_1 * γ^0 = s_1.
-        let mut gamma = F::ONE;
-        let mut sum = *first_eval;
+        // Prepare RLC coeffs
+        let challenges = challenge.powers().take(n).collect();
 
-        // Process the remaining constraints.
-        for (point, &eval) in rest_points.iter().zip(rest_evals) {
-            // Update γ to γ^i for this constraint.
-            gamma *= challenge;
+        // Initialize the first row with randomness factors
+        eq.iter_mut()
+            .zip(challenges.iter())
+            .for_each(|(e, alpha)| *e = *alpha);
 
-            // Add this constraint's weighted polynomial evaluations into the buffer
-            combined.accumulate(point, gamma);
-
-            // Add this constraint's contribution to the combined expected sum:
-            sum += eval * gamma;
+        // Build eqs independently
+        for i in 0..k {
+            let (lo, hi) = eq.split_at_mut((1 << i) * n);
+            lo.par_chunks_mut(n)
+                .zip(hi.par_chunks_mut(n))
+                .for_each(|(lo, hi)| {
+                    self.points
+                        .iter()
+                        .zip(lo.iter_mut())
+                        .zip(hi.iter_mut())
+                        .for_each(|((point, a0), a1)| {
+                            *a1 = *a0 * point[k - i - 1]; // reversed point order
+                            *a0 -= *a1;
+                        });
+                });
         }
+
+        // Accumulate rows
+        // TODO: try to accumulate into `eq` and truncate
+        let combined = eq
+            .par_chunks(n)
+            .map(|row| row.iter().fold(F::ZERO, |acc, &v| acc + v))
+            .collect::<Vec<_>>();
+
+        // Horner sums
+        let sum = self
+            .evaluations
+            .iter()
+            .rfold(F::ZERO, |acc, coeff| acc * challenge + *coeff);
 
         // Return:
         // - The combined polynomial W(X) in evaluation form.
         // - The combined expected sum S.
-        (combined, sum)
+        (EvaluationsList::new(combined), sum)
     }
 
     /// Combines a list of evals into a single linear combination using powers of `gamma`,
