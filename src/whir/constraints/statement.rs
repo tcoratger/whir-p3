@@ -5,7 +5,7 @@ use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
 /// A batched system of evaluation constraints $p(z_i) = s_i$ on $\{0,1\}^m$.
 ///
-/// Each entry ties a Boolean point `z_i` to an expected value `s_i`.
+/// Each entry ties a Boolean point `z_i` to an expected polynomial evaluation `s_i`.
 ///
 /// Batching with a random challenge $\gamma$ produces a single combined weight
 /// polynomial $W$ and a single scalar $S$ that summarize all constraints.
