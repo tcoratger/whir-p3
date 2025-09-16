@@ -342,21 +342,35 @@ mod tests {
 
     #[test]
     fn test_add_constraints() {
-        // Test add_evaluated_constraint
-        let mut statement = Statement::<F>::initialize(1);
-        let point = MultilinearPoint::new(vec![F::ONE]);
-        statement.add_evaluated_constraint(point, F::from_u64(42));
-        assert_eq!(statement.len(), 1);
-
-        // Test add_unevaluated_constraint
+        // Test that add_unevaluated_constraint behaves identically to add_evaluated_constraint
         let poly = EvaluationsList::new(vec![F::from_u64(1), F::from_u64(2)]);
-        let point2 = MultilinearPoint::new(vec![F::ZERO]);
-        statement.add_unevaluated_constraint(point2, &poly);
-        assert_eq!(statement.len(), 2);
+        let point = MultilinearPoint::new(vec![F::ZERO]);
+
+        // Create two identical statements
+        let mut statement1 = Statement::<F>::initialize(1);
+        let mut statement2 = Statement::<F>::initialize(1);
+
+        // Add same constraint using both methods
+        let eval = poly.evaluate(&point);
+        statement1.add_evaluated_constraint(point.clone(), eval);
+        statement2.add_unevaluated_constraint(point, &poly);
+
+        // Both statements should be identical
+        assert_eq!(statement1.len(), statement2.len());
+        assert_eq!(statement1.len(), 1);
+
+        // Both should verify against the polynomial
+        assert!(statement1.verify(&poly));
+        assert!(statement2.verify(&poly));
+
+        // Both should have same constraints
+        let constraints1: Vec<_> = statement1.iter().collect();
+        let constraints2: Vec<_> = statement2.iter().collect();
+        assert_eq!(constraints1, constraints2);
 
         // Test get_points consumes statement
-        let points = statement.get_points();
-        assert_eq!(points.len(), 2);
+        let points = statement1.get_points();
+        assert_eq!(points.len(), 1);
     }
 
     #[test]
