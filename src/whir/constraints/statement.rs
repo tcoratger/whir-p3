@@ -1,8 +1,5 @@
 use p3_field::{ExtensionField, Field};
-use rayon::{
-    iter::{IndexedParallelIterator, ParallelIterator},
-    slice::{ParallelSlice, ParallelSliceMut},
-};
+use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
 use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
