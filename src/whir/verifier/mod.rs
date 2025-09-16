@@ -79,7 +79,7 @@ where
             let gamma = verifier_state.sample();
             let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
 
-            round_constraints.push((combination_randomness, new_statement.get_points()));
+            round_constraints.push((combination_randomness, new_statement));
 
             // Initial sumcheck
             let folding_randomness = verify_sumcheck_rounds(
@@ -122,7 +122,7 @@ where
             let gamma = verifier_state.sample();
             let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
 
-            round_constraints.push((combination_randomness.clone(), new_statement.get_points()));
+            round_constraints.push((combination_randomness.clone(), new_statement));
 
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,

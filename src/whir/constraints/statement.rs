@@ -39,7 +39,7 @@ pub struct Statement<F> {
     /// Number of variables in the multilinear polynomial space.
     num_variables: usize,
     /// List of evaluation points.
-    points: Vec<MultilinearPoint<F>>,
+    pub(crate) points: Vec<MultilinearPoint<F>>,
     /// List of target evaluations.
     evaluations: Vec<F>,
 }
@@ -108,12 +108,6 @@ impl<F: Field> Statement<F> {
         assert_eq!(self.num_variables, other.num_variables);
         self.points.extend_from_slice(&other.points);
         self.evaluations.extend_from_slice(&other.evaluations);
-    }
-
-    /// Returns the vector of evaluation points.
-    #[must_use]
-    pub fn get_points(self) -> Vec<MultilinearPoint<F>> {
-        self.points
     }
 
     /// Adds an evaluation constraint `p(z) = s` to the system.
