@@ -79,7 +79,7 @@ where
             let gamma = verifier_state.sample();
             let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
 
-            round_constraints.push((combination_randomness, new_statement.get_points()));
+            round_constraints.push((combination_randomness, new_statement));
 
             // Initial sumcheck
             let folding_randomness = verify_sumcheck_rounds(
@@ -93,7 +93,7 @@ where
         } else {
             assert!(prev_commitment.ood_points.is_empty());
             assert!(statement.is_empty());
-            round_constraints.push((vec![], vec![]));
+            round_constraints.push((vec![], Statement::initialize(statement.num_variables())));
 
             let folding_randomness = MultilinearPoint::new(
                 (0..self.folding_factor.at_round(0))
@@ -133,7 +133,7 @@ where
             let gamma = verifier_state.sample();
             let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
 
-            round_constraints.push((combination_randomness.clone(), new_statement.get_points()));
+            round_constraints.push((combination_randomness.clone(), new_statement));
 
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
