@@ -3,37 +3,17 @@ use tracing::instrument;
 
 use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
-/// Represents a system of polynomial evaluation constraints over a Boolean hypercube.
+/// A batched system of evaluation constraints $p(z_i) = s_i$ on $\{0,1\}^m$.
 ///
-/// A `Statement` consists of multiple constraints, each enforcing a relationship of the form:
+/// Each entry ties a Boolean point `z_i` to an expected value `s_i`.
 ///
-/// ```ignore
-/// p(z_i) = s_i
-/// ```
+/// Batching with a random challenge $\gamma$ produces a single combined weight
+/// polynomial $W$ and a single scalar $S$ that summarize all constraints.
 ///
-/// where:
-/// - `p(X)` is a multilinear polynomial over `{0,1}^n`.
-/// - `z_i` is a specific point in the multilinear domain.
-/// - `s_i` is the expected evaluation of `p` at `z_i`.
-///
-/// These individual constraints are combined into a single probabilistic check using a random
-/// challenge `γ`. This is done by creating a combined weight polynomial `W(X)` and a combined
-/// expected evaluation `S`.
-///
-/// The combined weight polynomial is a random linear combination of the equality polynomials for each point:
-///
-/// ```ignore
-/// W(X) = Σ γ^(i-1) ⋅ eq_{z_i}(X)
-/// ```
-///
-/// The combined expected evaluation is a random linear combination of the individual expected evaluations:
-///
-/// ```ignore
-/// S = \sum γ^(i-1) ⋅ s_i
-/// ```
-///
-/// This combined form `(W(X), S)` is then used in protocols like sumcheck to verify all original
-/// constraints at once.
+/// Invariants
+/// ----------
+/// - `points.len() == evaluations.len()`.
+/// - Every `MultilinearPoint` in `points` has exactly `num_variables` coordinates.
 #[derive(Clone, Debug)]
 pub struct Statement<F> {
     /// Number of variables in the multilinear polynomial space.
@@ -305,5 +285,185 @@ mod tests {
         let expected = point.eq_poly(&folding_randomness);
 
         assert_eq!(point.eq_poly(&folding_randomness), expected);
+    }
+
+    #[test]
+    fn test_constructors_and_basic_properties() {
+        // Test new constructor
+        let point = MultilinearPoint::new(vec![F::ONE]);
+        let eval = F::from_u64(42);
+        let statement = Statement::new(1, vec![point], vec![eval]);
+
+        assert_eq!(statement.num_variables(), 1);
+        assert_eq!(statement.len(), 1);
+        assert!(!statement.is_empty());
+
+        // Test initialize constructor
+        let empty_statement = Statement::<F>::initialize(2);
+        assert_eq!(empty_statement.num_variables(), 2);
+        assert_eq!(empty_statement.len(), 0);
+        assert!(empty_statement.is_empty());
+    }
+
+    #[test]
+    fn test_verify_constraints() {
+        // Create polynomial with evaluations [1, 2]
+        let poly = EvaluationsList::new(vec![F::from_u64(1), F::from_u64(2)]);
+        let mut statement = Statement::<F>::initialize(1);
+
+        // Test matching constraint: f(0) = 1
+        statement.add_evaluated_constraint(MultilinearPoint::new(vec![F::ZERO]), F::from_u64(1));
+        assert!(statement.verify(&poly));
+
+        // Test mismatched constraint: f(1) = 5 (but poly has f(1) = 2)
+        statement.add_evaluated_constraint(MultilinearPoint::new(vec![F::ONE]), F::from_u64(5));
+        assert!(!statement.verify(&poly));
+    }
+
+    #[test]
+    fn test_concatenate() {
+        // Test successful concatenation
+        let mut statement1 = Statement::<F>::initialize(1);
+        let mut statement2 = Statement::<F>::initialize(1);
+        statement1.add_evaluated_constraint(MultilinearPoint::new(vec![F::ZERO]), F::from_u64(10));
+        statement2.add_evaluated_constraint(MultilinearPoint::new(vec![F::ONE]), F::from_u64(20));
+
+        statement1.concatenate(&statement2);
+        assert_eq!(statement1.len(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion `left == right` failed")]
+    fn test_concatenate_mismatched_variables() {
+        let mut statement1 = Statement::<F>::initialize(2);
+        let statement2 = Statement::<F>::initialize(3);
+        statement1.concatenate(&statement2); // Should panic
+    }
+
+    #[test]
+    fn test_add_constraints() {
+        // Test add_evaluated_constraint
+        let mut statement = Statement::<F>::initialize(1);
+        let point = MultilinearPoint::new(vec![F::ONE]);
+        statement.add_evaluated_constraint(point, F::from_u64(42));
+        assert_eq!(statement.len(), 1);
+
+        // Test add_unevaluated_constraint
+        let poly = EvaluationsList::new(vec![F::from_u64(1), F::from_u64(2)]);
+        let point2 = MultilinearPoint::new(vec![F::ZERO]);
+        statement.add_unevaluated_constraint(point2, &poly);
+        assert_eq!(statement.len(), 2);
+
+        // Test get_points consumes statement
+        let points = statement.get_points();
+        assert_eq!(points.len(), 2);
+    }
+
+    #[test]
+    fn test_add_constraints_in_front() {
+        // Test adding constraints at the front preserves order
+        let mut statement = Statement::<F>::initialize(1);
+        statement.add_evaluated_constraint(MultilinearPoint::new(vec![F::ONE]), F::from_u64(100));
+
+        let front_points = vec![MultilinearPoint::new(vec![F::ZERO])];
+        let front_evals = vec![F::from_u64(10)];
+        statement.add_constraints_in_front(&front_points, &front_evals);
+
+        assert_eq!(statement.len(), 2);
+        let collected: Vec<_> = statement.iter().collect();
+        assert_eq!(collected[0].1, &F::from_u64(10)); // Front constraint first
+        assert_eq!(collected[1].1, &F::from_u64(100)); // Original constraint last
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion `left == right` failed")]
+    fn test_wrong_variable_count() {
+        let mut statement = Statement::<F>::initialize(1);
+        let wrong_point = MultilinearPoint::new(vec![F::ONE, F::ZERO]); // 2 vars for 1-var statement
+        statement.add_evaluated_constraint(wrong_point, F::from_u64(5));
+    }
+
+    #[test]
+    fn test_combine_operations() {
+        // Test empty statement combine
+        let empty_statement = Statement::<F>::initialize(1);
+        let (_combined_poly, combined_sum) = empty_statement.combine::<F>(F::from_u64(42));
+        assert_eq!(combined_sum, F::ZERO);
+
+        // Test combine_evals with constraints
+        let mut statement = Statement::<F>::initialize(1);
+        statement.add_evaluated_constraint(MultilinearPoint::new(vec![F::ZERO]), F::from_u64(3));
+        statement.add_evaluated_constraint(MultilinearPoint::new(vec![F::ONE]), F::from_u64(7));
+
+        let mut claimed_eval = F::ZERO;
+        let gammas = statement.combine_evals(&mut claimed_eval, F::from_u64(2));
+
+        // Verify: 3*1 + 7*2 = 17
+        assert_eq!(claimed_eval, F::from_u64(17));
+        assert_eq!(gammas, vec![F::ONE, F::from_u64(2)]);
+    }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn prop_statement_workflow(
+            // Random 4-var polynomial: 16 evaluations (2^4)
+            poly_evals in prop::collection::vec(0u32..100, 16),
+            // Random challenge value
+            challenge in 1u32..50,
+            // Random constraint points (4 coords × 2 points)
+            point_coords in prop::collection::vec(0u32..10, 8),
+        ) {
+            // Create a 4-variable polynomial from random evaluations
+            let poly = EvaluationsList::new(poly_evals.into_iter().map(F::from_u32).collect());
+
+            // Create statement with random constraints that match the polynomial
+            let mut statement = Statement::<F>::initialize(4);
+            let point1 = MultilinearPoint::new(vec![
+                F::from_u32(point_coords[0]), F::from_u32(point_coords[1]),
+                F::from_u32(point_coords[2]), F::from_u32(point_coords[3])
+            ]);
+            let point2 = MultilinearPoint::new(vec![
+                F::from_u32(point_coords[4]), F::from_u32(point_coords[5]),
+                F::from_u32(point_coords[6]), F::from_u32(point_coords[7])
+            ]);
+
+            // Add constraints: poly(point1) = actual_eval1, poly(point2) = actual_eval2
+            let eval1 = poly.evaluate(&point1);
+            let eval2 = poly.evaluate(&point2);
+            statement.add_evaluated_constraint(point1, eval1);
+            statement.add_evaluated_constraint(point2, eval2);
+
+            // Statement should verify against polynomial (consistent constraints)
+            prop_assert!(statement.verify(&poly));
+
+            // Combine constraints with challenge
+            let gamma = F::from_u32(challenge);
+            let (combined_poly, combined_sum) = statement.combine::<F>(gamma);
+
+            // Combined polynomial should have same number of variables
+            prop_assert_eq!(combined_poly.num_variables(), 4);
+
+            // Combined evaluations should match combine result
+            let mut claimed_eval = F::ZERO;
+            let gammas = statement.combine_evals(&mut claimed_eval, gamma);
+            // Both methods should give same sum
+            prop_assert_eq!(combined_sum, claimed_eval);
+            // Should have 2 gamma powers
+            prop_assert_eq!(gammas.len(), 2);
+
+            // Adding wrong constraint should break verification
+            let wrong_point = MultilinearPoint::new(vec![F::ZERO, F::ZERO, F::ZERO, F::ZERO]);
+            // Obviously wrong evaluation
+            let wrong_eval = F::from_u32(999);
+            let actual_eval = poly.evaluate(&wrong_point);
+            // Only test if actually different
+            if wrong_eval != actual_eval {
+                statement.add_evaluated_constraint(wrong_point, wrong_eval);
+                // Should fail verification
+                prop_assert!(!statement.verify(&poly));
+            }
+        }
     }
 }
