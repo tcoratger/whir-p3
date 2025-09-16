@@ -363,8 +363,7 @@ mod tests {
         assert_eq!(constraints1, constraints2);
 
         // Test get_points consumes statement
-        let points = statement1.get_points();
-        assert_eq!(points.len(), 1);
+        assert_eq!(statement1.points.len(), 1);
     }
 
     #[test]
