@@ -93,7 +93,6 @@ where
         } else {
             assert!(prev_commitment.ood_points.is_empty());
             assert!(statement.is_empty());
-            round_constraints.push((vec![], Statement::initialize(statement.num_variables())));
 
             let folding_randomness = MultilinearPoint::new(
                 (0..self.folding_factor.at_round(0))
