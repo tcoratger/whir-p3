@@ -1,6 +1,6 @@
 use crate::{dft::DitEvalsButterfly, fiat_shamir::prover::ProverState, poly::evals::EvaluationsList};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-
+use crate::poly::multilinear::MultilinearPoint;
 use p3_field::{ExtensionField, Field};
 
 const NUM_OF_ROUNDS: usize = 3;
@@ -445,9 +445,29 @@ where
     // TODO: Me parece que también va a haber que devolver poly_1 y poly_2 foldeados (con r_1 y r_2) para seguir con el sumcheck.
     [r_1, r_2]
 }
+// TODO: w could be a MultilinearPoitn?
+fn precompute_e_in<F: Field>(w: &Vec<F>) -> Vec<F> {
+    let half_l = w.len() / 2;
+    let w_in = w[NUM_OF_ROUNDS..NUM_OF_ROUNDS + half_l].to_vec();
+    eval_eq(&w_in)
+}
+
+fn precompute_e_out<F: Field>(w: &Vec<F>) -> [Vec<F>; NUM_OF_ROUNDS] {
+    let half_l = w.len() / 2;
+    let mut res = [(); NUM_OF_ROUNDS].map(|_| Vec::new());
+    for round in 0..NUM_OF_ROUNDS {
+        let w_out: Vec<F> = w[round + 1..NUM_OF_ROUNDS]
+            .iter()
+            .chain(&w[half_l + NUM_OF_ROUNDS..])
+            .cloned()
+            .collect();
+        res[round] = eval_eq(&w_out)
+    }
+    res
+}
+
 
 // Procedure 9. Page 37.
-
 fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(poly: &EvaluationsList<F>, e_in: Vec<EF>, e_out: [Vec<EF>; NUM_OF_ROUNDS]) -> [RoundAccumlators<EF>; NUM_OF_ROUNDS] {
     let l = poly.num_variables();
     let half_l = l / 2;
@@ -466,7 +486,7 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(poly: &EvaluationsLi
         for x_in in 0..1 << half_l {
 
             // We collect the evaluations of p(X_0, X_1, X_2, x_in, x_out) where
-            // x_in and  x_out are fixed and X_0, X_1, X_2 are variables.
+            // x_in and x_out are fixed and X_0, X_1, X_2 are variables.
             let current_evals: Vec<F> = poly
             .iter()
             .skip((x_in << x_out_num_variables) | x_out) // x_in || x_out
@@ -491,15 +511,29 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(poly: &EvaluationsLi
                 index_accumulator_3,
             ] = idx4_v3(beta_index);
 
-            for (index_opt, acc) in [
-                (index_accumulator_1, &mut round_1_accumulator),
-                (index_accumulator_2, &mut round_2_accumulator),
-                (index_accumulator_3, &mut round_3_accumulator),
-            ] {
-                if let Some(index) = index_opt {
-                    acc.accumulate_eval( e_out[index][x_out] * temp_accumulators[beta_index], index);
-                }
+            if let Some(index) = index_accumulator_1 {
+                round_1_accumulator.accumulate_eval( e_out[0][x_out] * temp_accumulators[beta_index], index);
             }
+
+            if let Some(index) = index_accumulator_2 {
+                round_2_accumulator.accumulate_eval( e_out[1][x_out] * temp_accumulators[beta_index], index);
+            }
+
+            if let Some(index) = index_accumulator_3 {
+                round_3_accumulator.accumulate_eval( e_out[2][x_out] * temp_accumulators[beta_index], index);
+            }
+
+            // for (index_opt, acc) in [
+
+
+            //     (index_accumulator_1, &mut round_1_accumulator),
+            //     (index_accumulator_2, &mut round_2_accumulator),
+            //     (index_accumulator_3, &mut round_3_accumulator),
+            // ] {
+            //     if let Some(index) = index_opt {
+            //         acc.accumulate_eval( e_out[index][x_out] * temp_accumulators[beta_index], index);
+            //     }
+            // }
         }
     }
     let result = [
@@ -510,6 +544,38 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(poly: &EvaluationsLi
     result
 }
 
+// Implement Procedure 2 from the paper
+// https://eprint.iacr.org/2025/1117.pdf Bagad, Dao, Thaler and Domb
+// Compute eq(w,x) for all x∈{0,1}^l
+// This is the same function as new_from_point (which is optimized for parallelization)
+pub fn eval_eq<F: Field>(w: &[F]) -> Vec<F> {
+    let n = w.len();
+    let mut evals: Vec<F> = vec![F::ONE; 1 << n];
+    let mut size = 1usize;
+    for i in 0..n {
+        // in each iteration, we double the size
+        size *= 2;
+        for j in (0..size).rev().step_by(2) {
+            let scalar = evals[j / 2];
+            evals[j] = scalar * w[i]; // odd 
+            evals[j - 1] = scalar - evals[j]; // even
+        }
+    }
+    evals
+}
+
+fn eq_expected<F: Field>(w: &[F], idx: usize) -> F {
+    let mut acc = F::ONE;
+    for (j, wj) in w.iter().enumerate() {
+        if (idx >> j) & 1 == 0 {
+            acc *= F::ONE - *wj;
+        } else {
+            acc *= *wj;
+        }
+    }
+    acc
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -517,8 +583,10 @@ mod tests {
     use p3_field::{
         PrimeCharacteristicRing, extension::BinomialExtensionField, integers::QuotientMap,
     };
+    use crate:: poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;
+    
 
     // BORRAR
     // TEST NOT WORKING. We changed the function idx4.
@@ -854,5 +922,150 @@ mod tests {
         assert_eq!(round_poly_evals[0], EF::from(F::from_int(100))); // S_3(0)
         assert_eq!(round_poly_evals[1], EF::from(F::from_int(121))); // S_3(1)
         assert_eq!(round_poly_evals[2], EF::from(F::from_int(1))); // S_3(inf)
+    }
+
+    #[test]
+    fn test_evals_serial_three_vars_matches_new_from_point() {
+        let p = [F::from_u64(2), F::from_u64(3), F::from_u64(5)];
+        let point = MultilinearPoint::new(p.to_vec());
+        let value = F::from_u64(1);
+
+        let via_method = EvaluationsList::new_from_point(&point, value)
+            .into_iter()
+            .collect::<Vec<_>>();
+        let via_serial = eval_eq(&p);
+
+        assert_eq!(via_serial, via_method);
+    }
+
+    #[test]
+    fn test_eq_evals() {
+        // r = [p0, p1, p2]
+        let p0 = F::from_u64(2);
+        let p1 = F::from_u64(3);
+        let p2 = F::from_u64(5);
+
+        // Indices: 000, 001, 010, 011, 100, 101, 110, 111
+        let expected = vec![
+            (F::ONE - p0) * (F::ONE - p1) * (F::ONE - p2), // 000 v[0]
+            (F::ONE - p0) * (F::ONE - p1) * p2,            // 001 v[1]
+            (F::ONE - p0) * p1 * (F::ONE - p2),            // 010 v[2]
+            (F::ONE - p0) * p1 * p2,                       // 011 v[3]
+            p0 * (F::ONE - p1) * (F::ONE - p2),            // 100 v[4]
+            p0 * (F::ONE - p1) * p2,                       // 101 v[5]
+            p0 * p1 * (F::ONE - p2),                       // 110 v[6]
+            p0 * p1 * p2,                                  // 111 v[7]
+        ];
+
+        let out = eval_eq(&[p0, p1, p2]);
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn test_precompute_e_in() {
+        let w: Vec<EF> = (0..10).map(|i|EF::from(F::from_int(i))).collect();
+    
+        let e_in = precompute_e_in(&w);
+
+        let w_in = w[NUM_OF_ROUNDS..NUM_OF_ROUNDS + 5].to_vec();
+
+        assert_eq!(w_in, vec![
+            EF::from(F::from_int(3)),
+            EF::from(F::from_int(4)),
+            EF::from(F::from_int(5)),
+            EF::from(F::from_int(6)),
+            EF::from(F::from_int(7)),
+        ]);
+
+        // e_in should have length 2^5 = 32.
+        assert_eq!(e_in.len(), 1 << 5);
+
+        //  e_in[0] should be eq(w_in, 00000)
+        let expected_0: EF = w_in
+            .iter()
+            .map(|w_i| EF::ONE - *w_i)
+            .product();
+
+        assert_eq!(expected_0, e_in[0]);
+        assert_eq!(EF::from(-F::from_int(720)), e_in[0]);
+
+        // e_in[5] should be  eq(w_in, 00101)
+        let expected_5 = (EF::ONE - w_in[0]) * (EF::ONE - w_in[1]) * w_in[2] * (EF::ONE - w_in[3]) * w_in[4];
+        assert_eq!(expected_5, e_in[5]);
+
+        // e_in[15] should be eq(w_in, 10000)
+        let expected_16: EF = w_in[1..]
+            .iter()
+            .map(|w_i| EF::ONE - *w_i)
+            .product::<EF>() 
+            * w_in[0];
+        assert_eq!(expected_16, e_in[16]);
+
+        // e_in[31] should be eq(w_in, 11111)
+        let expected_31: EF = w_in.iter().map(|w_i| *w_i).product();
+        assert_eq!(expected_31, e_in[31]);
+    }
+
+   #[test]
+    fn test_precompute_e_out() {
+        let w: Vec<EF> = (0..10).map(|i|EF::from(F::from_int(i))).collect();
+
+        let e_out = precompute_e_out(&w);
+
+
+        // Round 1:
+        assert_eq!(e_out[0].len(), 16);
+        
+        assert_eq!(e_out[0][0],(EF::ONE - w[1]) * (EF::ONE - w[2]) * (EF::ONE - w[8]) * (EF::ONE - w[9])); 
+        assert_eq!(e_out[0][1],(EF::ONE - w[1]) * (EF::ONE - w[2]) * (EF::ONE - w[8]) * w[9]);
+        assert_eq!(e_out[0][2],(EF::ONE - w[1]) * (EF::ONE - w[2]) * w[8] * (EF::ONE - w[9]));
+        assert_eq!(e_out[0][3],(EF::ONE - w[1]) * (EF::ONE - w[2]) * w[8] * w[9]);
+        assert_eq!(e_out[0][4],(EF::ONE - w[1]) * w[2] * (EF::ONE - w[8]) * (EF::ONE - w[9]));
+        assert_eq!(e_out[0][5],(EF::ONE - w[1]) * w[2] * (EF::ONE - w[8]) * w[9]);
+        assert_eq!(e_out[0][6],(EF::ONE - w[1]) * w[2] * w[8] * (EF::ONE - w[9]));
+        assert_eq!(e_out[0][7],(EF::ONE - w[1]) * w[2] * w[8] * w[9]);
+        assert_eq!(e_out[0][8],w[1] * (EF::ONE - w[2]) * (EF::ONE - w[8]) * (EF::ONE - w[9])); 
+        assert_eq!(e_out[0][9],w[1] * (EF::ONE - w[2]) * (EF::ONE - w[8]) * w[9]);
+        assert_eq!(e_out[0][10],w[1] * (EF::ONE - w[2]) * w[8] * (EF::ONE - w[9]));
+        assert_eq!(e_out[0][11],w[1] * (EF::ONE - w[2]) * w[8] * w[9]);
+        assert_eq!(e_out[0][12],w[1] * w[2] * (EF::ONE - w[8]) * (EF::ONE - w[9]));
+        assert_eq!(e_out[0][13],w[1] * w[2] * (EF::ONE - w[8]) * w[9]);
+        assert_eq!(e_out[0][14],w[1] * w[2] * w[8] * (EF::ONE - w[9]));
+        assert_eq!(e_out[0][15],w[1] * w[2] * w[8] * w[9]);
+
+        // Round 2:
+        assert_eq!(e_out[1].len(), 8);
+
+        assert_eq!(e_out[1][0],(EF::ONE - w[2]) * (EF::ONE - w[8]) * (EF::ONE - w[9])); 
+        assert_eq!(e_out[1][1],(EF::ONE - w[2]) * (EF::ONE - w[8]) * w[9]);
+        assert_eq!(e_out[1][2],(EF::ONE - w[2]) * w[8] * (EF::ONE - w[9]));
+        assert_eq!(e_out[1][3],(EF::ONE - w[2]) * w[8] * w[9]);
+        assert_eq!(e_out[1][4],w[2] * (EF::ONE - w[8]) * (EF::ONE - w[9]));
+        assert_eq!(e_out[1][5],w[2] * (EF::ONE - w[8]) * w[9]);
+        assert_eq!(e_out[1][6],w[2] * w[8] * (EF::ONE - w[9]));
+        assert_eq!(e_out[1][7],w[2] * w[8] * w[9]);
+
+        // Round 3:
+        assert_eq!(e_out[2].len(), 4);
+
+        assert_eq!(e_out[2][0],(EF::ONE - w[8]) * (EF::ONE - w[9])); 
+        assert_eq!(e_out[2][1],(EF::ONE - w[8]) * w[9]);
+        assert_eq!(e_out[2][2],w[8] * (EF::ONE - w[9]));
+        assert_eq!(e_out[2][3],w[8] * w[9]);
+    }
+
+    #[test]
+    fn test_compute_accumulators_eq() {
+        let w: Vec<EF> = (1..11).map(|i|EF::from(F::from_int(i))).collect();
+        let l = 10;
+        
+        let poly: EvaluationsList<F> = EvaluationsList::new((1..(1 << 10)+1).map(|i| F::from_int(i)).collect());
+
+        let e_in = precompute_e_in(&w);
+        let e_out = precompute_e_out(&w);
+        
+        let accumulators = compute_accumulators_eq(&poly, e_in, e_out);
+
+        println!("Accumulators: {:?}", accumulators);
     }
 }
