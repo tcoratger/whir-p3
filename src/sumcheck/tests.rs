@@ -15,7 +15,7 @@ use crate::{
         domain_separator::DomainSeparator, prover::ProverState, verifier::VerifierState,
     },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{statement::Statement, verifier::sumcheck::verify_sumcheck_rounds},
+    whir::{constraints::statement::Statement, verifier::sumcheck::verify_sumcheck_rounds},
 };
 
 type F = BabyBear;

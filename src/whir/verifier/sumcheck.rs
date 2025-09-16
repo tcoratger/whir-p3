@@ -150,7 +150,7 @@ mod tests {
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::coeffs::CoefficientList,
         sumcheck::sumcheck_single::SumcheckSingle,
-        whir::{parameters::WhirConfig, statement::Statement},
+        whir::{constraints::statement::Statement, parameters::WhirConfig},
     };
 
     type F = BabyBear;

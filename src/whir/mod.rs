@@ -1,4 +1,5 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
+use constraints::statement::Statement;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
@@ -6,7 +7,6 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
 use prover::Prover;
 use rand::{SeedableRng, rngs::SmallRng};
-use statement::Statement;
 use verifier::Verifier;
 
 use crate::{
@@ -17,9 +17,9 @@ use crate::{
 };
 
 pub mod committer;
+pub mod constraints;
 pub mod parameters;
 pub mod prover;
-pub mod statement;
 pub mod utils;
 pub mod verifier;
 

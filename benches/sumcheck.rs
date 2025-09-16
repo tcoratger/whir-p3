@@ -7,7 +7,7 @@ use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
-    whir::statement::Statement,
+    whir::constraints::statement::Statement,
 };
 
 type F = BabyBear;

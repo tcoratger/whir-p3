@@ -17,8 +17,8 @@ use crate::{
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{RoundMerkleTree, Witness},
+        constraints::statement::Statement,
         prover::Prover,
-        statement::Statement,
     },
 };
 

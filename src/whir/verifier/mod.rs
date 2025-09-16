@@ -19,7 +19,7 @@ use crate::{
     fiat_shamir::verifier::VerifierState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        Statement, parameters::WhirConfig, statement::evaluator::ConstraintPolyEvaluator,
+        Statement, constraints::evaluator::ConstraintPolyEvaluator, parameters::WhirConfig,
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };

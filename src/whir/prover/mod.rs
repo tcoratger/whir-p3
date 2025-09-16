@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use stir::{StirConfig, StirProofHandler, StirQueryGenerator};
 use tracing::{info_span, instrument};
 
-use super::{committer::Witness, parameters::WhirConfig, statement::Statement};
+use super::{committer::Witness, constraints::statement::Statement, parameters::WhirConfig};
 use crate::{
     dft::EvalsDft,
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},

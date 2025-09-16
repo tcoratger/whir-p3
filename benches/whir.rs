@@ -14,8 +14,8 @@ use whir_p3::{
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        committer::writer::CommitmentWriter, parameters::WhirConfig, prover::Prover,
-        statement::Statement,
+        committer::writer::CommitmentWriter, constraints::statement::Statement,
+        parameters::WhirConfig, prover::Prover,
     },
 };
 

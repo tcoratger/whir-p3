@@ -133,7 +133,7 @@ mod tests {
     use crate::{
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
-        whir::statement::Statement,
+        whir::constraints::statement::Statement,
     };
 
     type F = BabyBear;
@@ -211,7 +211,10 @@ mod tests {
             .cloned()
             .zip(&alphas)
             .map(|(statement, &alpha)| {
-                (alpha.powers().collect_n(statement.len()), statement.points)
+                (
+                    alpha.powers().collect_n(statement.len()),
+                    statement.get_points(),
+                )
             })
             .collect();
 
@@ -352,7 +355,7 @@ mod tests {
                 .iter()
                 .cloned()
                 .zip(&alphas)
-                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.points))
+                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.get_points()))
                 .collect();
 
             // Generate the final, full n-dimensional challenge point `r`.
@@ -464,7 +467,7 @@ mod tests {
             .iter()
             .cloned()
             .zip(&alphas)
-            .map(|(s, &a)| (a.powers().collect_n(s.len()), s.points))
+            .map(|(s, &a)| (a.powers().collect_n(s.len()), s.get_points()))
             .collect();
 
         // For a skip protocol, the verifier's final challenge object has a special
@@ -603,7 +606,7 @@ mod tests {
                 .iter()
                 .cloned()
                 .zip(&alphas)
-                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.points))
+                .map(|(s, &a)| (a.powers().collect_n(s.len()), s.get_points()))
                 .collect();
 
             // For a skip protocol, the verifier's final challenge object has a special

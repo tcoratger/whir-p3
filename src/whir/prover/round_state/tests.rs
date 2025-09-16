@@ -13,8 +13,8 @@ use crate::{
     whir::{
         WhirConfig,
         committer::{Witness, writer::CommitmentWriter},
+        constraints::statement::Statement,
         prover::{Prover, round_state::RoundState},
-        statement::Statement,
     },
 };
 

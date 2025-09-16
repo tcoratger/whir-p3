@@ -3,8 +3,6 @@ use tracing::instrument;
 
 use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
-pub mod evaluator;
-
 /// Represents a system of polynomial evaluation constraints over a Boolean hypercube.
 ///
 /// A `Statement` consists of multiple constraints, each enforcing a relationship of the form:

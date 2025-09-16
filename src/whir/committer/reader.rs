@@ -7,7 +7,7 @@ use p3_symmetric::Hash;
 use crate::{
     fiat_shamir::{errors::FiatShamirError, verifier::VerifierState},
     poly::multilinear::MultilinearPoint,
-    whir::{parameters::WhirConfig, statement::Statement},
+    whir::{constraints::statement::Statement, parameters::WhirConfig},
 };
 
 /// Represents a parsed commitment from the prover in the WHIR protocol.

@@ -20,9 +20,9 @@ use whir_p3::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
+        constraints::statement::Statement,
         parameters::WhirConfig,
         prover::Prover,
-        statement::Statement,
         verifier::Verifier,
     },
 };
