@@ -159,39 +159,54 @@ impl<F: Field> Statement<F> {
             );
         }
 
+        // Number of constraints (columns).
         let n = self.len();
+        // Number of variables (bits).
         let k = self.num_variables();
 
-        // Allocate space for all eqs at once
+        // Allocate a flat buffer for the (2^k × n) matrix of weighted equality rows.
+        //
+        // Safety: we fill every entry before reading it.
         let mut eq: Vec<F> = unsafe { crate::utils::uninitialized_vec((1 << k) * n) };
 
-        // Prepare RLC coeffs
+        // Precompute γ^i for i = 0..n-1 (random linear-combination weights).
         let challenges = challenge.powers().take(n).collect();
 
-        // Initialize the first row with randomness factors
+        // Initialize row 0 with [γ^0, γ^1, …, γ^{n-1}].
         eq.iter_mut()
             .zip(challenges.iter())
             .for_each(|(e, alpha)| *e = *alpha);
 
-        // Build eqs independently
+        // Expand row 0 into 2^k rows with a simple two-branch split per bit.
+        // For bit i (from most significant to least):
+        //   high  = low * z
+        //   low   = low - high  = low * (1 - z)
+        // Here z ∈ {0,1} is the i-th coordinate of the constraint point.
         for i in 0..k {
+            // Split the first 2^i rows into low and high halves in place.
             let (lo, hi) = eq.split_at_mut((1 << i) * n);
+            // Work in parallel over row pairs. Each pair has n columns.
             lo.par_chunks_mut(n)
                 .zip(hi.par_chunks_mut(n))
                 .for_each(|(lo, hi)| {
+                    // For each column j: read its constraint point, update the pair.
                     self.points
                         .iter()
                         .zip(lo.iter_mut())
                         .zip(hi.iter_mut())
-                        .for_each(|((point, a0), a1)| {
-                            *a1 = *a0 * point[k - i - 1]; // reversed point order
-                            *a0 -= *a1;
+                        .for_each(|((point, lo), hi)| {
+                            // Take the current bit from the end (most significant first)
+                            let z = point[k - i - 1];
+                            // high = low * z  (either low or 0)
+                            *hi = *lo * z;
+                            // low  = low - high  (either 0 or low)
+                            *lo -= *hi;
                         });
                 });
         }
 
-        // Accumulate rows
-        // TODO: try to accumulate into `eq` and truncate
+        // Sum across columns to get W at each Boolean point (one sum per row).
+        // Each row now holds [γ^i * eq_{z_i}(x)]_i. Summing gives W(x).
         let combined = eq
             .par_chunks(n)
             .map(|row| row.iter().fold(F::ZERO, |acc, &v| acc + v))
