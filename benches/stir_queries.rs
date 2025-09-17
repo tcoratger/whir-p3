@@ -31,7 +31,7 @@ fn bench_stir_queries(c: &mut Criterion) {
         b.iter(|| {
             let mut prover_state = create_prover_state();
             get_challenge_stir_queries::<_, F, EF>(
-                black_box(67108864),
+                black_box(67_108_864),
                 black_box(5),
                 black_box(80),
                 black_box(&mut prover_state),
@@ -44,7 +44,7 @@ fn bench_stir_queries(c: &mut Criterion) {
         b.iter(|| {
             let mut prover_state = create_prover_state();
             get_challenge_stir_queries::<_, F, EF>(
-                black_box(8388608),
+                black_box(8_388_608),
                 black_box(5),
                 black_box(26),
                 black_box(&mut prover_state),
@@ -57,7 +57,7 @@ fn bench_stir_queries(c: &mut Criterion) {
         b.iter(|| {
             let mut prover_state = create_prover_state();
             get_challenge_stir_queries::<_, F, EF>(
-                black_box(4194304),
+                black_box(4_194_304),
                 black_box(5),
                 black_box(11),
                 black_box(&mut prover_state),
@@ -70,7 +70,7 @@ fn bench_stir_queries(c: &mut Criterion) {
         b.iter(|| {
             let mut prover_state = create_prover_state();
             get_challenge_stir_queries::<_, F, EF>(
-                black_box(2097152),
+                black_box(2_097_152),
                 black_box(5),
                 black_box(7),
                 black_box(&mut prover_state),
