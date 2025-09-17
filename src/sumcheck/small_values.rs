@@ -225,7 +225,7 @@ fn from_index_to_beta(index: usize) -> [EvaluationPoint; 3] {
 // Implement Procedure 6 (Page 34).
 // Fijado x'' en {0, 1}^{l-3}, dadas las evaluaciones del multilineal q(x1, x2, x3) = p(x1, x2, x3, x'') en el booleano devuelve las
 // evaluaciones de q en beta para todo beta in {0, 1, inf}^3.
-fn calculate_p_beta<F: Field>(current_evals: Vec<F>) -> Vec<F> {
+fn compute_p_beta<F: Field>(current_evals: Vec<F>) -> Vec<F> {
     let mut next_evals = vec![F::ZERO; 27];
 
     next_evals[0] = current_evals[0]; // 000
@@ -287,7 +287,7 @@ fn compute_accumulators<F: Field>(
             .step_by(1 << (l - NUM_OF_ROUNDS))
             .cloned()
             .collect();
-        let evals_1 = calculate_p_beta(current_evals_1);
+        let evals_1 = compute_p_beta(current_evals_1);
 
         // We compute p_2(beta, x'') for all beta in {0, 1, inf}^3
         let current_evals_2: Vec<F> = poly_2
@@ -296,7 +296,7 @@ fn compute_accumulators<F: Field>(
             .step_by(1 << (l - NUM_OF_ROUNDS))
             .cloned()
             .collect();
-        let evals_2 = calculate_p_beta(current_evals_2);
+        let evals_2 = compute_p_beta(current_evals_2);
 
         // For each beta in {0, 1, inf}^3:
         // (We have 27 = 3 ^ NUM_OF_ROUNDS number of betas)
@@ -498,7 +498,7 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
                 .collect();
 
             // We compute p(beta, x_in, x_out) for all beta in {0, 1, inf}^3
-            let p_evals = calculate_p_beta(current_evals);
+            let p_evals = compute_p_beta(current_evals);
 
             // TODO: change it to a map.
             for beta_index in 0..27 {
@@ -513,31 +513,29 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
                 index_accumulator_3,
             ] = idx4_v3(beta_index);
 
+            let [_, beta_2, beta_3] = to_base_three_coeff(beta_index);
+
             if let Some(index) = index_accumulator_1 {
+                // We need e_out[0][beta_2 || beta_3 || x_out] because:
+                // y = beta_2 || beta_3.
+                // Recall that in round 1, beta_2 and beta_3 are in {0, 1} since they represent y1 and y2 (if not, then index is None.)
+                let y = beta_2 << 1 | beta_3;
                 round_1_accumulator
-                    .accumulate_eval(e_out[0][x_out] * temp_accumulators[beta_index], index);
+                    .accumulate_eval(e_out[0][(y << x_out_num_variables) | x_out] * temp_accumulators[beta_index], index);
             }
 
             if let Some(index) = index_accumulator_2 {
+                // We need e_out[1][beta_3 || x_out] because:
+                // y = beta_3.
+                // Recall beta_3 in {0, 1} since it represents y (if not, then index is None.).
                 round_2_accumulator
-                    .accumulate_eval(e_out[1][x_out] * temp_accumulators[beta_index], index);
+                    .accumulate_eval(e_out[1][(beta_3 << x_out_num_variables) | x_out] * temp_accumulators[beta_index], index);
             }
 
             if let Some(index) = index_accumulator_3 {
                 round_3_accumulator
                     .accumulate_eval(e_out[2][x_out] * temp_accumulators[beta_index], index);
             }
-
-            // for (index_opt, acc) in [
-
-            //     (index_accumulator_1, &mut round_1_accumulator),
-            //     (index_accumulator_2, &mut round_2_accumulator),
-            //     (index_accumulator_3, &mut round_3_accumulator),
-            // ] {
-            //     if let Some(index) = index_opt {
-            //         acc.accumulate_eval( e_out[index][x_out] * temp_accumulators[beta_index], index);
-            //     }
-            // }
         }
     }
     let result = [
@@ -1010,7 +1008,18 @@ mod tests {
 
     #[test]
     fn test_precompute_e_out() {
-        let w: Vec<EF> = (0..10).map(|i| EF::from(F::from_int(i))).collect();
+        let mut rng = rand::rng();
+
+        let w: Vec<EF> = (0..10)
+        .map(|_| {
+            let r1: u32 = rng.next_u32();
+            let r2: u32 = rng.next_u32();
+            let r3: u32 = rng.next_u32();
+            let r4: u32 = rng.next_u32();
+
+            EF::from_basis_coefficients_slice(&[F::from_u32(r1), F::from_u32(r2), F::from_u32(r3), F::from_u32(r4)]).unwrap()
+        })
+        .collect();
 
         let e_out = precompute_e_out(&w);
 
@@ -1045,7 +1054,10 @@ mod tests {
             e_out[0][6],
             (EF::ONE - w[1]) * w[2] * w[8] * (EF::ONE - w[9])
         );
-        assert_eq!(e_out[0][7], (EF::ONE - w[1]) * w[2] * w[8] * w[9]);
+        assert_eq!(
+            e_out[0][7],
+            (EF::ONE - w[1]) * w[2] * w[8] * w[9]);
+            
         assert_eq!(
             e_out[0][8],
             w[1] * (EF::ONE - w[2]) * (EF::ONE - w[8]) * (EF::ONE - w[9])
@@ -1258,9 +1270,6 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[0].accumulators[0]); 
-    
-            
-    
+        assert_eq!(expected_accumulator, accumulators[0].accumulators[0]);  
     }
 }
