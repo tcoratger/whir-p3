@@ -174,46 +174,6 @@ where
     Ok(queries)
 }
 
-/// Samples a list of unique query indices from a folded evaluation domain, using transcript randomness.
-///
-/// This function is used to select random query locations for verifying proximity to a folded codeword.
-/// The folding reduces the domain size exponentially (e.g. by 2^folding_factor), so we sample indices
-/// in the reduced "folded" domain.
-///
-/// ## Parameters
-/// - `domain_size`: The size of the original evaluation domain (e.g., 2^22).
-/// - `folding_factor`: The number of folding rounds applied (e.g., k = 1 means domain halves).
-/// - `num_queries`: The number of query *indices* we want to obtain.
-/// - `challenger`: A Fiat–Shamir transcript used to sample randomness deterministically.
-///
-/// ## Returns
-/// A sorted and deduplicated list of random query indices in the folded domain.
-pub fn get_challenge_stir_queries1<Chal: ChallengeSampler<EF>, F, EF>(
-    domain_size: usize,
-    folding_factor: usize,
-    num_queries: usize,
-    prover_state: &mut Chal,
-) -> Result<Vec<usize>, FiatShamirError>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    // Folded domain size = domain_size / 2^folding_factor.
-    let folded_domain_size = domain_size >> folding_factor;
-
-    // Number of bits needed to represent an index in the folded domain.
-    let domain_size_bits = log2_ceil_usize(folded_domain_size);
-
-    // Sample one integer per query, each with domain_size_bits of entropy.
-    let queries = (0..num_queries)
-        .map(|_| prover_state.sample_bits(domain_size_bits) % folded_domain_size)
-        .sorted_unstable()
-        .dedup()
-        .collect();
-
-    Ok(queries)
-}
-
 /// A utility function to sample Out-of-Domain (OOD) points and evaluate them.
 ///
 /// This should be used on the prover side.
