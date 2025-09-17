@@ -1,4 +1,4 @@
-use p3_field::{ExtensionField, Field};
+use p3_field::{ExtensionField, Field, dot_product};
 use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
@@ -167,15 +167,17 @@ impl<F: Field> Statement<F> {
         // Allocate a flat buffer for the (2^k × n) matrix of weighted equality rows.
         //
         // Safety: we fill every entry before reading it.
-        let mut eq: Vec<F> = unsafe { crate::utils::uninitialized_vec((1 << k) * n) };
+        // let mut eq: Vec<F> = unsafe { crate::utils::uninitialized_vec((1 << k) * n) };
+        let mut eq: Vec<F> = F::zero_vec((1 << k) * n);
 
         // Precompute γ^i for i = 0..n-1 (random linear-combination weights).
-        let challenges = challenge.powers().take(n).collect();
+        let challenges = challenge.powers().collect_n(n);
 
         // Initialize row 0 with [γ^0, γ^1, …, γ^{n-1}].
-        eq.iter_mut()
-            .zip(challenges.iter())
-            .for_each(|(e, alpha)| *e = *alpha);
+        eq[..n].copy_from_slice(&challenges);
+
+        // Create reusable buffer for the current round's constraint points.
+        let mut round_points = F::zero_vec(n);
 
         // Expand row 0 into 2^k rows with a simple two-branch split per bit.
         // For bit i (from most significant to least):
@@ -185,18 +187,24 @@ impl<F: Field> Statement<F> {
         for i in 0..k {
             // Split the first 2^i rows into low and high halves in place.
             let (lo, hi) = eq.split_at_mut((1 << i) * n);
+
+            // We process points from most significant to least, so in this round
+            // we want the elements in position k-i-1.
+            round_points
+                .iter_mut()
+                .zip(self.points.iter())
+                .for_each(|(current, point)| *current = point[k - i - 1]);
+
             // Work in parallel over row pairs. Each pair has n columns.
             lo.par_chunks_mut(n)
                 .zip(hi.par_chunks_mut(n))
                 .for_each(|(lo, hi)| {
                     // For each column j: read its constraint point, update the pair.
-                    self.points
+                    round_points
                         .iter()
                         .zip(lo.iter_mut())
                         .zip(hi.iter_mut())
-                        .for_each(|((point, lo), hi)| {
-                            // Take the current bit from the end (most significant first)
-                            let z = point[k - i - 1];
+                        .for_each(|((&z, lo), hi)| {
                             // high = low * z  (either low or 0)
                             *hi = *lo * z;
                             // low  = low - high  (either 0 or low)
@@ -209,14 +217,11 @@ impl<F: Field> Statement<F> {
         // Each row now holds [γ^i * eq_{z_i}(x)]_i. Summing gives W(x).
         let combined = eq
             .par_chunks(n)
-            .map(|row| row.iter().fold(F::ZERO, |acc, &v| acc + v))
+            .map(|row| row.iter().copied().sum())
             .collect::<Vec<_>>();
 
-        // Horner sums
-        let sum = self
-            .evaluations
-            .iter()
-            .rfold(F::ZERO, |acc, coeff| acc * challenge + *coeff);
+        // Combine sums
+        let sum = dot_product(self.evaluations.iter().copied(), challenges.into_iter());
 
         // Return:
         // - The combined polynomial W(X) in evaluation form.
