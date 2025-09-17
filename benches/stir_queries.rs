@@ -26,28 +26,53 @@ fn create_prover_state() -> ProverState<F, EF, MyChallenger> {
 fn bench_stir_queries(c: &mut Criterion) {
     let mut group = c.benchmark_group("stir_queries");
 
-    // Small case: Few queries, small domain
-    group.bench_function("small_4_queries_512_domain", |b| {
+    // Benchmarks from the main file use case
+    group.bench_function("benchmark main round 1", |b| {
         b.iter(|| {
             let mut prover_state = create_prover_state();
             get_challenge_stir_queries::<_, F, EF>(
-                black_box(512), // domain_size
-                black_box(3),   // folding_factor (domain becomes 64)
-                black_box(4),   // num_queries
+                black_box(67_108_864),
+                black_box(5),
+                black_box(80),
                 black_box(&mut prover_state),
             )
             .unwrap()
         });
     });
 
-    // Medium case: Moderate queries, medium domain
-    group.bench_function("medium_16_queries_4k_domain", |b| {
+    group.bench_function("benchmark main round 2", |b| {
         b.iter(|| {
             let mut prover_state = create_prover_state();
             get_challenge_stir_queries::<_, F, EF>(
-                black_box(4096), // domain_size
-                black_box(4),    // folding_factor (domain becomes 256)
-                black_box(16),   // num_queries
+                black_box(8_388_608),
+                black_box(5),
+                black_box(26),
+                black_box(&mut prover_state),
+            )
+            .unwrap()
+        });
+    });
+
+    group.bench_function("benchmark main round 3", |b| {
+        b.iter(|| {
+            let mut prover_state = create_prover_state();
+            get_challenge_stir_queries::<_, F, EF>(
+                black_box(4_194_304),
+                black_box(5),
+                black_box(11),
+                black_box(&mut prover_state),
+            )
+            .unwrap()
+        });
+    });
+
+    group.bench_function("benchmark main round 4", |b| {
+        b.iter(|| {
+            let mut prover_state = create_prover_state();
+            get_challenge_stir_queries::<_, F, EF>(
+                black_box(2_097_152),
+                black_box(5),
+                black_box(7),
                 black_box(&mut prover_state),
             )
             .unwrap()
@@ -59,9 +84,9 @@ fn bench_stir_queries(c: &mut Criterion) {
         b.iter(|| {
             let mut prover_state = create_prover_state();
             get_challenge_stir_queries::<_, F, EF>(
-                black_box(65536), // domain_size
-                black_box(6),     // folding_factor (domain becomes 1024)
-                black_box(64),    // num_queries
+                black_box(65536),
+                black_box(6),
+                black_box(64),
                 black_box(&mut prover_state),
             )
             .unwrap()
@@ -73,9 +98,9 @@ fn bench_stir_queries(c: &mut Criterion) {
         b.iter(|| {
             let mut prover_state = create_prover_state();
             get_challenge_stir_queries::<_, F, EF>(
-                black_box(1_048_576), // domain_size (1M)
-                black_box(10),        // folding_factor (domain becomes 1024)
-                black_box(256),       // num_queries
+                black_box(1_048_576),
+                black_box(10),
+                black_box(256),
                 black_box(&mut prover_state),
             )
             .unwrap()
