@@ -20,9 +20,9 @@ use whir_p3::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
+        constraints::statement::Statement,
         parameters::WhirConfig,
         prover::Prover,
-        statement::Statement,
         verifier::Verifier,
     },
 };
@@ -138,12 +138,11 @@ fn main() {
         .collect();
 
     // Construct a new statement with the correct number of variables
-    let mut statement = Statement::<EF>::new(num_variables);
+    let mut statement = Statement::<EF>::initialize(num_variables);
 
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
-        let eval = polynomial.evaluate(point);
-        statement.add_constraint(point.clone(), eval);
+        statement.add_unevaluated_constraint(point.clone(), &polynomial);
     }
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving

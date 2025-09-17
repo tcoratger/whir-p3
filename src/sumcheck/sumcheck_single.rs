@@ -12,7 +12,7 @@ use crate::{
     sumcheck::{
         sumcheck_single_skip::compute_skipping_sumcheck_polynomial, utils::sumcheck_quadratic,
     },
-    whir::statement::Statement,
+    whir::constraints::statement::Statement,
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;
