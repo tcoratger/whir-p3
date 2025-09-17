@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
-use p3_util::log2_strict_usize;
+use p3_util::{log2_ceil_usize, log2_strict_usize};
 use tracing::instrument;
 
 use crate::{
@@ -38,9 +38,8 @@ pub const fn workload_size<T: Sized>() -> usize {
 
 /// WHIR STIR Query Sampler: Generates cryptographically secure query indices for Reed–Solomon proximity testing.
 ///
-/// After folding reduces the Reed–Solomon codeword domain, this function selects random
-/// query positions for the proximity test. Uses Fiat-Shamir randomness to ensure unpredictable,
-/// verifier-determined challenge locations.
+/// This is an optimized version that batches randomness sampling when beneficial,
+/// reducing the number of expensive transcript operations.
 ///
 /// ## Parameters
 /// - `domain_size`: Original evaluation domain size before folding
@@ -63,131 +62,154 @@ where
     F: Field,
     EF: ExtensionField<F>,
 {
-    // PHASE 1: Compute folded domain parameters
+    // COMPUTE DOMAIN AND BATCHING PARAMETERS
 
-    // Apply WHIR folding: domain_size / 2^folding_factor
+    // Apply folding to get the final, smaller domain size.
     //
-    // Example: 512 domain → 3 folds → 512 >> 3 = 64 domain
+    // Example: 2^20 domain, 4 folds -> 2^20 >> 4 -> 2^16 domain size.
     let folded_domain_size = domain_size >> folding_factor;
-
-    // Bits required to index into the folded domain
+    // Calculate the number of bits required to represent an index in the folded domain.
     //
-    // The folded domain size is a power of two, so log_2(folded_domain_size) is an integer.
-    //
-    // Example: 64 domain needs log_2(64) ≈ 6 bits per query
+    // Example: 2^16 domain -> log2(2^16) = 16 bits per query.
     let domain_size_bits = log2_strict_usize(folded_domain_size);
 
-    // PHASE 2: Determine batching strategy
-
-    // The maximum number of bits that can be safely sampled in a single call from the challenger.
+    // Determine the maximum number of bits we can safely sample in a single transcript call.
     //
-    // To avoid statistical bias when sampling randomness, we use a conservative limit.
-    //
-    // Field elements have F::bits() total bits, but higher-order bits may be biased or correlated.
-    //
-    // We cap at 20 bits to ensure uniform distribution across different field implementations.
+    // This is a conservative limit to avoid potential statistical bias from the underlying field.
     let max_bits_per_call = (F::bits() - 1).min(20);
 
-    // Total entropy needed: num_queries × bits_per_query
+    // Calculate the total amount of random bits needed for all queries.
     //
-    // Example: 100 queries × 4 bits = 400 bits total
+    // Example: 80 queries * 16 bits/query = 1280 bits total.
     let total_bits_needed = num_queries * domain_size_bits;
 
-    // PHASE 3: Execute sampling
-    let queries = if total_bits_needed > 0 {
-        // Pre-allocate result vector
-        let mut all_queries = Vec::with_capacity(num_queries);
+    // Pre-allocate the vector for the query indices to avoid reallocations.
+    let mut queries = Vec::with_capacity(num_queries);
 
-        if total_bits_needed <= max_bits_per_call {
-            // SINGLE BATCH PATH
+    // EXECUTE SAMPLING BASED ON OPTIMAL STRATEGY
+    if total_bits_needed <= max_bits_per_call {
+        // STRATEGY 1: SINGLE BATCH (HIGHEST EFFICIENCY)
+        //
+        // This path is taken when the total entropy for all queries fits within a single,
+        // safe call to the transcript, reducing N transcript operations to just 1.
+
+        // Sample all the random bits needed for all queries in one go.
+        let mut all_bits = prover_state.sample_bits(total_bits_needed);
+        // Create a bitmask to extract `domain_size_bits` chunks from the sampled randomness.
+        //
+        // Example: 16 bits -> (1 << 16) - 1 -> 0b1111_1111_1111_1111
+        let mask = (1 << domain_size_bits) - 1;
+
+        // Unpack the single large integer into individual query indices.
+        for _ in 0..num_queries {
+            // Use the mask to extract the lowest `domain_size_bits`.
+            let query_bits = all_bits & mask;
+
+            // Map the extracted bits to a valid index in the folded domain.
+            queries.push(query_bits % folded_domain_size);
+
+            // Right-shift the packed bits to consume the bits we just used,
+            // exposing the next query's bits at the LSB position.
+            all_bits >>= domain_size_bits;
+        }
+    } else {
+        // STRATEGY 2 or 3: MULTI-BATCH OR SIMPLE FALLBACK
+
+        // Calculate how many full queries can fit into a single transcript call.
+        //
+        // This determines if batching is beneficial.
+        let queries_per_batch = max_bits_per_call / domain_size_bits;
+
+        if queries_per_batch >= 2 {
+            // STRATEGY 2: MULTI-BATCH (MEDIUM EFFICIENCY)
             //
-            // All entropy fits in one sponge squeeze - maximum efficiency
-            let mut all_bits = prover_state.sample_bits(total_bits_needed);
+            // This path is taken if we can't get all bits at once, but we can still
+            // fit at least two queries' worth of bits into each transcript call.
 
-            // Bit mask for extracting `domain_size_bits` chunks
-            //
-            // Example: 4 bits → mask = 0b1111 = 15
-            let mask = domain_size - 1;
+            let mut remaining = num_queries;
+            let mask = (1 << domain_size_bits) - 1;
 
-            // Extract each query index from the packed bit stream
-            for _ in 0..num_queries {
-                // Extract lowest `domain_size_bits` from the packed integer.
-                //
-                // Mask isolates only the bits we need (e.g., 0b1111 for 4 bits).
-                let query_bits = all_bits & mask;
-
-                // Shift right to prepare next query extraction.
-                //
-                // This "consumes" the bits we just extracted.
-                all_bits >>= domain_size_bits;
-
-                // Map raw bits to valid domain index via modular reduction.
-                //
-                // Handles case where query_bits >= folded_domain_size.
-                let query_index = query_bits % folded_domain_size;
-                all_queries.push(query_index);
-            }
-        } else {
-            // MULTI BATCH PATH
-            //
-            // Too many bits for one call - use chunked sampling
-
-            // Calculate how many complete queries fit within bit limit.
-            let queries_per_batch = max_bits_per_call / domain_size_bits;
-            let mut remaining_queries = num_queries;
-
-            // Process queries in batches until all are sampled
-            while remaining_queries > 0 {
-                // Current batch size (last batch may be smaller than `queries_per_batch`).
-                //
-                // The `min()` ensures we don't sample more queries than needed.
-                let batch_size = remaining_queries.min(queries_per_batch);
-
-                // Total bits needed for this batch: queries × bits_per_query
+            // Loop, processing queries in batches until all are generated.
+            while remaining > 0 {
+                // Determine the size of the current batch (the last one might be smaller).
+                let batch_size = remaining.min(queries_per_batch);
                 let batch_bits = batch_size * domain_size_bits;
 
-                // Sample entropy for this batch from the Fiat-Shamir transcript.
+                // Sample just enough bits for the current batch.
                 //
-                // This is the expensive sponge operation we're trying to minimize.
-                let all_bits = prover_state.sample_bits(batch_bits);
+                // This is the expensive operation.
+                let mut all_bits = prover_state.sample_bits(batch_bits);
 
-                // Bit mask for extracting `domain_size_bits` chunks.
-                //
-                // Creates mask with domain_size_bits consecutive 1s.
-                let mask = (1 << domain_size_bits) - 1;
-
-                // Extract all queries from this batch using bit manipulation
-                for i in 0..batch_size {
-                    // Starting bit position for query i within the batch.
-                    // - Query 0 starts at bit 0,
-                    // - Query 1 starts at bit `domain_size_bits`, etc.
-                    let start_bit = i * domain_size_bits;
-
-                    // Extract bits [start_bit, start_bit + domain_size_bits).
-                    //
-                    // Right shift moves target bits to position 0, mask isolates them.
-                    let query_bits = (all_bits >> start_bit) & mask;
-
-                    // Map extracted bits to valid domain index.
-                    //
-                    // Modular reduction ensures index ∈ [0, folded_domain_size).
-                    let query_index = query_bits % folded_domain_size;
-                    all_queries.push(query_index);
+                // Unpack the batch of bits into query indices, same as the single-batch path.
+                for _ in 0..batch_size {
+                    let query_index = (all_bits & mask) % folded_domain_size;
+                    queries.push(query_index);
+                    all_bits >>= domain_size_bits;
                 }
 
-                // Update counter for next iteration
-                remaining_queries -= batch_size;
+                // Decrement the counter for the next iteration.
+                remaining -= batch_size;
             }
-        }
+        } else {
+            // STRATEGY 3: SIMPLE FALLBACK (LEAST EFFICIENT)
+            //
+            // If batching is not possible or offers no benefit (i.e., we can fit less than
+            // 2 queries per call), we fall back to the naive approach of one call per query.
 
-        // PHASE 4: Finalize query list
-        //
-        // Sort indices and remove duplicates (WHIR protocol requirement)
-        all_queries.into_iter().sorted_unstable().dedup().collect()
-    } else {
-        // Edge case: no queries requested or invalid parameters
-        Vec::new()
-    };
+            queries.extend(
+                (0..num_queries)
+                    .map(|_| prover_state.sample_bits(domain_size_bits) % folded_domain_size),
+            );
+        }
+    }
+
+    // FINALIZE QUERY LIST
+
+    // Sort the collected indices to have a canonical order.
+    queries.sort_unstable();
+
+    // Remove any duplicate indices that may have been generated by chance.
+    queries.dedup();
+
+    Ok(queries)
+}
+
+/// Samples a list of unique query indices from a folded evaluation domain, using transcript randomness.
+///
+/// This function is used to select random query locations for verifying proximity to a folded codeword.
+/// The folding reduces the domain size exponentially (e.g. by 2^folding_factor), so we sample indices
+/// in the reduced "folded" domain.
+///
+/// ## Parameters
+/// - `domain_size`: The size of the original evaluation domain (e.g., 2^22).
+/// - `folding_factor`: The number of folding rounds applied (e.g., k = 1 means domain halves).
+/// - `num_queries`: The number of query *indices* we want to obtain.
+/// - `challenger`: A Fiat–Shamir transcript used to sample randomness deterministically.
+///
+/// ## Returns
+/// A sorted and deduplicated list of random query indices in the folded domain.
+pub fn get_challenge_stir_queries1<Chal: ChallengeSampler<EF>, F, EF>(
+    domain_size: usize,
+    folding_factor: usize,
+    num_queries: usize,
+    prover_state: &mut Chal,
+) -> Result<Vec<usize>, FiatShamirError>
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    // Folded domain size = domain_size / 2^folding_factor.
+    let folded_domain_size = domain_size >> folding_factor;
+
+    // Number of bits needed to represent an index in the folded domain.
+    let domain_size_bits = log2_ceil_usize(folded_domain_size);
+
+    // Sample one integer per query, each with domain_size_bits of entropy.
+    let queries = (0..num_queries)
+        .map(|_| prover_state.sample_bits(domain_size_bits) % folded_domain_size)
+        .sorted_unstable()
+        .dedup()
+        .collect();
 
     Ok(queries)
 }
