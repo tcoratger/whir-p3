@@ -35,6 +35,7 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// A tuple containing:
 /// * The verifier's challenge `r` as an `EF` element.
 /// * The new, compressed polynomial evaluations as an `EvaluationsList<EF>`.
+#[instrument(skip_all)]
 fn initial_round<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     evals: &EvaluationsList<F>,
@@ -79,6 +80,7 @@ where
 ///
 /// ## Returns
 /// The verifier's challenge `r` as an `EF` element.
+#[instrument(skip_all)]
 fn round<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     evals: &mut EvaluationsList<EF>,
@@ -401,6 +403,7 @@ where
     /// where `w_{z_i}(X)` represents the constraint encoding at point `z_i`.
     #[instrument(skip_all, fields(
         num_points = points.len(),
+        num_variables = self.num_variables(),
     ))]
     pub fn add_new_equality(
         &mut self,
@@ -450,6 +453,7 @@ where
     /// where `w_{z_i}(X)` represents the constraint encoding at point `z_i`.
     #[instrument(skip_all, fields(
         num_points = points.len(),
+        num_variables = self.num_variables(),
     ))]
     pub fn add_new_base_equality(
         &mut self,
