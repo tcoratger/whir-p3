@@ -143,7 +143,7 @@ impl<F: Field> Statement<F> {
     /// # Returns
     /// - `EvaluationsList<F>`: The evaluations of the combined weight polynomial `W(X)`.
     /// - `F`: The combined expected evaluation `S`.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, fields(num_constraints = self.len(), num_variables = self.num_variables()))]
     pub fn combine<Base>(&self, challenge: F) -> (EvaluationsList<F>, F)
     where
         Base: Field,
