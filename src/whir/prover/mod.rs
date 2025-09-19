@@ -280,9 +280,9 @@ where
 
         // Process STIR queries
         let stir_config = StirConfig::builder()
-            .initial_statement(self.initial_statement)
-            .univariate_skip(self.univariate_skip)
-            .folding_factor_at_round(self.folding_factor.at_round(0))
+            .with_initial_statement(self.initial_statement)
+            .with_univariate_skip(self.univariate_skip)
+            .with_folding_factor_at_round(self.folding_factor.at_round(0))
             .build();
         let stir_handler =
             StirProofHandler::new(&self.merkle_hash, &self.merkle_compress, stir_config);
@@ -389,9 +389,9 @@ where
 
         // Process final proofs
         let stir_config = StirConfig::builder()
-            .initial_statement(self.initial_statement)
-            .univariate_skip(self.univariate_skip)
-            .folding_factor_at_round(self.folding_factor.at_round(round_index))
+            .with_initial_statement(self.initial_statement)
+            .with_univariate_skip(self.univariate_skip)
+            .with_folding_factor_at_round(self.folding_factor.at_round(round_index))
             .build();
         let stir_handler =
             StirProofHandler::new(&self.merkle_hash, &self.merkle_compress, stir_config);

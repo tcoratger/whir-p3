@@ -133,7 +133,7 @@ impl StirConfigBuilder {
     ///
     /// Self for method chaining
     #[must_use]
-    pub const fn initial_statement(mut self, initial_statement: bool) -> Self {
+    pub const fn with_initial_statement(mut self, initial_statement: bool) -> Self {
         self.initial_statement = initial_statement;
         self
     }
@@ -155,7 +155,7 @@ impl StirConfigBuilder {
     ///
     /// Self for method chaining
     #[must_use]
-    pub const fn univariate_skip(mut self, univariate_skip: bool) -> Self {
+    pub const fn with_univariate_skip(mut self, univariate_skip: bool) -> Self {
         self.univariate_skip = univariate_skip;
         self
     }
@@ -177,7 +177,7 @@ impl StirConfigBuilder {
     ///
     /// Self for method chaining
     #[must_use]
-    pub const fn folding_factor_at_round(mut self, folding_factor_at_round: usize) -> Self {
+    pub const fn with_folding_factor_at_round(mut self, folding_factor_at_round: usize) -> Self {
         self.folding_factor_at_round = folding_factor_at_round;
         self
     }
@@ -215,9 +215,9 @@ mod tests {
     #[test]
     fn test_builder_pattern() {
         let config = StirConfig::builder()
-            .initial_statement(true)
-            .univariate_skip(true)
-            .folding_factor_at_round(4)
+            .with_initial_statement(true)
+            .with_univariate_skip(true)
+            .with_folding_factor_at_round(4)
             .build();
 
         assert!(config.initial_statement);
@@ -228,18 +228,18 @@ mod tests {
     #[test]
     fn test_should_apply_univariate_skip() {
         let config = StirConfig::builder()
-            .initial_statement(true)
-            .univariate_skip(true)
-            .folding_factor_at_round(K_SKIP_SUMCHECK)
+            .with_initial_statement(true)
+            .with_univariate_skip(true)
+            .with_folding_factor_at_round(K_SKIP_SUMCHECK)
             .build();
 
         assert!(config.should_apply_univariate_skip(0));
         assert!(!config.should_apply_univariate_skip(1));
 
         let config_no_skip = StirConfig::builder()
-            .initial_statement(true)
-            .univariate_skip(false)
-            .folding_factor_at_round(K_SKIP_SUMCHECK)
+            .with_initial_statement(true)
+            .with_univariate_skip(false)
+            .with_folding_factor_at_round(K_SKIP_SUMCHECK)
             .build();
 
         assert!(!config_no_skip.should_apply_univariate_skip(0));

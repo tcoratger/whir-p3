@@ -285,9 +285,9 @@ mod tests {
 
         // Test builder pattern
         let config = StirConfig::builder()
-            .initial_statement(true)
-            .univariate_skip(true)
-            .folding_factor_at_round(4)
+            .with_initial_statement(true)
+            .with_univariate_skip(true)
+            .with_folding_factor_at_round(4)
             .build();
 
         assert!(config.initial_statement);
@@ -301,9 +301,9 @@ mod tests {
         assert!(!config.should_apply_univariate_skip(0));
 
         let config = StirConfig::builder()
-            .initial_statement(true)
-            .univariate_skip(true)
-            .folding_factor_at_round(K_SKIP_SUMCHECK + 1)
+            .with_initial_statement(true)
+            .with_univariate_skip(true)
+            .with_folding_factor_at_round(K_SKIP_SUMCHECK + 1)
             .build();
 
         assert!(config.should_apply_univariate_skip(0));
