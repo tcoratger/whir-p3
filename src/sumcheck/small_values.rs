@@ -1,10 +1,6 @@
-use crate::poly::multilinear::MultilinearPoint;
-use crate::{
-    dft::DitEvalsButterfly, fiat_shamir::prover::ProverState, poly::evals::EvaluationsList,
-};
+use crate::{fiat_shamir::prover::ProverState, poly::evals::EvaluationsList};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{BasedVectorSpace, ExtensionField, Field};
-use p3_field::{BasedVectorSpace, ExtensionField, Field};
+use p3_field::{ExtensionField, Field};
 
 const NUM_OF_ROUNDS: usize = 3;
 
@@ -1287,64 +1283,56 @@ mod tests {
 
         // We compute A_2(inf, 0).
         let p_v_inf: [Vec<EF>; 8] = [
-            poly
-                .iter()
+            poly.iter()
                 .skip(0)
                 .step_by(4)
                 .take(32)
                 .zip(poly.iter().skip(512).step_by(4).take(32))
                 .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
                 .collect(),
-            poly
-                .iter()
+            poly.iter()
                 .skip(1)
                 .step_by(4)
                 .take(32)
                 .zip(poly.iter().skip(513).step_by(4).take(32))
                 .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
                 .collect(),
-            poly
-                .iter()
+            poly.iter()
                 .skip(2)
                 .step_by(4)
                 .take(32)
                 .zip(poly.iter().skip(514).step_by(4).take(32))
                 .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
                 .collect(),
-            poly
-                .iter()
+            poly.iter()
                 .skip(3)
                 .step_by(4)
                 .take(32)
                 .zip(poly.iter().skip(515).step_by(4).take(32))
                 .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
                 .collect(),
-            poly
-                .iter()
+            poly.iter()
                 .skip(128)
                 .step_by(4)
                 .take(32)
                 .zip(poly.iter().skip(640).step_by(4).take(32))
                 .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
                 .collect(),
-            poly
-                .iter()
+            poly.iter()
                 .skip(129)
                 .step_by(4)
                 .take(32)
                 .zip(poly.iter().skip(641).step_by(4).take(32))
                 .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
                 .collect(),
-            poly
-                .iter()
+            poly.iter()
                 .skip(130)
                 .step_by(4)
                 .take(32)
                 .zip(poly.iter().skip(642).step_by(4).take(32))
                 .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
                 .collect(),
-            poly
-                .iter()
+            poly.iter()
                 .skip(131)
                 .step_by(4)
                 .take(32)
@@ -1355,8 +1343,7 @@ mod tests {
 
         let expected_accumulator = (0..8)
             .map(|i| {
-                e_in
-                    .iter()
+                e_in.iter()
                     .zip(p_v_inf[i].clone())
                     .map(|(eq, diff)| *eq * diff)
                     .sum::<EF>()
