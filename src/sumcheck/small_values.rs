@@ -3,7 +3,7 @@ use crate::{
     dft::DitEvalsButterfly, fiat_shamir::prover::ProverState, poly::evals::EvaluationsList,
 };
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, BasedVectorSpace};
+use p3_field::{BasedVectorSpace, ExtensionField, Field};
 
 const NUM_OF_ROUNDS: usize = 3;
 
@@ -520,16 +520,21 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
                 // y = beta_2 || beta_3.
                 // Recall that in round 1, beta_2 and beta_3 are in {0, 1} since they represent y1 and y2 (if not, then index is None.)
                 let y = beta_2 << 1 | beta_3;
-                round_1_accumulator
-                    .accumulate_eval(e_out[0][(y << x_out_num_variables) | x_out] * temp_accumulators[beta_index], index);
+                round_1_accumulator.accumulate_eval(
+                    e_out[0][(y << x_out_num_variables) | x_out] * temp_accumulators[beta_index],
+                    index,
+                );
             }
 
             if let Some(index) = index_accumulator_2 {
                 // We need e_out[1][beta_3 || x_out] because:
                 // y = beta_3.
                 // Recall beta_3 in {0, 1} since it represents y (if not, then index is None.).
-                round_2_accumulator
-                    .accumulate_eval(e_out[1][(beta_3 << x_out_num_variables) | x_out] * temp_accumulators[beta_index], index);
+                round_2_accumulator.accumulate_eval(
+                    e_out[1][(beta_3 << x_out_num_variables) | x_out]
+                        * temp_accumulators[beta_index],
+                    index,
+                );
             }
 
             if let Some(index) = index_accumulator_3 {
@@ -566,16 +571,27 @@ pub fn eval_eq<F: Field>(w: &[F]) -> Vec<F> {
     evals
 }
 
-fn eq_expected<F: Field>(w: &[F], idx: usize) -> F {
+// Esta funcion es una copia de eval_eq() en poly/multilinear.rs
+pub fn eval_eq_in_p<F: Field>(p: &[F], q: &[F]) -> F {
     let mut acc = F::ONE;
-    for (j, wj) in w.iter().enumerate() {
-        if (idx >> j) & 1 == 0 {
-            acc *= F::ONE - *wj;
-        } else {
-            acc *= *wj;
-        }
+    for (&l, &r) in p.into_iter().zip(q) {
+        acc *= F::ONE + l * r.double() - l - r;
     }
     acc
+}
+
+pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
+    let round = w.len();
+    debug_assert!(r.len() == round - 1);
+
+    let mut const_eq: F = F::ONE;
+    if round == 1 {
+        const_eq = eval_eq_in_p(&w[..round], r);
+    }
+    let w_i = w.last().unwrap();
+
+    // Evaluacion de eq(w,X) en [eq(w,0),eq(w,1)]
+    [const_eq * (F::ONE - *w_i), const_eq * *w_i]
 }
 
 #[cfg(test)]
@@ -584,14 +600,15 @@ mod tests {
     use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
     use p3_baby_bear::BabyBear;
     use p3_field::{
-        PrimeCharacteristicRing, extension::BinomialExtensionField, integers::QuotientMap, BasedVectorSpace
+        BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField,
+        integers::QuotientMap,
     };
     use rand::{Rng, RngCore};
 
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;
 
-    // BORRAR
+    // CAMBIAR
     // TEST NOT WORKING. We changed the function idx4.
     #[test]
     fn test_idx4() {
@@ -1011,15 +1028,21 @@ mod tests {
         let mut rng = rand::rng();
 
         let w: Vec<EF> = (0..10)
-        .map(|_| {
-            let r1: u32 = rng.next_u32();
-            let r2: u32 = rng.next_u32();
-            let r3: u32 = rng.next_u32();
-            let r4: u32 = rng.next_u32();
+            .map(|_| {
+                let r1: u32 = rng.next_u32();
+                let r2: u32 = rng.next_u32();
+                let r3: u32 = rng.next_u32();
+                let r4: u32 = rng.next_u32();
 
-            EF::from_basis_coefficients_slice(&[F::from_u32(r1), F::from_u32(r2), F::from_u32(r3), F::from_u32(r4)]).unwrap()
-        })
-        .collect();
+                EF::from_basis_coefficients_slice(&[
+                    F::from_u32(r1),
+                    F::from_u32(r2),
+                    F::from_u32(r3),
+                    F::from_u32(r4),
+                ])
+                .unwrap()
+            })
+            .collect();
 
         let e_out = precompute_e_out(&w);
 
@@ -1054,10 +1077,8 @@ mod tests {
             e_out[0][6],
             (EF::ONE - w[1]) * w[2] * w[8] * (EF::ONE - w[9])
         );
-        assert_eq!(
-            e_out[0][7],
-            (EF::ONE - w[1]) * w[2] * w[8] * w[9]);
-            
+        assert_eq!(e_out[0][7], (EF::ONE - w[1]) * w[2] * w[8] * w[9]);
+
         assert_eq!(
             e_out[0][8],
             w[1] * (EF::ONE - w[2]) * (EF::ONE - w[8]) * (EF::ONE - w[9])
@@ -1105,12 +1126,11 @@ mod tests {
 
     #[test]
     fn test_compute_accumulators_eq() {
-
         // We'll use polynomials of 10 variables.
         let l = 10;
 
         let mut rng = rand::rng();
-        
+
         // w = [w0, w2, ..., w9]
         // Each w_i is a random extension field element built from 4 random field elements.
         let w: Vec<EF> = (0..l)
@@ -1120,18 +1140,26 @@ mod tests {
                 let r3: u32 = rng.next_u32();
                 let r4: u32 = rng.next_u32();
 
-                EF::from_basis_coefficients_slice(&[F::from_u32(r1), F::from_u32(r2), F::from_u32(r3), F::from_u32(r4)]).unwrap()
+                EF::from_basis_coefficients_slice(&[
+                    F::from_u32(r1),
+                    F::from_u32(r2),
+                    F::from_u32(r3),
+                    F::from_u32(r4),
+                ])
+                .unwrap()
             })
             .collect();
 
         // We build a random multilinear polynomial of 10 variables, using 2^10 evaluations in the hypercube {0,1}^10
-        let poly = EvaluationsList::new((0..(1 << l))
-            .map(|_| {
-                let r: u32 = rng.next_u32(); //
-                F::from_u32(r)
-            })
-            .collect());
-        
+        let poly = EvaluationsList::new(
+            (0..(1 << l))
+                .map(|_| {
+                    let r: u32 = rng.next_u32(); //
+                    F::from_u32(r)
+                })
+                .collect(),
+        );
+
         // We precompute E_in and E_out
         let e_in = precompute_e_in(&w);
         let e_out = precompute_e_out(&w);
@@ -1183,17 +1211,38 @@ mod tests {
             .sum::<EF>();
 
         assert_eq!(expected_accumulator, accumulators[2].accumulators[10]);
-        
+
         // We now compute A_3(1, inf, 0):
 
         // We compute p(1, inf, 0, b_L, b_R) for all b_L in {0, 1}^2 and b_R in {0, 1}^5.
         // Recall that p(1, inf, 0, b_L, b_R) = p(1, 1, 0, b_L, b_R) - p(1, 0, 0, b_L, b_R)
-        let p_evals: [Vec<F>;4] = [poly.iter().skip(768).take(32).zip(poly.iter().skip(512).take(32)).map(|(p1, p0)| *p1 - *p0).collect::<Vec<F>>(), 
-                                   poly.iter().skip(800).take(32).zip(poly.iter().skip(544).take(32)).map(|(p1, p0)| *p1 - *p0).collect::<Vec<F>>(),
-                                   poly.iter().skip(832).take(32).zip(poly.iter().skip(576).take(32)).map(|(p1, p0)| *p1 - *p0).collect::<Vec<F>>(),
-                                   poly.iter().skip(864).take(32).zip(poly.iter().skip(608).take(32)).map(|(p1, p0)| *p1 - *p0).collect::<Vec<F>>()];
+        let p_evals: [Vec<F>; 4] = [
+            poly.iter()
+                .skip(768)
+                .take(32)
+                .zip(poly.iter().skip(512).take(32))
+                .map(|(p1, p0)| *p1 - *p0)
+                .collect::<Vec<F>>(),
+            poly.iter()
+                .skip(800)
+                .take(32)
+                .zip(poly.iter().skip(544).take(32))
+                .map(|(p1, p0)| *p1 - *p0)
+                .collect::<Vec<F>>(),
+            poly.iter()
+                .skip(832)
+                .take(32)
+                .zip(poly.iter().skip(576).take(32))
+                .map(|(p1, p0)| *p1 - *p0)
+                .collect::<Vec<F>>(),
+            poly.iter()
+                .skip(864)
+                .take(32)
+                .zip(poly.iter().skip(608).take(32))
+                .map(|(p1, p0)| *p1 - *p0)
+                .collect::<Vec<F>>(),
+        ];
 
-        
         let expected_accumulator = (0..4)
             .map(|i| {
                 eq_w5_to_w9
@@ -1206,8 +1255,7 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[2].accumulators[15]); 
-
+        assert_eq!(expected_accumulator, accumulators[2].accumulators[15]);
 
         // We compute now A_2(0, 0):
         let eq_w2_w3_w4 = [
@@ -1234,10 +1282,9 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[1].accumulators[0]); 
-    
+        assert_eq!(expected_accumulator, accumulators[1].accumulators[0]);
 
-        // A_1(u)
+        // A_1(0)
         let eq_w1_w2_w3_w4 = [
             (EF::ONE - w[1]) * (EF::ONE - w[2]) * (EF::ONE - w[3]) * (EF::ONE - w[4]),
             (EF::ONE - w[1]) * (EF::ONE - w[2]) * (EF::ONE - w[3]) * w[4],
@@ -1255,9 +1302,9 @@ mod tests {
             w[1] * w[2] * (EF::ONE - w[3]) * w[4],
             w[1] * w[2] * w[3] * (EF::ONE - w[4]),
             w[1] * w[2] * w[3] * w[4],
-        ]; 
+        ];
 
-        // We compute A_3(0)
+        // We compute A_1(0)
         let expected_accumulator = (0..16)
             .map(|i| {
                 eq_w5_to_w9
@@ -1270,6 +1317,6 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[0].accumulators[0]);  
+        assert_eq!(expected_accumulator, accumulators[0].accumulators[0]);
     }
 }
