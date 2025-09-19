@@ -448,7 +448,7 @@ where
 fn precompute_e_in<F: Field>(w: &Vec<F>) -> Vec<F> {
     let half_l = w.len() / 2;
     let w_in = w[NUM_OF_ROUNDS..NUM_OF_ROUNDS + half_l].to_vec();
-    eval_eq(&w_in)
+    eval_eq_in_hypercube(&w_in)
 }
 
 fn precompute_e_out<F: Field>(w: &Vec<F>) -> [Vec<F>; NUM_OF_ROUNDS] {
@@ -460,7 +460,7 @@ fn precompute_e_out<F: Field>(w: &Vec<F>) -> [Vec<F>; NUM_OF_ROUNDS] {
             .chain(&w[half_l + NUM_OF_ROUNDS..])
             .cloned()
             .collect();
-        res[round] = eval_eq(&w_out)
+        res[round] = eval_eq_in_hypercube(&w_out)
     }
     res
 }
@@ -552,7 +552,7 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
 // https://eprint.iacr.org/2025/1117.pdf Bagad, Dao, Thaler and Domb
 // Compute eq(w,x) for all x∈{0,1}^l
 // This is the same function as new_from_point (which is optimized for parallelization)
-pub fn eval_eq<F: Field>(w: &[F]) -> Vec<F> {
+pub fn eval_eq_in_hypercube<F: Field>(w: &[F]) -> Vec<F> {
     let n = w.len();
     let mut evals: Vec<F> = vec![F::ONE; 1 << n];
     let mut size = 1usize;
@@ -569,7 +569,7 @@ pub fn eval_eq<F: Field>(w: &[F]) -> Vec<F> {
 }
 
 // Esta funcion es una copia de eval_eq() en poly/multilinear.rs
-pub fn eval_eq_in_p<F: Field>(p: &[F], q: &[F]) -> F {
+pub fn eval_eq_in_point<F: Field>(p: &[F], q: &[F]) -> F {
     let mut acc = F::ONE;
     for (&l, &r) in p.into_iter().zip(q) {
         acc *= F::ONE + l * r.double() - l - r;
@@ -583,7 +583,7 @@ pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
 
     let mut const_eq: F = F::ONE;
     if round == 1 {
-        const_eq = eval_eq_in_p(&w[..round], r);
+        const_eq = eval_eq_in_point(&w[..round], r);
     }
     let w_i = w.last().unwrap();
 
@@ -591,6 +591,164 @@ pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
     [const_eq * (F::ONE - *w_i), const_eq * *w_i]
 }
 
+// Algorithm 6. Page 19.
+// Compute three sumcheck rounds using the small value optimizaition and split-eq accumulators.
+// It Returns the two challenges r_1 and r_2 (TODO: creo que debería devolver también los polys foldeados).
+fn small_value_sumcheck_three_rounds_eq<Challenger, F: Field, EF: ExtensionField<F>>(
+    prover_state: &mut ProverState<F, EF, Challenger>,
+    poly: &EvaluationsList<F>,
+    w: &Vec<EF>,
+) -> [EF; 2]
+where
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+{
+    let e_in = precompute_e_in(w);
+    let e_out = precompute_e_out(w);
+
+    // We compute all the accumulators A_i(v, u).
+    let round_accumulators = compute_accumulators_eq(poly, e_in, e_out);
+
+    // Round 1
+
+    // 1. For u in {0, 1, inf} compute t_1(u)
+    // Recall: t_1(u) = A_1(u).
+
+    let t_1_evals = &round_accumulators[0].accumulators;
+
+    // 2. For u in {0, 1, inf} compute S_1(u) = t_1(u) * l_1(u).
+
+    // We compute l_1(0) and l_1(inf)
+    let mut linear_1_evals = compute_linear_function(&w[..1], &[]);
+
+    // We compute S_1(u)
+    let round_poly_evals = [
+        t_1_evals[0] * linear_1_evals[0],
+        t_1_evals[1] * linear_1_evals[1],
+        t_1_evals[1] * (linear_1_evals[1] - linear_1_evals[0]), // l_1(inf) = l_1(1) - l_1(0).
+    ];
+
+    // 3. Send S_1(u) to the verifier.
+    // TODO: En realidad no hace falta mandar S_1(1) porque se deduce usando S_1(0).
+    prover_state.add_extension_scalars(&round_poly_evals);
+
+    // 4. Receive the challenge r_1 from the verifier.
+    let r_1: EF = prover_state.sample();
+
+    // 5. Compte R_2 = [L_0(r_1), L_1(r_1), L_inf(r_1)]
+    // L_0 (x) = 1 - x
+    // L_1 (x) = x
+    // L_inf (x) = (x - 1)x
+    let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1, (r_1 - F::ONE) * r_1];
+
+    // Round 2
+
+    // 1. For u in {0, 1, inf} compute t_2(u).
+    // First we take the accumulators A_2(v, u).
+    // There are 9 accumulators, since v in {0, 1, inf} and u in {0, 1, inf}.
+    let accumulators_round_2 = &round_accumulators[1].accumulators;
+
+    let mut t_2_evals = [EF::ZERO; 3];
+
+    // We split accumulators_2 in three chunks of three elements each, where each chunk corresponds to
+    // a fixed v and the three elements in the chunk correspond to the three possible values of u.
+    for (lagrange_index, accumulators_chunk) in accumulators_round_2.chunks_exact(3).enumerate() {
+        // t_2(0) = A_2(0, 0) * L_0(r_1) + A_2(1, 0) * L_1(r_1) + A_2(inf, 0) * L_inf(r_1)
+        t_2_evals[0] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[0];
+
+        // t_2(1) = A_2(0, 1) * L_0(r_1) + A_2(1, 1) * L_1(r_1) + A_2(inf, 1) * L_inf(r_1)
+        t_2_evals[1] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[1];
+
+        // t_2(inf) = A_2(0, inf) * L_0(r_1) + A_2(1, inf) * L_1(r_1) + A_2(inf, inf) * L_inf(r_1)
+        t_2_evals[2] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[2];
+    }
+
+    // 2. For u in {0, 1, inf} compute S_2(u) = t_2(u) * l_2(u).
+
+    // We compute l_2(0) and l_12inf)
+    let mut linear_2_evals = compute_linear_function(&w[..1], &[r_1]);
+
+    // We compute l_2(inf)
+    linear_2_evals.push(linear_2_evals[1] - linear_2_evals[0]);
+
+    // We compute S_2(u)
+    let round_poly_evals = t_2_evals.zip(linear_2_evals).map(|(t, l)| t * l);
+
+    // 3. Send S_2(u) to the verifier.
+    // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
+    prover_state.add_extension_scalars(&round_poly_evals);
+
+    // 4. Receive the challenge r_2 from the verifier.
+    let r_2: EF = prover_state.sample();
+
+    // 5. Compute R_3 = [L_00(r_1, r_2), L_01(r_1, r_2), ..., L_{inf inf}(r_1, r_2)]
+    // L_00 (x1, x2) = (1 - x1) * (1 - x2)
+    // L_01 (x1, x2) = (1 - x1) * x2
+    // ...
+    // L_{inf inf} (x1, x2) = (x1 - 1) * x1 * (x2 - 1) * x2
+
+    let l_0 = lagrange_evals_r_1[0];
+    let l_1 = lagrange_evals_r_1[1];
+    let l_inf = lagrange_evals_r_1[2];
+
+    let mul_inf = (r_2 - F::ONE) * r_2;
+
+    // TODO: calcular `(r_2 - F::ONE) * r_2` una sola vez. Lo dejo por ahora así por claridad.
+    let lagrange_evals_r_2 = [
+        l_0 * (-r_2 + F::ONE),   // L_0 0
+        l_0 * r_2,               // L_0 1
+        l_0 * mul_inf,           // L_0 inf
+        l_1 * (-r_2 + F::ONE),   // L_1 0
+        l_1 * r_2,               // L_1 1
+        l_1 * mul_inf,           // L_1 inf
+        l_inf * (-r_2 + F::ONE), // L_inf 0
+        l_inf * r_2,             // L_inf 1
+        l_inf * mul_inf,         // L_inf inf
+    ];
+
+    // Round 3
+
+    // 1. For u in {0, 1, inf} compute t_3(u).
+
+    // First we take the accumulators A_2(v, u).
+    // There are 27 accumulators, since v in {0, 1, inf}^2 and u in {0, 1, inf}.
+    let accumulators_round_3 = &round_accumulators[2].accumulators;
+
+    let mut t_3_evals = [EF::ZERO; 3];
+
+    // We split the accumulators in three chunks of 9 elements each, where each chunk corresponds
+    // to fixed v1 and v2,
+    for (lagrange_index, accumulators_chunk) in accumulators_round_3.chunks_exact(9).enumerate() {
+        // Within each chunk of 9, we have 3 groups of 3 elements for each u2 value
+        for (u_index, u_chunk) in accumulators_chunk.chunks_exact(3).enumerate() {
+            // t_3(0) += L_{v1,v2}(r_1, r_2) * A_3(v1, v2, 0)
+            t_3_evals[0] += lagrange_evals_r_2[lagrange_index * 3 + u_index] * u_chunk[0];
+
+            // t_3(1) += L_{v1,v2}(r_1, r_2) * A_3(v1, v2, 1)
+            t_3_evals[1] += lagrange_evals_r_2[lagrange_index * 3 + u_index] * u_chunk[1];
+
+            // t_3(inf) += L_{v1,v2}(r_1, r_2) * A_3(v1, v2, inf)
+            t_3_evals[2] += lagrange_evals_r_2[lagrange_index * 3 + u_index] * u_chunk[2];
+        }
+    }
+
+    // 2. For u in {0, 1, inf} compute S_3(u) = t_3(u) * l_3(u).
+
+    // We compute l_2(0) and l_12inf)
+    let mut linear_3_evals = compute_linear_function;
+
+    // We compute l_2(inf)
+    linear_3_evals.push(linear_3_evals[1] - linear_3_evals[0]);
+
+    // We compute S_2(u)
+    let round_poly_evals = t_3_evals.zip(linear_3_evals).map(|(t, l)| t * l);
+
+    // 3. Send S_3(u) to the verifier.
+    // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
+    prover_state.add_extension_scalars(&round_poly_evals);
+
+    // TODO: Me parece que también va a haber que devolver poly_1 y poly_2 foldeados (con r_1 y r_2) para seguir con el sumcheck.
+    [r_1, r_2]
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -950,7 +1108,7 @@ mod tests {
         let via_method = EvaluationsList::new_from_point(&point, value)
             .into_iter()
             .collect::<Vec<_>>();
-        let via_serial = eval_eq(&p);
+        let via_serial = eval_eq_in_hypercube(&p);
 
         assert_eq!(via_serial, via_method);
     }
@@ -974,7 +1132,7 @@ mod tests {
             p0 * p1 * p2,                                  // 111 v[7]
         ];
 
-        let out = eval_eq(&[p0, p1, p2]);
+        let out = eval_eq_in_hypercube(&[p0, p1, p2]);
         assert_eq!(out, expected);
     }
 
@@ -1177,7 +1335,7 @@ mod tests {
 
         // We now compute eq(w5, w6, w7, w8, w9; b) for all b in {0,1}^5
         let w_input = [w[5], w[6], w[7], w[8], w[9]];
-        let eq_w5_to_w9 = eval_eq(&w_input);
+        let eq_w5_to_w9 = eval_eq_in_hypercube(&w_input);
 
         // We compute A_3(0, 0, 0)
         let expected_accumulator = (0..4)
