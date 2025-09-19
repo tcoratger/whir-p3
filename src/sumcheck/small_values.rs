@@ -4,6 +4,7 @@ use crate::{
 };
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
+use p3_field::{BasedVectorSpace, ExtensionField, Field};
 
 const NUM_OF_ROUNDS: usize = 3;
 
@@ -1165,7 +1166,7 @@ mod tests {
         let e_out = precompute_e_out(&w);
 
         // We compute the accumulators.
-        let accumulators = compute_accumulators_eq(&poly, e_in, e_out);
+        let accumulators = compute_accumulators_eq(&poly, e_in.clone(), e_out.clone());
 
         // We want to check that A_3(0,0,0) is correct.
         // We now compute it manually.
@@ -1284,7 +1285,89 @@ mod tests {
 
         assert_eq!(expected_accumulator, accumulators[1].accumulators[0]);
 
-        // A_1(0)
+        // We compute A_2(inf, 0).
+        let p_v_inf: [Vec<EF>; 8] = [
+            poly
+                .iter()
+                .skip(0)
+                .step_by(4)
+                .take(32)
+                .zip(poly.iter().skip(512).step_by(4).take(32))
+                .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
+                .collect(),
+            poly
+                .iter()
+                .skip(1)
+                .step_by(4)
+                .take(32)
+                .zip(poly.iter().skip(513).step_by(4).take(32))
+                .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
+                .collect(),
+            poly
+                .iter()
+                .skip(2)
+                .step_by(4)
+                .take(32)
+                .zip(poly.iter().skip(514).step_by(4).take(32))
+                .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
+                .collect(),
+            poly
+                .iter()
+                .skip(3)
+                .step_by(4)
+                .take(32)
+                .zip(poly.iter().skip(515).step_by(4).take(32))
+                .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
+                .collect(),
+            poly
+                .iter()
+                .skip(128)
+                .step_by(4)
+                .take(32)
+                .zip(poly.iter().skip(640).step_by(4).take(32))
+                .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
+                .collect(),
+            poly
+                .iter()
+                .skip(129)
+                .step_by(4)
+                .take(32)
+                .zip(poly.iter().skip(641).step_by(4).take(32))
+                .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
+                .collect(),
+            poly
+                .iter()
+                .skip(130)
+                .step_by(4)
+                .take(32)
+                .zip(poly.iter().skip(642).step_by(4).take(32))
+                .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
+                .collect(),
+            poly
+                .iter()
+                .skip(131)
+                .step_by(4)
+                .take(32)
+                .zip(poly.iter().skip(643).step_by(4).take(32))
+                .map(|(p0, p1)| EF::from(*p1) - EF::from(*p0))
+                .collect(),
+        ];
+
+        let expected_accumulator = (0..8)
+            .map(|i| {
+                e_in
+                    .iter()
+                    .zip(p_v_inf[i].clone())
+                    .map(|(eq, diff)| *eq * diff)
+                    .sum::<EF>()
+            })
+            .zip(e_out[1].iter())
+            .map(|(sum, eq)| sum * *eq)
+            .sum::<EF>();
+
+        assert_eq!(expected_accumulator, accumulators[1].accumulators[6]);
+
+        // A_1(u)
         let eq_w1_w2_w3_w4 = [
             (EF::ONE - w[1]) * (EF::ONE - w[2]) * (EF::ONE - w[3]) * (EF::ONE - w[4]),
             (EF::ONE - w[1]) * (EF::ONE - w[2]) * (EF::ONE - w[3]) * w[4],
