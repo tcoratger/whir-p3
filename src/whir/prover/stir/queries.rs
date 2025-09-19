@@ -165,34 +165,6 @@ impl StirQueryGenerator {
             challenge_indices,
         ))
     }
-
-    /// Generates final round challenge indices for terminal verification queries.
-    ///
-    /// In the final WHIR round, the protocol needs to query the ultimate folded polynomial
-    /// to complete the Reed-Solomon proximity test. This function generates the indices
-    /// for these final queries using the same deterministic sampling approach.
-    ///
-    /// # Arguments
-    /// * `domain_size` - Size of the domain before final folding
-    /// * `folding_factor` - Folding factor for the final round
-    /// * `num_final_queries` - Number of final verification queries
-    /// * `prover_state` - Fiat-Shamir challenger for randomness
-    ///
-    /// # Returns
-    /// Indices for final round queries in the terminal folded domain
-    pub fn generate_final_queries<F, EF>(
-        domain_size: usize,
-        folding_factor: usize,
-        num_final_queries: usize,
-        prover_state: &mut impl ChallengeSampler<EF>,
-    ) -> Result<Vec<usize>, FiatShamirError>
-    where
-        F: Field,
-        EF: ExtensionField<F>,
-    {
-        // Sample indices for the final verification round using the shared utility
-        get_challenge_stir_queries(domain_size, folding_factor, num_final_queries, prover_state)
-    }
 }
 
 #[cfg(test)]
