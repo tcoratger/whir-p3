@@ -17,7 +17,7 @@ use crate::{
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::multilinear::MultilinearPoint,
     utils::parallel_repeat,
-    whir::utils::sample_ood_points,
+    whir::utils::{get_challenge_stir_queries, sample_ood_points},
 };
 
 pub mod round_state;
@@ -377,8 +377,7 @@ where
         prover_state.pow_grinding(self.final_pow_bits);
 
         // Final verifier queries and answers. The indices are over the folded domain.
-        // Use the STIR query generator for final challenge generation
-        let final_challenge_indexes = StirQueryGenerator::generate_final_queries(
+        let final_challenge_indexes = get_challenge_stir_queries(
             // The size of the original domain before folding
             round_state.domain_size,
             // The folding factor we used to fold the previous polynomial
