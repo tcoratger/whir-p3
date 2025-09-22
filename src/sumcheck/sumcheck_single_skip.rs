@@ -5,7 +5,6 @@ use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
-use crate::poly::evals::EvaluationsList;
 
 /// Computes the sumcheck polynomial using the **univariate skip** optimization,
 /// which folds the first `k` variables in one step via low-degree extension (LDE).
@@ -21,18 +20,14 @@ use crate::poly::evals::EvaluationsList;
 /// performing a low-degree extension (LDE) of each row of `f` and `w` from `D` to a larger domain `D'`.
 ///
 /// # Arguments
-/// - `k`: Number of initial variables to skip and fold into a univariate extension.
-/// - `evals`: Evaluations of the multilinear polynomial $f$ over $\{0,1\}^n$, in the base field `F`.
-/// - `weights`: Evaluations of the weight polynomial $w$ over $\{0,1\}^n$, in the extension field `EF`.
+/// - `f_mat`: Evaluations of the multilinear polynomial $f$ reshaped to $(2^k \times 2^{n-k})$.
+/// - `weights_mat`: Evaluations of the weight polynomial $w$ reshaped to $(2^k \times 2^{n-k})$.
 ///
 /// # Returns
 /// A tuple containing:
 /// - `SumcheckPolynomial<EF>`: The resulting univariate polynomial $h(X)$ evaluated over coset $D$.
 /// - `RowMajorMatrix<F>`: The original evaluations of $f$, reshaped to $(2^k \times 2^{n-k})$.
 /// - `RowMajorMatrix<EF>`: The original evaluations of $w$, reshaped to $(2^k \times 2^{n-k})$.
-///
-/// # Panics
-/// Panics if `k > evals.num_variables()`.
 ///
 /// # Notes
 /// - This method assumes that `f` is represented using base field values (`F`)
@@ -42,9 +37,8 @@ use crate::poly::evals::EvaluationsList;
 #[must_use]
 #[instrument(skip_all)]
 pub(crate) fn compute_skipping_sumcheck_polynomial<F, EF>(
-    k: usize,
-    evals: &EvaluationsList<F>, // TODO: evals and weights should be given as a pair of matrices.
-    weights: &EvaluationsList<EF>,
+    f_mat: RowMajorMatrix<F>,
+    weights_mat: RowMajorMatrix<EF>,
 ) -> (
     SumcheckPolynomial<EF>,
     RowMajorMatrix<F>,
@@ -54,29 +48,9 @@ where
     F: TwoAdicField + Ord,
     EF: ExtensionField<F>,
 {
-    // Ensure we have enough variables to skip.
-    // We can only skip if the number of variables n ≥ k.
-    assert!(
-        evals.num_variables() >= k,
-        "Need at least k variables to apply univariate skip on k variables"
-    );
-
     // Main logic block that computes the univariate sumcheck polynomial h(X)
     // and returns intermediate matrices of shape (2^k × 2^{n-k}).
     let (out_vec, f, w) = {
-        // Number of variables for the multilinear polynomial f(X)
-        let n = evals.num_variables();
-        // Number of remaining variables after skipping k
-        let num_remaining_vars = n - k;
-        // Number of columns = 2^{n-k}
-        let width = 1 << num_remaining_vars;
-
-        // Reshape the evaluation vectors of f and w into matrices:
-        // - Each row corresponds to a single element in the domain `D`.
-        // - Each column corresponds to a point in the boolean hypercube B_{n - k}.
-        let f_mat = evals.clone().into_mat(width);
-        let weights_mat = weights.clone().into_mat(width);
-
         // Apply a low-degree extension (LDE) to each column of f_mat and weights_mat.
         // This gives us access to evaluations of f(X, b) and w(X, b)
         // for X ∈ D' (coset of size 2^{k+1}).
@@ -201,8 +175,13 @@ mod tests {
         // To evaluate this polynomial, we perform a low-degree extension
         // using DFT on a multiplicative coset of size 2^{k+1} = 8.
         // ----------------------------------------------------------------
-        let (poly, _, _) =
-            compute_skipping_sumcheck_polynomial::<F, EF4>(2, &coeffs.to_evaluations(), &weights);
+        let evals = coeffs.to_evaluations();
+        let num_remaining_vars = evals.num_variables() - 2;
+        let width = 1 << num_remaining_vars;
+        let (poly, _, _) = compute_skipping_sumcheck_polynomial::<F, EF4>(
+            evals.into_mat(width),
+            weights.into_mat(width),
+        );
 
         // ----------------------------------------------------------------
         // Finally, the sum over {0,1} values of X2 must also be zero
@@ -228,8 +207,13 @@ mod tests {
         // This should panic because:
         // - the polynomial has only 1 variable
         // - we try to skip 2 variables
-        let _ =
-            compute_skipping_sumcheck_polynomial::<F, EF4>(2, &coeffs.to_evaluations(), &weights);
+        let evals = coeffs.to_evaluations();
+        let num_remaining_vars = evals.num_variables() - 2;
+        let width = 1 << num_remaining_vars;
+        let _ = compute_skipping_sumcheck_polynomial::<F, EF4>(
+            evals.into_mat(width),
+            weights.into_mat(width),
+        );
     }
 
     #[test]
@@ -321,7 +305,10 @@ mod tests {
         // ------------------------------------------------------------
         // Compute the polynomial using the function under test
         // ------------------------------------------------------------
-        let (poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(k, &evals_f, &weights);
+        let num_remaining_vars = evals_f.num_variables() - k;
+        let width = 1 << num_remaining_vars;
+        let (poly, f_mat, w_mat) =
+            compute_skipping_sumcheck_polynomial(evals_f.into_mat(width), weights.into_mat(width));
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3
