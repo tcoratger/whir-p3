@@ -164,10 +164,7 @@ impl<F: Field> Statement<F> {
         // Number of variables (bits).
         let k = self.num_variables();
 
-        // Allocate a flat buffer for the (2^k × n) matrix of weighted equality rows.
-        //
-        // Safety: we fill every entry before reading it.
-        // let mut eq: Vec<F> = unsafe { crate::utils::uninitialized_vec((1 << k) * n) };
+        // Equality matrix.
         let mut eq: Vec<F> = F::zero_vec((1 << k) * n);
 
         // Precompute γ^i for i = 0..n-1 (random linear-combination weights).
