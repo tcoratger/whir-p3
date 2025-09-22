@@ -52,7 +52,7 @@ where
     // Calculate how many `(poly, rand)` pairs to expect based on skip mode
     //
     // If skipping: we do 1 large round for the skip, and the remaining normally
-    let effective_rounds = if is_univariate_skip && rounds >= K_SKIP_SUMCHECK {
+    let effective_rounds = if is_univariate_skip && (rounds >= K_SKIP_SUMCHECK) {
         1 + (rounds - K_SKIP_SUMCHECK)
     } else {
         rounds
@@ -62,22 +62,22 @@ where
     let mut randomness = Vec::with_capacity(effective_rounds);
 
     // Handle the univariate skip case
-    if is_univariate_skip && rounds >= K_SKIP_SUMCHECK {
+    if is_univariate_skip && (rounds >= K_SKIP_SUMCHECK) {
         // Read `2^{k+1}` evaluations (size of coset domain) for the skipping polynomial
         let evals: [EF; 1 << (K_SKIP_SUMCHECK + 1)] =
             verifier_state.next_extension_scalars_const()?;
 
         // Interpolate into a univariate polynomial (over the coset domain)
-        let poly = SumcheckPolynomial::new(evals.to_vec());
+        let poly = evals.to_vec();
 
         // Verify that the sum over the subgroup H of size 2^k matches the claimed sum.
         //
         // The prover sends evaluations on a coset of H.
         // The even-indexed evaluations correspond to the points in H itself.
-        let actual_sum: EF = poly.evaluations().iter().step_by(2).copied().sum();
+        let actual_sum: EF = poly.iter().step_by(2).copied().sum();
         if actual_sum != *claimed_sum {
             return Err(VerifierError::SumcheckFailed {
-                round: 1,
+                round: 0,
                 expected: claimed_sum.to_string(),
                 actual: actual_sum.to_string(),
             });
@@ -92,14 +92,13 @@ where
         // Update the claimed sum using the univariate polynomial and randomness.
         //
         // We interpolate the univariate polynomial at the randomness point.
-        *claimed_sum =
-            interpolate_subgroup(&RowMajorMatrix::new_col(poly.evaluations().to_vec()), rand)[0];
+        *claimed_sum = interpolate_subgroup(&RowMajorMatrix::new_col(poly), rand)[0];
 
         // Record this round’s randomness
         randomness.push(rand);
     }
 
-    // Continue with the remaining sumcheck rounds (each using 3 evaluations)
+    // Continue with the remaining sumcheck rounds
     let start_round = if is_univariate_skip && rounds >= K_SKIP_SUMCHECK {
         K_SKIP_SUMCHECK // skip the first k rounds
     } else {
