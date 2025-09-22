@@ -48,6 +48,7 @@ where
     // Compute the quadratic sumcheck polynomial for the current variable.
     let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
     prover_state.add_extension_scalar(sumcheck_poly.evaluations()[0]);
+    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[1]);
     prover_state.add_extension_scalar(sumcheck_poly.evaluations()[2]);
 
     prover_state.pow_grinding(pow_bits);
@@ -93,6 +94,7 @@ where
     // Compute the quadratic sumcheck polynomial for the current variable.
     let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
     prover_state.add_extension_scalar(sumcheck_poly.evaluations()[0]);
+    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[1]);
     prover_state.add_extension_scalar(sumcheck_poly.evaluations()[2]);
 
     prover_state.pow_grinding(pow_bits);

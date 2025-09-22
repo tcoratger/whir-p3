@@ -105,12 +105,20 @@ where
         0
     };
 
-    for _ in start_round..rounds {
+    for i in start_round..rounds {
         // Extract the first and third evaluations of the sumcheck polynomial
         // and derive the second evaluation from the latest sum
         let c0 = verifier_state.next_extension_scalar()?;
-        let c1 = *claimed_sum - c0;
+        let c1 = verifier_state.next_extension_scalar()?;
         let c2 = verifier_state.next_extension_scalar()?;
+
+        if *claimed_sum != c0 + c1 {
+            return Err(VerifierError::SumcheckFailed {
+                round: i,
+                expected: claimed_sum.to_string(),
+                actual: (c0 + c1).to_string(),
+            });
+        }
 
         // Optional PoW interaction (grinding resistance)
         verifier_state.check_pow_grinding(pow_bits)?;
@@ -283,8 +291,10 @@ mod tests {
         for _ in 0..folding_factor {
             // Get the 3 evaluations of sumcheck polynomial h_i(X) at X = 0, 1, 2
             let c0 = verifier_state.next_extension_scalar().unwrap();
-            let c1 = current_sum - c0;
+            let c1 = verifier_state.next_extension_scalar().unwrap();
             let c2 = verifier_state.next_extension_scalar().unwrap();
+
+            assert_eq!(current_sum, c0 + c1);
 
             let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
 
@@ -420,8 +430,11 @@ mod tests {
         // Remaining quadratic rounds
         for _ in 0..(NUM_VARS - K_SKIP) {
             let c0 = verifier_state.next_extension_scalar().unwrap();
-            let c1 = current_sum - c0;
+            let c1 = verifier_state.next_extension_scalar().unwrap();
             let c2 = verifier_state.next_extension_scalar().unwrap();
+
+            assert_eq!(current_sum, c0 + c1);
+
             let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
             let r: EF4 = verifier_state.sample();
             current_sum = poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
