@@ -335,7 +335,7 @@ where
         let width = 1 << num_remaining_vars;
         let (sumcheck_poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(
             evals.clone().into_mat(width),
-            weights.into_mat(width)
+            weights.into_mat(width),
         );
 
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.

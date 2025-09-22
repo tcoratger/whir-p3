@@ -180,7 +180,7 @@ mod tests {
         let width = 1 << num_remaining_vars;
         let (poly, _, _) = compute_skipping_sumcheck_polynomial::<F, EF4>(
             evals.into_mat(width),
-            weights.into_mat(width)
+            weights.into_mat(width),
         );
 
         // ----------------------------------------------------------------
@@ -212,7 +212,7 @@ mod tests {
         let width = 1 << num_remaining_vars;
         let _ = compute_skipping_sumcheck_polynomial::<F, EF4>(
             evals.into_mat(width),
-            weights.into_mat(width)
+            weights.into_mat(width),
         );
     }
 
@@ -307,10 +307,8 @@ mod tests {
         // ------------------------------------------------------------
         let num_remaining_vars = evals_f.num_variables() - k;
         let width = 1 << num_remaining_vars;
-        let (poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(
-            evals_f.into_mat(width),
-            weights.into_mat(width)
-        );
+        let (poly, f_mat, w_mat) =
+            compute_skipping_sumcheck_polynomial(evals_f.into_mat(width), weights.into_mat(width));
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3
