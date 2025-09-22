@@ -582,8 +582,8 @@ pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
     debug_assert!(r.len() == round - 1);
 
     let mut const_eq: F = F::ONE;
-    if round == 1 {
-        const_eq = eval_eq_in_point(&w[..round], r);
+    if round != 1 {
+        const_eq = eval_eq_in_point(&w[..round - 1], r);
     }
     let w_i = w.last().unwrap();
 
@@ -1561,11 +1561,11 @@ mod tests {
     }
 
     #[test]
-    fn test_svo_sumcheck_rounds_simulation() {
-        let poly = EvaluationsList::new((0..16).map(|i| F::from_int(i)).collect());
-        let w: Vec<EF> = (0..4).map(|i| EF::from(F::from_int(i))).collect();
+    fn test_svo_sumcheck_rounds_eq_simulation() {
+        let poly = EvaluationsList::new((0..64).map(|i| F::from_int(i)).collect());
+        let w: Vec<EF> = (0..6).map(|i| EF::from(F::from_int(i))).collect();
 
-        let expected_sum = naive_sumcheck_verification(w, poly);
+        let expected_sum = naive_sumcheck_verification(w.clone(), poly.clone());
 
         let e_in = precompute_e_in(&w);
         let e_out = precompute_e_out(&w);
@@ -1586,34 +1586,29 @@ mod tests {
         let linear_1_evals = compute_linear_function(&w[..1], &[]);
 
         // We compute S_1(u)
-        let round_poly_evals = [
+        let round_poly_evals_1 = [
             t_1_evals[0] * linear_1_evals[0],
             t_1_evals[1] * linear_1_evals[1],
             t_1_evals[2] * (linear_1_evals[1] - linear_1_evals[0]), // l_1(inf) = l_1(1) - l_1(0).
         ];
 
-        assert_eq!(round_poly_evals[0] + round_poly_evals[1], expected_sum);
+        assert_eq!(round_poly_evals_1[0] + round_poly_evals_1[1], expected_sum);
 
         // 4. Receive the challenge r_1 from the verifier.
         let mut rng = rand::rng();
 
         let rand_1: u32 = rng.next_u32();
         let rand_2: u32 = rng.next_u32();
-        let rand_r3: u32 = rng.next_u32();
+        let rand_3: u32 = rng.next_u32();
         let rand_4: u32 = rng.next_u32();
 
-        EF::from_basis_coefficients_slice(&[
+        let r_1 = EF::from_basis_coefficients_slice(&[
             F::from_u32(rand_1),
             F::from_u32(rand_2),
             F::from_u32(rand_3),
             F::from_u32(rand_4),
         ])
         .unwrap();
-
-
-
-
-        let r_1: EF = EF::from(F::from_rng.next_u32();
 
         // 5. Compte R_2 = [L_0(r_1), L_1(r_1), L_inf(r_1)]
         // L_0 (x) = 1 - x
@@ -1646,27 +1641,39 @@ mod tests {
 
         // 2. For u in {0, 1, inf} compute S_2(u) = t_2(u) * l_2(u).
 
-        // We compute l_2(0) and l_12inf)
+        // We compute l_2(0) and l_2(1)
         let linear_2_evals = compute_linear_function(&w[..2], &[r_1]);
 
         // We compute S_2(u)
-        let round_poly_evals = [
+        let round_poly_evals_2 = [
             t_2_evals[0] * linear_2_evals[0],
             t_2_evals[1] * linear_2_evals[1],
             t_2_evals[2] * (linear_2_evals[1] - linear_2_evals[0]), // l_2(inf) = l_2(1) - l_2(0).
         ];
 
-        let expected_sum = 
+        // S_1(r_1) = a * (r_1)^2 + b * r_1 + c where
+        // a = S_1(inf),
+        // b = S_1(1) - S_1(0) - S_1(inf),
+        // c = S_1(0)
+        let expected_eval = round_poly_evals_1[2] * r_1.square()
+            + (round_poly_evals_1[1] - round_poly_evals_1[0] - round_poly_evals_1[2]) * r_1
+            + round_poly_evals_1[0];
 
-        assert_eq!(round_poly_evals[0] + round_poly_evals[1], expected_sum);
-
-
-        // 3. Send S_2(u) to the verifier.
-        // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
-        prover_state.add_extension_scalars(&round_poly_evals);
+        assert_eq!(round_poly_evals_2[0] + round_poly_evals_2[1], expected_eval);
 
         // 4. Receive the challenge r_2 from the verifier.
-        let r_2: EF = prover_state.sample();
+        let rand_1: u32 = rng.next_u32();
+        let rand_2: u32 = rng.next_u32();
+        let rand_3: u32 = rng.next_u32();
+        let rand_4: u32 = rng.next_u32();
+
+        let r_2 = EF::from_basis_coefficients_slice(&[
+            F::from_u32(rand_1),
+            F::from_u32(rand_2),
+            F::from_u32(rand_3),
+            F::from_u32(rand_4),
+        ])
+        .unwrap();
 
         // 5. Compute R_3 = [L_00(r_1, r_2), L_01(r_1, r_2), ..., L_{inf inf}(r_1, r_2)]
         // L_00 (x1, x2) = (1 - x1) * (1 - x2)
@@ -1726,17 +1733,20 @@ mod tests {
         let linear_3_evals = compute_linear_function(&w[..3], &[r_1, r_2]);
 
         // We compute S_3(u)
-        let round_poly_evals = [
+        let round_poly_evals_3 = [
             t_3_evals[0] * linear_3_evals[0],
             t_3_evals[1] * linear_3_evals[1],
             t_3_evals[2] * (linear_3_evals[1] - linear_3_evals[0]), // l_3(inf) = l_3(1) - l_3(0).
         ];
 
-        // 3. Send S_3(u) to the verifier.
-        // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
-        prover_state.add_extension_scalars(&round_poly_evals);
+        // S_2(r_2) = a * (r_2)^2 + b * r_2 + c where
+        // a = S_2(inf),
+        // b = S_2(1) - S_2(0) - S_2(inf),
+        // c = S_2(0)
+        let expected_eval = round_poly_evals_2[2] * r_2.square()
+            + (round_poly_evals_2[1] - round_poly_evals_2[0] - round_poly_evals_2[2]) * r_2
+            + round_poly_evals_2[0];
 
-        // TODO: Me parece que también va a haber que devolver poly_1 y poly_2 foldeados (con r_1 y r_2) para seguir con el sumcheck.
-        [r_1, r_2]
+        assert_eq!(round_poly_evals_3[0] + round_poly_evals_3[1], expected_eval);
     }
 }
