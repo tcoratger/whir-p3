@@ -20,7 +20,6 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 /// performing a low-degree extension (LDE) of each row of `f` and `w` from `D` to a larger domain `D'`.
 ///
 /// # Arguments
-/// - `k`: Number of initial variables to skip and fold into a univariate extension.
 /// - `matrices`: A pair of matrices `(f_mat, w_mat)` where:
 ///   - `f_mat`: Evaluations of the multilinear polynomial $f$ reshaped to $(2^k \times 2^{n-k})$.
 ///   - `w_mat`: Evaluations of the weight polynomial $w$ reshaped to $(2^k \times 2^{n-k})$.
@@ -52,7 +51,6 @@ where
     // Main logic block that computes the univariate sumcheck polynomial h(X)
     // and returns intermediate matrices of shape (2^k × 2^{n-k}).
     let (out_vec, f, w) = {
-
         // Apply a low-degree extension (LDE) to each column of f_mat and weights_mat.
         // This gives us access to evaluations of f(X, b) and w(X, b)
         // for X ∈ D' (coset of size 2^{k+1}).
