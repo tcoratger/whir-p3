@@ -1,7 +1,6 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
@@ -349,16 +348,17 @@ where
         let new_p = interpolate_subgroup(&f_mat, r);
         let new_w = interpolate_subgroup(&w_mat, r);
 
+        // While we could interpolate sumcheck_poly, it's cheaper and easier to just use
+        // the new_p and new_w evaluations.
+        let mut sum = new_p
+            .iter()
+            .zip(new_w.iter())
+            .map(|(&p, &w)| p * w)
+            .sum::<EF>();
+
         // Update polynomial and weights with reduced dimensionality.
         let mut evals = EvaluationsList::new(new_p);
         let mut weights = EvaluationsList::new(new_w);
-
-        // Compute the new target sum after folding.
-        let folded_poly_eval = interpolate_subgroup(
-            &RowMajorMatrix::new_col(sumcheck_poly.evaluations().to_vec()),
-            r,
-        );
-        let mut sum = folded_poly_eval[0];
 
         // Apply rest of sumcheck rounds
         res.extend(
