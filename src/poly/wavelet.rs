@@ -406,8 +406,6 @@ fn par_inverse_wavelet_kernel<F: Field>(mat: &mut RowMajorMatrix<F>, block_size:
 
 #[cfg(test)]
 mod tests {
-    use core::panic;
-
     use p3_baby_bear::BabyBear;
     use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_matrix::dense::RowMajorMatrix;
