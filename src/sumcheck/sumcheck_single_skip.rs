@@ -20,9 +20,8 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 /// performing a low-degree extension (LDE) of each row of `f` and `w` from `D` to a larger domain `D'`.
 ///
 /// # Arguments
-/// - `matrices`: A pair of matrices `(f_mat, w_mat)` where:
-///   - `f_mat`: Evaluations of the multilinear polynomial $f$ reshaped to $(2^k \times 2^{n-k})$.
-///   - `w_mat`: Evaluations of the weight polynomial $w$ reshaped to $(2^k \times 2^{n-k})$.
+/// - `f_mat`: Evaluations of the multilinear polynomial $f$ reshaped to $(2^k \times 2^{n-k})$.
+/// - `weights_mat`: Evaluations of the weight polynomial $w$ reshaped to $(2^k \times 2^{n-k})$.
 ///
 /// # Returns
 /// A tuple containing:
@@ -38,7 +37,8 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 #[must_use]
 #[instrument(skip_all)]
 pub(crate) fn compute_skipping_sumcheck_polynomial<F, EF>(
-    (f_mat, weights_mat): (RowMajorMatrix<F>, RowMajorMatrix<EF>),
+    f_mat: RowMajorMatrix<F>,
+    weights_mat: RowMajorMatrix<EF>,
 ) -> (
     SumcheckPolynomial<EF>,
     RowMajorMatrix<F>,
@@ -178,8 +178,10 @@ mod tests {
         let evals = coeffs.to_evaluations();
         let num_remaining_vars = evals.num_variables() - 2;
         let width = 1 << num_remaining_vars;
-        let matrices = (evals.into_mat(width), weights.into_mat(width));
-        let (poly, _, _) = compute_skipping_sumcheck_polynomial::<F, EF4>(matrices);
+        let (poly, _, _) = compute_skipping_sumcheck_polynomial::<F, EF4>(
+            evals.into_mat(width),
+            weights.into_mat(width)
+        );
 
         // ----------------------------------------------------------------
         // Finally, the sum over {0,1} values of X2 must also be zero
@@ -208,8 +210,10 @@ mod tests {
         let evals = coeffs.to_evaluations();
         let num_remaining_vars = evals.num_variables() - 2;
         let width = 1 << num_remaining_vars;
-        let matrices = (evals.into_mat(width), weights.into_mat(width));
-        let _ = compute_skipping_sumcheck_polynomial::<F, EF4>(matrices);
+        let _ = compute_skipping_sumcheck_polynomial::<F, EF4>(
+            evals.into_mat(width),
+            weights.into_mat(width)
+        );
     }
 
     #[test]
@@ -303,8 +307,10 @@ mod tests {
         // ------------------------------------------------------------
         let num_remaining_vars = evals_f.num_variables() - k;
         let width = 1 << num_remaining_vars;
-        let matrices = (evals_f.into_mat(width), weights.into_mat(width));
-        let (poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(matrices);
+        let (poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(
+            evals_f.into_mat(width),
+            weights.into_mat(width)
+        );
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3
