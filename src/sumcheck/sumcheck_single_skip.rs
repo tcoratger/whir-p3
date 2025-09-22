@@ -39,7 +39,6 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 #[must_use]
 #[instrument(skip_all)]
 pub(crate) fn compute_skipping_sumcheck_polynomial<F, EF>(
-    k: usize,
     (f_mat, weights_mat): (RowMajorMatrix<F>, RowMajorMatrix<EF>),
 ) -> (
     SumcheckPolynomial<EF>,
@@ -50,37 +49,9 @@ where
     F: TwoAdicField + Ord,
     EF: ExtensionField<F>,
 {
-    // Ensure we have enough variables to skip.
-    // We can only skip if the number of variables n ≥ k.
-    let n = (f_mat.height() * f_mat.width()).ilog2() as usize;
-    assert!(
-        n >= k,
-        "Need at least k variables to apply univariate skip on k variables"
-    );
-
     // Main logic block that computes the univariate sumcheck polynomial h(X)
     // and returns intermediate matrices of shape (2^k × 2^{n-k}).
     let (out_vec, f, w) = {
-        // Number of remaining variables after skipping k
-        let num_remaining_vars = n - k;
-
-        // Verify matrix dimensions are consistent
-        debug_assert_eq!(f_mat.height(), 1 << k, "f_mat height should be 2^k");
-        debug_assert_eq!(
-            f_mat.width(),
-            1 << num_remaining_vars,
-            "f_mat width should be 2^(n-k)"
-        );
-        debug_assert_eq!(
-            weights_mat.height(),
-            1 << k,
-            "weights_mat height should be 2^k"
-        );
-        debug_assert_eq!(
-            weights_mat.width(),
-            1 << num_remaining_vars,
-            "weights_mat width should be 2^(n-k)"
-        );
 
         // Apply a low-degree extension (LDE) to each column of f_mat and weights_mat.
         // This gives us access to evaluations of f(X, b) and w(X, b)
@@ -210,7 +181,7 @@ mod tests {
         let num_remaining_vars = evals.num_variables() - 2;
         let width = 1 << num_remaining_vars;
         let matrices = (evals.into_mat(width), weights.into_mat(width));
-        let (poly, _, _) = compute_skipping_sumcheck_polynomial::<F, EF4>(2, matrices);
+        let (poly, _, _) = compute_skipping_sumcheck_polynomial::<F, EF4>(matrices);
 
         // ----------------------------------------------------------------
         // Finally, the sum over {0,1} values of X2 must also be zero
@@ -240,7 +211,7 @@ mod tests {
         let num_remaining_vars = evals.num_variables() - 2;
         let width = 1 << num_remaining_vars;
         let matrices = (evals.into_mat(width), weights.into_mat(width));
-        let _ = compute_skipping_sumcheck_polynomial::<F, EF4>(2, matrices);
+        let _ = compute_skipping_sumcheck_polynomial::<F, EF4>(matrices);
     }
 
     #[test]
@@ -335,7 +306,7 @@ mod tests {
         let num_remaining_vars = evals_f.num_variables() - k;
         let width = 1 << num_remaining_vars;
         let matrices = (evals_f.into_mat(width), weights.into_mat(width));
-        let (poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(k, matrices);
+        let (poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(matrices);
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3

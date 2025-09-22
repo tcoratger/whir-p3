@@ -334,7 +334,7 @@ where
         let num_remaining_vars = evals.num_variables() - k_skip;
         let width = 1 << num_remaining_vars;
         let matrices = (evals.clone().into_mat(width), weights.into_mat(width));
-        let (sumcheck_poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(k_skip, matrices);
+        let (sumcheck_poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(matrices);
 
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
         prover_state.add_extension_scalars(sumcheck_poly.evaluations());
