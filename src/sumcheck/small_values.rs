@@ -1552,6 +1552,11 @@ mod tests {
         assert_eq!(expected_accumulator, accumulators[0].accumulators[0]);
     }
 
+    fn get_random_f() -> F {
+        let mut rng = rand::rng();
+        F::from_u32(rng.next_u32())
+    }
+
     fn get_random_ef() -> EF {
         let mut rng = rand::rng();
 
@@ -1591,32 +1596,6 @@ mod tests {
         let result = compute_linear_function(&w, &r);
         assert_eq!(result, expected);
 
-        // w = [1, 1, 0]
-        // r = [1, 1]
-        let w = [
-            EF::from(F::from_int(1)),
-            EF::from(F::from_int(1)),
-            EF::from(F::from_int(0)),
-        ];
-        let r = [EF::from(F::from_int(1)), EF::from(F::from_int(1))];
-        // l(0) = 1
-        // l(1) = 0
-        let expected = [EF::from(F::from_int(1)), EF::from(F::from_int(0))];
-        let result = compute_linear_function(&w, &r);
-        assert_eq!(result, expected);
-
-        let w = [
-            EF::from(F::from_int(1)),
-            EF::from(F::from_int(1)),
-            EF::from(F::from_int(0)),
-        ];
-        let r = [EF::from(F::from_int(1)), EF::from(F::from_int(1))];
-        // l(0) = 1
-        // l(1) = 0
-        let expected = [EF::from(F::from_int(1)), EF::from(F::from_int(0))];
-        let result = compute_linear_function(&w, &r);
-        assert_eq!(result, expected);
-
         // w = [w0, w1, w2, w3]
         // r = [r0, r1, r2]
         let w: Vec<EF> = (0..4).map(|_| get_random_ef()).collect();
@@ -1639,13 +1618,17 @@ mod tests {
     }
 
     fn get_evals_from_l_and_t(l: &[EF; 2], t: &[EF]) -> [EF; 3] {
-        [t[0] * l[0], t[1] * l[1], t[2] * (l[1] - l[0])]
+        [
+            t[0] * l[0],          // s(0)
+            t[1] * l[1],          // s(1)
+            t[2] * (l[1] - l[0]), //s(inf) -> l(inf) = l(1) - l(0)
+        ]
     }
 
     #[test]
     fn test_svo_sumcheck_rounds_eq_simulation() {
-        let poly = EvaluationsList::new((0..64).map(|i| F::from_int(i)).collect());
-        let w: Vec<EF> = (0..6).map(|i| EF::from(F::from_int(i))).collect();
+        let poly = EvaluationsList::new((0..512).map(|_| get_random_f()).collect());
+        let w: Vec<EF> = (0..9).map(|_| get_random_ef()).collect();
 
         let expected_sum = naive_sumcheck_verification(w.clone(), poly.clone());
 
@@ -1702,25 +1685,19 @@ mod tests {
         t_2_evals[2] += lagrange_evals_r_1[1] * accumulators_round_2[5];
         t_2_evals[2] += lagrange_evals_r_1[2] * accumulators_round_2[8];
 
-        println!("{:?}", t_2_evals);
-
-        let mut t_2_evals = [EF::ZERO; 3];
-
         // We split accumulators_2 in three chunks of three elements each, where each chunk corresponds to
         // a fixed v and the three elements in the chunk correspond to the three possible values of u.
-        for (lagrange_index, accumulators_chunk) in accumulators_round_2.chunks_exact(3).enumerate()
-        {
-            // t_2(0) = A_2(0, 0) * L_0(r_1) + A_2(1, 0) * L_1(r_1) + A_2(inf, 0) * L_inf(r_1)
-            t_2_evals[0] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[0];
+        // for (lagrange_index, accumulators_chunk) in accumulators_round_2.chunks_exact(3).enumerate()
+        // {
+        //     // t_2(0) = A_2(0, 0) * L_0(r_1) + A_2(1, 0) * L_1(r_1) + A_2(inf, 0) * L_inf(r_1)
+        //     t_2_evals[0] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[0];
 
-            // t_2(1) = A_2(0, 1) * L_0(r_1) + A_2(1, 1) * L_1(r_1) + A_2(inf, 1) * L_inf(r_1)
-            t_2_evals[1] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[1];
+        //     // t_2(1) = A_2(0, 1) * L_0(r_1) + A_2(1, 1) * L_1(r_1) + A_2(inf, 1) * L_inf(r_1)
+        //     t_2_evals[1] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[1];
 
-            // t_2(inf) = A_2(0, inf) * L_0(r_1) + A_2(1, inf) * L_1(r_1) + A_2(inf, inf) * L_inf(r_1)
-            t_2_evals[2] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[2];
-        }
-
-        println!("{:?}", t_2_evals);
+        //     // t_2(inf) = A_2(0, inf) * L_0(r_1) + A_2(1, inf) * L_1(r_1) + A_2(inf, inf) * L_inf(r_1)
+        //     t_2_evals[2] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[2];
+        // }
 
         // 2. For u in {0, 1, inf} compute S_2(u) = t_2(u) * l_2(u).
 
