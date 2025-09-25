@@ -1552,6 +1552,23 @@ mod tests {
         assert_eq!(expected_accumulator, accumulators[0].accumulators[0]);
     }
 
+    fn get_random_ef() -> EF {
+        let mut rng = rand::rng();
+
+        let r1: u32 = rng.next_u32();
+        let r2: u32 = rng.next_u32();
+        let r3: u32 = rng.next_u32();
+        let r4: u32 = rng.next_u32();
+
+        EF::from_basis_coefficients_slice(&[
+            F::from_u32(r1),
+            F::from_u32(r2),
+            F::from_u32(r3),
+            F::from_u32(r4),
+        ])
+        .unwrap()
+    }
+
     #[test]
     fn test_compute_linear_function() {
         // w = [1]
@@ -1600,43 +1617,10 @@ mod tests {
         let result = compute_linear_function(&w, &r);
         assert_eq!(result, expected);
 
-        let mut rng = rand::rng();
-
         // w = [w0, w1, w2, w3]
-        // Each w_i is a random extension field element built from 4 random field elements.
-        let w: Vec<EF> = (0..4)
-            .map(|_| {
-                let r1: u32 = rng.next_u32();
-                let r2: u32 = rng.next_u32();
-                let r3: u32 = rng.next_u32();
-                let r4: u32 = rng.next_u32();
-
-                EF::from_basis_coefficients_slice(&[
-                    F::from_u32(r1),
-                    F::from_u32(r2),
-                    F::from_u32(r3),
-                    F::from_u32(r4),
-                ])
-                .unwrap()
-            })
-            .collect();
         // r = [r0, r1, r2]
-        let r: Vec<EF> = (0..3)
-            .map(|_| {
-                let r1: u32 = rng.next_u32();
-                let r2: u32 = rng.next_u32();
-                let r3: u32 = rng.next_u32();
-                let r4: u32 = rng.next_u32();
-
-                EF::from_basis_coefficients_slice(&[
-                    F::from_u32(r1),
-                    F::from_u32(r2),
-                    F::from_u32(r3),
-                    F::from_u32(r4),
-                ])
-                .unwrap()
-            })
-            .collect();
+        let w: Vec<EF> = (0..4).map(|_| get_random_ef()).collect();
+        let r: Vec<EF> = (0..3).map(|_| get_random_ef()).collect();
 
         let expected = [
             eval_eq_in_point(&w[..3], &r) * eval_eq_in_point(&w[3..], &[EF::ZERO]),
@@ -1652,6 +1636,10 @@ mod tests {
     ) -> EF {
         let eq = eval_eq_in_hypercube(&w);
         poly.iter().zip(eq.iter()).map(|(p, e)| *e * *p).sum()
+    }
+
+    fn get_evals_from_l_and_t(l: &[EF; 2], t: &[EF]) -> [EF; 3] {
+        [t[0] * l[0], t[1] * l[1], t[2] * (l[1] - l[0])]
     }
 
     #[test]
@@ -1680,29 +1668,12 @@ mod tests {
         let linear_1_evals = compute_linear_function(&w[..1], &[]);
 
         // We compute S_1(u)
-        let round_poly_evals_1 = [
-            t_1_evals[0] * linear_1_evals[0],
-            t_1_evals[1] * linear_1_evals[1],
-            t_1_evals[2] * (linear_1_evals[1] - linear_1_evals[0]), // l_1(inf) = l_1(1) - l_1(0).
-        ];
+        let round_poly_evals_1 = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals[..]);
 
         assert_eq!(round_poly_evals_1[0] + round_poly_evals_1[1], expected_sum);
 
         // 4. Receive the challenge r_1 from the verifier.
-        let mut rng = rand::rng();
-
-        let rand_1: u32 = rng.next_u32();
-        let rand_2: u32 = rng.next_u32();
-        let rand_3: u32 = rng.next_u32();
-        let rand_4: u32 = rng.next_u32();
-
-        let r_1 = EF::from_basis_coefficients_slice(&[
-            F::from_u32(rand_1),
-            F::from_u32(rand_2),
-            F::from_u32(rand_3),
-            F::from_u32(rand_4),
-        ])
-        .unwrap();
+        let r_1 = get_random_ef();
 
         // 5. Compte R_2 = [L_0(r_1), L_1(r_1), L_inf(r_1)]
         // L_0 (x) = 1 - x
@@ -1716,6 +1687,22 @@ mod tests {
         // First we take the accumulators A_2(v, u).
         // There are 9 accumulators, since v in {0, 1, inf} and u in {0, 1, inf}.
         let accumulators_round_2 = &round_accumulators[1].accumulators;
+
+        let mut t_2_evals = [EF::ZERO; 3];
+
+        t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
+        t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[3];
+        t_2_evals[0] += lagrange_evals_r_1[2] * accumulators_round_2[6];
+
+        t_2_evals[1] += lagrange_evals_r_1[0] * accumulators_round_2[1];
+        t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[4];
+        t_2_evals[1] += lagrange_evals_r_1[2] * accumulators_round_2[7];
+
+        t_2_evals[2] += lagrange_evals_r_1[0] * accumulators_round_2[2];
+        t_2_evals[2] += lagrange_evals_r_1[1] * accumulators_round_2[5];
+        t_2_evals[2] += lagrange_evals_r_1[2] * accumulators_round_2[8];
+
+        println!("{:?}", t_2_evals);
 
         let mut t_2_evals = [EF::ZERO; 3];
 
@@ -1733,17 +1720,15 @@ mod tests {
             t_2_evals[2] += lagrange_evals_r_1[lagrange_index] * accumulators_chunk[2];
         }
 
+        println!("{:?}", t_2_evals);
+
         // 2. For u in {0, 1, inf} compute S_2(u) = t_2(u) * l_2(u).
 
         // We compute l_2(0) and l_2(1)
         let linear_2_evals = compute_linear_function(&w[..2], &[r_1]);
 
         // We compute S_2(u)
-        let round_poly_evals_2 = [
-            t_2_evals[0] * linear_2_evals[0],
-            t_2_evals[1] * linear_2_evals[1],
-            t_2_evals[2] * (linear_2_evals[1] - linear_2_evals[0]), // l_2(inf) = l_2(1) - l_2(0).
-        ];
+        let round_poly_evals_2 = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
 
         // S_1(r_1) = a * (r_1)^2 + b * r_1 + c where
         // a = S_1(inf),
@@ -1756,18 +1741,7 @@ mod tests {
         assert_eq!(round_poly_evals_2[0] + round_poly_evals_2[1], expected_eval);
 
         // 4. Receive the challenge r_2 from the verifier.
-        let rand_1: u32 = rng.next_u32();
-        let rand_2: u32 = rng.next_u32();
-        let rand_3: u32 = rng.next_u32();
-        let rand_4: u32 = rng.next_u32();
-
-        let r_2 = EF::from_basis_coefficients_slice(&[
-            F::from_u32(rand_1),
-            F::from_u32(rand_2),
-            F::from_u32(rand_3),
-            F::from_u32(rand_4),
-        ])
-        .unwrap();
+        let r_2 = get_random_ef();
 
         // 5. Compute R_3 = [L_00(r_1, r_2), L_01(r_1, r_2), ..., L_{inf inf}(r_1, r_2)]
         // L_00 (x1, x2) = (1 - x1) * (1 - x2)
@@ -1827,11 +1801,7 @@ mod tests {
         let linear_3_evals = compute_linear_function(&w[..3], &[r_1, r_2]);
 
         // We compute S_3(u)
-        let round_poly_evals_3 = [
-            t_3_evals[0] * linear_3_evals[0],
-            t_3_evals[1] * linear_3_evals[1],
-            t_3_evals[2] * (linear_3_evals[1] - linear_3_evals[0]), // l_3(inf) = l_3(1) - l_3(0).
-        ];
+        let round_poly_evals_3 = get_evals_from_l_and_t(&linear_3_evals, &t_3_evals);
 
         // S_2(r_2) = a * (r_2)^2 + b * r_2 + c where
         // a = S_2(inf),
