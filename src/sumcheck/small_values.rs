@@ -1817,15 +1817,15 @@ mod tests {
 
         t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
         t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[3];
-        t_2_evals[0] += lagrange_evals_r_1[2] * accumulators_round_2[6];
+        // t_2_evals[0] += lagrange_evals_r_1[2] * accumulators_round_2[6];
 
         t_2_evals[1] += lagrange_evals_r_1[0] * accumulators_round_2[1];
         t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[4];
-        t_2_evals[1] += lagrange_evals_r_1[2] * accumulators_round_2[7];
+        // t_2_evals[1] += lagrange_evals_r_1[2] * accumulators_round_2[7];
 
         t_2_evals[2] += lagrange_evals_r_1[0] * accumulators_round_2[2];
         t_2_evals[2] += lagrange_evals_r_1[1] * accumulators_round_2[5];
-        t_2_evals[2] += lagrange_evals_r_1[2] * accumulators_round_2[8];
+        // t_2_evals[2] += lagrange_evals_r_1[2] * accumulators_round_2[8];
 
         // We split accumulators_2 in three chunks of three elements each, where each chunk corresponds to
         // a fixed v and the three elements in the chunk correspond to the three possible values of u.
@@ -1958,15 +1958,15 @@ mod tests {
 
         t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
         t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[3];
-        t_2_evals[0] += lagrange_evals_r_1[2] * accumulators_round_2[6];
+        // t_2_evals[0] += lagrange_evals_r_1[2] * accumulators_round_2[6];
 
         t_2_evals[1] += lagrange_evals_r_1[0] * accumulators_round_2[1];
         t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[4];
-        t_2_evals[1] += lagrange_evals_r_1[2] * accumulators_round_2[7];
+        // t_2_evals[1] += lagrange_evals_r_1[2] * accumulators_round_2[7];
 
         t_2_evals[2] += lagrange_evals_r_1[0] * accumulators_round_2[2];
         t_2_evals[2] += lagrange_evals_r_1[1] * accumulators_round_2[5];
-        t_2_evals[2] += lagrange_evals_r_1[2] * accumulators_round_2[8];
+        // t_2_evals[2] += lagrange_evals_r_1[2] * accumulators_round_2[8];
 
         let linear_2_evals = compute_linear_function(&w[..2], &[r_1]);
         let round_poly_evals_2 = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
