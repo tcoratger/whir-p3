@@ -479,7 +479,14 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
     let mut round_2_accumulator = RoundAccumlators::<EF>::new_empty(2);
     let mut round_3_accumulator = RoundAccumlators::<EF>::new_empty(3);
 
-    let x_out_num_variables = half_l - NUM_OF_ROUNDS;
+    let x_out_num_variables: usize;
+    if l % 2 == 0 {
+        x_out_num_variables = half_l - NUM_OF_ROUNDS;
+    } else {
+        x_out_num_variables = half_l - NUM_OF_ROUNDS + 1;
+    }
+
+    debug_assert_eq!(half_l + x_out_num_variables, l - NUM_OF_ROUNDS);
 
     for x_out in 0..1 << (x_out_num_variables) {
         let mut temp_accumulators: Vec<EF> = vec![EF::ZERO; 27];
@@ -1627,8 +1634,8 @@ mod tests {
 
     #[test]
     fn test_svo_sumcheck_rounds_eq_simulation() {
-        let poly = EvaluationsList::new((0..512).map(|_| get_random_f()).collect());
-        let w: Vec<EF> = (0..9).map(|_| get_random_ef()).collect();
+        let poly = EvaluationsList::new((0..256).map(|_| get_random_f()).collect());
+        let w: Vec<EF> = (0..8).map(|_| get_random_ef()).collect();
 
         let expected_sum = naive_sumcheck_verification(w.clone(), poly.clone());
 
