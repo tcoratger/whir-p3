@@ -762,7 +762,7 @@ mod tests {
         BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField,
         integers::QuotientMap,
     };
-    use rand::{Rng, RngCore};
+    use rand::RngCore;
 
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;
@@ -1550,6 +1550,100 @@ mod tests {
             .sum::<EF>();
 
         assert_eq!(expected_accumulator, accumulators[0].accumulators[0]);
+    }
+
+    #[test]
+    fn test_compute_linear_function() {
+        // w = [1]
+        // r = []
+        let w = [EF::from(F::from_int(1))];
+        let r = [];
+        // l(0) = 0
+        // l(1) = 1
+        let expected = [EF::from(F::from_int(0)), EF::from(F::from_int(1))];
+        let result = compute_linear_function(&w, &r);
+        assert_eq!(result, expected);
+
+        // w = [1, 1]
+        // r = [1]
+        let w = [EF::from(F::from_int(1)), EF::from(F::from_int(1))];
+        let r = [EF::from(F::from_int(1))];
+        // l(0) = 0
+        // l(1) = 1
+        let expected = [EF::from(F::from_int(0)), EF::from(F::from_int(1))];
+        let result = compute_linear_function(&w, &r);
+        assert_eq!(result, expected);
+
+        // w = [1, 1, 0]
+        // r = [1, 1]
+        let w = [
+            EF::from(F::from_int(1)),
+            EF::from(F::from_int(1)),
+            EF::from(F::from_int(0)),
+        ];
+        let r = [EF::from(F::from_int(1)), EF::from(F::from_int(1))];
+        // l(0) = 1
+        // l(1) = 0
+        let expected = [EF::from(F::from_int(1)), EF::from(F::from_int(0))];
+        let result = compute_linear_function(&w, &r);
+        assert_eq!(result, expected);
+
+        let w = [
+            EF::from(F::from_int(1)),
+            EF::from(F::from_int(1)),
+            EF::from(F::from_int(0)),
+        ];
+        let r = [EF::from(F::from_int(1)), EF::from(F::from_int(1))];
+        // l(0) = 1
+        // l(1) = 0
+        let expected = [EF::from(F::from_int(1)), EF::from(F::from_int(0))];
+        let result = compute_linear_function(&w, &r);
+        assert_eq!(result, expected);
+
+        let mut rng = rand::rng();
+
+        // w = [w0, w1, w2, w3]
+        // Each w_i is a random extension field element built from 4 random field elements.
+        let w: Vec<EF> = (0..4)
+            .map(|_| {
+                let r1: u32 = rng.next_u32();
+                let r2: u32 = rng.next_u32();
+                let r3: u32 = rng.next_u32();
+                let r4: u32 = rng.next_u32();
+
+                EF::from_basis_coefficients_slice(&[
+                    F::from_u32(r1),
+                    F::from_u32(r2),
+                    F::from_u32(r3),
+                    F::from_u32(r4),
+                ])
+                .unwrap()
+            })
+            .collect();
+        // r = [r0, r1, r2]
+        let r: Vec<EF> = (0..3)
+            .map(|_| {
+                let r1: u32 = rng.next_u32();
+                let r2: u32 = rng.next_u32();
+                let r3: u32 = rng.next_u32();
+                let r4: u32 = rng.next_u32();
+
+                EF::from_basis_coefficients_slice(&[
+                    F::from_u32(r1),
+                    F::from_u32(r2),
+                    F::from_u32(r3),
+                    F::from_u32(r4),
+                ])
+                .unwrap()
+            })
+            .collect();
+
+        let expected = [
+            eval_eq_in_point(&w[..3], &r) * eval_eq_in_point(&w[3..], &[EF::ZERO]),
+            eval_eq_in_point(&w[..3], &r) * eval_eq_in_point(&w[3..], &[EF::ONE]),
+        ];
+        let result = compute_linear_function(&w, &r);
+        assert_eq!(result, expected);
     }
 
     fn naive_sumcheck_verification<F: Field, EF: ExtensionField<F>>(
