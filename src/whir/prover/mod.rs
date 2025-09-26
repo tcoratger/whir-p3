@@ -61,9 +61,9 @@ where
     ///
     /// # Returns
     /// `true` if the parameter configuration is consistent, `false` otherwise.
-    fn validate_parameters(&self) -> bool {
-        self.num_variables
-            == self.folding_factor.total_number(self.n_rounds()) + self.final_sumcheck_rounds
+    const fn validate_parameters(&self) -> bool {
+        self.0.num_variables
+            == self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
     }
 
     /// Validates that the public statement is compatible with the configured number of variables.
@@ -77,9 +77,9 @@ where
     ///
     /// # Returns
     /// `true` if the statement structure is valid for this protocol instance.
-    fn validate_statement(&self, statement: &Statement<EF>) -> bool {
-        statement.num_variables() == self.num_variables
-            && (self.initial_statement || statement.is_empty())
+    const fn validate_statement(&self, statement: &Statement<EF>) -> bool {
+        statement.num_variables() == self.0.num_variables
+            && (self.0.initial_statement || statement.is_empty())
     }
 
     /// Validates that the witness satisfies the structural requirements of the WHIR prover.
@@ -98,15 +98,15 @@ where
     /// # Panics
     /// - Panics if OOD lengths are inconsistent
     /// - Panics if OOD data is non-empty despite `initial_statement = false`
-    fn validate_witness<const DIGEST_ELEMS: usize>(
+    const fn validate_witness<const DIGEST_ELEMS: usize>(
         &self,
         witness: &Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> bool {
-        assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
-        if !self.initial_statement {
+        assert!(witness.ood_points.len() == witness.ood_answers.len());
+        if !self.0.initial_statement {
             assert!(witness.ood_points.is_empty());
         }
-        witness.polynomial.num_variables() == self.num_variables
+        witness.polynomial.num_variables() == self.0.num_variables
     }
 
     /// Executes the full WHIR prover protocol to produce the proof.
