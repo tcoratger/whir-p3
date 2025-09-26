@@ -3,25 +3,28 @@ use std::ops::Deref;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use round_state::RoundState;
 use serde::{Deserialize, Serialize};
-use stir::{StirConfig, StirProofHandler, StirQueryGenerator};
 use tracing::{info_span, instrument};
 
 use super::{committer::Witness, constraints::statement::Statement, parameters::WhirConfig};
 use crate::{
+    constant::K_SKIP_SUMCHECK,
     dft::EvalsDft,
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
-    poly::multilinear::MultilinearPoint,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::parallel_repeat,
-    whir::utils::{get_challenge_stir_queries, sample_ood_points},
+    whir::{
+        parameters::RoundConfig,
+        utils::{get_challenge_stir_queries, sample_ood_points},
+    },
 };
 
 pub mod round_state;
-pub mod stir;
 
 pub type Proof<W, const DIGEST_ELEMS: usize> = Vec<Vec<[W; DIGEST_ELEMS]>>;
 pub type Leafs<F> = Vec<Vec<F>>;
@@ -232,7 +235,7 @@ where
             self.merkle_hash.clone(),
             self.merkle_compress.clone(),
         );
-        let extension_mmcs = ExtensionMmcs::new(mmcs);
+        let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
         let (root, prover_data) =
             info_span!("commit matrix").in_scope(|| extension_mmcs.commit_matrix(folded_matrix));
 
@@ -261,37 +264,138 @@ where
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
         prover_state.pow_grinding(round_params.pow_bits);
 
-        // STIR Queries - Generate challenges using the query generator abstraction
-        let query_generator = StirQueryGenerator::new(round_params.num_queries);
-        let challenges = query_generator.compute_challenges(
-            round_state,
-            prover_state,
-            &ood_points,
-            self.folding_factor.at_round(round_index),
-            num_variables,
-        )?;
+        // STIR Queries
+        let (ood_challenges, stir_challenges, stir_challenges_indexes) = self
+            .compute_stir_queries(
+                round_index,
+                prover_state,
+                round_state,
+                num_variables,
+                round_params,
+                &ood_points,
+            )?;
 
-        // Extract challenges for compatibility with existing processing code
-        let (ood_challenges, stir_challenges, stir_challenges_indexes) = (
-            challenges.ood_challenges,
-            challenges.stir_challenges,
-            challenges.challenge_indices,
-        );
+        // Collect Merkle proofs for stir queries
+        let stir_evaluations = match &round_state.merkle_prover_data {
+            None => {
+                let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
+                let mut merkle_proofs = Vec::with_capacity(stir_challenges_indexes.len());
+                for challenge in &stir_challenges_indexes {
+                    let commitment =
+                        mmcs.open_batch(*challenge, &round_state.commitment_merkle_prover_data);
+                    answers.push(commitment.opened_values[0].clone());
+                    merkle_proofs.push(commitment.opening_proof);
+                }
 
-        // Process STIR queries
-        let stir_config = StirConfig::builder()
-            .with_initial_statement(self.initial_statement)
-            .with_univariate_skip(self.univariate_skip)
-            .with_folding_factor_at_round(self.folding_factor.at_round(0))
-            .build();
-        let stir_handler =
-            StirProofHandler::new(&self.merkle_hash, &self.merkle_compress, stir_config);
-        let stir_evaluations = stir_handler.process_stir_queries(
-            round_index,
-            &stir_challenges_indexes,
-            round_state,
-            prover_state,
-        );
+                // merkle leaves
+                for answer in &answers {
+                    prover_state.hint_base_scalars(answer);
+                }
+
+                // merkle authentication proof
+                for merkle_proof in &merkle_proofs {
+                    for digest in merkle_proof {
+                        prover_state.hint_base_scalars(digest);
+                    }
+                }
+
+                // Evaluate answers in the folding randomness.
+                let mut stir_evaluations = Vec::with_capacity(answers.len());
+
+                // Determine if this is the special first round where the univariate skip is applied.
+                let is_skip_round = self.initial_statement
+                    && round_index == 0
+                    && self.univariate_skip
+                    && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
+
+                // Process each set of evaluations retrieved from the Merkle tree openings.
+                for answer in &answers {
+                    // Fold the polynomial represented by the `answer` evaluations using the verifier's challenge.
+                    // The evaluation method depends on whether this is a "skip round" or a "standard round".
+                    let eval = if is_skip_round {
+                        // Case 1: Univariate Skip Round Evaluation
+                        //
+                        // The `answer` contains evaluations of a polynomial over the `k_skip` variables.
+                        let evals = EvaluationsList::new(answer.clone());
+
+                        // The challenges for the remaining (non-skipped) variables.
+                        let num_remaining_vars = evals.num_variables() - K_SKIP_SUMCHECK;
+
+                        // The width of the matrix corresponds to the number of remaining variables.
+                        let width = 1 << num_remaining_vars;
+
+                        // Reshape the `answer` evaluations into the `2^k x 2^(n-k)` matrix format.
+                        let mat = evals.into_mat(width);
+
+                        // For a skip round, `folding_randomness` is the special `(n-k)+1` challenge object.
+                        let r_all = round_state.folding_randomness.clone();
+
+                        // Deconstruct the special challenge object `r_all`.
+                        //
+                        // The last element is the single challenge for the `k_skip` variables being folded.
+                        let r_skip = *r_all
+                            .last_variable()
+                            .expect("skip challenge must be present");
+                        // The first `n - k_skip` elements are the challenges for the remaining variables.
+                        let r_rest = r_all.get_subpoint_over_range(0..num_remaining_vars);
+
+                        // Perform the two-stage skip-aware evaluation:
+                        //
+                        // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
+                        let folded_row = interpolate_subgroup(&mat, r_skip);
+                        // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
+                        EvaluationsList::new(folded_row).evaluate(&r_rest)
+                    } else {
+                        // Case 2: Standard Sumcheck Round
+                        //
+                        // The `answer` represents a standard multilinear polynomial.
+
+                        // Wrap the evaluations to represent the polynomial.
+                        let evals_list = EvaluationsList::new(answer.clone());
+
+                        // Perform a standard multilinear evaluation at the full challenge point `r`.
+                        evals_list.evaluate(&round_state.folding_randomness)
+                    };
+
+                    // Store the single, folded scalar value.
+                    stir_evaluations.push(eval);
+                }
+
+                stir_evaluations
+            }
+            Some(data) => {
+                let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
+                let mut merkle_proofs = Vec::with_capacity(stir_challenges_indexes.len());
+                for challenge in &stir_challenges_indexes {
+                    let commitment = extension_mmcs.open_batch(*challenge, data);
+                    answers.push(commitment.opened_values[0].clone());
+                    merkle_proofs.push(commitment.opening_proof);
+                }
+
+                // merkle leaves
+                for answer in &answers {
+                    prover_state.hint_extension_scalars(answer);
+                }
+
+                // merkle authentication proof
+                for merkle_proof in &merkle_proofs {
+                    for digest in merkle_proof {
+                        prover_state.hint_base_scalars(digest);
+                    }
+                }
+
+                // Evaluate answers in the folding randomness.
+                let mut stir_evaluations = Vec::with_capacity(answers.len());
+                for answer in &answers {
+                    stir_evaluations.push(
+                        EvaluationsList::new(answer.clone())
+                            .evaluate(&round_state.folding_randomness),
+                    );
+                }
+
+                stir_evaluations
+            }
+        };
 
         // Randomness for combination
         let combination_randomness_gen: EF = prover_state.sample();
@@ -387,15 +491,60 @@ where
             prover_state,
         )?;
 
-        // Process final proofs
-        let stir_config = StirConfig::builder()
-            .with_initial_statement(self.initial_statement)
-            .with_univariate_skip(self.univariate_skip)
-            .with_folding_factor_at_round(self.folding_factor.at_round(round_index))
-            .build();
-        let stir_handler =
-            StirProofHandler::new(&self.merkle_hash, &self.merkle_compress, stir_config);
-        stir_handler.process_final_proofs(final_challenge_indexes, round_state, prover_state);
+        // Every query requires opening these many in the previous Merkle tree
+        let mmcs = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
+            self.merkle_hash.clone(),
+            self.merkle_compress.clone(),
+        );
+        let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
+
+        match &round_state.merkle_prover_data {
+            None => {
+                let mut answers = Vec::with_capacity(final_challenge_indexes.len());
+                let mut merkle_proofs = Vec::with_capacity(final_challenge_indexes.len());
+
+                for challenge in final_challenge_indexes {
+                    let commitment =
+                        mmcs.open_batch(challenge, &round_state.commitment_merkle_prover_data);
+                    answers.push(commitment.opened_values[0].clone());
+                    merkle_proofs.push(commitment.opening_proof);
+                }
+
+                // merkle leaves
+                for answer in &answers {
+                    prover_state.hint_base_scalars(answer);
+                }
+
+                // merkle authentication proof
+                for merkle_proof in &merkle_proofs {
+                    for digest in merkle_proof {
+                        prover_state.hint_base_scalars(digest);
+                    }
+                }
+            }
+
+            Some(data) => {
+                let mut answers = Vec::with_capacity(final_challenge_indexes.len());
+                let mut merkle_proofs = Vec::with_capacity(final_challenge_indexes.len());
+                for challenge in final_challenge_indexes {
+                    let commitment = extension_mmcs.open_batch(challenge, data);
+                    answers.push(commitment.opened_values[0].clone());
+                    merkle_proofs.push(commitment.opening_proof);
+                }
+
+                // merkle leaves
+                for answer in &answers {
+                    prover_state.hint_extension_scalars(answer);
+                }
+
+                // merkle authentication proof
+                for merkle_proof in &merkle_proofs {
+                    for digest in merkle_proof {
+                        prover_state.hint_base_scalars(digest);
+                    }
+                }
+            }
+        }
 
         // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
@@ -418,5 +567,49 @@ where
         }
 
         Ok(())
+    }
+
+    #[instrument(skip_all, level = "debug")]
+    #[allow(clippy::type_complexity)]
+    fn compute_stir_queries<const DIGEST_ELEMS: usize>(
+        &self,
+        round_index: usize,
+        prover_state: &mut ProverState<F, EF, Challenger>,
+        round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
+        num_variables: usize,
+        round_params: &RoundConfig<F>,
+        ood_points: &[EF],
+    ) -> Result<
+        (
+            Vec<MultilinearPoint<EF>>,
+            Vec<MultilinearPoint<F>>,
+            Vec<usize>,
+        ),
+        FiatShamirError,
+    > {
+        let stir_challenges_indexes = get_challenge_stir_queries(
+            round_state.domain_size,
+            self.folding_factor.at_round(round_index),
+            round_params.num_queries,
+            prover_state,
+        )?;
+
+        // Compute the generator of the folded domain, in the extension field
+        let domain_scaled_gen = round_state.next_domain_gen;
+        let ood_challenges = ood_points
+            .iter()
+            .map(|univariate| MultilinearPoint::expand_from_univariate(*univariate, num_variables))
+            .collect();
+        let stir_challenges = stir_challenges_indexes
+            .iter()
+            .map(|i| {
+                MultilinearPoint::expand_from_univariate(
+                    domain_scaled_gen.exp_u64(*i as u64),
+                    num_variables,
+                )
+            })
+            .collect();
+
+        Ok((ood_challenges, stir_challenges, stir_challenges_indexes))
     }
 }
