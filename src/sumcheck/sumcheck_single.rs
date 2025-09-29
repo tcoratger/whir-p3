@@ -224,6 +224,14 @@ where
     F: Field + Ord,
     EF: ExtensionField<F>,
 {
+    pub fn new(evals: EvaluationsList<EF>, weights: EvaluationsList<EF>, sum: EF) -> Self {
+        Self {
+            evals,
+            weights,
+            sum,
+            phantom: std::marker::PhantomData,
+        }
+    }
     /// Constructs a new `SumcheckSingle` instance from evaluations in the extension field.
     ///
     /// This function:
