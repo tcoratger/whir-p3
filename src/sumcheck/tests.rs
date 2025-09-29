@@ -378,6 +378,9 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     // Create the initial constraint statement: {poly(z_i) = y_i}
     let statement = make_initial_statement(prover, num_vars, num_points[0], &poly);
 
+    // TODO: sacar la variable sum (esta para debugear)
+    let sum = statement.constraints[0].expected_evaluation;
+
     // Sample random linear combination challenge α₀.
     let alpha: EF = prover.sample();
 
@@ -388,6 +391,8 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
 
     // Track how many variables remain to fold
     let mut num_vars_inter = num_vars - folding;
+
+    println!("Prover randomness: {:?}", prover_randomness);
 
     // INTERMEDIATE ROUNDS
     for (&folding, &num_points) in folding_factors
@@ -430,6 +435,18 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
 
     // Save proof data to pass to verifier
     let proof = prover.proof_data().to_vec();
+
+    let eq_eval = eval_constraints_poly::<F, EF>(
+        false,
+        num_vars,
+        0,
+        folding_factors,
+        &[statement.constraints.clone()],
+        &[alpha],
+        &prover_randomness,
+    );
+
+    assert_eq!(sum, final_folded_value * eq_eval);
 
     // VERIFIER
     let verifier = &mut verifier(proof);

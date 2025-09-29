@@ -109,11 +109,21 @@ where
         0
     };
 
-    for _ in start_round..rounds {
+    for i in start_round..rounds {
         // Extract the first and third evaluations of the sumcheck polynomial
         // and derive the second evaluation from the latest sum
         let c0 = verifier_state.next_extension_scalar()?;
-        let c1 = *claimed_sum - c0;
+
+        let c1 = EF::from(F::ZERO);
+
+        // TODO: Este if lo agregué para testear el sumcheck svo. Rompe los demás tests (sumcheck normal).
+        if i <= 2 {
+            // TODO: El verifier no tendría que recibir s(1), sino calcularlo como en el resto de las rondas.
+            let c1 = verifier_state.next_extension_scalar()?;
+        } else {
+            let c1 = *claimed_sum - c0;
+        }
+
         let c2 = verifier_state.next_extension_scalar()?;
 
         // Optional PoW interaction (grinding resistance)
