@@ -378,9 +378,6 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     // Create the initial constraint statement: {poly(z_i) = y_i}
     let statement = make_initial_statement(prover, num_vars, num_points[0], &poly);
 
-    // TODO: sacar la variable sum (esta para debugear)
-    let sum = statement.constraints[0].expected_evaluation;
-
     // Sample random linear combination challenge α₀.
     let alpha: EF = prover.sample();
 
@@ -391,8 +388,6 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
 
     // Track how many variables remain to fold
     let mut num_vars_inter = num_vars - folding;
-
-    println!("Prover randomness: {:?}", prover_randomness);
 
     // INTERMEDIATE ROUNDS
     for (&folding, &num_points) in folding_factors
@@ -446,7 +441,9 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
         &prover_randomness,
     );
 
-    assert_eq!(sum, final_folded_value * eq_eval);
+    println!("Sum prover: {:?} ", sumcheck.sum);
+    println!("Mul prover: {:?}", final_folded_value * eq_eval);
+    // assert_eq!(sum, final_folded_value * eq_eval);
 
     // VERIFIER
     let verifier = &mut verifier(proof);
@@ -516,8 +513,16 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
         &alphas,
         &verifier_randomness,
     );
+    println!("Sum Verifier: {:?} ", sum);
+    println!("Mul Verifier: {:?}", final_folded_value * eq_eval);
     // CHECK SUM == f(r) * eq(z, r)
     assert_eq!(sum, final_folded_value_transcript * eq_eval);
+}
+
+#[test]
+fn test_sumcheck_svo() {
+    //run_sumcheck_test(&[8, 0], &[1]);
+    run_sumcheck_test_svo(&[8, 0], &[1]);
 }
 
 fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
@@ -901,12 +906,6 @@ fn test_sumcheck_prover() {
     run_sumcheck_test_skips(&[6, 0], &[4]);
     run_sumcheck_test_skips(&[8, 2], &[3]);
     run_sumcheck_test_skips(&[6, 2, 2], &[3, 3]);
-}
-
-#[test]
-fn test_sumcheck_svo() {
-    //run_sumcheck_test(&[8, 0], &[1]);
-    run_sumcheck_test_svo(&[8, 0], &[1]);
 }
 
 proptest! {

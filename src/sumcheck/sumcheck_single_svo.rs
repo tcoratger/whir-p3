@@ -60,6 +60,13 @@ where
     // Compress polynomials and update the sum.
     join(|| evals.compress(r), || weights.compress(r));
 
+    println!(
+        "Prover Sumcheck round polynomial: [{}, {}, {}]",
+        sumcheck_poly.evaluations()[0],
+        sumcheck_poly.evaluations()[1],
+        sumcheck_poly.evaluations()[2]
+    );
+
     *sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
 
     r
@@ -107,6 +114,13 @@ where
 
         // Compress polynomials and update the sum.
         join(|| evals.compress(r_3), || weights.compress(r_3));
+
+        println!(
+            "Prover Sumcheck round polynomial: [{}, {}, {}]",
+            sumcheck_poly.evaluations()[0],
+            sumcheck_poly.evaluations()[1],
+            sumcheck_poly.evaluations()[2]
+        );
 
         sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r_3]));
 

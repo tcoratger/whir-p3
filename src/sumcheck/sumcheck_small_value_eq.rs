@@ -201,6 +201,13 @@ where
         t_1_evals[2] * (linear_1_evals[1] - linear_1_evals[0]), // l_1(inf) = l_1(1) - l_1(0).
     ];
 
+    // TODO: Esto es muy ineficiente. Hay que cambiar el verifier para que acepte la evaluacion en inf.
+    let eval_in_two = round_poly_evals[2] * EF::from(F::TWO).square()
+        + (round_poly_evals[1] - round_poly_evals[0] - round_poly_evals[2]) * EF::from(F::TWO)
+        + round_poly_evals[0];
+
+    let round_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
+
     // 3. Send S_1(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_1(1) porque se deduce usando S_1(0).
     prover_state.add_extension_scalars(&round_poly_evals);
@@ -244,6 +251,13 @@ where
         t_2_evals[1] * linear_2_evals[1],
         t_2_evals[2] * (linear_2_evals[1] - linear_2_evals[0]), // l_2(inf) = l_2(1) - l_2(0).
     ];
+
+    // TODO: Esto es muy ineficiente. Hay que cambiar el verifier para que acepte la evaluacion en inf.
+    let eval_in_two = round_poly_evals[2] * EF::from(F::TWO).square()
+        + (round_poly_evals[1] - round_poly_evals[0] - round_poly_evals[2]) * EF::from(F::TWO)
+        + round_poly_evals[0];
+
+    let round_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
 
     // 3. Send S_2(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
@@ -315,16 +329,16 @@ where
         t_3_evals[2] * (linear_3_evals[1] - linear_3_evals[0]), // l_3(inf) = l_3(1) - l_3(0).
     ];
 
-    // 3. Send S_3(u) to the verifier.
-    // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
-    prover_state.add_extension_scalars(&round_poly_evals);
-
     // TODO: Esto es muy ineficiente.
     let eval_in_two = round_poly_evals[2] * EF::from(F::TWO).square()
         + (round_poly_evals[1] - round_poly_evals[0] - round_poly_evals[2]) * EF::from(F::TWO)
         + round_poly_evals[0];
 
     let sumcheck_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
+
+    // 3. Send S_3(u) to the verifier.
+    // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
+    prover_state.add_extension_scalars(&sumcheck_poly_evals);
 
     let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec());
 
