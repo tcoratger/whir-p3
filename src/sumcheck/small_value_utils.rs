@@ -26,7 +26,29 @@ impl EvaluationPoint {
         }
     }
 }
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Accumulators<F: Field> {
+    pub accumulators: [Vec<F>; 3],
+}
 
+impl<F> Accumulators<F>
+where
+    F: Field,
+{
+    pub fn new_empty() -> Self {
+        Accumulators {
+            accumulators: [vec![F::ZERO; 3], vec![F::ZERO; 9], vec![F::ZERO; 27]],
+        }
+    }
+
+    pub fn accumulate(&mut self, round: usize, index: usize, value: F) {
+        self.accumulators[round][index] += value;
+    }
+
+    pub fn get_accumulators_for_round(&self, round: usize) -> &[F] {
+        &self.accumulators[round]
+    }
+}
 // For round i, RoundAccumulators has all the accumulators of the form A_i(u, v).
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RoundAccumlators<F: Field> {
