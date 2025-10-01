@@ -208,6 +208,16 @@ where
 
     let round_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
 
+    println!(
+        "Prover Sumcheck round 0 polynomial: [{}, {}, {}]",
+        round_poly_evals[0], round_poly_evals[1], round_poly_evals[2]
+    );
+
+    println!(
+        "Round 0. S(0) + S(1): {:?}",
+        round_poly_evals[0] + round_poly_evals[1]
+    );
+
     // 3. Send S_1(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_1(1) porque se deduce usando S_1(0).
     prover_state.add_extension_scalars(&round_poly_evals);
@@ -258,6 +268,11 @@ where
         + round_poly_evals[0];
 
     let round_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
+
+    println!(
+        "Prover Sumcheck round 1 polynomial: [{}, {}, {}]",
+        round_poly_evals[0], round_poly_evals[1], round_poly_evals[2]
+    );
 
     // 3. Send S_2(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
@@ -335,6 +350,11 @@ where
         + round_poly_evals[0];
 
     let sumcheck_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
+
+    println!(
+        "Prover Sumcheck round 2 polynomial: [{}, {}, {}]",
+        sumcheck_poly_evals[0], sumcheck_poly_evals[1], sumcheck_poly_evals[2]
+    );
 
     // 3. Send S_3(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).

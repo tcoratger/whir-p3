@@ -372,6 +372,8 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     let mut rng = SmallRng::seed_from_u64(1);
     let poly = EvaluationsList::new((0..1 << num_vars).map(|_| rng.random()).collect());
 
+    println!("POLY: {:?}", poly);
+
     // PROVER
     let prover = &mut prover();
 
@@ -380,6 +382,8 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
 
     // Sample random linear combination challenge α₀.
     let alpha: EF = prover.sample();
+
+    println!("ALPHA: {:?}", alpha);
 
     // ROUND 0
     let folding = folding_factors[0];
@@ -443,7 +447,7 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
 
     println!("Sum prover: {:?} ", sumcheck.sum);
     println!("Mul prover: {:?}", final_folded_value * eq_eval);
-    // assert_eq!(sum, final_folded_value * eq_eval);
+    println!("final_folded: {:?}", final_folded_value);
 
     // VERIFIER
     let verifier = &mut verifier(proof);
@@ -494,6 +498,7 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
         &verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, false).unwrap(),
     );
 
+    println!("RANDOMNESS: {:?}", verifier_randomness);
     // Check that the randomness vectors are the same
     assert_eq!(prover_randomness, verifier_randomness);
 
@@ -515,6 +520,7 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     );
     println!("Sum Verifier: {:?} ", sum);
     println!("Mul Verifier: {:?}", final_folded_value * eq_eval);
+    println!("final_folded: {:?}", final_folded_value);
     // CHECK SUM == f(r) * eq(z, r)
     assert_eq!(sum, final_folded_value_transcript * eq_eval);
 }
@@ -535,6 +541,8 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     let mut rng = SmallRng::seed_from_u64(1);
     let poly = EvaluationsList::new((0..1 << num_vars).map(|_| rng.random()).collect());
 
+    println!("POLY: {:?}", poly);
+
     // PROVER
     let prover = &mut prover();
 
@@ -543,6 +551,7 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
 
     // Sample random linear combination challenge α₀.
     let alpha: EF = prover.sample();
+    println!("ALPHA: {:?}", alpha);
 
     // ROUND 0
     let folding = folding_factors[0];
@@ -594,6 +603,19 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     // Save proof data to pass to verifier
     let proof = prover.proof_data().to_vec();
 
+    let eq_eval = eval_constraints_poly::<F, EF>(
+        false,
+        num_vars,
+        0,
+        folding_factors,
+        &[statement.constraints.clone()],
+        &[alpha],
+        &prover_randomness,
+    );
+
+    println!("Sum prover: {:?} ", sumcheck.sum);
+    println!("Mul prover: {:?}", final_folded_value * eq_eval);
+
     // VERIFIER
     let verifier = &mut verifier(proof);
     let mut sum = EF::ZERO;
@@ -643,6 +665,8 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
         &verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, false).unwrap(),
     );
 
+    println!("RANDOMNESS: {:?}", verifier_randomness);
+
     // Check that the randomness vectors are the same
     assert_eq!(prover_randomness, verifier_randomness);
 
@@ -662,6 +686,10 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
         &alphas,
         &verifier_randomness,
     );
+    println!("Sum Verifier: {:?} ", sum);
+    println!("Mul Verifier: {:?}", final_folded_value * eq_eval);
+    println!("final_folded: {:?}", final_folded_value);
+
     // CHECK SUM == f(r) * eq(z, r)
     assert_eq!(sum, final_folded_value_transcript * eq_eval);
 }

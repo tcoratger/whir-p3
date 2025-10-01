@@ -95,6 +95,8 @@ where
 
         let (mut weights, mut sum) = statement.combine::<F>(combination_randomness);
 
+        println!("Initial sum: {}", sum);
+
         // We assume the the statemas has only one constraint.
         let w = statement.constraints[0].point.0.0.clone();
 
@@ -114,13 +116,6 @@ where
 
         // Compress polynomials and update the sum.
         join(|| evals.compress(r_3), || weights.compress(r_3));
-
-        println!(
-            "Prover Sumcheck round polynomial: [{}, {}, {}]",
-            sumcheck_poly.evaluations()[0],
-            sumcheck_poly.evaluations()[1],
-            sumcheck_poly.evaluations()[2]
-        );
 
         sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r_3]));
 

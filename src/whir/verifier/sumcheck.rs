@@ -123,6 +123,15 @@ where
             c1 = *claimed_sum - c0;
         }
 
+        // TODO: Esto se puede sacar, es solo para debugear.
+        assert_eq!(
+            *claimed_sum,
+            c0 + c1,
+            "Inconsistent claimed sum after folding"
+        );
+
+        //let c1 = *claimed_sum - c0;
+
         let c2 = verifier_state.next_extension_scalar()?;
 
         println!(
