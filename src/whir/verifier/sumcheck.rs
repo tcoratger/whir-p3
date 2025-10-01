@@ -109,6 +109,34 @@ where
         0
     };
 
+    // for _ in 0..2 {
+    //     let c0 = verifier_state.next_extension_scalar()?;
+    //     let c1 = verifier_state.next_extension_scalar()?;
+    //     let c2 = verifier_state.next_extension_scalar()?;
+
+    //     // TODO: Esto se puede sacar, es solo para debugear.
+    //     assert_eq!(
+    //         *claimed_sum,
+    //         c0 + c1,
+    //         "Inconsistent claimed sum after folding"
+    //     );
+
+    //     // Optional PoW interaction (grinding resistance)
+    //     verifier_state.check_pow_grinding(pow_bits)?;
+
+    //     // Sample the next verifier folding randomness rᵢ
+    //     let rand: EF = verifier_state.sample();
+
+    //     // Update claimed sum using folding randomness
+    //     *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
+    //         .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
+
+    //     // Store this round’s randomness
+    //     randomness.push(rand);
+    // }
+
+    let mut randomness_final: Vec<EF> = Vec::new();
+
     for i in start_round..rounds {
         // Extract the first and third evaluations of the sumcheck polynomial
         // and derive the second evaluation from the latest sum
@@ -149,13 +177,23 @@ where
         *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
             .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
 
-        // Store this round’s randomness
-        randomness.push(rand);
+        if i <= 1 {
+            randomness.push(rand);
+        } else {
+            // Store this round’s randomness
+            randomness_final.push(rand);
+        }
+
+        if i == rounds - 1 {
+            println!("Final claimed sum: {}", claimed_sum);
+        }
     }
 
     // We should reverse the order of the randomness points:
     // This is because the randomness points are originally reverted at the end of the sumcheck rounds.
-    randomness.reverse();
+    randomness_final.reverse();
+
+    randomness.extend(randomness_final);
 
     Ok(MultilinearPoint::new(randomness))
 }

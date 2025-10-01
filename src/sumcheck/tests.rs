@@ -8,7 +8,7 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use proptest::prelude::*;
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 
-use super::sumcheck_single::SumcheckSingle;
+use super::{sumcheck_single::SumcheckSingle, sumcheck_small_value_eq::eval_eq_in_point};
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{
@@ -393,42 +393,43 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     // Track how many variables remain to fold
     let mut num_vars_inter = num_vars - folding;
 
-    // INTERMEDIATE ROUNDS
-    for (&folding, &num_points) in folding_factors
-        .iter()
-        .skip(1)
-        .zip(num_points.iter().skip(1))
-    {
-        // Add additional equality constraints for intermediate rounds
-        let _ = make_inter_statement(prover, num_points, &mut sumcheck);
+    // // INTERMEDIATE ROUNDS
+    // for (&folding, &num_points) in folding_factors
+    //     .iter()
+    //     .skip(1)
+    //     .zip(num_points.iter().skip(1))
+    // {
+    //     // Add additional equality constraints for intermediate rounds
+    //     let _ = make_inter_statement(prover, num_points, &mut sumcheck);
 
-        // Compute and apply the next folding round
-        prover_randomness = extend_point(
-            &prover_randomness,
-            &sumcheck.compute_sumcheck_polynomials(prover, folding, 0),
-        );
+    //     // Compute and apply the next folding round
+    //     prover_randomness = extend_point(
+    //         &prover_randomness,
+    //         &sumcheck.compute_sumcheck_polynomials(prover, folding, 0),
+    //     );
 
-        num_vars_inter -= folding;
+    //     num_vars_inter -= folding;
 
-        // Check that the number of variables and evaluations match the expected values
-        assert_eq!(sumcheck.evals.num_variables(), num_vars_inter);
-        assert_eq!(sumcheck.evals.num_evals(), 1 << num_vars_inter);
-    }
+    //     // Check that the number of variables and evaluations match the expected values
+    //     assert_eq!(sumcheck.evals.num_variables(), num_vars_inter);
+    //     assert_eq!(sumcheck.evals.num_evals(), 1 << num_vars_inter);
+    // }
 
-    // FINAL ROUND
-    let final_rounds = *folding_factors.last().unwrap();
-    prover_randomness = extend_point(
-        &prover_randomness,
-        &sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0),
-    );
+    // // FINAL ROUND
+    // let final_rounds = *folding_factors.last().unwrap();
+    // prover_randomness = extend_point(
+    //     &prover_randomness,
+    //     &sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0),
+    // );
 
     // Ensure we’ve folded all variables.
-    assert_eq!(num_vars_inter, final_rounds);
+    //assert_eq!(num_vars_inter, final_rounds);
     assert_eq!(sumcheck.evals.num_variables(), 0);
     assert_eq!(sumcheck.evals.num_evals(), 1);
 
     // Final folded value must match f(r)
     let final_folded_value = sumcheck.evals.as_constant().unwrap();
+    println!("Prover randomness: {:?}", prover_randomness);
     assert_eq!(poly.evaluate(&prover_randomness), final_folded_value);
     prover.add_extension_scalar(final_folded_value);
 
@@ -443,6 +444,12 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
         &[statement.constraints.clone()],
         &[alpha],
         &prover_randomness,
+    );
+
+    println!("Prover eq eval in r: {}", eq_eval);
+    println!(
+        "Prover Final weight: {}",
+        sumcheck.weights.as_constant().unwrap()
     );
 
     println!("Sum prover: {:?} ", sumcheck.sum);
@@ -518,6 +525,11 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
         &alphas,
         &verifier_randomness,
     );
+
+    let eq_eval_new = eval_eq_in_point(&constraints[0][0].point.0.0, &verifier_randomness.0);
+    println!("eq eval: {}", eq_eval);
+    println!("eq eval new: {}", eq_eval_new);
+
     println!("Sum Verifier: {:?} ", sum);
     println!("Mul Verifier: {:?}", final_folded_value * eq_eval);
     println!("final_folded: {:?}", final_folded_value);

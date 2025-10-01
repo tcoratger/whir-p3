@@ -69,6 +69,8 @@ where
 
     *sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
 
+    println!("Random: {}", r);
+
     r
 }
 
@@ -107,26 +109,43 @@ where
 
         // Sample verifier challenge.
         let r_3: EF = prover_state.sample();
-        res.push(r_3);
+        //res.push(r_3);
 
-        let mut evals = join(|| weights.compress(r_1), || evals.compress_ext(r_1)).1;
+        println!("random 0: {}", r_1);
+        println!("random 1: {}", r_2);
+        println!("random 2: {}", r_3);
+
+        //TODO: estoy usando compress que puede ser que fije la variable de derecha a izquierda!
+        let mut evals = join(|| weights.compress_svo(r_1), || evals.compress_ext_svo(r_1)).1;
 
         // Compress polynomials and update the sum.
-        join(|| evals.compress(r_2), || weights.compress(r_2));
+        join(|| evals.compress_svo(r_2), || weights.compress_svo(r_2));
 
         // Compress polynomials and update the sum.
         join(|| evals.compress(r_3), || weights.compress(r_3));
 
         sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r_3]));
 
-        // Apply rest of sumcheck rounds
-        res.extend(
+        let mut res_final: Vec<EF> = Vec::with_capacity(folding_factor - 3);
+        res_final.push(r_3);
+
+        res_final.extend(
             (3..folding_factor)
                 .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
         );
 
-        // Reverse challenges to maintain order from X₀ to Xₙ.
-        res.reverse();
+        res_final.reverse();
+
+        // // Apply rest of sumcheck rounds
+        // res.extend(
+        //     (3..folding_factor)
+        //         .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
+        // );
+
+        // // Reverse challenges to maintain order from X₀ to Xₙ.
+        // res.reverse();
+
+        res.extend(res_final);
 
         let sumcheck = Self::new(evals, weights, sum);
 
