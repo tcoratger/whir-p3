@@ -164,7 +164,7 @@ where
     // We compute S_1(u)
     let round_poly_evals = [
         t_1_evals[0] * linear_1_evals[0],
-        t_1_evals[1] * linear_1_evals[1],
+        // t_1_evals[1] * linear_1_evals[1],
         t_1_evals[2] * (linear_1_evals[1] - linear_1_evals[0]), // l_1(inf) = l_1(1) - l_1(0).
     ];
 
