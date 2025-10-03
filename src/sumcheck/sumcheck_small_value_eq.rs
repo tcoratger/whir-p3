@@ -4,9 +4,12 @@ use crate::{
     sumcheck::small_value_utils::{
         NUM_OF_ROUNDS, RoundAccumlators, compute_p_beta, idx4, to_base_three_coeff,
     },
+    whir::verifier::sumcheck,
 };
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
+
+use super::sumcheck_polynomial::SumcheckPolynomial;
 
 // TODO: w could be a MultilinearPoitn?
 fn precompute_e_in<F: Field>(w: &Vec<F>) -> Vec<F> {
@@ -165,11 +168,11 @@ pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
 // Algorithm 6. Page 19.
 // Compute three sumcheck rounds using the small value optimizaition and split-eq accumulators.
 // It Returns the two challenges r_1 and r_2 (TODO: creo que debería devolver también los polys foldeados).
-fn small_value_sumcheck_three_rounds_eq<Challenger, F: Field, EF: ExtensionField<F>>(
+pub fn small_value_sumcheck_three_rounds_eq<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
     w: &Vec<EF>,
-) -> [EF; 2]
+) -> ([EF; 2], SumcheckPolynomial<EF>)
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -197,6 +200,13 @@ where
         t_1_evals[1] * linear_1_evals[1],
         t_1_evals[2] * (linear_1_evals[1] - linear_1_evals[0]), // l_1(inf) = l_1(1) - l_1(0).
     ];
+
+    // TODO: Esto es muy ineficiente. Hay que cambiar el verifier para que acepte la evaluacion en inf.
+    let eval_in_two = round_poly_evals[2] * EF::from(F::TWO).square()
+        + (round_poly_evals[1] - round_poly_evals[0] - round_poly_evals[2]) * EF::from(F::TWO)
+        + round_poly_evals[0];
+
+    let round_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
 
     // 3. Send S_1(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_1(1) porque se deduce usando S_1(0).
@@ -241,6 +251,13 @@ where
         t_2_evals[1] * linear_2_evals[1],
         t_2_evals[2] * (linear_2_evals[1] - linear_2_evals[0]), // l_2(inf) = l_2(1) - l_2(0).
     ];
+
+    // TODO: Esto es muy ineficiente. Hay que cambiar el verifier para que acepte la evaluacion en inf.
+    let eval_in_two = round_poly_evals[2] * EF::from(F::TWO).square()
+        + (round_poly_evals[1] - round_poly_evals[0] - round_poly_evals[2]) * EF::from(F::TWO)
+        + round_poly_evals[0];
+
+    let round_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
 
     // 3. Send S_2(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
@@ -312,12 +329,21 @@ where
         t_3_evals[2] * (linear_3_evals[1] - linear_3_evals[0]), // l_3(inf) = l_3(1) - l_3(0).
     ];
 
+    // TODO: Esto es muy ineficiente.
+    let eval_in_two = round_poly_evals[2] * EF::from(F::TWO).square()
+        + (round_poly_evals[1] - round_poly_evals[0] - round_poly_evals[2]) * EF::from(F::TWO)
+        + round_poly_evals[0];
+
+    let sumcheck_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
+
     // 3. Send S_3(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
-    prover_state.add_extension_scalars(&round_poly_evals);
+    prover_state.add_extension_scalars(&sumcheck_poly_evals);
+
+    let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec());
 
     // TODO: Me parece que también va a haber que devolver poly_1 y poly_2 foldeados (con r_1 y r_2) para seguir con el sumcheck.
-    [r_1, r_2]
+    ([r_1, r_2], sumcheck_poly)
 }
 
 #[cfg(test)]
