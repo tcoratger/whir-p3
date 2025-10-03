@@ -17,7 +17,7 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         statement::{Statement, constraint::Constraint, point::ConstraintPoint},
-        verifier::sumcheck::verify_sumcheck_rounds,
+        verifier::sumcheck::{verify_sumcheck_rounds, verify_sumcheck_rounds_svo},
     },
 };
 
@@ -372,8 +372,6 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     let mut rng = SmallRng::seed_from_u64(1);
     let poly = EvaluationsList::new((0..1 << num_vars).map(|_| rng.random()).collect());
 
-    println!("POLY: {:?}", poly);
-
     // PROVER
     let prover = &mut prover();
 
@@ -383,8 +381,6 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     // Sample random linear combination challenge α₀.
     let alpha: EF = prover.sample();
 
-    println!("ALPHA: {:?}", alpha);
-
     // ROUND 0
     let folding = folding_factors[0];
     let (mut sumcheck, mut prover_randomness) =
@@ -393,34 +389,34 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     // Track how many variables remain to fold
     let mut num_vars_inter = num_vars - folding;
 
-    // // INTERMEDIATE ROUNDS
-    // for (&folding, &num_points) in folding_factors
-    //     .iter()
-    //     .skip(1)
-    //     .zip(num_points.iter().skip(1))
-    // {
-    //     // Add additional equality constraints for intermediate rounds
-    //     let _ = make_inter_statement(prover, num_points, &mut sumcheck);
+    // INTERMEDIATE ROUNDS
+    for (&folding, &num_points) in folding_factors
+        .iter()
+        .skip(1)
+        .zip(num_points.iter().skip(1))
+    {
+        // Add additional equality constraints for intermediate rounds
+        let _ = make_inter_statement(prover, num_points, &mut sumcheck);
 
-    //     // Compute and apply the next folding round
-    //     prover_randomness = extend_point(
-    //         &prover_randomness,
-    //         &sumcheck.compute_sumcheck_polynomials(prover, folding, 0),
-    //     );
+        // Compute and apply the next folding round
+        prover_randomness = extend_point(
+            &prover_randomness,
+            &sumcheck.compute_sumcheck_polynomials(prover, folding, 0),
+        );
 
-    //     num_vars_inter -= folding;
+        num_vars_inter -= folding;
 
-    //     // Check that the number of variables and evaluations match the expected values
-    //     assert_eq!(sumcheck.evals.num_variables(), num_vars_inter);
-    //     assert_eq!(sumcheck.evals.num_evals(), 1 << num_vars_inter);
-    // }
+        // Check that the number of variables and evaluations match the expected values
+        assert_eq!(sumcheck.evals.num_variables(), num_vars_inter);
+        assert_eq!(sumcheck.evals.num_evals(), 1 << num_vars_inter);
+    }
 
-    // // FINAL ROUND
-    // let final_rounds = *folding_factors.last().unwrap();
-    // prover_randomness = extend_point(
-    //     &prover_randomness,
-    //     &sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0),
-    // );
+    // FINAL ROUND
+    let final_rounds = *folding_factors.last().unwrap();
+    prover_randomness = extend_point(
+        &prover_randomness,
+        &sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0),
+    );
 
     // Ensure we’ve folded all variables.
     //assert_eq!(num_vars_inter, final_rounds);
@@ -429,32 +425,12 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
 
     // Final folded value must match f(r)
     let final_folded_value = sumcheck.evals.as_constant().unwrap();
-    println!("Prover randomness: {:?}", prover_randomness);
+
     assert_eq!(poly.evaluate(&prover_randomness), final_folded_value);
     prover.add_extension_scalar(final_folded_value);
 
     // Save proof data to pass to verifier
     let proof = prover.proof_data().to_vec();
-
-    let eq_eval = eval_constraints_poly::<F, EF>(
-        false,
-        num_vars,
-        0,
-        folding_factors,
-        &[statement.constraints.clone()],
-        &[alpha],
-        &prover_randomness,
-    );
-
-    println!("Prover eq eval in r: {}", eq_eval);
-    println!(
-        "Prover Final weight: {}",
-        sumcheck.weights.as_constant().unwrap()
-    );
-
-    println!("Sum prover: {:?} ", sumcheck.sum);
-    println!("Mul prover: {:?}", final_folded_value * eq_eval);
-    println!("final_folded: {:?}", final_folded_value);
 
     // VERIFIER
     let verifier = &mut verifier(proof);
@@ -482,7 +458,7 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
         // Extend r with verifier's folding challenges
         verifier_randomness = extend_point(
             &verifier_randomness,
-            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, false).unwrap(),
+            &verify_sumcheck_rounds_svo(verifier, &mut sum, folding, 0).unwrap(),
         );
 
         num_vars_inter -= folding;
@@ -502,10 +478,9 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     let final_rounds = *folding_factors.last().unwrap();
     verifier_randomness = extend_point(
         &verifier_randomness,
-        &verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, false).unwrap(),
+        &verify_sumcheck_rounds_svo(verifier, &mut sum, final_rounds, 0).unwrap(),
     );
 
-    println!("RANDOMNESS: {:?}", verifier_randomness);
     // Check that the randomness vectors are the same
     assert_eq!(prover_randomness, verifier_randomness);
 
@@ -526,21 +501,26 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
         &verifier_randomness,
     );
 
-    let eq_eval_new = eval_eq_in_point(&constraints[0][0].point.0.0, &verifier_randomness.0);
-    println!("eq eval: {}", eq_eval);
-    println!("eq eval new: {}", eq_eval_new);
-
-    println!("Sum Verifier: {:?} ", sum);
-    println!("Mul Verifier: {:?}", final_folded_value * eq_eval);
-    println!("final_folded: {:?}", final_folded_value);
     // CHECK SUM == f(r) * eq(z, r)
     assert_eq!(sum, final_folded_value_transcript * eq_eval);
 }
 
 #[test]
 fn test_sumcheck_svo() {
-    //run_sumcheck_test(&[8, 0], &[1]);
+    // It doesn't work with folding factor smaller than 6:
+    // run_sumcheck_test_svo(&[5, 0], &[1]);
+
+    run_sumcheck_test_svo(&[6, 0], &[1]);
+    run_sumcheck_test_svo(&[7, 0], &[1]);
     run_sumcheck_test_svo(&[8, 0], &[1]);
+
+    // It doesn't work with more than one folding factor (that is, more than one iteration of sumcheck:
+    //run_sumcheck_test_svo(&[6, 6], &[1]);
+    //run_sumcheck_test_svo(&[6, 1], &[1]);
+    //run_sumcheck_test_svo(&[7, 7, 7], &[1, 1]);
+
+    // It doesn't work with num_points > 1:
+    //run_sumcheck_test_svo(&[6, 0], &[5]);
 }
 
 fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
@@ -553,8 +533,6 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     let mut rng = SmallRng::seed_from_u64(1);
     let poly = EvaluationsList::new((0..1 << num_vars).map(|_| rng.random()).collect());
 
-    println!("POLY: {:?}", poly);
-
     // PROVER
     let prover = &mut prover();
 
@@ -563,7 +541,6 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
 
     // Sample random linear combination challenge α₀.
     let alpha: EF = prover.sample();
-    println!("ALPHA: {:?}", alpha);
 
     // ROUND 0
     let folding = folding_factors[0];
@@ -615,19 +592,6 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     // Save proof data to pass to verifier
     let proof = prover.proof_data().to_vec();
 
-    let eq_eval = eval_constraints_poly::<F, EF>(
-        false,
-        num_vars,
-        0,
-        folding_factors,
-        &[statement.constraints.clone()],
-        &[alpha],
-        &prover_randomness,
-    );
-
-    println!("Sum prover: {:?} ", sumcheck.sum);
-    println!("Mul prover: {:?}", final_folded_value * eq_eval);
-
     // VERIFIER
     let verifier = &mut verifier(proof);
     let mut sum = EF::ZERO;
@@ -677,8 +641,6 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
         &verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, false).unwrap(),
     );
 
-    println!("RANDOMNESS: {:?}", verifier_randomness);
-
     // Check that the randomness vectors are the same
     assert_eq!(prover_randomness, verifier_randomness);
 
@@ -698,9 +660,6 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
         &alphas,
         &verifier_randomness,
     );
-    println!("Sum Verifier: {:?} ", sum);
-    println!("Mul Verifier: {:?}", final_folded_value * eq_eval);
-    println!("final_folded: {:?}", final_folded_value);
 
     // CHECK SUM == f(r) * eq(z, r)
     assert_eq!(sum, final_folded_value_transcript * eq_eval);

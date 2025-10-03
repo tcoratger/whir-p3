@@ -109,63 +109,12 @@ where
         0
     };
 
-    // for _ in 0..2 {
-    //     let c0 = verifier_state.next_extension_scalar()?;
-    //     let c1 = verifier_state.next_extension_scalar()?;
-    //     let c2 = verifier_state.next_extension_scalar()?;
-
-    //     // TODO: Esto se puede sacar, es solo para debugear.
-    //     assert_eq!(
-    //         *claimed_sum,
-    //         c0 + c1,
-    //         "Inconsistent claimed sum after folding"
-    //     );
-
-    //     // Optional PoW interaction (grinding resistance)
-    //     verifier_state.check_pow_grinding(pow_bits)?;
-
-    //     // Sample the next verifier folding randomness rᵢ
-    //     let rand: EF = verifier_state.sample();
-
-    //     // Update claimed sum using folding randomness
-    //     *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
-    //         .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
-
-    //     // Store this round’s randomness
-    //     randomness.push(rand);
-    // }
-
-    let mut randomness_final: Vec<EF> = Vec::new();
-
-    for i in start_round..rounds {
+    for _ in start_round..rounds {
         // Extract the first and third evaluations of the sumcheck polynomial
         // and derive the second evaluation from the latest sum
         let c0 = verifier_state.next_extension_scalar()?;
-
-        // TODO: Este if lo agregué para testear el sumcheck svo. Rompe los demás tests (sumcheck normal).
-        let mut c1 = EF::from(F::ZERO);
-        if i <= 2 {
-            // TODO: El verifier no tendría que recibir s(1), sino calcularlo como en el resto de las rondas.
-            c1 = verifier_state.next_extension_scalar()?;
-        } else {
-            c1 = *claimed_sum - c0;
-        }
-
-        // TODO: Esto se puede sacar, es solo para debugear.
-        assert_eq!(
-            *claimed_sum,
-            c0 + c1,
-            "Inconsistent claimed sum after folding"
-        );
-
-        //let c1 = *claimed_sum - c0;
-
+        let c1 = *claimed_sum - c0;
         let c2 = verifier_state.next_extension_scalar()?;
-
-        println!(
-            "Verifier Sumcheck round {} polynomial: [{}, {}, {}]",
-            i, c0, c1, c2
-        );
 
         // Optional PoW interaction (grinding resistance)
         verifier_state.check_pow_grinding(pow_bits)?;
@@ -177,20 +126,71 @@ where
         *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
             .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
 
-        if i <= 1 {
-            randomness.push(rand);
-        } else {
-            // Store this round’s randomness
-            randomness_final.push(rand);
-        }
-
-        if i == rounds - 1 {
-            println!("Final claimed sum: {}", claimed_sum);
-        }
+        // Store this round’s randomness
+        randomness.push(rand);
     }
 
     // We should reverse the order of the randomness points:
     // This is because the randomness points are originally reverted at the end of the sumcheck rounds.
+    randomness.reverse();
+
+    Ok(MultilinearPoint::new(randomness))
+}
+
+pub(crate) fn verify_sumcheck_rounds_svo<EF, F, Challenger>(
+    verifier_state: &mut VerifierState<F, EF, Challenger>,
+    claimed_sum: &mut EF,
+    rounds: usize,
+    pow_bits: usize,
+) -> ProofResult<SumcheckRandomness<EF>>
+where
+    F: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+{
+    // Preallocate vector to hold the randomness values
+    let mut randomness = Vec::with_capacity(rounds);
+
+    let mut randomness_final: Vec<EF> = Vec::new();
+
+    for i in 0..rounds {
+        // Extract the first and third evaluations of the sumcheck polynomial
+        // and derive the second evaluation from the latest sum
+        let c0 = verifier_state.next_extension_scalar()?;
+
+        let mut c1 = EF::from(F::ZERO);
+
+        // In the first three round the prover sends s(1).
+        if i <= 2 {
+            // TODO: El verifier no tendría que recibir s(1), sino calcularlo como en el resto de las rondas.
+            c1 = verifier_state.next_extension_scalar()?;
+        } else {
+            c1 = *claimed_sum - c0;
+        }
+
+        let c2 = verifier_state.next_extension_scalar()?;
+
+        // Optional PoW interaction (grinding resistance)
+        verifier_state.check_pow_grinding(pow_bits)?;
+
+        // Sample the next verifier folding randomness rᵢ
+        let rand: EF = verifier_state.sample();
+
+        // Update claimed sum using folding randomness
+        *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
+            .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
+
+        // In the first three round the challengers are stored from left to right.
+        if i <= 2 {
+            randomness.push(rand);
+        } else {
+            // In the remaining rounds the challengers should be stored from right to left.
+            randomness_final.push(rand);
+        }
+    }
+
+    // We reverse the order of the remaining challenges so that they are stored from right to left.
+    // This is because the original sumhceck fixes the polynomial variables from right to left.
     randomness_final.reverse();
 
     randomness.extend(randomness_final);
