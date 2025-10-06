@@ -91,13 +91,11 @@ where
         // We assume the the statemas has only one constraint.
         let w = statement.constraints[0].point.0.clone();
 
-        let ([r_1, r_2], sumcheck_poly) =
-            small_value_sumcheck_three_rounds_eq(prover_state, evals, &w);
+        let (r_1, r_2, r_3) =
+            small_value_sumcheck_three_rounds_eq(prover_state, evals, &w, &mut sum);
         res.push(r_1);
         res.push(r_2);
-
-        // Sample verifier challenge.
-        let r_3: EF = prover_state.sample();
+        res.push(r_3);
 
         let mut evals = join(|| weights.compress_svo(r_1), || evals.compress_ext_svo(r_1)).1;
 
@@ -106,11 +104,6 @@ where
 
         // Compress polynomials and update the sum.
         join(|| evals.compress_svo(r_3), || weights.compress_svo(r_3));
-
-        let eval_1 = sum - sumcheck_poly[0];
-        sum = sumcheck_poly[1] * r_3.square() + (eval_1 - sumcheck_poly[0] - sumcheck_poly[1]) * r_3 + sumcheck_poly[0];
-
-        res.push(r_3);
 
         let mut res_remaining: Vec<EF> = (3..folding_factor)
             .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits))
@@ -123,5 +116,5 @@ where
         let sumcheck = Self::new(evals, weights, sum);
 
         (sumcheck, MultilinearPoint::new(res))
-    }
+    }   
 }

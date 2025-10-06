@@ -160,7 +160,7 @@ where
 
         let c1 = *claimed_sum - c0;
     
-        let c_inf = verifier_state.next_extension_scalar()?;
+        let c2 = verifier_state.next_extension_scalar()?;
 
         // Optional PoW interaction (grinding resistance)
         verifier_state.check_pow_grinding(pow_bits)?;
@@ -172,7 +172,14 @@ where
         // *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
         //     .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
 
-        *claimed_sum = c_inf * rand.square() + (c1 - c0 - c_inf) * rand + c0;
+        if i <= 2 {
+            *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
+
+            // sum = sumcheck_poly[1] * r_3.square() + (eval_1 - sumcheck_poly[0] - sumcheck_poly[1]) * r_3 + sumcheck_poly[0];
+        } else {
+            *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
+                .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
+        }
 
         // In the first three round the challengers are stored from left to right.
         if i <= 2 {
