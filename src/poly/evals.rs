@@ -220,6 +220,31 @@ where
         }
     }
 
+    #[inline]
+    pub fn compress_svo(&mut self, r: F) {
+        // Ensure the polynomial is not a constant (i.e., has variables to fold).
+        assert_ne!(self.num_variables(), 0);
+
+        // For large inputs, we use a parallel, out-of-place strategy.
+        if self.num_evals() >= PARALLEL_THRESHOLD {
+            // Define the folding operation for a pair of elements.
+            let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
+            // Execute the fold in parallel and collect into a new vector.
+            let folded = self.0.par_chunks_exact(2).map(fold).collect();
+            // Replace the old evaluations with the new, folded evaluations.
+            self.0 = folded;
+        } else {
+            // For smaller inputs, we use a sequential, in-place strategy.
+            let mid = self.num_evals() / 2;
+            for i in 0..mid {
+                let p0 = self.0[i];
+                let p1 = self.0[mid + i];
+                self.0[i] = r * (p1 - p0) + p0;
+            }
+            self.0.truncate(mid);
+        }
+    }
+
     /// Folds a list of evaluations from a base field `F` into an extension field `EF`.
     ///
     /// ## Arguments
@@ -249,6 +274,27 @@ where
         } else {
             self.0.chunks_exact(2).map(fold).collect()
         };
+
+        EvaluationsList::new(folded)
+    }
+
+    #[inline]
+    #[instrument(skip_all)]
+    pub fn compress_ext_svo<EF: ExtensionField<F>>(&self, r: EF) -> EvaluationsList<EF> {
+        assert_ne!(self.num_variables(), 0);
+
+        // Fold between base and extension field elements
+        let fold = |slice: &[F]| -> EF { r * (slice[1] - slice[0]) + slice[0] };
+
+        let mid = self.num_evals() / 2;
+
+        // Fold first half with second half: (0,4), (1,5), (2,6), (3,7)
+        let folded = (0..mid)
+            .map(|i| {
+                let pair = [self.0[i], self.0[i + mid]];
+                fold(&pair)
+            })
+            .collect();
 
         EvaluationsList::new(folded)
     }
@@ -449,8 +495,6 @@ where
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -1372,7 +1416,6 @@ mod tests {
         let _ = evals_list.compress_ext(EF4::ONE); // This should panic.
     }
 
-  
     proptest! {
         #[test]
         fn prop_compress_and_compress_ext_agree(

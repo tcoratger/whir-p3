@@ -4,9 +4,12 @@ use crate::{
     sumcheck::small_value_utils::{
         Accumulators, compute_p_beta, idx4, idx4_v2, to_base_three_coeff,
     },
+    whir::verifier::sumcheck,
 };
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
+
+use super::sumcheck_polynomial::SumcheckPolynomial;
 use p3_multilinear_util::eq::eval_eq;
 
 // WE ASSUME THE NUMBER OF ROUNDS WE ARE DOING WITH SMALL VALUES IS 3
@@ -138,11 +141,11 @@ fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
 // Algorithm 6. Page 19.
 // Compute three sumcheck rounds using the small value optimizaition and split-eq accumulators.
 // It Returns the two challenges r_1 and r_2 (TODO: creo que debería devolver también los polys foldeados).
-fn small_value_sumcheck_three_rounds_eq<Challenger, F: Field, EF: ExtensionField<F>>(
+pub fn small_value_sumcheck_three_rounds_eq<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
-    w: &MultilinearPoint<EF>,
-) -> [EF; 2]
+     w: &MultilinearPoint<EF>,
+) -> ([EF; 2], SumcheckPolynomial<EF>)
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -253,10 +256,12 @@ where
 
     // 3. Send S_3(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
-    prover_state.add_extension_scalars(&round_poly_evals);
+    prover_state.add_extension_scalars(&sumcheck_poly_evals);
+
+    let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec());
 
     // TODO: Me parece que también va a haber que devolver poly_1 y poly_2 foldeados (con r_1 y r_2) para seguir con el sumcheck.
-    [r_1, r_2]
+    ([r_1, r_2], sumcheck_poly)
 }
 
 #[cfg(test)]
