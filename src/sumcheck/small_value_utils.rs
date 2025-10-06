@@ -111,27 +111,18 @@ pub fn idx4(index_beta: usize) -> [Option<usize>; 3] {
     let [b1, b2, b3] = to_base_three_coeff(index_beta);
 
     match (b1, b2, b3) {
-        (_, _, 2) => {
-            if b1 != 2 {
-                return [None, None, Some(b1 * 9 + b2 * 3 + b3)];
-            } else {
-                [None, None, None]
-            }
-        }
-        (_, 2, _) => {
-            if b2 != 2 {
-                [None, Some(b1 * 3 + b2), Some(b1 * 9 + b2 * 3 + b3)]
-            } else {
-                [None, None, Some(b1 * 9 + b2 * 3 + b3)]
-            }
-        }
-        _ => {
-            if b3 != 2 {
-                [Some(b1), Some(b1 * 3 + b2), Some(b1 * 9 + b2 * 3 + b3)]
-            } else {
-                [Some(b1), Some(b1 * 3 + b2), None]
-            }
-        }
+        (_, _, 2) => [None, None, Some(b1 * 9 + b2 * 3 + b3)],
+        (_, 2, _) => [None, Some(b1 * 3 + b2), Some(b1 * 9 + b2 * 3 + b3)],
+        _ => [Some(b1), Some(b1 * 3 + b2), Some(b1 * 9 + b2 * 3 + b3)],
+    }
+}
+
+pub fn idx4_v2(index_beta: usize) -> [Option<usize>; 3] {
+    let [b1, b2, b3] = to_base_three_coeff(index_beta);
+
+    match (b1, b2, b3) {
+        (_, _, 2) | (_, 2, _) | (2, _, _) => [None, None, None],
+        _ => [Some(b1), Some(b1 * 3 + b2), Some(b1 * 9 + b2 * 3 + b3)],
     }
 }
 

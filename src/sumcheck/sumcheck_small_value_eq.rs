@@ -1,7 +1,9 @@
 use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::small_value_utils::{Accumulators, compute_p_beta, idx4, to_base_three_coeff},
+    sumcheck::small_value_utils::{
+        Accumulators, compute_p_beta, idx4, idx4_v2, to_base_three_coeff,
+    },
 };
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
@@ -67,8 +69,9 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
             }
         }
 
+        // TODO: This can be hardcoded for better performance.
         for beta_index in 0..27 {
-            let [index_1, index_2, index_3] = idx4(beta_index);
+            let [index_1, index_2, index_3] = idx4_v2(beta_index);
             let [_, beta_2, beta_3] = to_base_three_coeff(beta_index);
             let temp_acc = temp_accumulators[beta_index];
 
@@ -125,10 +128,9 @@ pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
     [const_eq * (F::ONE - *w_i), const_eq * *w_i]
 }
 
-fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 3] {
+fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
     [
         t[0] * l[0],          // s(0)
-        t[1] * l[1],          // s(1)
         t[2] * (l[1] - l[0]), //s(inf) -> l(inf) = l(1) - l(0)
     ]
 }
@@ -161,17 +163,11 @@ where
     // We compute l_1(0) and l_1(1)
     let linear_1_evals = compute_linear_function(&w.0[..1], &[]);
 
-    // We compute S_1(u)
-    let round_poly_evals = [
-        t_1_evals[0] * linear_1_evals[0],
-        // t_1_evals[1] * linear_1_evals[1],
-        t_1_evals[2] * (linear_1_evals[1] - linear_1_evals[0]), // l_1(inf) = l_1(1) - l_1(0).
-    ];
+    // We compute S_1(0) and S_1(inf)
+    let round_poly_evals = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals);
 
-    // 3. Send S_1(u) to the verifier.
-    // TODO: En realidad no hace falta mandar S_1(1) porque se deduce usando S_1(0).
+    // 3. Send S_1(u) to the verifier.d
     prover_state.add_extension_scalars(&round_poly_evals);
-    println!("S1: {:?}", round_poly_evals);
 
     // 4. Receive the challenge r_1 from the verifier.
     let r_1: EF = prover_state.sample();
@@ -180,7 +176,7 @@ where
     // L_0 (x) = 1 - x
     // L_1 (x) = x
     // L_inf (x) = (x - 1)x
-    let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1, (r_1 - F::ONE) * r_1];
+    let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1];
 
     // ------------------ Round 2 ------------------
 
@@ -189,18 +185,13 @@ where
     // There are 9 accumulators, since v in {0, 1, inf} and u in {0, 1, inf}.
     let accumulators_round_2 = accumulators.get_accumulators_for_round(1);
 
-    let mut t_2_evals = [EF::ZERO; 3];
+    let mut t_2_evals = [EF::ZERO; 2];
 
     t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
     t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[3];
 
     t_2_evals[1] += lagrange_evals_r_1[0] * accumulators_round_2[1];
     t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[4];
-
-    t_2_evals[2] += lagrange_evals_r_1[0] * accumulators_round_2[2];
-    t_2_evals[2] += lagrange_evals_r_1[1] * accumulators_round_2[5];
-
-    // 2. For u in {0, 1, inf} compute S_2(u) = t_2(u) * l_2(u).
 
     // We compute l_2(0) and l_12inf)
     let linear_2_evals = compute_linear_function(&w.0[..2], &[r_1]);
@@ -213,8 +204,6 @@ where
     // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
     prover_state.add_extension_scalars(&round_poly_evals);
 
-    println!("S2: {:?}", round_poly_evals);
-
     // 4. Receive the challenge r_2 from the verifier.
     let r_2: EF = prover_state.sample();
 
@@ -224,20 +213,14 @@ where
     // ...
     // L_{inf inf} (x1, x2) = (x1 - 1) * x1 * (x2 - 1) * x2
 
-    let [l_0, l_1, l_inf] = lagrange_evals_r_1;
+    let [l_0, l_1] = lagrange_evals_r_1;
     let one_minus_r_2 = -r_2 + F::ONE;
-    let mul_inf = (r_2 - F::ONE) * r_2;
 
     let lagrange_evals_r_2 = [
-        l_0 * one_minus_r_2,   // L_0 0
-        l_0 * r_2,             // L_0 1
-        l_0 * mul_inf,         // L_0 inf
-        l_1 * one_minus_r_2,   // L_1 0
-        l_1 * r_2,             // L_1 1
-        l_1 * mul_inf,         // L_1 inf
-        l_inf * one_minus_r_2, // L_inf 0
-        l_inf * r_2,           // L_inf 1
-        l_inf * mul_inf,       // L_inf inf
+        l_0 * one_minus_r_2, // L_0 0
+        l_0 * r_2,           // L_0 1
+        l_1 * one_minus_r_2, // L_1 0
+        l_1 * r_2,           // L_1 1
     ];
 
     // Round 3
@@ -248,23 +231,17 @@ where
     // There are 27 accumulators, since v in {0, 1, inf}^2 and u in {0, 1, inf}.
     let accumulators_round_3 = accumulators.get_accumulators_for_round(2);
 
-    let mut t_3_evals = [EF::ZERO; 3];
+    let mut t_3_evals = [EF::ZERO; 2];
 
     t_3_evals[0] += lagrange_evals_r_2[0] * accumulators_round_3[0]; // (0,0,u=0)
-    t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (0,0,u=1)
-    t_3_evals[2] += lagrange_evals_r_2[0] * accumulators_round_3[2]; // (0,0,u=∞)
-
     t_3_evals[0] += lagrange_evals_r_2[1] * accumulators_round_3[3]; // (1,0,u=0)
+    t_3_evals[0] += lagrange_evals_r_2[2] * accumulators_round_3[9]; // (0,1,u=0)
+    t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[12]; // (1,1,u=0)
+
+    t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (0,0,u=1)
     t_3_evals[1] += lagrange_evals_r_2[1] * accumulators_round_3[4]; // (1,0,u=1)
-    t_3_evals[2] += lagrange_evals_r_2[1] * accumulators_round_3[5]; // (1,0,u=∞)
-
-    t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[9]; // (0,1,u=0)
-    t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[10]; // (0,1,u=1)
-    t_3_evals[2] += lagrange_evals_r_2[3] * accumulators_round_3[11]; // (0,1,u=∞)
-
-    t_3_evals[0] += lagrange_evals_r_2[4] * accumulators_round_3[12]; // (1,1,u=0)
-    t_3_evals[1] += lagrange_evals_r_2[4] * accumulators_round_3[13]; // (1,1,u=1)
-    t_3_evals[2] += lagrange_evals_r_2[4] * accumulators_round_3[14]; // (1,1,u=∞)
+    t_3_evals[1] += lagrange_evals_r_2[2] * accumulators_round_3[10]; // (0,1,u=1)
+    t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[13]; // (1,1,u=1)
 
     // 2. For u in {0, 1, inf} compute S_3(u) = t_3(u) * l_3(u).
 
@@ -277,7 +254,6 @@ where
     // 3. Send S_3(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
     prover_state.add_extension_scalars(&round_poly_evals);
-    println!("S3: {:?}", round_poly_evals);
 
     // TODO: Me parece que también va a haber que devolver poly_1 y poly_2 foldeados (con r_1 y r_2) para seguir con el sumcheck.
     [r_1, r_2]
@@ -1000,11 +976,10 @@ mod tests {
         poly.iter().zip(eq.iter()).map(|(p, e)| *e * *p).sum()
     }
 
-    fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 3] {
+    fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
         [
-            t[0] * l[0],          // s(0)
-            t[1] * l[1],          // s(1)
-            t[2] * (l[1] - l[0]), //s(inf) -> l(inf) = l(1) - l(0)
+            t[0] * l[0],                   // s(0)
+            (t[1] - t[0]) * (l[1] - l[0]), // s(inf) -> l(inf) = l(1) - l(0)
         ]
     }
 
@@ -1035,20 +1010,15 @@ mod tests {
         // We compute l_1(0) and l_1(1)
         let linear_1_evals = compute_linear_function(&w.0[..1], &[]);
 
-        // We compute S_1(u)
-        let round_poly_evals = [
-            t_1_evals[0] * linear_1_evals[0],
-            t_1_evals[1] * linear_1_evals[1],
-            t_1_evals[2] * (linear_1_evals[1] - linear_1_evals[0]), // l_1(inf) = l_1(1) - l_1(0).
-        ];
+        // We compute S_1(0) and S_1(inf)
+        let round_poly_evals = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals);
 
         println!("ROUND 1 EQ: {:?}", round_poly_evals);
 
         // 5. Compte R_2 = [L_0(r_1), L_1(r_1), L_inf(r_1)]
         // L_0 (x) = 1 - x
         // L_1 (x) = x
-        // L_inf (x) = (x - 1)x
-        let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1, (r_1 - F::ONE) * r_1];
+        let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1];
 
         // ------------------ Round 2 ------------------
 
@@ -1057,7 +1027,7 @@ mod tests {
         // There are 9 accumulators, since v in {0, 1, inf} and u in {0, 1, inf}.
         let accumulators_round_2 = accumulators.get_accumulators_for_round(1);
 
-        let mut t_2_evals = [F::ZERO; 3];
+        let mut t_2_evals = [F::ZERO; 2];
 
         t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
         t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[3];
@@ -1065,15 +1035,12 @@ mod tests {
         t_2_evals[1] += lagrange_evals_r_1[0] * accumulators_round_2[1];
         t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[4];
 
-        t_2_evals[2] += lagrange_evals_r_1[0] * accumulators_round_2[2];
-        t_2_evals[2] += lagrange_evals_r_1[1] * accumulators_round_2[5];
-
         // 2. For u in {0, 1, inf} compute S_2(u) = t_2(u) * l_2(u).
 
-        // We compute l_2(0) and l_12inf)
+        // We compute l_2(0) and l_2(inf)
         let linear_2_evals = compute_linear_function(&w.0[..2], &[r_1]);
 
-        // We compute S_2(u)
+        // We compute S_2(0) and S_2(inf)
         let round_poly_evals = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
 
         println!("ROUND 2 EQ: {:?}", round_poly_evals);
@@ -1084,20 +1051,15 @@ mod tests {
         // ...
         // L_{inf inf} (x1, x2) = (x1 - 1) * x1 * (x2 - 1) * x2
 
-        let [l_0, l_1, l_inf] = lagrange_evals_r_1;
+        let [l_0, l_1] = lagrange_evals_r_1;
         let one_minus_r_2 = -r_2 + F::ONE;
-        let mul_inf = (r_2 - F::ONE) * r_2;
+        // let mul_inf = (r_2 - F::ONE) * r_2;
 
         let lagrange_evals_r_2 = [
-            l_0 * one_minus_r_2,   // L_0 0
-            l_0 * r_2,             // L_0 1
-            l_0 * mul_inf,         // L_0 inf
-            l_1 * one_minus_r_2,   // L_1 0
-            l_1 * r_2,             // L_1 1
-            l_1 * mul_inf,         // L_1 inf
-            l_inf * one_minus_r_2, // L_inf 0
-            l_inf * r_2,           // L_inf 1
-            l_inf * mul_inf,       // L_inf inf
+            l_0 * one_minus_r_2, // L_0 0
+            l_0 * r_2,           // L_0 1
+            l_1 * one_minus_r_2, // L_1 0
+            l_1 * r_2,           // L_1 1
         ];
 
         // Round 3
@@ -1108,23 +1070,17 @@ mod tests {
         // There are 27 accumulators, since v in {0, 1, inf}^2 and u in {0, 1, inf}.
         let accumulators_round_3 = accumulators.get_accumulators_for_round(2);
 
-        let mut t_3_evals = [F::ZERO; 3];
+        let mut t_3_evals = [F::ZERO; 2];
 
         t_3_evals[0] += lagrange_evals_r_2[0] * accumulators_round_3[0]; // (0,0,u=0)
-        t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (0,0,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[0] * accumulators_round_3[2]; // (0,0,u=∞)
-
         t_3_evals[0] += lagrange_evals_r_2[1] * accumulators_round_3[3]; // (1,0,u=0)
+        t_3_evals[0] += lagrange_evals_r_2[2] * accumulators_round_3[9]; // (0,1,u=0)
+        t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[12]; // (1,1,u=0)
+
+        t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (0,0,u=1)
         t_3_evals[1] += lagrange_evals_r_2[1] * accumulators_round_3[4]; // (1,0,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[1] * accumulators_round_3[5]; // (1,0,u=∞)
-
-        t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[9]; // (0,1,u=0)
-        t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[10]; // (0,1,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[3] * accumulators_round_3[11]; // (0,1,u=∞)
-
-        t_3_evals[0] += lagrange_evals_r_2[4] * accumulators_round_3[12]; // (1,1,u=0)
-        t_3_evals[1] += lagrange_evals_r_2[4] * accumulators_round_3[13]; // (1,1,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[4] * accumulators_round_3[14]; // (1,1,u=∞)
+        t_3_evals[1] += lagrange_evals_r_2[2] * accumulators_round_3[10]; // (0,1,u=1)
+        t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[13]; // (1,1,u=1)
 
         // 2. For u in {0, 1, inf} compute S_3(u) = t_3(u) * l_3(u).
 
