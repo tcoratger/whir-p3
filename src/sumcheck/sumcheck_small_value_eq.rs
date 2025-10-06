@@ -134,7 +134,7 @@ pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
 fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
     [
         t[0] * l[0],          // s(0)
-        t[2] * (l[1] - l[0]), //s(inf) -> l(inf) = l(1) - l(0)
+        (t[1] - t[0]) * (l[1] - l[0]), //s(inf) -> l(inf) = l(1) - l(0)
     ]
 }
 
@@ -145,7 +145,7 @@ pub fn small_value_sumcheck_three_rounds_eq<Challenger, F: Field, EF: ExtensionF
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
      w: &MultilinearPoint<EF>,
-) -> ([EF; 2], SumcheckPolynomial<EF>)
+) -> ([EF; 2], [EF; 2])
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -256,12 +256,10 @@ where
 
     // 3. Send S_3(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
-    prover_state.add_extension_scalars(&sumcheck_poly_evals);
-
-    let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec());
+    prover_state.add_extension_scalars(&round_poly_evals);
 
     // TODO: Me parece que también va a haber que devolver poly_1 y poly_2 foldeados (con r_1 y r_2) para seguir con el sumcheck.
-    ([r_1, r_2], sumcheck_poly)
+    ([r_1, r_2], round_poly_evals)
 }
 
 #[cfg(test)]

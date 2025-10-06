@@ -158,17 +158,9 @@ where
         // and derive the second evaluation from the latest sum
         let c0 = verifier_state.next_extension_scalar()?;
 
-        let mut c1 = EF::from(F::ZERO);
-
-        // In the first three round the prover sends s(1).
-        if i <= 2 {
-            // TODO: El verifier no tendría que recibir s(1), sino calcularlo como en el resto de las rondas.
-            c1 = verifier_state.next_extension_scalar()?;
-        } else {
-            c1 = *claimed_sum - c0;
-        }
-
-        let c2 = verifier_state.next_extension_scalar()?;
+        let c1 = *claimed_sum - c0;
+    
+        let c_inf = verifier_state.next_extension_scalar()?;
 
         // Optional PoW interaction (grinding resistance)
         verifier_state.check_pow_grinding(pow_bits)?;
@@ -177,8 +169,10 @@ where
         let rand: EF = verifier_state.sample();
 
         // Update claimed sum using folding randomness
-        *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
-            .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
+        // *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
+        //     .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
+
+        *claimed_sum = c_inf * rand.square() + (c1 - c0 - c_inf) * rand + c0;
 
         // In the first three round the challengers are stored from left to right.
         if i <= 2 {

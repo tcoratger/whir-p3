@@ -89,7 +89,7 @@ where
         let (mut weights, mut sum) = statement.combine::<F>(combination_randomness);
 
         // We assume the the statemas has only one constraint.
-        let w = statement.constraints[0].point.0.0.clone();
+        let w = statement.constraints[0].point.0.clone();
 
         let ([r_1, r_2], sumcheck_poly) =
             small_value_sumcheck_three_rounds_eq(prover_state, evals, &w);
@@ -107,7 +107,8 @@ where
         // Compress polynomials and update the sum.
         join(|| evals.compress_svo(r_3), || weights.compress_svo(r_3));
 
-        sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r_3]));
+        let eval_1 = sum - sumcheck_poly[0];
+        sum = sumcheck_poly[1] * r_3.square() + (eval_1 - sumcheck_poly[0] - sumcheck_poly[1]) * r_3 + sumcheck_poly[0];
 
         res.push(r_3);
 
