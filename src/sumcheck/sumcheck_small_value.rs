@@ -277,6 +277,13 @@ mod tests {
         assert_eq!(accumulator_round_1.accumulators[2], F::from_int(512));
     }
 
+    fn naive_sumcheck_verification<F: Field>(
+        poly_1: EvaluationsList<F>,
+        poly_2: EvaluationsList<F>,
+    ) -> F {
+        poly_1.iter().zip(poly_2.iter()).map(|(p, q)| *p * *q).sum()
+    }
+
     #[test]
     fn test_svo_sumcheck_rounds_simulation() {
         // In this test, we simulate the function `small_value_sumcheck_three_rounds` using r1 = 2 and r2 = 1 as challenges,
@@ -288,12 +295,16 @@ mod tests {
 
         let round_accumulators = compute_accumulators(&poly_1, &poly_2);
 
+        let expected_sum = naive_sumcheck_verification(poly_1, poly_2);
         // Round 1
 
         // 1. For u in {0, 1, inf} compute S_1(u).
         // Recall: S_1(u) = A_1(u).
 
         let round_poly_evals = &round_accumulators[0].accumulators;
+
+        // We check S_1(0) + S_1(1) = expected_sum
+        assert_eq!(round_poly_evals[0] + round_poly_evals[1], expected_sum);
 
         // 2. We check S_1(x) = 64 * x^2 + 48 * x + 14 (we computed it by hand).
         assert_eq!(round_poly_evals[0], F::from_int(14)); // S_1(0)
@@ -302,6 +313,11 @@ mod tests {
 
         // 3. Receive the challenge r_1 from the verifier. We fix it as 2 for testing.
         let r_1: EF = EF::TWO;
+
+        // We compute S_1(r):
+        let expected_eval = r_1.square() * round_poly_evals[2]
+            + r_1 * (round_poly_evals[1] - round_poly_evals[0] - round_poly_evals[2])
+            + round_poly_evals[0];
 
         // 4. Compte R_2 = [L_0(r_1), L_1(r_1), L_inf(r_1)]
         // L_0 (x) = 1 - x
@@ -324,6 +340,8 @@ mod tests {
             round_poly_evals[2] += lagrange_evals_r_1[lagrange_index] * chunk[2];
         }
 
+        assert_eq!(round_poly_evals[0] + round_poly_evals[1], expected_eval);
+
         // 2. We check S_2(x) = 8 * x^2 + 68 * x + 145 (we computed it by hand).
         assert_eq!(round_poly_evals[0], EF::from(F::from_int(145))); // S_2(0)
         assert_eq!(round_poly_evals[1], EF::from(F::from_int(221))); // S_2(1)
@@ -331,6 +349,11 @@ mod tests {
 
         // 3. Receive the challenge r_2 from the verifier. We fix it as 1 for testing.
         let r_2: EF = EF::ONE;
+
+        // We compute S_2(r):
+        let expected_eval = r_2.square() * round_poly_evals[2]
+            + r_2 * (round_poly_evals[1] - round_poly_evals[0] - round_poly_evals[2])
+            + round_poly_evals[0];
 
         // 4. Compute R_3 = [L_00(r_1, r_2), L_01(r_1, r_2), ..., L_{inf inf}(r_1, r_2)]
         // L_00 (x1, x2) = (1 - x1) * (1 - x2)
@@ -388,6 +411,8 @@ mod tests {
             round_poly_evals[2] +=
                 lagrange_evals_r_2[lagrange_index * 3 + 2] * accumulators_chunk[8];
         }
+
+        assert_eq!(round_poly_evals[0] + round_poly_evals[1], expected_eval);
 
         // 2. We check S_3(x) = x^2 + 20 * x + 100 (we computed it by hand).
         assert_eq!(round_poly_evals[0], EF::from(F::from_int(100))); // S_3(0)

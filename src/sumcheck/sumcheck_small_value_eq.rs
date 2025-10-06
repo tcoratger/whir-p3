@@ -1,8 +1,8 @@
 use crate::{
     fiat_shamir::prover::ProverState,
-    poly::evals::EvaluationsList,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::small_value_utils::{
-        NUM_OF_ROUNDS, RoundAccumlators, compute_p_beta, idx4, to_base_three_coeff,
+        Accumulators, compute_p_beta, idx4, idx4_v2, to_base_three_coeff,
     },
     whir::verifier::sumcheck,
 };
@@ -10,26 +10,27 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
+use p3_multilinear_util::eq::eval_eq;
 
-// TODO: w could be a MultilinearPoitn?
-fn precompute_e_in<F: Field>(w: &Vec<F>) -> Vec<F> {
-    let half_l = w.len() / 2;
-    let w_in = w[NUM_OF_ROUNDS..NUM_OF_ROUNDS + half_l].to_vec();
+// WE ASSUME THE NUMBER OF ROUNDS WE ARE DOING WITH SMALL VALUES IS 3
+const NUM_OF_ROUNDS: usize = 3;
+
+fn precompute_e_in<F: Field>(w: &MultilinearPoint<F>) -> Vec<F> {
+    let half_l = w.num_variables() / 2;
+    let w_in = w.0[NUM_OF_ROUNDS..NUM_OF_ROUNDS + half_l].to_vec();
     eval_eq_in_hypercube(&w_in)
 }
 
-fn precompute_e_out<F: Field>(w: &Vec<F>) -> [Vec<F>; NUM_OF_ROUNDS] {
-    let half_l = w.len() / 2;
-    let mut res = [(); NUM_OF_ROUNDS].map(|_| Vec::new());
-    for round in 0..NUM_OF_ROUNDS {
-        let w_out: Vec<F> = w[round + 1..NUM_OF_ROUNDS]
-            .iter()
-            .chain(&w[half_l + NUM_OF_ROUNDS..])
-            .cloned()
-            .collect();
-        res[round] = eval_eq_in_hypercube(&w_out)
-    }
-    res
+fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_OF_ROUNDS] {
+    let half_l = w.num_variables() / 2;
+    let w_out_len = w.num_variables() - half_l - 1;
+
+    std::array::from_fn(|round| {
+        let mut w_out = Vec::with_capacity(w_out_len);
+        w_out.extend_from_slice(&w.0[round + 1..NUM_OF_ROUNDS]);
+        w_out.extend_from_slice(&w.0[half_l + NUM_OF_ROUNDS..]);
+        eval_eq_in_hypercube(&w_out)
+    })
 }
 
 // Procedure 9. Page 37.
@@ -37,22 +38,13 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
     poly: &EvaluationsList<F>,
     e_in: Vec<EF>,
     e_out: [Vec<EF>; NUM_OF_ROUNDS],
-) -> [RoundAccumlators<EF>; NUM_OF_ROUNDS] {
+) -> Accumulators<EF> {
     let l = poly.num_variables();
     let half_l = l / 2;
 
-    // We initialize the accumulators for each round: A_1, A_2 and A_3.
-    let mut round_1_accumulator = RoundAccumlators::<EF>::new_empty(1);
-    let mut round_2_accumulator = RoundAccumlators::<EF>::new_empty(2);
-    let mut round_3_accumulator = RoundAccumlators::<EF>::new_empty(3);
+    let mut accumulators = Accumulators::<EF>::new_empty();
 
-    let x_out_num_variables: usize;
-    if l % 2 == 0 {
-        x_out_num_variables = half_l - NUM_OF_ROUNDS;
-    } else {
-        x_out_num_variables = half_l - NUM_OF_ROUNDS + 1;
-    }
-
+    let x_out_num_variables = half_l - NUM_OF_ROUNDS + (l % 2);
     debug_assert_eq!(half_l + x_out_num_variables, l - NUM_OF_ROUNDS);
 
     for x_out in 0..1 << (x_out_num_variables) {
@@ -61,84 +53,58 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
         for x_in in 0..1 << half_l {
             // We collect the evaluations of p(X_0, X_1, X_2, x_in, x_out) where
             // x_in and x_out are fixed and X_0, X_1, X_2 are variables.
+            let start_index = (x_in << x_out_num_variables) | x_out;
+            let step_size = 1 << (l - NUM_OF_ROUNDS);
+
             let current_evals: Vec<F> = poly
                 .iter()
-                .skip((x_in << x_out_num_variables) | x_out) // x_in || x_out
-                .step_by(1 << (l - NUM_OF_ROUNDS))
-                .cloned()
+                .skip(start_index)
+                .step_by(step_size)
+                .copied()
                 .collect();
 
             // We compute p(beta, x_in, x_out) for all beta in {0, 1, inf}^3
             let p_evals = compute_p_beta(current_evals);
+            let e_in_value = e_in[x_in];
 
-            // TODO: change it to a map.
-            for beta_index in 0..27 {
-                temp_accumulators[beta_index] += e_in[x_in] * p_evals[beta_index];
+            for (accumulator, &p_eval) in temp_accumulators.iter_mut().zip(&p_evals) {
+                *accumulator += e_in_value * p_eval;
             }
         }
 
+        // TODO: This can be hardcoded for better performance.
         for beta_index in 0..27 {
-            let [
-                index_accumulator_1,
-                index_accumulator_2,
-                index_accumulator_3,
-            ] = idx4(beta_index);
-
+            let [index_1, index_2, index_3] = idx4_v2(beta_index);
             let [_, beta_2, beta_3] = to_base_three_coeff(beta_index);
+            let temp_acc = temp_accumulators[beta_index];
 
-            if let Some(index) = index_accumulator_1 {
-                // We need e_out[0][beta_2 || beta_3 || x_out] because:
-                // y = beta_2 || beta_3.
-                // Recall that in round 1, beta_2 and beta_3 are in {0, 1} since they represent y1 and y2 (if not, then index is None.)
+            // Accumulator 1: uses y = beta_2 || beta_3
+            if let Some(index) = index_1 {
                 let y = beta_2 << 1 | beta_3;
-                round_1_accumulator.accumulate_eval(
-                    e_out[0][(y << x_out_num_variables) | x_out] * temp_accumulators[beta_index],
-                    index,
-                );
+                let e_out_value = e_out[0][(y << x_out_num_variables) | x_out];
+                accumulators.accumulate(0, index, e_out_value * temp_acc);
             }
 
-            if let Some(index) = index_accumulator_2 {
-                // We need e_out[1][beta_3 || x_out] because:
-                // y = beta_3.
-                // Recall beta_3 in {0, 1} since it represents y (if not, then index is None.).
-                round_2_accumulator.accumulate_eval(
-                    e_out[1][(beta_3 << x_out_num_variables) | x_out]
-                        * temp_accumulators[beta_index],
-                    index,
-                );
+            // Accumulator 2: uses y = beta_3
+            if let Some(index) = index_2 {
+                let y = beta_3;
+                let e_out_value = e_out[1][(y << x_out_num_variables) | x_out];
+                accumulators.accumulate(1, index, e_out_value * temp_acc);
             }
 
-            if let Some(index) = index_accumulator_3 {
-                round_3_accumulator
-                    .accumulate_eval(e_out[2][x_out] * temp_accumulators[beta_index], index);
+            // Accumulator 3: uses x_out directly
+            if let Some(index) = index_3 {
+                accumulators.accumulate(2, index, e_out[2][x_out] * temp_acc);
             }
         }
     }
-    let result = [
-        round_1_accumulator,
-        round_2_accumulator,
-        round_3_accumulator,
-    ];
-    result
+    accumulators
 }
 
-// Implement Procedure 2 from the paper
-// https://eprint.iacr.org/2025/1117.pdf Bagad, Dao, Thaler and Domb
-// Compute eq(w,x) for all x∈{0,1}^l
-// This is the same function as new_from_point (which is optimized for parallelization)
-pub fn eval_eq_in_hypercube<F: Field>(w: &[F]) -> Vec<F> {
-    let n = w.len();
-    let mut evals: Vec<F> = vec![F::ONE; 1 << n];
-    let mut size = 1usize;
-    for i in 0..n {
-        // in each iteration, we double the size
-        size *= 2;
-        for j in (0..size).rev().step_by(2) {
-            let scalar = evals[j / 2];
-            evals[j] = scalar * w[i]; // odd
-            evals[j - 1] = scalar - evals[j]; // even
-        }
-    }
+pub fn eval_eq_in_hypercube<F: Field>(point: &Vec<F>) -> Vec<F> {
+    let n = point.len();
+    let mut evals = F::zero_vec(1 << n);
+    eval_eq::<_, _, false>(point, &mut evals, F::ONE);
     evals
 }
 
@@ -165,14 +131,22 @@ pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
     [const_eq * (F::ONE - *w_i), const_eq * *w_i]
 }
 
+fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
+    [
+        t[0] * l[0],          // s(0)
+        (t[1] - t[0]) * (l[1] - l[0]), //s(inf) -> l(inf) = l(1) - l(0)
+    ]
+}
+
 // Algorithm 6. Page 19.
 // Compute three sumcheck rounds using the small value optimizaition and split-eq accumulators.
-// It Returns the two challenges r_1 and r_2 (TODO: creo que debería devolver también los polys foldeados).
+// It Returns the three challenges r_1, r_2, r_3(TODO: creo que debería devolver también los polys foldeados).
 pub fn small_value_sumcheck_three_rounds_eq<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
-    w: &Vec<EF>,
-) -> ([EF; 2], SumcheckPolynomial<EF>)
+    w: &MultilinearPoint<EF>,
+    sum: &mut EF,
+) -> (EF, EF, EF)
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -180,55 +154,45 @@ where
     let e_out = precompute_e_out(w);
 
     // We compute all the accumulators A_i(v, u).
-    let round_accumulators = compute_accumulators_eq(poly, e_in, e_out);
+    let accumulators = compute_accumulators_eq(poly, e_in, e_out);
 
     // ------------------   Round 1   ------------------
 
     // 1. For u in {0, 1, inf} compute t_1(u)
     // Recall: In round 1, t_1(u) = A_1(u).
-
-    let t_1_evals = &round_accumulators[0].accumulators;
+    let t_1_evals = accumulators.get_accumulators_for_round(0);
 
     // 2. For u in {0, 1, inf} compute S_1(u) = t_1(u) * l_1(u).
 
     // We compute l_1(0) and l_1(1)
-    let linear_1_evals = compute_linear_function(&w[..1], &[]);
+    let linear_1_evals = compute_linear_function(&w.0[..1], &[]);
 
-    // We compute S_1(u)
-    let round_poly_evals = [
-        t_1_evals[0] * linear_1_evals[0],
-        t_1_evals[1] * linear_1_evals[1],
-        t_1_evals[2] * (linear_1_evals[1] - linear_1_evals[0]), // l_1(inf) = l_1(1) - l_1(0).
-    ];
+    // We compute S_1(0) and S_1(inf)
+    let round_poly_evals = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals);
 
-    // TODO: Esto es muy ineficiente. Hay que cambiar el verifier para que acepte la evaluacion en inf.
-    let eval_in_two = round_poly_evals[2] * EF::from(F::TWO).square()
-        + (round_poly_evals[1] - round_poly_evals[0] - round_poly_evals[2]) * EF::from(F::TWO)
-        + round_poly_evals[0];
-
-    let round_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
-
-    // 3. Send S_1(u) to the verifier.
-    // TODO: En realidad no hace falta mandar S_1(1) porque se deduce usando S_1(0).
+    // 3. Send S_1(u) to the verifier.d
     prover_state.add_extension_scalars(&round_poly_evals);
 
     // 4. Receive the challenge r_1 from the verifier.
     let r_1: EF = prover_state.sample();
 
+    let eval_1 = *sum - round_poly_evals[0] ;
+    *sum = round_poly_evals[1] * r_1.square() + (eval_1 - round_poly_evals[0] - round_poly_evals[1]) * r_1 + round_poly_evals[0];
+
     // 5. Compte R_2 = [L_0(r_1), L_1(r_1), L_inf(r_1)]
     // L_0 (x) = 1 - x
     // L_1 (x) = x
     // L_inf (x) = (x - 1)x
-    let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1, (r_1 - F::ONE) * r_1];
+    let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1];
 
     // ------------------ Round 2 ------------------
 
     // 1. For u in {0, 1, inf} compute t_2(u).
     // First we take the accumulators A_2(v, u).
     // There are 9 accumulators, since v in {0, 1, inf} and u in {0, 1, inf}.
-    let accumulators_round_2 = &round_accumulators[1].accumulators;
+    let accumulators_round_2 = accumulators.get_accumulators_for_round(1);
 
-    let mut t_2_evals = [EF::ZERO; 3];
+    let mut t_2_evals = [EF::ZERO; 2];
 
     t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
     t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[3];
@@ -236,28 +200,12 @@ where
     t_2_evals[1] += lagrange_evals_r_1[0] * accumulators_round_2[1];
     t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[4];
 
-    t_2_evals[2] += lagrange_evals_r_1[0] * accumulators_round_2[2];
-    t_2_evals[2] += lagrange_evals_r_1[1] * accumulators_round_2[5];
-
-    // 2. For u in {0, 1, inf} compute S_2(u) = t_2(u) * l_2(u).
-
     // We compute l_2(0) and l_12inf)
-    let linear_2_evals = compute_linear_function(&w[..2], &[r_1]);
+    let linear_2_evals = compute_linear_function(&w.0[..2], &[r_1]);
 
     // We compute S_2(u)
-
-    let round_poly_evals = [
-        t_2_evals[0] * linear_2_evals[0],
-        t_2_evals[1] * linear_2_evals[1],
-        t_2_evals[2] * (linear_2_evals[1] - linear_2_evals[0]), // l_2(inf) = l_2(1) - l_2(0).
-    ];
-
-    // TODO: Esto es muy ineficiente. Hay que cambiar el verifier para que acepte la evaluacion en inf.
-    let eval_in_two = round_poly_evals[2] * EF::from(F::TWO).square()
-        + (round_poly_evals[1] - round_poly_evals[0] - round_poly_evals[2]) * EF::from(F::TWO)
-        + round_poly_evals[0];
-
-    let round_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
+    let round_poly_evals = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
+    // debug_assert!(round_poly_evals[2]);
 
     // 3. Send S_2(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
@@ -272,24 +220,18 @@ where
     // ...
     // L_{inf inf} (x1, x2) = (x1 - 1) * x1 * (x2 - 1) * x2
 
-    let l_0 = lagrange_evals_r_1[0];
-    let l_1 = lagrange_evals_r_1[1];
-    let l_inf = lagrange_evals_r_1[2];
+    let [l_0, l_1] = lagrange_evals_r_1;
+    let one_minus_r_2 = -r_2 + F::ONE;
 
-    let mul_inf = (r_2 - F::ONE) * r_2;
-
-    // TODO: calcular `(r_2 - F::ONE) * r_2` una sola vez. Lo dejo por ahora así por claridad.
     let lagrange_evals_r_2 = [
-        l_0 * (-r_2 + F::ONE),   // L_0 0
-        l_0 * r_2,               // L_0 1
-        l_0 * mul_inf,           // L_0 inf
-        l_1 * (-r_2 + F::ONE),   // L_1 0
-        l_1 * r_2,               // L_1 1
-        l_1 * mul_inf,           // L_1 inf
-        l_inf * (-r_2 + F::ONE), // L_inf 0
-        l_inf * r_2,             // L_inf 1
-        l_inf * mul_inf,         // L_inf inf
+        l_0 * one_minus_r_2, // L_0 0
+        l_0 * r_2,           // L_0 1
+        l_1 * one_minus_r_2, // L_1 0
+        l_1 * r_2,           // L_1 1
     ];
+
+    let eval_1 = *sum - round_poly_evals[0];
+    *sum = round_poly_evals[1] * r_2.square() + (eval_1 - round_poly_evals[0] - round_poly_evals[1]) * r_2 + round_poly_evals[0];
 
     // Round 3
 
@@ -297,53 +239,39 @@ where
 
     // First we take the accumulators A_2(v, u).
     // There are 27 accumulators, since v in {0, 1, inf}^2 and u in {0, 1, inf}.
-    let accumulators_round_3 = &round_accumulators[2].accumulators;
+    let accumulators_round_3 = accumulators.get_accumulators_for_round(2);
 
-    let mut t_3_evals = [EF::ZERO; 3];
+    let mut t_3_evals = [EF::ZERO; 2];
 
     t_3_evals[0] += lagrange_evals_r_2[0] * accumulators_round_3[0]; // (0,0,u=0)
-    t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (0,0,u=1)
-    t_3_evals[2] += lagrange_evals_r_2[0] * accumulators_round_3[2]; // (0,0,u=∞)
-
     t_3_evals[0] += lagrange_evals_r_2[1] * accumulators_round_3[3]; // (1,0,u=0)
+    t_3_evals[0] += lagrange_evals_r_2[2] * accumulators_round_3[9]; // (0,1,u=0)
+    t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[12]; // (1,1,u=0)
+
+    t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (0,0,u=1)
     t_3_evals[1] += lagrange_evals_r_2[1] * accumulators_round_3[4]; // (1,0,u=1)
-    t_3_evals[2] += lagrange_evals_r_2[1] * accumulators_round_3[5]; // (1,0,u=∞)
-
-    t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[9]; // (0,1,u=0)
-    t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[10]; // (0,1,u=1)
-    t_3_evals[2] += lagrange_evals_r_2[3] * accumulators_round_3[11]; // (0,1,u=∞)
-
-    t_3_evals[0] += lagrange_evals_r_2[4] * accumulators_round_3[12]; // (1,1,u=0)
-    t_3_evals[1] += lagrange_evals_r_2[4] * accumulators_round_3[13]; // (1,1,u=1)
-    t_3_evals[2] += lagrange_evals_r_2[4] * accumulators_round_3[14]; // (1,1,u=∞)
+    t_3_evals[1] += lagrange_evals_r_2[2] * accumulators_round_3[10]; // (0,1,u=1)
+    t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[13]; // (1,1,u=1)
 
     // 2. For u in {0, 1, inf} compute S_3(u) = t_3(u) * l_3(u).
 
     // We compute l_3(0) and l_3(inf)
-    let linear_3_evals = compute_linear_function(&w[..3], &[r_1, r_2]);
+    let linear_3_evals = compute_linear_function(&w.0[..3], &[r_1, r_2]);
 
     // We compute S_3(u)
-    let round_poly_evals = [
-        t_3_evals[0] * linear_3_evals[0],
-        t_3_evals[1] * linear_3_evals[1],
-        t_3_evals[2] * (linear_3_evals[1] - linear_3_evals[0]), // l_3(inf) = l_3(1) - l_3(0).
-    ];
-
-    // TODO: Esto es muy ineficiente.
-    let eval_in_two = round_poly_evals[2] * EF::from(F::TWO).square()
-        + (round_poly_evals[1] - round_poly_evals[0] - round_poly_evals[2]) * EF::from(F::TWO)
-        + round_poly_evals[0];
-
-    let sumcheck_poly_evals = [round_poly_evals[0], round_poly_evals[1], eval_in_two];
+    let round_poly_evals = get_evals_from_l_and_t(&linear_3_evals, &t_3_evals);
 
     // 3. Send S_3(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
-    prover_state.add_extension_scalars(&sumcheck_poly_evals);
+    prover_state.add_extension_scalars(&round_poly_evals);
 
-    let sumcheck_poly = SumcheckPolynomial::new(sumcheck_poly_evals.to_vec());
 
-    // TODO: Me parece que también va a haber que devolver poly_1 y poly_2 foldeados (con r_1 y r_2) para seguir con el sumcheck.
-    ([r_1, r_2], sumcheck_poly)
+    let r_3: EF = prover_state.sample();
+
+    let eval_1 = *sum - round_poly_evals[0];
+    *sum = round_poly_evals[1] * r_3.square() + (eval_1 - round_poly_evals[0] - round_poly_evals[1]) * r_3 + round_poly_evals[0];
+
+    (r_1, r_2, r_3)
 }
 
 #[cfg(test)]
@@ -365,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_evals_serial_three_vars_matches_new_from_point() {
-        let p = [F::from_u64(2), F::from_u64(3), F::from_u64(5)];
+        let p = vec![F::from_u64(2), F::from_u64(3), F::from_u64(5)];
         let point = MultilinearPoint::new(p.to_vec());
         let value = F::from_u64(1);
 
@@ -396,17 +324,18 @@ mod tests {
             p0 * p1 * p2,                                  // 111 v[7]
         ];
 
-        let out = eval_eq_in_hypercube(&[p0, p1, p2]);
+        let out = eval_eq_in_hypercube(&vec![p0, p1, p2]);
         assert_eq!(out, expected);
     }
 
     #[test]
     fn test_precompute_e_in() {
         let w: Vec<EF> = (0..10).map(|i| EF::from(F::from_int(i))).collect();
+        let w = MultilinearPoint::new(w);
 
         let e_in = precompute_e_in(&w);
 
-        let w_in = w[NUM_OF_ROUNDS..NUM_OF_ROUNDS + 5].to_vec();
+        let w_in = w.0[NUM_OF_ROUNDS..NUM_OF_ROUNDS + 5].to_vec();
 
         assert_eq!(
             w_in,
@@ -463,6 +392,7 @@ mod tests {
             })
             .collect();
 
+        let w = MultilinearPoint::new(w);
         let e_out = precompute_e_out(&w);
 
         // Round 1:
@@ -551,7 +481,7 @@ mod tests {
         // w = [w0, w2, ..., w9]
         // Each w_i is a random extension field element built from 4 random field elements.
         let w: Vec<EF> = (0..l).map(|_| get_random_ef()).collect();
-
+        let w = MultilinearPoint::new(w);
         // We build a random multilinear polynomial of 10 variables, using 2^10 evaluations in the hypercube {0,1}^10
         let poly = EvaluationsList::new((0..(1 << l)).map(|_| get_random_f()).collect());
 
@@ -563,8 +493,8 @@ mod tests {
         let accumulators = compute_accumulators_eq(&poly, e_in.clone(), e_out.clone());
 
         // A_3(0,0,0)
-        let eq_w3_w4 = eval_eq_in_hypercube(&w[3..5]);
-        let eq_w5_to_w9 = eval_eq_in_hypercube(&w[5..]);
+        let eq_w3_w4 = eval_eq_in_hypercube(&w.0[3..5].to_vec());
+        let eq_w5_to_w9 = eval_eq_in_hypercube(&w.0[5..].to_vec());
 
         let expected_accumulator = (0..4)
             .map(|i| {
@@ -578,7 +508,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[2].accumulators[0]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(2)[0]
+        );
 
         // A_3(1,0,1):
         let expected_accumulator = (0..4)
@@ -593,7 +526,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[2].accumulators[10]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(2)[10]
+        );
 
         // We now compute A_3(1, inf, 0):
 
@@ -638,10 +574,13 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[2].accumulators[15]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(2)[15]
+        );
 
         // We compute now A_2(0, 0):
-        let eq_w2_w3_w4 = eval_eq_in_hypercube(&w[2..5]);
+        let eq_w2_w3_w4 = eval_eq_in_hypercube(&w.0[2..5].to_vec());
 
         // We compute A_2(0, 0)
         let expected_accumulator = (0..8)
@@ -656,7 +595,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[1].accumulators[0]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(1)[0]
+        );
 
         // A_2(inf, 0)
         let p_evals_inf_0: Vec<Vec<F>> = (0..8)
@@ -682,10 +624,13 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[1].accumulators[6]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(1)[6]
+        );
 
         // A_1(u)
-        let eq_w1_w2_w3_w4 = eval_eq_in_hypercube(&w[1..5]);
+        let eq_w1_w2_w3_w4 = eval_eq_in_hypercube(&w.0[1..5].to_vec());
 
         // We compute A_1(0)
         let expected_accumulator = (0..16)
@@ -700,7 +645,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[0].accumulators[0]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(0)[0]
+        );
 
         // A_1(1)
         let expected_accumulator = (0..16)
@@ -715,7 +663,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[0].accumulators[1]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(0)[1]
+        );
 
         // A_1(inf)
         let p_evals_inf: Vec<Vec<_>> = (0..16)
@@ -741,7 +692,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[0].accumulators[2]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(0)[2]
+        );
 
         // assert_eq!(expected_accumulator, accumulators[0].accumulators[0]);
     }
@@ -754,6 +708,7 @@ mod tests {
         // w = [w0, w2, ..., w9]
         // Each w_i is a random extension field element built from 4 random field elements.
         let w: Vec<EF> = (0..l).map(|_| get_random_ef()).collect();
+        let w = MultilinearPoint(w);
 
         // We build a random multilinear polynomial of 10 variables, using 2^10 evaluations in the hypercube {0,1}^10
         let poly = EvaluationsList::new((0..(1 << l)).map(|_| get_random_f()).collect());
@@ -766,8 +721,8 @@ mod tests {
         let accumulators = compute_accumulators_eq(&poly, e_in.clone(), e_out.clone());
 
         // A_3(0,0,0)
-        let eq_w3_w4 = eval_eq_in_hypercube(&w[3..5]);
-        let eq_w5_to_w10 = eval_eq_in_hypercube(&w[5..]);
+        let eq_w3_w4 = eval_eq_in_hypercube(&w.0[3..5].to_vec());
+        let eq_w5_to_w10 = eval_eq_in_hypercube(&w.0[5..].to_vec());
 
         let expected_accumulator = (0..4)
             .map(|i| {
@@ -781,7 +736,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[2].accumulators[0]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(2)[0]
+        );
 
         // A_3(1,0,1):
         let expected_accumulator = (0..4)
@@ -796,7 +754,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[2].accumulators[10]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(2)[10]
+        );
 
         // We now compute A_3(1, inf, 0):
 
@@ -841,10 +802,13 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[2].accumulators[15]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(2)[15]
+        );
 
         // Round 2:
-        let eq_w2_w3_w4 = eval_eq_in_hypercube(&w[2..5]);
+        let eq_w2_w3_w4 = eval_eq_in_hypercube(&w.0[2..5].to_vec());
 
         // A_2(0, 0):
         let expected_accumulator = (0..8)
@@ -859,7 +823,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[1].accumulators[0]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(1)[0]
+        );
 
         // A_2(inf, 0):
         let p_evals_inf_0: Vec<Vec<_>> = (0..8)
@@ -885,10 +852,13 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[1].accumulators[6]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(1)[6]
+        );
 
         // Round 3:
-        let eq_w1_w2_w3_w4 = eval_eq_in_hypercube(&w[1..5]);
+        let eq_w1_w2_w3_w4 = eval_eq_in_hypercube(&w.0[1..5].to_vec());
 
         // A_1(0)
         let expected_accumulator = (0..16)
@@ -903,7 +873,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[0].accumulators[0]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(0)[0]
+        );
 
         // A_1(1)
         let expected_accumulator = (0..16)
@@ -918,7 +891,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[0].accumulators[1]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(0)[1]
+        );
 
         // A_1(inf)
         let p_evals_inf: Vec<Vec<_>> = (0..16)
@@ -944,7 +920,10 @@ mod tests {
             .map(|(sum, eq)| sum * *eq)
             .sum::<EF>();
 
-        assert_eq!(expected_accumulator, accumulators[0].accumulators[2]);
+        assert_eq!(
+            expected_accumulator,
+            accumulators.get_accumulators_for_round(0)[2]
+        );
     }
 
     fn get_random_f() -> F {
@@ -1012,167 +991,18 @@ mod tests {
         poly.iter().zip(eq.iter()).map(|(p, e)| *e * *p).sum()
     }
 
-    fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 3] {
+    fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
         [
-            t[0] * l[0],          // s(0)
-            t[1] * l[1],          // s(1)
-            t[2] * (l[1] - l[0]), //s(inf) -> l(inf) = l(1) - l(0)
+            t[0] * l[0],                   // s(0)
+            (t[1] - t[0]) * (l[1] - l[0]), // s(inf) -> l(inf) = l(1) - l(0)
         ]
     }
 
     #[test]
-    fn test_svo_sumcheck_rounds_eq_simulation() {
-        let poly = EvaluationsList::new((0..512).map(|_| get_random_f()).collect());
-        let w: Vec<EF> = (0..9).map(|_| get_random_ef()).collect();
-
-        let expected_sum = naive_sumcheck_verification(w.clone(), poly.clone());
-
-        let e_in = precompute_e_in(&w);
-        let e_out = precompute_e_out(&w);
-
-        // We compute all the accumulators A_i(v, u).
-        let round_accumulators = compute_accumulators_eq(&poly, e_in, e_out);
-
-        // ------------------   Round 1   ------------------
-
-        // 1. For u in {0, 1, inf} compute t_1(u)
-        // Recall: In round 1, t_1(u) = A_1(u).
-
-        let t_1_evals = &round_accumulators[0].accumulators;
-
-        // 2. For u in {0, 1, inf} compute S_1(u) = t_1(u) * l_1(u).
-
-        // We compute l_1(0) and l_1(1)
-        let linear_1_evals = compute_linear_function(&w[..1], &[]);
-
-        // We compute S_1(u)
-        let round_poly_evals_1 = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals[..]);
-
-        assert_eq!(round_poly_evals_1[0] + round_poly_evals_1[1], expected_sum);
-
-        // 4. Receive the challenge r_1 from the verifier.
-        let r_1 = get_random_ef();
-
-        // 5. Compte R_2 = [L_0(r_1), L_1(r_1), L_inf(r_1)]
-        // L_0 (x) = 1 - x
-        // L_1 (x) = x
-        // L_inf (x) = (x - 1)x
-        let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1, (r_1 - F::ONE) * r_1];
-
-        // ------------------ Round 2 ------------------
-
-        // 1. For u in {0, 1, inf} compute t_2(u).
-        // First we take the accumulators A_2(v, u).
-        // There are 9 accumulators, since v in {0, 1, inf} and u in {0, 1, inf}.
-        let accumulators_round_2 = &round_accumulators[1].accumulators;
-
-        let mut t_2_evals = [EF::ZERO; 3];
-
-        t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
-        t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[3];
-
-        t_2_evals[1] += lagrange_evals_r_1[0] * accumulators_round_2[1];
-        t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[4];
-
-        t_2_evals[2] += lagrange_evals_r_1[0] * accumulators_round_2[2];
-        t_2_evals[2] += lagrange_evals_r_1[1] * accumulators_round_2[5];
-
-        assert_eq!(t_2_evals[2], t_2_evals[1] - t_2_evals[0]);
-
-        // 2. For u in {0, 1, inf} compute S_2(u) = t_2(u) * l_2(u).
-
-        // We compute l_2(0) and l_2(1)
-        let linear_2_evals = compute_linear_function(&w[..2], &[r_1]);
-
-        // We compute S_2(u)
-        let round_poly_evals_2 = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
-
-        // S_1(r_1) = a * (r_1)^2 + b * r_1 + c where
-        // a = S_1(inf),
-        // b = S_1(1) - S_1(0) - S_1(inf),
-        // c = S_1(0)
-        let expected_eval = round_poly_evals_1[2] * r_1.square()
-            + (round_poly_evals_1[1] - round_poly_evals_1[0] - round_poly_evals_1[2]) * r_1
-            + round_poly_evals_1[0];
-
-        assert_eq!(round_poly_evals_2[0] + round_poly_evals_2[1], expected_eval);
-
-        // 4. Receive the challenge r_2 from the verifier.
-        let r_2 = get_random_ef();
-
-        // 5. Compute R_3 = [L_00(r_1, r_2), L_01(r_1, r_2), ..., L_{inf inf}(r_1, r_2)]
-        // L_00 (x1, x2) = (1 - x1) * (1 - x2)
-        // L_01 (x1, x2) = (1 - x1) * x2
-        // ...
-        // L_{inf inf} (x1, x2) = (x1 - 1) * x1 * (x2 - 1) * x2
-
-        let l_0 = lagrange_evals_r_1[0];
-        let l_1 = lagrange_evals_r_1[1];
-        let l_inf = lagrange_evals_r_1[2];
-
-        let mul_inf = (r_2 - F::ONE) * r_2;
-
-        // TODO: calcular `(r_2 - F::ONE) * r_2` una sola vez. Lo dejo por ahora así por claridad.
-        let lagrange_evals_r_2 = [
-            l_0 * (-r_2 + F::ONE),   // L_0 0
-            l_0 * r_2,               // L_0 1
-            l_0 * mul_inf,           // L_0 inf
-            l_1 * (-r_2 + F::ONE),   // L_1 0
-            l_1 * r_2,               // L_1 1
-            l_1 * mul_inf,           // L_1 inf
-            l_inf * (-r_2 + F::ONE), // L_inf 0
-            l_inf * r_2,             // L_inf 1
-            l_inf * mul_inf,         // L_inf inf
-        ];
-
-        // Round 3
-
-        // 1. For u in {0, 1, inf} compute t_3(u).
-
-        // First we take the accumulators A_2(v, u).
-        // There are 27 accumulators, since v in {0, 1, inf}^2 and u in {0, 1, inf}.
-        let accumulators_round_3 = &round_accumulators[2].accumulators;
-
-        let mut t_3_evals = [EF::ZERO; 3];
-
-        t_3_evals[0] += lagrange_evals_r_2[0] * accumulators_round_3[0]; // (0,0,u=0)
-        t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (0,0,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[0] * accumulators_round_3[2]; // (0,0,u=∞)
-
-        t_3_evals[0] += lagrange_evals_r_2[1] * accumulators_round_3[3]; // (1,0,u=0)
-        t_3_evals[1] += lagrange_evals_r_2[1] * accumulators_round_3[4]; // (1,0,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[1] * accumulators_round_3[5]; // (1,0,u=∞)
-
-        t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[9]; // (0,1,u=0)
-        t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[10]; // (0,1,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[3] * accumulators_round_3[11]; // (0,1,u=∞)
-
-        t_3_evals[0] += lagrange_evals_r_2[4] * accumulators_round_3[12]; // (1,1,u=0)
-        t_3_evals[1] += lagrange_evals_r_2[4] * accumulators_round_3[13]; // (1,1,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[4] * accumulators_round_3[14]; // (1,1,u=∞)
-
-        // 2. For u in {0, 1, inf} compute S_3(u) = t_3(u) * l_3(u).
-
-        // We compute l_3(0) and l_3(inf)
-        let linear_3_evals = compute_linear_function(&w[..3], &[r_1, r_2]);
-
-        // We compute S_3(u)
-        let round_poly_evals_3 = get_evals_from_l_and_t(&linear_3_evals, &t_3_evals);
-
-        // S_2(r_2) = a * (r_2)^2 + b * r_2 + c where
-        // a = S_2(inf),
-        // b = S_2(1) - S_2(0) - S_2(inf),
-        // c = S_2(0)
-        let expected_eval = round_poly_evals_2[2] * r_2.square()
-            + (round_poly_evals_2[1] - round_poly_evals_2[0] - round_poly_evals_2[2]) * r_2
-            + round_poly_evals_2[0];
-
-        assert_eq!(round_poly_evals_3[0] + round_poly_evals_3[1], expected_eval);
-    }
-    #[test]
     fn compare_sv_vs_eq() {
         let poly = EvaluationsList::new((0..512).map(|_| get_random_f()).collect());
         let w: Vec<F> = (0..9).map(|_| get_random_f()).collect();
+        let w = MultilinearPoint(w);
 
         let r_1 = get_random_f();
         let r_2 = get_random_f();
@@ -1181,18 +1011,38 @@ mod tests {
         let e_in = precompute_e_in(&w);
         let e_out = precompute_e_out(&w);
 
-        let round_accumulators = compute_accumulators_eq(&poly, e_in, e_out);
-        let t_1_evals = &round_accumulators[0].accumulators;
-        let linear_1_evals = compute_linear_function(&w[..1], &[]);
-        let round_poly_evals_1 = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals[..]);
+        // We compute all the accumulators A_i(v, u).
+        let accumulators = compute_accumulators_eq(&poly, e_in, e_out);
 
-        println!("ROUND 1 EQ: {:?}", round_poly_evals_1);
+        // ------------------   Round 1   ------------------
 
-        let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1, (r_1 - F::ONE) * r_1];
+        // 1. For u in {0, 1, inf} compute t_1(u)
+        // Recall: In round 1, t_1(u) = A_1(u).
+        let t_1_evals = accumulators.get_accumulators_for_round(0);
 
-        let accumulators_round_2 = &round_accumulators[1].accumulators;
+        // 2. For u in {0, 1, inf} compute S_1(u) = t_1(u) * l_1(u).
 
-        let mut t_2_evals = [F::ZERO; 3];
+        // We compute l_1(0) and l_1(1)
+        let linear_1_evals = compute_linear_function(&w.0[..1], &[]);
+
+        // We compute S_1(0) and S_1(inf)
+        let round_poly_evals = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals);
+
+        println!("ROUND 1 EQ: {:?}", round_poly_evals);
+
+        // 5. Compte R_2 = [L_0(r_1), L_1(r_1), L_inf(r_1)]
+        // L_0 (x) = 1 - x
+        // L_1 (x) = x
+        let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1];
+
+        // ------------------ Round 2 ------------------
+
+        // 1. For u in {0, 1, inf} compute t_2(u).
+        // First we take the accumulators A_2(v, u).
+        // There are 9 accumulators, since v in {0, 1, inf} and u in {0, 1, inf}.
+        let accumulators_round_2 = accumulators.get_accumulators_for_round(1);
+
+        let mut t_2_evals = [F::ZERO; 2];
 
         t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
         t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[3];
@@ -1200,60 +1050,67 @@ mod tests {
         t_2_evals[1] += lagrange_evals_r_1[0] * accumulators_round_2[1];
         t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[4];
 
-        t_2_evals[2] += lagrange_evals_r_1[0] * accumulators_round_2[2];
-        t_2_evals[2] += lagrange_evals_r_1[1] * accumulators_round_2[5];
+        // 2. For u in {0, 1, inf} compute S_2(u) = t_2(u) * l_2(u).
 
-        let linear_2_evals = compute_linear_function(&w[..2], &[r_1]);
-        let round_poly_evals_2 = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
+        // We compute l_2(0) and l_2(inf)
+        let linear_2_evals = compute_linear_function(&w.0[..2], &[r_1]);
 
-        println!("ROUND 2 EQ: {:?}", round_poly_evals_2);
 
-        let l_0 = lagrange_evals_r_1[0];
-        let l_1 = lagrange_evals_r_1[1];
-        let l_inf = lagrange_evals_r_1[2];
+        // We compute S_2(0) and S_2(inf)
+        let round_poly_evals = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
 
-        let mul_inf = (r_2 - F::ONE) * r_2;
+
+        println!("ROUND 2 EQ: {:?}", round_poly_evals);
+
+        // 5. Compute R_3 = [L_00(r_1, r_2), L_01(r_1, r_2), ..., L_{inf inf}(r_1, r_2)]
+        // L_00 (x1, x2) = (1 - x1) * (1 - x2)
+        // L_01 (x1, x2) = (1 - x1) * x2
+        // ...
+        // L_{inf inf} (x1, x2) = (x1 - 1) * x1 * (x2 - 1) * x2
+
+        let [l_0, l_1] = lagrange_evals_r_1;
+        let one_minus_r_2 = -r_2 + F::ONE;
+        // let mul_inf = (r_2 - F::ONE) * r_2;
 
         let lagrange_evals_r_2 = [
-            l_0 * (-r_2 + F::ONE),   // L_0 0
-            l_0 * r_2,               // L_0 1
-            l_0 * mul_inf,           // L_0 inf
-            l_1 * (-r_2 + F::ONE),   // L_1 0
-            l_1 * r_2,               // L_1 1
-            l_1 * mul_inf,           // L_1 inf
-            l_inf * (-r_2 + F::ONE), // L_inf 0
-            l_inf * r_2,             // L_inf 1
-            l_inf * mul_inf,         // L_inf inf
+            l_0 * one_minus_r_2, // L_0 0
+            l_0 * r_2,           // L_0 1
+            l_1 * one_minus_r_2, // L_1 0
+            l_1 * r_2,           // L_1 1
         ];
 
-        let accumulators_round_3 = &round_accumulators[2].accumulators;
+        // Round 3
 
-        let mut t_3_evals = [F::ZERO; 3];
+        // 1. For u in {0, 1, inf} compute t_3(u).
+
+        // First we take the accumulators A_2(v, u).
+        // There are 27 accumulators, since v in {0, 1, inf}^2 and u in {0, 1, inf}.
+        let accumulators_round_3 = accumulators.get_accumulators_for_round(2);
+
+        let mut t_3_evals = [F::ZERO; 2];
 
         t_3_evals[0] += lagrange_evals_r_2[0] * accumulators_round_3[0]; // (0,0,u=0)
-        t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (0,0,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[0] * accumulators_round_3[2]; // (0,0,u=∞)
-
         t_3_evals[0] += lagrange_evals_r_2[1] * accumulators_round_3[3]; // (1,0,u=0)
+        t_3_evals[0] += lagrange_evals_r_2[2] * accumulators_round_3[9]; // (0,1,u=0)
+        t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[12]; // (1,1,u=0)
+
+        t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (0,0,u=1)
         t_3_evals[1] += lagrange_evals_r_2[1] * accumulators_round_3[4]; // (1,0,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[1] * accumulators_round_3[5]; // (1,0,u=∞)
+        t_3_evals[1] += lagrange_evals_r_2[2] * accumulators_round_3[10]; // (0,1,u=1)
+        t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[13]; // (1,1,u=1)
 
-        t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[9]; // (0,1,u=0)
-        t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[10]; // (0,1,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[3] * accumulators_round_3[11]; // (0,1,u=∞)
+        // 2. For u in {0, 1, inf} compute S_3(u) = t_3(u) * l_3(u).
 
-        t_3_evals[0] += lagrange_evals_r_2[4] * accumulators_round_3[12]; // (1,1,u=0)
-        t_3_evals[1] += lagrange_evals_r_2[4] * accumulators_round_3[13]; // (1,1,u=1)
-        t_3_evals[2] += lagrange_evals_r_2[4] * accumulators_round_3[14]; // (1,1,u=∞)
+        // We compute l_3(0) and l_3(inf)
+        let linear_3_evals = compute_linear_function(&w.0[..3], &[r_1, r_2]);
 
-        let linear_3_evals = compute_linear_function(&w[..3], &[r_1, r_2]);
+        // We compute S_3(u)
+        let round_poly_evals = get_evals_from_l_and_t(&linear_3_evals, &t_3_evals);
 
-        let round_poly_evals_3 = get_evals_from_l_and_t(&linear_3_evals, &t_3_evals);
-
-        println!("ROUND 3 EQ: {:?}", round_poly_evals_3);
+        println!("ROUND 3 EQ: {:?}", round_poly_evals);
 
         // -------------  P * Q  -------------
-        let poly_2 = EvaluationsList::new(eval_eq_in_hypercube(&w));
+        let poly_2 = EvaluationsList::new(eval_eq_in_hypercube(&w.0));
 
         let round_accumulators = compute_accumulators(&poly, &poly_2);
 

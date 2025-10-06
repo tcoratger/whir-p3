@@ -26,7 +26,29 @@ impl EvaluationPoint {
         }
     }
 }
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Accumulators<F: Field> {
+    pub accumulators: [Vec<F>; 3],
+}
 
+impl<F> Accumulators<F>
+where
+    F: Field,
+{
+    pub fn new_empty() -> Self {
+        Accumulators {
+            accumulators: [vec![F::ZERO; 3], vec![F::ZERO; 9], vec![F::ZERO; 27]],
+        }
+    }
+
+    pub fn accumulate(&mut self, round: usize, index: usize, value: F) {
+        self.accumulators[round][index] += value;
+    }
+
+    pub fn get_accumulators_for_round(&self, round: usize) -> &[F] {
+        &self.accumulators[round]
+    }
+}
 // For round i, RoundAccumulators has all the accumulators of the form A_i(u, v).
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RoundAccumlators<F: Field> {
@@ -91,6 +113,15 @@ pub fn idx4(index_beta: usize) -> [Option<usize>; 3] {
     match (b1, b2, b3) {
         (_, _, 2) => [None, None, Some(b1 * 9 + b2 * 3 + b3)],
         (_, 2, _) => [None, Some(b1 * 3 + b2), Some(b1 * 9 + b2 * 3 + b3)],
+        _ => [Some(b1), Some(b1 * 3 + b2), Some(b1 * 9 + b2 * 3 + b3)],
+    }
+}
+
+pub fn idx4_v2(index_beta: usize) -> [Option<usize>; 3] {
+    let [b1, b2, b3] = to_base_three_coeff(index_beta);
+
+    match (b1, b2, b3) {
+        (_, _, 2) | (_, 2, _) | (2, _, _) => [None, None, None],
         _ => [Some(b1), Some(b1 * 3 + b2), Some(b1 * 9 + b2 * 3 + b3)],
     }
 }
