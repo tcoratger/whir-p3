@@ -1,20 +1,13 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
-use p3_interpolation::interpolate_subgroup;
-use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
-use tracing::instrument;
 
-use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
-        sumcheck_polynomial,
         sumcheck_single::{SumcheckSingle, compute_sumcheck_polynomial},
-        sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
         sumcheck_small_value_eq::small_value_sumcheck_three_rounds_eq,
-        utils::sumcheck_quadratic,
     },
     whir::statement::Statement,
 };
