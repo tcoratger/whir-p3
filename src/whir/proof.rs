@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::parameters::ProtocolParameters;
+use crate::poly::evals::EvaluationsList;
 
 /// Complete WHIR proof
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -21,8 +22,8 @@ pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
     /// One proof per WHIR round
     pub rounds: Vec<WhirRoundProof<F, EF, DIGEST_ELEMS>>,
 
-    /// Final polynomial coefficients
-    pub final_poly: Vec<EF>,
+    /// Final polynomial evaluations
+    pub final_poly: Some(EvaluationsList<EF>),
 
     /// Final round PoW witness
     pub final_pow_witness: F,
@@ -182,7 +183,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             initial_ood_answers: Vec::new(),
             initial_phase,
             rounds: Vec::with_capacity(num_rounds),
-            final_poly: Vec::new(),
+            final_poly: None,
             final_pow_witness: F::default(),
             final_queries: Vec::with_capacity(num_queries),
             final_sumcheck: None,
