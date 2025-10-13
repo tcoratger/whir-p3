@@ -159,7 +159,7 @@ where
         let c0 = verifier_state.next_extension_scalar()?;
 
         let c1 = *claimed_sum - c0;
-    
+
         let c2 = verifier_state.next_extension_scalar()?;
 
         // Optional PoW interaction (grinding resistance)
@@ -192,7 +192,7 @@ where
 
     // We reverse the order of the remaining challenges so that they are stored from right to left.
     // This is because the original sumhceck fixes the polynomial variables from right to left.
-    randomness_final.reverse();
+    // randomness_final.reverse();
 
     randomness.extend(randomness_final);
 
