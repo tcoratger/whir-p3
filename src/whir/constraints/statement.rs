@@ -1,5 +1,7 @@
 use p3_field::{ExtensionField, Field, dot_product};
+use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
+use p3_multilinear_util::eq_batch::eval_eq_batch;
 use tracing::instrument;
 
 use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
@@ -149,75 +151,46 @@ impl<F: Field> Statement<F> {
         Base: Field,
         F: ExtensionField<Base>,
     {
-        // If there are no constraints, the combination is:
-        // - The combined polynomial W(X) is identically zero (all evaluations = 0).
-        // - The combined expected sum S is zero.
-        if self.points.is_empty() {
+        // Handle the empty constraint case.
+        if self.is_empty() {
             return (
                 EvaluationsList::new(F::zero_vec(1 << self.num_variables)),
                 F::ZERO,
             );
         }
 
-        // Number of constraints (columns).
-        let n = self.len();
-        // Number of variables (bits).
-        let k = self.num_variables();
+        let num_constraints = self.len();
+        let num_variables = self.num_variables();
 
-        // Equality matrix.
-        let mut eq: Vec<F> = F::zero_vec((1 << k) * n);
+        // Precompute challenge powers γ^i for i = 0..num_constraints-1.
+        let challenges = challenge.powers().collect_n(num_constraints);
 
-        // Precompute γ^i for i = 0..n-1 (random linear-combination weights).
-        let challenges = challenge.powers().collect_n(n);
+        // Create a matrix where each column is one evaluation point.
+        //
+        // Matrix layout:
+        // - rows are variables,
+        // - columns are evaluation points.
+        let points_data = F::zero_vec(num_variables * num_constraints);
+        let mut points_matrix = RowMajorMatrix::new(points_data, num_constraints);
 
-        // Initialize row 0 with [γ^0, γ^1, …, γ^{n-1}].
-        eq[..n].copy_from_slice(&challenges);
+        // Parallelize the transpose operation over rows (variables).
+        //
+        // Each thread writes to its own contiguous row, which is cache-friendly.
+        points_matrix
+            .par_rows_mut()
+            .enumerate()
+            .for_each(|(var_idx, row_slice)| {
+                for (col_idx, point) in self.points.iter().enumerate() {
+                    row_slice[col_idx] = point[var_idx];
+                }
+            });
 
-        // Create reusable buffer for the current round's constraint points.
-        let mut round_points = F::zero_vec(n);
+        // Compute the batched equality polynomial evaluations.
+        // This computes W(x) = ∑_i γ^i * eq(x, z_i) for all x ∈ {0,1}^k.
+        let mut combined = F::zero_vec(1 << num_variables);
+        eval_eq_batch::<Base, F, false>(points_matrix.as_view(), &mut combined, &challenges);
 
-        // Expand row 0 into 2^k rows with a simple two-branch split per bit.
-        // For bit i (from most significant to least):
-        //   high  = low * z
-        //   low   = low - high  = low * (1 - z)
-        // Here z ∈ {0,1} is the i-th coordinate of the constraint point.
-        for i in 0..k {
-            // Split the first 2^i rows into low and high halves in place.
-            let (lo, hi) = eq.split_at_mut((1 << i) * n);
-
-            // We process points from most significant to least, so in this round
-            // we want the elements in position k-i-1.
-            round_points
-                .iter_mut()
-                .zip(self.points.iter())
-                .for_each(|(current, point)| *current = point[k - i - 1]);
-
-            // Work in parallel over row pairs. Each pair has n columns.
-            lo.par_chunks_mut(n)
-                .zip(hi.par_chunks_mut(n))
-                .for_each(|(lo, hi)| {
-                    // For each column j: read its constraint point, update the pair.
-                    round_points
-                        .iter()
-                        .zip(lo.iter_mut())
-                        .zip(hi.iter_mut())
-                        .for_each(|((&z, lo), hi)| {
-                            // high = low * z  (either low or 0)
-                            *hi = *lo * z;
-                            // low  = low - high  (either 0 or low)
-                            *lo -= *hi;
-                        });
-                });
-        }
-
-        // Sum across columns to get W at each Boolean point (one sum per row).
-        // Each row now holds [γ^i * eq_{z_i}(x)]_i. Summing gives W(x).
-        let combined = eq
-            .par_chunks(n)
-            .map(|row| row.iter().copied().sum())
-            .collect::<Vec<_>>();
-
-        // Combine sums
+        // Combine expected evaluations: S = ∑_i γ^i * s_i
         let sum = dot_product(self.evaluations.iter().copied(), challenges.into_iter());
 
         // Return:

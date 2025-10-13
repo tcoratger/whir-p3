@@ -1,8 +1,8 @@
 use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
-use p3_matrix::dense::RowMajorMatrix;
+use p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixView};
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::eq::{eval_eq, eval_eq_base};
+use p3_multilinear_util::eq_batch::{eval_eq_base_batch, eval_eq_batch};
 use tracing::instrument;
 
 use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
@@ -50,7 +50,11 @@ where
     pub fn new_from_point(point: &MultilinearPoint<F>, value: F) -> Self {
         let n = point.num_variables();
         let mut evals = F::zero_vec(1 << n);
-        eval_eq::<_, _, false>(point.as_slice(), &mut evals, value);
+        eval_eq_batch::<_, _, false>(
+            RowMajorMatrixView::new_col(point.as_slice()),
+            &mut evals,
+            &[value],
+        );
         Self(evals)
     }
 
@@ -72,7 +76,11 @@ where
     #[inline]
     pub fn accumulate(&mut self, point: &MultilinearPoint<F>, value: F) {
         assert_eq!(self.num_variables(), point.num_variables());
-        eval_eq::<_, _, true>(point.as_slice(), &mut self.0, value);
+        eval_eq_batch::<_, _, true>(
+            RowMajorMatrixView::new_col(point.as_slice()),
+            &mut self.0,
+            &[value],
+        );
     }
 
     /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`
@@ -85,7 +93,11 @@ where
         F: ExtensionField<BF>,
     {
         assert_eq!(self.num_variables(), point.num_variables());
-        eval_eq_base::<_, _, true>(point.as_slice(), &mut self.0, value);
+        eval_eq_base_batch::<_, _, true>(
+            RowMajorMatrixView::new_col(point.as_slice()),
+            &mut self.0,
+            &[value],
+        );
     }
 
     /// Returns the total number of stored evaluations.
@@ -397,8 +409,16 @@ where
                 let mut right = unsafe { uninitialized_vec(1 << hi.len()) };
 
                 // Compute all eq(v_low, p_low) values and fill the `left` and `right` vectors.
-                eval_eq::<_, _, false>(lo, &mut left, EF::ONE);
-                eval_eq::<_, _, false>(hi, &mut right, EF::ONE);
+                eval_eq_batch::<_, _, false>(
+                    RowMajorMatrixView::new_col(lo),
+                    &mut left,
+                    &[EF::ONE],
+                );
+                eval_eq_batch::<_, _, false>(
+                    RowMajorMatrixView::new_col(hi),
+                    &mut right,
+                    &[EF::ONE],
+                );
 
                 // Parallelized Final Summation
                 //
@@ -1038,7 +1058,11 @@ mod tests {
             let mut out = vec![F::ZERO; 1 << n];
 
             // Run eval_eq with scalar = 1
-            eval_eq::<F, F, false>(&evals, &mut out, F::ONE);
+            eval_eq_batch::<F, F, false>(
+                RowMajorMatrixView::new_col(&evals),
+                &mut out,
+                &[F::ONE],
+            );
 
             // Naively compute expected values for each binary assignment
             let mut expected = vec![F::ZERO; 1 << n];
