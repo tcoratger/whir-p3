@@ -148,12 +148,14 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
+    println!("Verifier");
     // Preallocate vector to hold the randomness values
     let mut randomness = Vec::with_capacity(rounds);
 
-    let mut randomness_final: Vec<EF> = Vec::new();
+    //let mut randomness_final: Vec<EF> = Vec::new();
 
     for i in 0..rounds {
+        println!("Round {}", i);
         // Extract the first and third evaluations of the sumcheck polynomial
         // and derive the second evaluation from the latest sum
         let c0 = verifier_state.next_extension_scalar()?;
@@ -162,39 +164,42 @@ where
 
         let c2 = verifier_state.next_extension_scalar()?;
 
+        println!("S(0): {}", c0);
+        println!("S(inf): {}", c2);
+        println!("S(1): {}", c1);
+
         // Optional PoW interaction (grinding resistance)
         verifier_state.check_pow_grinding(pow_bits)?;
 
         // Sample the next verifier folding randomness rᵢ
         let rand: EF = verifier_state.sample();
 
-        // Update claimed sum using folding randomness
-        // *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
-        //     .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
+        // if i <= 2 {
+        //     *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
 
-        if i <= 2 {
-            *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
+        //     // sum = sumcheck_poly[1] * r_3.square() + (eval_1 - sumcheck_poly[0] - sumcheck_poly[1]) * r_3 + sumcheck_poly[0];
+        // } else {
+        //     *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
+        //         .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
+        // }
 
-            // sum = sumcheck_poly[1] * r_3.square() + (eval_1 - sumcheck_poly[0] - sumcheck_poly[1]) * r_3 + sumcheck_poly[0];
-        } else {
-            *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
-                .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
-        }
+        *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
 
-        // In the first three round the challengers are stored from left to right.
-        if i <= 2 {
-            randomness.push(rand);
-        } else {
-            // In the remaining rounds the challengers should be stored from right to left.
-            randomness_final.push(rand);
-        }
+        // // In the first three round the challengers are stored from left to right.
+        // if i <= 2 {
+        //     randomness.push(rand);
+        // } else {
+        //     // In the remaining rounds the challengers should be stored from right to left.
+        //     randomness_final.push(rand);
+        // }
+
+        randomness.push(rand);
     }
 
     // We reverse the order of the remaining challenges so that they are stored from right to left.
     // This is because the original sumhceck fixes the polynomial variables from right to left.
-    // randomness_final.reverse();
-
-    randomness.extend(randomness_final);
+    //randomness_final.reverse();
+    //randomness.extend(randomness_final);
 
     Ok(MultilinearPoint::new(randomness))
 }

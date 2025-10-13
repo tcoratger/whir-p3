@@ -155,7 +155,7 @@ where
         // Compress polynomials and update the sum.
         join(|| evals.compress_svo(r_3), || weights.compress_svo(r_3));
 
-        algorithm_5(prover_state, &mut evals, &w, &mut res);
+        algorithm_5(prover_state, &mut evals, &w, &mut res, &mut sum);
 
         // Final weight: eq(w, r).
         weights = EvaluationsList::new(vec![w.eq_poly(&MultilinearPoint::new(res.clone()))]);

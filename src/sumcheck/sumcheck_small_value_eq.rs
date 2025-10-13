@@ -171,6 +171,10 @@ where
 
     // We compute S_1(0) and S_1(inf)
     let round_poly_evals = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals);
+    println!("Round 1:");
+    println!("S(0): {}", round_poly_evals[0]);
+    println!("S(inf): {}", round_poly_evals[1]);
+    println!("S(1): {}", linear_1_evals[1] * t_1_evals[1]);
 
     // 3. Send S_1(u) to the verifier.d
     prover_state.add_extension_scalars(&round_poly_evals);
@@ -209,7 +213,10 @@ where
 
     // We compute S_2(u)
     let round_poly_evals = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
-    // debug_assert!(round_poly_evals[2]);
+    println!("Round 2:");
+    println!("S(0): {}", round_poly_evals[0]);
+    println!("S(inf): {}", round_poly_evals[1]);
+    println!("S(1): {}", linear_2_evals[1] * t_2_evals[1]);
 
     // 3. Send S_2(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
@@ -266,6 +273,10 @@ where
 
     // We compute S_3(u)
     let round_poly_evals = get_evals_from_l_and_t(&linear_3_evals, &t_3_evals);
+    println!("Round 3:");
+    println!("S(0): {}", round_poly_evals[0]);
+    println!("S(inf): {}", round_poly_evals[1]);
+    println!("S(1): {}", linear_3_evals[1] * t_3_evals[1]);
 
     // 3. Send S_3(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
@@ -284,9 +295,10 @@ where
 // Algorithm 5. Page 18.
 pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
-    mut poly: &mut EvaluationsList<EF>,
+    poly: &mut EvaluationsList<EF>,
     w: &MultilinearPoint<EF>,
-    mut challenges: &mut Vec<EF>,
+    challenges: &mut Vec<EF>,
+    sum: &mut EF,
 ) where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -298,21 +310,23 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
     // We compute eq(w_{l/2 + 1}, ..., w_l, x_R) for all x_R in {0, 1}^{l/2}
     let eq_r = eval_eq_in_hypercube(&w.0[half_l..].to_vec());
 
-    // Esto es feo. Necesito a t_0 y t_1 in scope (fuera del if).
-    let t_0 = EF::ZERO;
-    let t_1 = EF::ZERO;
+    // Esto es feo, cambiar después. Necesito a t_0 y t_1 in scope (fuera del if).
+    let mut t = Vec::new();
 
     // TODO: Está desde 4 para testear. Una vez que tengamos el algoritmo 2, debería ser desde 5.
     for i in 4..num_vars + 1 {
+        println!("Round {}", i);
         // 1. We compute t_i(u) for u in {0, 1}.
         if i < half_l {
+            // We compute eq(w_{i+1}, ..., w_{l/2}, x_L) for all x_L in {0, 1}^{l/2 - i}
             let eq_l = eval_eq_in_hypercube(&w.0[i..half_l].to_vec());
 
-            let t_0: EF = (0..half_l)
+            let t_0: EF = (0..(1 << half_l))
                 .map(|x_r| {
                     let sum_l: EF = (0..half_l - i)
                         .map(|x_l| {
                             // For t(0) we need p(0, x_L, x_R).
+                            // x_R has length l/2.
                             eq_l[x_l] * (poly.as_slice()[(x_l << half_l) | x_r])
                         })
                         .sum();
@@ -321,14 +335,14 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
                 })
                 .sum();
 
-            let t_1: EF = (0..half_l)
+            let t_1: EF = (0..(1 << half_l))
                 .map(|x_r| {
                     let sum_l: EF = (0..half_l - i)
                         .map(|x_l| {
                             // For t(1) we need p(1, x_L, x_R).
                             // Number of variables of x_R: l/2.
-                            // Number of variables of x_l: l/2 - i.
-                            // Number of variables of x_L || x_R: l - i.
+                            // Number of variables of x_L: l/2 - i.
+                            // Number of variables of (x_L || x_R): l - i.
                             eq_l[x_l]
                                 * (poly.as_slice()[(1 << (num_vars - i)) | (x_l << half_l) | x_r])
                         })
@@ -337,33 +351,39 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
                     eq_r[x_r] * sum_l
                 })
                 .sum();
+            t.push(t_0);
+            t.push(t_1);
         } else {
             let eq_l = eval_eq_in_hypercube(&w.0[i..num_vars].to_vec());
-            let t_0: EF = (0..num_vars - i)
+            // POSIBLE ERROR: El caso i = num_vars puede estar mal. Después lo miro, ya me están dando mal los primeros casos.
+            let t_0: EF = (0..(1 << num_vars - i))
                 .map(|x| {
-                    let x_num_vars = num_vars - i;
-                    // For t(0) we need p(0, x_R).
+                    // For t(0) we need p(0, x).
                     eq_l[x] * (poly.as_slice()[x])
                 })
                 .sum();
 
-            let t_1: EF = (0..num_vars - i)
+            let t_1: EF = (0..(1 << num_vars - i))
                 .map(|x| {
-                    // For t(0) we need p(0, x_R).
+                    // For t(1) we need p(1, x).
                     // Number of variables of x: num_vars - i.
                     eq_l[x] * (poly.as_slice()[(1 << (num_vars - i)) | x])
                 })
                 .sum();
+            t.push(t_0);
+            t.push(t_1);
         }
 
         // 2. We compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf}.
         // We compute l_i(0) and l_i(inf)
         let linear_evals = compute_linear_function(&w.0[..i], &challenges);
 
-        let t_evals = [t_0, t_1];
-
         // We compute S_i(u)
-        let round_poly_evals = get_evals_from_l_and_t(&linear_evals, &t_evals);
+        let round_poly_evals = get_evals_from_l_and_t(&linear_evals, &t);
+
+        println!("S(0): {}", round_poly_evals[0]);
+        println!("S(inf): {}", round_poly_evals[1]);
+        println!("S(1): {}", linear_evals[1] * t[1]);
 
         // 3. Send S_2(u) to the verifier.
         prover_state.add_extension_scalars(&round_poly_evals);
@@ -374,6 +394,12 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
 
         // 5. Fold and update the poly.
         poly.compress_svo(r_i);
+
+        // Update the claimed sum.
+        let eval_1 = *sum - round_poly_evals[0];
+        *sum = round_poly_evals[1] * r_i.square()
+            + (eval_1 - round_poly_evals[0] - round_poly_evals[1]) * r_i
+            + round_poly_evals[0];
     }
 }
 
