@@ -151,7 +151,9 @@ impl<F: Field> Statement<F> {
         Base: Field,
         F: ExtensionField<Base>,
     {
-        // Handle the empty constraint case.
+        // If there are no constraints, the combination is:
+        // - The combined polynomial W(X) is identically zero (all evaluations = 0).
+        // - The combined expected sum S is zero.
         if self.is_empty() {
             return (
                 EvaluationsList::new(F::zero_vec(1 << self.num_variables)),
