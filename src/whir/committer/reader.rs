@@ -154,7 +154,7 @@ where
         ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
             verifier_state,
             self.num_variables,
-            self.committment_ood_samples,
+            self.commitment_ood_samples,
         )
     }
 }
@@ -231,7 +231,7 @@ mod tests {
         let mut config = WhirConfig::new(num_variables, whir_params);
 
         // Set the number of OOD samples for commitment testing.
-        config.committment_ood_samples = ood_samples;
+        config.commitment_ood_samples = ood_samples;
 
         // Return the config and a thread-local random number generator.
         (config, rand::rng())
