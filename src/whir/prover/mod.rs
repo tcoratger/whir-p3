@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, UniformGrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
@@ -54,7 +54,7 @@ impl<EF, F, H, C, Challenger> Prover<'_, EF, F, H, C, Challenger>
 where
     F: TwoAdicField + Ord,
     EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     /// Validates that the total number of variables expected by the prover configuration
     /// matches the number implied by the folding schedule and the final rounds.

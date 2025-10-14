@@ -1,8 +1,8 @@
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
+use p3_challenger::{DuplexChallenger, FieldChallenger, UniformGrindingChallenger};
 use p3_field::extension::BinomialExtensionField;
-use rand::{Rng, SeedableRng, rngs::SmallRng};
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -38,7 +38,7 @@ fn generate_statement<C>(
     num_constraints: usize,
 ) -> Statement<EF>
 where
-    C: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    C: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     let mut statement = Statement::initialize(num_vars);
     for _ in 0..num_constraints {

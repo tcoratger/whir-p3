@@ -1,6 +1,6 @@
 use std::{fmt::Debug, ops::Deref};
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, UniformGrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_symmetric::Hash;
 
@@ -66,7 +66,7 @@ where
     where
         F: TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
     {
         // Read the Merkle root hash committed by the prover.
         let root = verifier_state
@@ -134,7 +134,7 @@ impl<'a, EF, F, H, C, Challenger> CommitmentReader<'a, EF, F, H, C, Challenger>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     /// Create a new commitment reader from a WHIR configuration.
     ///

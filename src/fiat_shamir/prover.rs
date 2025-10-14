@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, GrindingChallenger, UniformGrindingChallenger};
 use p3_field::{ExtensionField, Field};
 
 use super::domain_separator::DomainSeparator;
@@ -16,7 +16,7 @@ use crate::fiat_shamir::ChallengeSampler;
 pub struct ProverState<F, EF, Challenger>
 where
     F: Field,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     /// Cryptographic challenger used to sample challenges and observe data.
     challenger: Challenger,
@@ -33,7 +33,9 @@ impl<F, EF, Challenger> ProverState<F, EF, Challenger>
 where
     EF: ExtensionField<F>,
     F: Field,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F>
+        + GrindingChallenger<Witness = F>
+        + UniformGrindingChallenger<Witness = F>,
 {
     /// Create a new prover state with a given domain separator and challenger.
     ///
@@ -133,7 +135,8 @@ where
     /// # Returns
     /// A uniformly random value with `bits` bits.
     pub fn sample_bits(&mut self, bits: usize) -> usize {
-        self.challenger.sample_bits(bits)
+        //self.challenger.sample_bits(bits)
+        self.challenger.sample_uniform_bits(bits)
     }
 
     /// Perform PoW grinding and append the witness to the transcript.
@@ -147,7 +150,7 @@ where
         }
 
         // Perform grinding and obtain a witness element in the base field.
-        let witness = self.challenger.grind(bits);
+        let witness = self.challenger.grind_uniform_may_panic(bits);
 
         // Append the witness to the proof data.
         self.proof_data.push(witness);
@@ -158,7 +161,7 @@ impl<F, EF, Challenger> ChallengeSampler<EF> for ProverState<F, EF, Challenger>
 where
     EF: ExtensionField<F>,
     F: Field,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     fn sample(&mut self) -> EF {
         self.sample()

@@ -1,4 +1,4 @@
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, UniformGrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
@@ -47,7 +47,7 @@ pub(crate) fn verify_sumcheck_rounds<EF, F, Challenger>(
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     // Calculate how many `(poly, rand)` pairs to expect based on skip mode
     //
@@ -144,9 +144,9 @@ where
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
-    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{extension::BinomialExtensionField, PrimeCharacteristicRing};
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
-    use rand::{SeedableRng, rngs::SmallRng};
+    use rand::{rngs::SmallRng, SeedableRng};
 
     use super::*;
     use crate::{
@@ -154,7 +154,7 @@ mod tests {
             domain_separator::{DomainSeparator, SumcheckParams},
             pattern::{Observe, Sample},
         },
-        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+        parameters::{errors::SecurityAssumption, FoldingFactor, ProtocolParameters},
         poly::coeffs::CoefficientList,
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{constraints::statement::Statement, parameters::WhirConfig},
