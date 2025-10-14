@@ -93,7 +93,7 @@ where
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) = sample_ood_points(
             prover_state,
-            self.committment_ood_samples,
+            self.commitment_ood_samples,
             self.num_variables,
             |point| info_span!("ood evaluation").in_scope(|| polynomial.evaluate(point)),
         );
@@ -206,7 +206,7 @@ mod tests {
         // Validate the number of generated OOD points.
         assert_eq!(
             witness.ood_points.len(),
-            params.committment_ood_samples,
+            params.commitment_ood_samples,
             "OOD points count should match expected samples"
         );
 
@@ -310,7 +310,7 @@ mod tests {
             WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
 
         // Explicitly set OOD samples to 0
-        params.committment_ood_samples = 0;
+        params.commitment_ood_samples = 0;
 
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
@@ -331,7 +331,7 @@ mod tests {
 
         assert!(
             witness.ood_points.is_empty(),
-            "There should be no OOD points when committment_ood_samples is 0"
+            "There should be no OOD points when commitment_ood_samples is 0"
         );
     }
 }
