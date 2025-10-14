@@ -1,7 +1,7 @@
 use std::{fmt::Debug, ops::Deref};
 
 use errors::VerifierError;
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, UniformGrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
@@ -44,7 +44,7 @@ impl<'a, EF, F, H, C, Challenger> Verifier<'a, EF, F, H, C, Challenger>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     pub const fn new(params: &'a WhirConfig<EF, F, H, C, Challenger>) -> Self {
         Self(params)

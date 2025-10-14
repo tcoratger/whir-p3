@@ -1,10 +1,10 @@
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, UniformGrindingChallenger};
 use p3_field::{ExtensionField, Field};
 use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use crate::{
-    fiat_shamir::{ChallengeSampler, errors::FiatShamirError, prover::ProverState},
+    fiat_shamir::{errors::FiatShamirError, prover::ProverState, ChallengeSampler},
     poly::multilinear::MultilinearPoint,
 };
 
@@ -185,7 +185,7 @@ pub fn sample_ood_points<F: Field, EF: ExtensionField<F>, E, Challenger>(
 ) -> (Vec<EF>, Vec<EF>)
 where
     E: Fn(&MultilinearPoint<EF>) -> EF,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     let mut ood_points = EF::zero_vec(num_samples);
     let mut ood_answers = Vec::with_capacity(num_samples);

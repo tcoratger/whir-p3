@@ -1,9 +1,9 @@
 use std::{f64::consts::LOG2_10, marker::PhantomData};
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, UniformGrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use crate::parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption};
+use crate::parameters::{errors::SecurityAssumption, FoldingFactor, ProtocolParameters};
 
 #[derive(Debug, Clone)]
 pub struct RoundConfig<F> {
@@ -65,7 +65,7 @@ impl<EF, F, Hash, C, Challenger> WhirConfig<EF, F, Hash, C, Challenger>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     #[allow(clippy::too_many_lines)]
     pub fn new(num_variables: usize, whir_parameters: ProtocolParameters<Hash, C>) -> Self {

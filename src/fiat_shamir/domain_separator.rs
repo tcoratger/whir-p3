@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, GrindingChallenger, UniformGrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
@@ -104,7 +104,7 @@ where
         challenger: Challenger,
     ) -> ProverState<F, EF, Challenger>
     where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
     {
         ProverState::new(self, challenger)
     }
@@ -117,7 +117,7 @@ where
         challenger: Challenger,
     ) -> VerifierState<F, EF, Challenger>
     where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
     {
         VerifierState::new(self, proof_data, challenger)
     }
@@ -133,7 +133,7 @@ where
         &mut self,
         params: &WhirConfig<EF, F, HC, C, Challenger>,
     ) where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
     {
         // TODO: Add params
         self.observe(DIGEST_ELEMS, Observe::MerkleDigest);
@@ -147,7 +147,7 @@ where
         &mut self,
         params: &WhirConfig<EF, F, HC, C, Challenger>,
     ) where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
         EF: TwoAdicField,
         F: TwoAdicField,
     {

@@ -1,12 +1,12 @@
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
+use p3_challenger::{DuplexChallenger, FieldChallenger, UniformGrindingChallenger};
 use p3_field::{
-    ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
+    extension::BinomialExtensionField, ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField,
 };
 use p3_interpolation::interpolate_subgroup;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use proptest::prelude::*;
-use rand::{Rng, SeedableRng, rngs::SmallRng};
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use super::sumcheck_single::SumcheckSingle;
 use crate::{
@@ -85,7 +85,7 @@ fn make_initial_statement<Challenger>(
     poly: &EvaluationsList<F>,
 ) -> Statement<EF>
 where
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     // Initialize the statement to hold the evaluation constraints.
     let mut statement = Statement::initialize(num_vars);
@@ -136,7 +136,7 @@ fn make_inter_statement<Challenger>(
     sumcheck: &mut SumcheckSingle<F, EF>,
 ) -> (Statement<EF>, EF)
 where
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     // Determine how many variables are left in the current sumcheck polynomial.
     let num_vars = sumcheck.num_variables();
@@ -203,7 +203,7 @@ fn read_statement<Challenger>(
     num_points: usize,
 ) -> Statement<EF>
 where
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     // Create a new statement that will hold all reconstructed constraints.
     let mut statement = Statement::initialize(num_vars);

@@ -1,4 +1,4 @@
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, GrindingChallenger, UniformGrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_maybe_rayon::prelude::*;
@@ -43,7 +43,9 @@ fn initial_round<Challenger, F: Field, EF: ExtensionField<F>>(
     pow_bits: usize,
 ) -> (EF, EvaluationsList<EF>)
 where
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F>
+        + GrindingChallenger<Witness = F>
+        + UniformGrindingChallenger<Witness = F>,
 {
     // Compute the quadratic sumcheck polynomial for the current variable.
     let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
@@ -89,7 +91,7 @@ fn round<Challenger, F: Field, EF: ExtensionField<F>>(
     pow_bits: usize,
 ) -> EF
 where
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     // Compute the quadratic sumcheck polynomial for the current variable.
     let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
@@ -270,7 +272,7 @@ where
     where
         F: TwoAdicField,
         EF: TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
     {
         assert_ne!(folding_factor, 0);
         let mut res = Vec::with_capacity(folding_factor);
@@ -319,7 +321,7 @@ where
     where
         F: TwoAdicField,
         EF: TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
     {
         assert_ne!(folding_factor, 0);
         let mut res = Vec::with_capacity(folding_factor);
@@ -522,7 +524,7 @@ where
     where
         F: TwoAdicField,
         EF: TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
     {
         // Standard round-by-round folding
         // Proceed with one-variable-per-round folding for remaining variables.

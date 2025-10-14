@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, UniformGrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
@@ -153,7 +153,7 @@ where
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<Self, FiatShamirError>
     where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
         MyChallenger: Clone,
         C: Clone,
     {

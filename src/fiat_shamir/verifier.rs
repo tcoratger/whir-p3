@@ -1,8 +1,8 @@
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{FieldChallenger, UniformGrindingChallenger};
 use p3_field::{ExtensionField, Field};
 
 use super::domain_separator::DomainSeparator;
-use crate::fiat_shamir::{ChallengeSampler, errors::FiatShamirError};
+use crate::fiat_shamir::{errors::FiatShamirError, ChallengeSampler};
 
 /// State held by the verifier in a Fiat-Shamir protocol.
 ///
@@ -12,7 +12,7 @@ use crate::fiat_shamir::{ChallengeSampler, errors::FiatShamirError};
 pub struct VerifierState<F, EF, Challenger>
 where
     F: Field,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     /// Cryptographic challenger used for sampling challenges and observing proof data.
     challenger: Challenger,
@@ -29,7 +29,7 @@ where
 
 impl<F, EF, Challenger> VerifierState<F, EF, Challenger>
 where
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
     EF: ExtensionField<F>,
     F: Field,
 {
@@ -186,7 +186,8 @@ where
     /// # Returns
     /// A uniformly random value with `bits` bits.
     pub fn sample_bits(&mut self, bits: usize) -> usize {
-        self.challenger.sample_bits(bits)
+        //self.challenger.sample_bits(bits)
+        self.challenger.sample_uniform_bits_may_panic(bits)
     }
 
     /// Verify PoW grinding witness correctness.
@@ -213,7 +214,10 @@ where
         self.index += 1;
 
         // Verify the witness using the challenger.
-        if self.challenger.check_witness(bits, witness) {
+        if self
+            .challenger
+            .check_witness_uniform_may_panic(bits, witness)
+        {
             Ok(())
         } else {
             Err(FiatShamirError::InvalidGrindingWitness)
@@ -225,7 +229,7 @@ impl<F, EF, Challenger> ChallengeSampler<EF> for VerifierState<F, EF, Challenger
 where
     EF: ExtensionField<F>,
     F: Field,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + UniformGrindingChallenger<Witness = F>,
 {
     fn sample(&mut self) -> EF {
         self.sample()
