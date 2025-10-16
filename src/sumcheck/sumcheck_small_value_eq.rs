@@ -171,10 +171,6 @@ where
 
     // We compute S_1(0) and S_1(inf)
     let round_poly_evals = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals);
-    println!("Round 1:");
-    println!("S(0): {}", round_poly_evals[0]);
-    println!("S(inf): {}", round_poly_evals[1]);
-    println!("S(1): {}", linear_1_evals[1] * t_1_evals[1]);
 
     // 3. Send S_1(u) to the verifier.d
     prover_state.add_extension_scalars(&round_poly_evals);
@@ -213,10 +209,6 @@ where
 
     // We compute S_2(u)
     let round_poly_evals = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
-    println!("Round 2:");
-    println!("S(0): {}", round_poly_evals[0]);
-    println!("S(inf): {}", round_poly_evals[1]);
-    println!("S(1): {}", linear_2_evals[1] * t_2_evals[1]);
 
     // 3. Send S_2(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
@@ -273,10 +265,6 @@ where
 
     // We compute S_3(u)
     let round_poly_evals = get_evals_from_l_and_t(&linear_3_evals, &t_3_evals);
-    println!("Round 3:");
-    println!("S(0): {}", round_poly_evals[0]);
-    println!("S(inf): {}", round_poly_evals[1]);
-    println!("S(1): {}", linear_3_evals[1] * t_3_evals[1]);
 
     // 3. Send S_3(u) to the verifier.
     // TODO: En realidad no hace falta mandar S_3(1) porque se dedecue usando S_3(0).
@@ -305,9 +293,17 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
     let num_vars = w.num_variables();
     let half_l = num_vars / 2;
 
+    // We compute eq(w_{l/2 + 1}, ...,  w_l ; x_R) for all x_R in {0, 1}^{l/2}
+    // These evaluations don't depend on the round i, so they are computed outside the loop.
+    let eq_r = eval_eq_in_hypercube(&w.0[half_l..].to_vec());
+    let num_vars_x_r = eq_r.len().ilog2() as usize;
+
+    // The number of variables of x_R is: l/2 if l is even and l/2 + 1 if l is odd.
+    debug_assert!(num_vars_x_r == half_l + (num_vars % 2));
+
     // Loop for the final rounds, from l_0+1 (in our case 4) to the end.
+    // TODO: Once we have the algorithm 2, this loop should start at 5 (l_0 + 2).
     for i in 4..num_vars + 1 {
-        println!("Round {}", i);
         let mut t = Vec::new();
 
         // We get the number of variables of `poly` in the current round.
@@ -315,10 +311,8 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
 
         // 1. We compute t_i(u) for u in {0, 1}.
         if i <= half_l {
-            // Split the eq evaluation into two parts
-            let eq_r = eval_eq_in_hypercube(&w.0[half_l..].to_vec());
+            // We compute eq(w_{i + 1}, ...,  w_{l/2} ; x_L) for all x_L in {0, 1}^{l/2 - i}
             let eq_l = eval_eq_in_hypercube(&w.0[i..half_l].to_vec());
-            let num_vars_x_r = eq_r.len().ilog2() as usize;
 
             // For t_i(0), we need p(r_[<i-1], 0, x_L, x_R).
             let t_0: EF = (0..(1 << num_vars_x_r))
@@ -347,16 +341,16 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
             t.push(t_0);
             t.push(t_1);
         } else {
-            // Case i > l/2: Only one part of the eq evaluations remains to be processed
-            let eq_l = eval_eq_in_hypercube(&w.0[i..num_vars].to_vec());
+            // Case i > l/2: Only one part of the eq evaluations remains to be processed.
+            let eq = eval_eq_in_hypercube(&w.0[i..num_vars].to_vec());
             // For t_i(0), we need p(r_[<i-1], 0, x)
             let t_0: EF = (0..(1 << (num_vars_poly_current - 1)))
-                .map(|x| eq_l[x] * (poly.as_slice()[x]))
+                .map(|x| eq[x] * (poly.as_slice()[x]))
                 .sum();
 
             // For t_i(1), we need p(r_[<i-1], 1, x)
             let t_1: EF = (0..(1 << (num_vars_poly_current - 1)))
-                .map(|x| eq_l[x] * (poly.as_slice()[(1 << (num_vars_poly_current - 1)) | x]))
+                .map(|x| eq[x] * (poly.as_slice()[(1 << (num_vars_poly_current - 1)) | x]))
                 .sum();
             t.push(t_0);
             t.push(t_1);
@@ -369,11 +363,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
         // We compute S_i(u)
         let round_poly_evals = get_evals_from_l_and_t(&linear_evals, &t);
 
-        // println!("S(0): {}", round_poly_evals[0]);
-        // println!("S(inf): {}", round_poly_evals[1]);
-        // println!("S(1): {}", linear_evals[1] * t[1]);
-
-        // 3. Send S_2(u) to the verifier.
+        // 3. Send S_i(u) to the verifier.
         prover_state.add_extension_scalars(&round_poly_evals);
 
         // 4. Receive the challenge r_i from the verifier.

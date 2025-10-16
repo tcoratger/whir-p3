@@ -222,16 +222,28 @@ where
 
     #[inline]
     pub fn compress_svo(&mut self, r: F) {
-        // Ensure the polynomial is not a constant (i.e., has variables to fold).
         assert_ne!(self.num_variables(), 0);
 
-        let mid = self.num_evals() / 2;
-        for i in 0..mid {
-            let p0 = self.0[i];
-            let p1 = self.0[mid + i];
-            self.0[i] = r * (p1 - p0) + p0;
+        // For large inputs, we use a parallel, out-of-place strategy.
+        if self.num_evals() >= PARALLEL_THRESHOLD {
+            let mid = self.num_evals() / 2;
+            let (left, right) = self.0.split_at(mid);
+            let folded = left
+                .par_iter()
+                .zip(right.par_iter())
+                .map(|(&p0, &p1)| r * (p1 - p0) + p0)
+                .collect();
+            self.0 = folded;
+        } else {
+            // For smaller inputs, we use a sequential, in-place strategy.
+            let mid = self.num_evals() / 2;
+            for i in 0..mid {
+                let p0 = self.0[i];
+                let p1 = self.0[mid + i];
+                self.0[i] = r * (p1 - p0) + p0;
+            }
+            self.0.truncate(mid);
         }
-        self.0.truncate(mid);
     }
 
     /// Folds a list of evaluations from a base field `F` into an extension field `EF`.
@@ -277,7 +289,7 @@ where
 
         let mid = self.num_evals() / 2;
 
-        // Fold first half with second half: (0,4), (1,5), (2,6), (3,7)
+        // Fold first half with second half.
         let folded = (0..mid)
             .map(|i| {
                 let pair = [self.0[i], self.0[i + mid]];
@@ -1426,6 +1438,31 @@ mod tests {
             let list_b = EvaluationsList::new(evals);
             let r_ext = EF4::from(r_base);
             let result_b_ext = list_b.compress_ext(r_ext);
+
+            // The results should be identical.
+            prop_assert_eq!(result_a_lifted, result_b_ext.as_slice());
+        }
+
+        #[test]
+        fn prop_compress_and_compress_ext_agree_svo(
+            n in 1..=6,
+            seed in any::<u64>(),
+        ) {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let num_evals = 1 << n;
+            let evals: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
+            let r_base: F = rng.random();
+
+            // Path A: Use the in-place `compress` method.
+            let mut list_a = EvaluationsList::new(evals.clone());
+            list_a.compress_svo(r_base);
+            // Lift the result into the extension field for comparison.
+            let result_a_lifted: Vec<EF4> = list_a.as_slice().iter().map(|&x| EF4::from(x)).collect();
+
+            // Path B: Use the `compress_ext` method with the same challenge, lifted.
+            let list_b = EvaluationsList::new(evals);
+            let r_ext = EF4::from(r_base);
+            let result_b_ext = list_b.compress_ext_svo(r_ext);
 
             // The results should be identical.
             prop_assert_eq!(result_a_lifted, result_b_ext.as_slice());
