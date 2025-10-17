@@ -421,7 +421,8 @@ where
         assert_eq!(evaluations.len(), points.len());
 
         tracing::info_span!("accumulate_weight_buffer").in_scope(|| {
-            self.weights.accumulate_batch(points, combination_randomness);
+            self.weights
+                .accumulate_batch(points, combination_randomness);
         });
 
         // Accumulate the weighted sum
