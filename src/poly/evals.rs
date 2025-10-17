@@ -1322,12 +1322,12 @@ mod tests {
         // Manually compute the `eq` evaluations for both points.
         let mut eq_evals_sum = vec![F::ZERO; 1 << n];
         for (p, val) in [(p1, value1), (p2, value2)] {
-            for i in 0..(1 << n) {
+            for (i, eq_eval_sum) in eq_evals_sum.iter_mut().enumerate().take(1 << n) {
                 let b0 = (i >> 1) & 1;
                 let b1 = (i >> 0) & 1;
                 let term0 = if b0 == 1 { p[0] } else { F::ONE - p[0] };
                 let term1 = if b1 == 1 { p[1] } else { F::ONE - p[1] };
-                eq_evals_sum[i] += val * term0 * term1;
+                *eq_eval_sum += val * term0 * term1;
             }
         }
 
