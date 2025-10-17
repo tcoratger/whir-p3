@@ -327,7 +327,9 @@ where
         assert!(k_skip > 1);
         assert!(k_skip <= folding_factor);
 
-        let (weights, _sum) = statement.combine::<F>(combination_randomness);
+        // Use univariate skip optimization to combine constraints over the mixed domain D × H^j
+        let (weights, _sum) =
+            statement.combine_univariate_skip::<F>(combination_randomness, k_skip);
 
         // Compute the skipped-round polynomial h and the rectangular views f̂, ŵ.
         //
