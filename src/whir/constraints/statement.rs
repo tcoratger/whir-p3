@@ -266,7 +266,7 @@ mod tests {
 
         // Expected evals: W(X) = eq_z1(X) + challenge * eq_z2(X)
         let mut expected_combined_evals_vec = EvaluationsList::new_from_point(&point1, F::ONE);
-        expected_combined_evals_vec.accumulate(&point2, challenge);
+        expected_combined_evals_vec.accumulate_batch(&[point2], &[challenge]);
 
         // Expected sum: S = s1 + challenge * s2
         let expected_combined_sum = eval1 + challenge * eval2;
