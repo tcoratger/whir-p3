@@ -396,7 +396,7 @@ mod tests {
         // Run prover-side folding
         // -------------------------------------------------------------
 
-        let (_, mut expected_sum) = statement.combine::<F>(EF4::ONE);
+        let (_, mut expected_sum) = statement.combine_univariate_skip::<F>(EF4::ONE, K_SKIP);
 
         // -------------------------------------------------------------
         // Construct prover with base coefficients
