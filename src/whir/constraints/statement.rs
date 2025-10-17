@@ -1,6 +1,5 @@
 use p3_field::{ExtensionField, Field, dot_product};
 use p3_matrix::dense::RowMajorMatrix;
-use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::eq_batch::eval_eq_batch;
 use tracing::instrument;
 
@@ -179,7 +178,7 @@ impl<F: Field> Statement<F> {
         //
         // Each thread writes to its own contiguous row, which is cache-friendly.
         points_matrix
-            .par_rows_mut()
+            .rows_mut()
             .enumerate()
             .for_each(|(var_idx, row_slice)| {
                 for (col_idx, point) in self.points.iter().enumerate() {
