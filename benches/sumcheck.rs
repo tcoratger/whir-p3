@@ -7,7 +7,7 @@ use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
-    whir::constraints::statement::Statement,
+    whir::constraints::{evaluator::Constraint, statement::Statement},
 };
 
 type F = BabyBear;
@@ -64,17 +64,16 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
 
         let mut prover = setup_prover();
         let statement = generate_statement(&mut prover, *num_vars, &poly, 3);
-        let combination_randomness: EF = prover.sample();
+        let constraint = Constraint::new_eq_only(prover.sample(), statement.clone());
 
         group.bench_with_input(BenchmarkId::new("Classic", *num_vars), &poly, |b, poly| {
             b.iter(|| {
                 let (mut sumcheck, _) = SumcheckSingle::from_base_evals(
                     poly,
-                    &statement,
-                    combination_randomness,
                     &mut prover,
                     classic_folding_schedule[0],
                     0,
+                    &constraint,
                 );
 
                 // Run the remaining folding rounds
@@ -83,6 +82,7 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
                         &mut prover,
                         classic_folding_schedule[1],
                         0,
+                        None,
                     );
                 }
             });

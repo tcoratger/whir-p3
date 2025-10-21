@@ -1,12 +1,12 @@
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
+use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_matrix::dense::DenseMatrix;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{SeedableRng, rngs::SmallRng};
 
 use crate::{
-    dft::EvalsDft,
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -108,7 +108,11 @@ fn setup_domain_and_commitment(
     // Perform DFT-based commitment to the polynomial, producing a witness
     // which includes the Merkle tree and polynomial values.
     let witness = committer
-        .commit(&EvalsDft::<F>::default(), &mut prover_state, poly)
+        .commit(
+            &Radix2DFTSmallBatch::<F>::default(),
+            &mut prover_state,
+            poly,
+        )
         .unwrap();
 
     // Return all initialized components needed for round state setup.

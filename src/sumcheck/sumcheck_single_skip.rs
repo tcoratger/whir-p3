@@ -101,7 +101,7 @@ mod tests {
     use super::*;
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
-        poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
+        poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
         whir::constraints::statement::Statement,
     };
 
@@ -164,7 +164,10 @@ mod tests {
         // So the resulting sumcheck polynomial must be identically zero.
         // ----------------------------------------------------------------
         let statement = Statement::<EF4>::initialize(3);
-        let (weights, _sum) = statement.combine::<F>(EF4::ONE);
+
+        let mut weights = EvaluationsList::zero(statement.num_variables());
+        let mut sum = EF4::ZERO;
+        statement.combine::<F>(&mut weights, &mut sum, EF4::ONE);
 
         // ----------------------------------------------------------------
         // Apply the univariate skip optimization with k = 2:
@@ -202,7 +205,9 @@ mod tests {
         let coeffs = CoefficientList::new(vec![c0, c1]);
 
         let statement = Statement::<EF4>::initialize(1);
-        let (weights, _sum) = statement.combine::<F>(EF4::ONE);
+        let mut weights = EvaluationsList::zero(statement.num_variables());
+        let mut sum = EF4::ZERO;
+        statement.combine::<F>(&mut weights, &mut sum, EF4::ONE);
 
         // This should panic because:
         // - the polynomial has only 1 variable
@@ -280,7 +285,9 @@ mod tests {
             f_extension(EF4::ONE, EF4::ZERO, EF4::ONE),
         );
 
-        let (weights, expected_sum) = statement.combine::<F>(EF4::ONE);
+        let mut weights = EvaluationsList::zero(statement.num_variables());
+        let mut expected_sum = EF4::ZERO;
+        statement.combine::<F>(&mut weights, &mut expected_sum, EF4::ONE);
 
         // Get the f evaluations
         let evals_f = coeffs.to_evaluations();

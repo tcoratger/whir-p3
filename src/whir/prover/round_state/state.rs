@@ -17,7 +17,7 @@ use crate::{
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{RoundMerkleTree, Witness},
-        constraints::statement::Statement,
+        constraints::{evaluator::Constraint, statement::Statement},
         prover::Prover,
     },
 };
@@ -157,23 +157,13 @@ where
         MyChallenger: Clone,
         C: Clone,
     {
-        // Convert witness OOD evaluations f(r_j) = v_j into linear constraints
-        let new_constraint_points: Vec<_> = witness
-            .ood_points
-            .into_iter()
-            .map(|point| {
-                // Expand univariate OOD point to multilinear constraint in (EF)^n
-                MultilinearPoint::expand_from_univariate(point, prover.num_variables)
-            })
-            .collect();
-
-        // Prepend OOD constraints to statement for Reed-Solomon proximity testing
-        statement.add_constraints_in_front(&new_constraint_points, &witness.ood_answers);
+        // Append OOD constraints to statement for Reed-Solomon proximity testing
+        statement.concatenate(&witness.ood_statement);
 
         // Protocol branching based on initial statement configuration
         let (sumcheck_prover, folding_randomness) = if prover.initial_statement {
             // Branch A: Initial statement exists - run sumcheck for constraint batching
-            let combination_randomness_gen: EF = prover_state.sample();
+            let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
 
             // Choose sumcheck strategy: with or without univariate skip optimization
             let (sumcheck, folding_randomness) =
@@ -181,22 +171,20 @@ where
                     // Use univariate skip by skipping k variables
                     SumcheckSingle::with_skip(
                         &witness.polynomial,
-                        &statement,
-                        combination_randomness_gen,
                         prover_state,
                         prover.folding_factor.at_round(0),
                         prover.starting_folding_pow_bits,
                         K_SKIP_SUMCHECK,
+                        &constraint,
                     )
                 } else {
                     // Standard sumcheck protocol without optimization
                     SumcheckSingle::from_base_evals(
                         &witness.polynomial,
-                        &statement,
-                        combination_randomness_gen,
                         prover_state,
                         prover.folding_factor.at_round(0),
                         prover.starting_folding_pow_bits,
+                        &constraint,
                     )
                 };
 

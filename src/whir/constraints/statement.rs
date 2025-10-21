@@ -16,14 +16,14 @@ use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 /// ----------
 /// - `points.len() == evaluations.len()`.
 /// - Every `MultilinearPoint` in `points` has exactly `num_variables` coordinates.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Statement<F> {
     /// Number of variables in the multilinear polynomial space.
     num_variables: usize,
     /// List of evaluation points.
     pub(crate) points: Vec<MultilinearPoint<F>>,
     /// List of target evaluations.
-    evaluations: Vec<F>,
+    pub(crate) evaluations: Vec<F>,
 }
 
 impl<F: Field> Statement<F> {
@@ -39,11 +39,14 @@ impl<F: Field> Statement<F> {
 
     /// Creates a filled `Statement<F>` for polynomials with `num_variables` variables.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         num_variables: usize,
         points: Vec<MultilinearPoint<F>>,
         evaluations: Vec<F>,
     ) -> Self {
+        points
+            .iter()
+            .for_each(|point| assert_eq!(point.num_variables(), num_variables));
         Self {
             num_variables,
             points,
@@ -125,25 +128,9 @@ impl<F: Field> Statement<F> {
     /// Inserts multiple constraints at the front of the system.
     ///
     /// Panics if any constraint's number of variables does not match the system.
-    pub fn add_constraints_in_front(&mut self, points: &[MultilinearPoint<F>], evaluations: &[F]) {
-        // Store the number of variables expected by this statement.
-        let n = self.num_variables();
-        assert_eq!(points.len(), evaluations.len());
-        for p in points {
-            assert_eq!(p.num_variables(), n);
-        }
-
-        self.points.splice(0..0, points.iter().cloned());
-        self.evaluations.splice(0..0, evaluations.iter().copied());
-    }
-
     /// Combines all constraints into a single aggregated polynomial and expected sum using a challenge.
-    ///
-    /// # Returns
-    /// - `EvaluationsList<F>`: The evaluations of the combined weight polynomial `W(X)`.
-    /// - `F`: The combined expected evaluation `S`.
     #[instrument(skip_all, fields(num_constraints = self.len(), num_variables = self.num_variables()))]
-    pub fn combine<Base>(&self, challenge: F) -> (EvaluationsList<F>, F)
+    pub fn combine<Base>(&self, acc_weights: &mut EvaluationsList<F>, acc_sum: &mut F, challenge: F)
     where
         Base: Field,
         F: ExtensionField<Base>,
@@ -151,11 +138,8 @@ impl<F: Field> Statement<F> {
         // If there are no constraints, the combination is:
         // - The combined polynomial W(X) is identically zero (all evaluations = 0).
         // - The combined expected sum S is zero.
-        if self.is_empty() {
-            return (
-                EvaluationsList::new(F::zero_vec(1 << self.num_variables)),
-                F::ZERO,
-            );
+        if self.points.is_empty() {
+            return;
         }
 
         let num_constraints = self.len();
@@ -186,16 +170,11 @@ impl<F: Field> Statement<F> {
 
         // Compute the batched equality polynomial evaluations.
         // This computes W(x) = ∑_i γ^i * eq(x, z_i) for all x ∈ {0,1}^k.
-        let mut combined = F::zero_vec(1 << num_variables);
-        eval_eq_batch::<Base, F, false>(points_matrix.as_view(), &mut combined, &challenges);
+        eval_eq_batch::<Base, F, true>(points_matrix.as_view(), acc_weights, &challenges);
 
         // Combine expected evaluations: S = ∑_i γ^i * s_i
-        let sum = dot_product(self.evaluations.iter().copied(), challenges.into_iter());
-
-        // Return:
-        // - The combined polynomial W(X) in evaluation form.
-        // - The combined expected sum S.
-        (EvaluationsList::new(combined), sum)
+        *acc_sum +=
+            dot_product::<F, _, _>(self.evaluations.iter().copied(), challenges.into_iter());
     }
 
     /// Combines a list of evals into a single linear combination using powers of `gamma`,
@@ -204,17 +183,8 @@ impl<F: Field> Statement<F> {
     /// # Arguments
     /// - `claimed_eval`: Mutable reference to the total accumulated claimed eval so far. Updated in place.
     /// - `gamma`: A random extension field element used to weight the evals.
-    ///
-    /// # Returns
-    /// A `Vec<F>` containing the powers of `gamma` used to combine each constraint.
-    pub fn combine_evals(&self, claimed_eval: &mut F, gamma: F) -> Vec<F> {
-        let gammas = gamma.powers().collect_n(self.len());
-
-        for (expected_eval, &gamma) in self.evaluations.iter().zip(&gammas) {
-            *claimed_eval += *expected_eval * gamma;
-        }
-
-        gammas
+    pub fn combine_evals(&self, claimed_eval: &mut F, gamma: F) {
+        *claimed_eval += dot_product(self.evaluations.iter().copied(), gamma.powers());
     }
 }
 
@@ -235,7 +205,9 @@ mod tests {
         statement.add_evaluated_constraint(point.clone(), expected_eval);
 
         let challenge = F::from_u64(2); // This is unused with one constraint.
-        let (combined_evals, combined_sum) = statement.combine::<F>(challenge);
+        let mut combined_evals = EvaluationsList::zero(statement.num_variables());
+        let mut combined_sum = F::ZERO;
+        statement.combine(&mut combined_evals, &mut combined_sum, challenge);
 
         // Expected evals for eq_z(X) where z = (1).
         // For x=0, eq=0. For x=1, eq=1.
@@ -260,7 +232,9 @@ mod tests {
         statement.add_evaluated_constraint(point2.clone(), eval2);
 
         let challenge = F::from_u64(2);
-        let (combined_evals, combined_sum) = statement.combine::<F>(challenge);
+        let mut combined_evals = EvaluationsList::zero(statement.num_variables());
+        let mut combined_sum = F::ZERO;
+        statement.combine(&mut combined_evals, &mut combined_sum, challenge);
 
         // Expected evals: W(X) = eq_z1(X) + challenge * eq_z2(X)
         let mut expected_combined_evals_vec = EvaluationsList::new_from_point(&point1, F::ONE);
@@ -373,22 +347,6 @@ mod tests {
     }
 
     #[test]
-    fn test_add_constraints_in_front() {
-        // Test adding constraints at the front preserves order
-        let mut statement = Statement::<F>::initialize(1);
-        statement.add_evaluated_constraint(MultilinearPoint::new(vec![F::ONE]), F::from_u64(100));
-
-        let front_points = vec![MultilinearPoint::new(vec![F::ZERO])];
-        let front_evals = vec![F::from_u64(10)];
-        statement.add_constraints_in_front(&front_points, &front_evals);
-
-        assert_eq!(statement.len(), 2);
-        let collected: Vec<_> = statement.iter().collect();
-        assert_eq!(collected[0].1, &F::from_u64(10)); // Front constraint first
-        assert_eq!(collected[1].1, &F::from_u64(100)); // Original constraint last
-    }
-
-    #[test]
     #[should_panic(expected = "assertion `left == right` failed")]
     fn test_wrong_variable_count() {
         let mut statement = Statement::<F>::initialize(1);
@@ -400,7 +358,10 @@ mod tests {
     fn test_combine_operations() {
         // Test empty statement combine
         let empty_statement = Statement::<F>::initialize(1);
-        let (_combined_poly, combined_sum) = empty_statement.combine::<F>(F::from_u64(42));
+
+        let mut combined_evals = EvaluationsList::zero(empty_statement.num_variables());
+        let mut combined_sum = F::ZERO;
+        empty_statement.combine(&mut combined_evals, &mut combined_sum, F::from_u64(42));
         assert_eq!(combined_sum, F::ZERO);
 
         // Test combine_evals with constraints
@@ -409,11 +370,10 @@ mod tests {
         statement.add_evaluated_constraint(MultilinearPoint::new(vec![F::ONE]), F::from_u64(7));
 
         let mut claimed_eval = F::ZERO;
-        let gammas = statement.combine_evals(&mut claimed_eval, F::from_u64(2));
+        statement.combine_evals(&mut claimed_eval, F::from_u64(2));
 
         // Verify: 3*1 + 7*2 = 17
         assert_eq!(claimed_eval, F::from_u64(17));
-        assert_eq!(gammas, vec![F::ONE, F::from_u64(2)]);
     }
 
     use proptest::prelude::*;
@@ -453,18 +413,18 @@ mod tests {
 
             // Combine constraints with challenge
             let gamma = F::from_u32(challenge);
-            let (combined_poly, combined_sum) = statement.combine::<F>(gamma);
+            let mut combined_poly = EvaluationsList::zero(statement.num_variables());
+            let mut combined_sum = F::ZERO;
+            statement.combine(&mut combined_poly, &mut combined_sum, gamma);
 
             // Combined polynomial should have same number of variables
             prop_assert_eq!(combined_poly.num_variables(), 4);
 
             // Combined evaluations should match combine result
             let mut claimed_eval = F::ZERO;
-            let gammas = statement.combine_evals(&mut claimed_eval, gamma);
+            statement.combine_evals(&mut claimed_eval, gamma);
             // Both methods should give same sum
             prop_assert_eq!(combined_sum, claimed_eval);
-            // Should have 2 gamma powers
-            prop_assert_eq!(gammas.len(), 2);
 
             // Adding wrong constraint should break verification
             let wrong_point = MultilinearPoint::new(vec![F::ZERO, F::ZERO, F::ZERO, F::ZERO]);

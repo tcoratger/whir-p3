@@ -1,3 +1,5 @@
+use std::ops::{Deref, DerefMut};
+
 use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixView};
@@ -19,6 +21,20 @@ const PARALLEL_THRESHOLD: usize = 4096;
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[must_use]
 pub struct EvaluationsList<F>(Vec<F>);
+
+impl<F> Deref for EvaluationsList<F> {
+    type Target = [F];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<F> DerefMut for EvaluationsList<F> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 impl<F> EvaluationsList<F>
 where
@@ -42,6 +58,11 @@ where
         );
 
         Self(evals)
+    }
+
+    /// Given a number of points initializes a new zero polynomial
+    pub fn zero(num_evals: usize) -> Self {
+        Self(F::zero_vec(1 << num_evals))
     }
 
     /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`

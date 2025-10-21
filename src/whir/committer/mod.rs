@@ -4,7 +4,7 @@ use p3_field::{ExtensionField, Field};
 use p3_matrix::{dense::DenseMatrix, extension::FlatMatrixView};
 use p3_merkle_tree::MerkleTree;
 
-use crate::poly::evals::EvaluationsList;
+use crate::{poly::evals::EvaluationsList, whir::constraints::statement::Statement};
 
 pub mod reader;
 pub mod writer;
@@ -27,8 +27,7 @@ where
     pub polynomial: EvaluationsList<F>,
     /// Prover data of the Merkle tree.  
     pub prover_data: Arc<MerkleTree<F, F, M, DIGEST_ELEMS>>,
-    /// Out-of-domain challenge points used for polynomial verification.  
-    pub ood_points: Vec<EF>,
+    /// Out-of-domain challenge points used for polynomial verification.
     /// The corresponding polynomial evaluations at the OOD challenge points.  
-    pub ood_answers: Vec<EF>,
+    pub ood_statement: Statement<EF>,
 }

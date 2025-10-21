@@ -109,6 +109,25 @@ where
         acc
     }
 
+    /// Computes `select(c, p)`, where `p` is another `MultilinearPoint`.
+    ///
+    /// The **selection polynomial** for two vectors is:
+    /// ```ignore
+    /// select(s1, s2) = ∏ (s1_i * s2_i - s2_i + 1)
+    /// ```
+    #[must_use]
+    pub fn select_poly(&self, point: &Self) -> F {
+        assert_eq!(self.num_variables(), point.num_variables());
+
+        let mut acc = F::ONE;
+
+        for (&l, &r) in self.into_iter().zip(point) {
+            acc *= (r * l) - r + F::ONE;
+        }
+
+        acc
+    }
+
     /// Evaluates the equality polynomial `eq(self, X)` at a folded challenge point.
     ///
     /// This method is used in protocols that "skip" folding rounds by providing a single challenge

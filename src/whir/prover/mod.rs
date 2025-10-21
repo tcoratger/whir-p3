@@ -2,9 +2,13 @@ use std::ops::Deref;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
-use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
+use p3_matrix::{
+    Matrix,
+    dense::{DenseMatrix, RowMajorMatrix},
+};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use round_state::RoundState;
@@ -14,13 +18,11 @@ use tracing::{info_span, instrument};
 use super::{committer::Witness, constraints::statement::Statement, parameters::WhirConfig};
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    dft::EvalsDft,
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    utils::parallel_repeat,
     whir::{
-        parameters::RoundConfig,
-        utils::{get_challenge_stir_queries, sample_ood_points},
+        constraints::{evaluator::Constraint, sel_statement::SelectStatement},
+        utils::get_challenge_stir_queries,
     },
 };
 
@@ -105,9 +107,8 @@ where
         &self,
         witness: &Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> bool {
-        assert!(witness.ood_points.len() == witness.ood_answers.len());
         if !self.0.initial_statement {
-            assert!(witness.ood_points.is_empty());
+            assert!(witness.ood_statement.is_empty());
         }
         witness.polynomial.num_variables() == self.0.num_variables
     }
@@ -135,9 +136,9 @@ where
     /// # Errors
     /// Returns an error if the witness or statement are invalid, or if a round fails.
     #[instrument(skip_all)]
-    pub fn prove<const DIGEST_ELEMS: usize>(
+    pub fn prove<Dft: TwoAdicSubgroupDft<F>, const DIGEST_ELEMS: usize>(
         &self,
-        dft: &EvalsDft<F>,
+        dft: &Dft,
         prover_state: &mut ProverState<F, EF, Challenger>,
         statement: Statement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
@@ -165,7 +166,7 @@ where
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
-            self.round(round, dft, prover_state, &mut round_state)?;
+            self.round(dft, round, prover_state, &mut round_state)?;
         }
 
         // Reverse the vector of verifier challenges (used as evaluation point)
@@ -180,10 +181,10 @@ where
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = self.num_variables - self.folding_factor.total_number(round_index)))]
     #[allow(clippy::too_many_lines)]
-    fn round<const DIGEST_ELEMS: usize>(
+    fn round<const DIGEST_ELEMS: usize, Dft: TwoAdicSubgroupDft<F>>(
         &self,
+        dft: &Dft,
         round_index: usize,
-        dft: &EvalsDft<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
@@ -214,22 +215,17 @@ where
         let domain_reduction = 1 << self.rs_reduction_factor(round_index);
         let new_domain_size = round_state.domain_size / domain_reduction;
         let inv_rate = new_domain_size / folded_evaluations.num_evals();
-        let folded_matrix = info_span!("fold matrix").in_scope(|| {
-            let evals_repeated = info_span!("repeating evals")
-                .in_scope(|| parallel_repeat(folded_evaluations.as_slice(), inv_rate));
-            // Do DFT on only interleaved polys to be folded.
-            info_span!(
-                "dft",
-                height = evals_repeated.len() >> folding_factor_next,
-                width = 1 << folding_factor_next
-            )
-            .in_scope(|| {
-                dft.dft_algebra_batch_by_evals(RowMajorMatrix::new(
-                    evals_repeated,
-                    1 << folding_factor_next,
-                ))
-            })
+
+        // Pad evaluation vector with zeros
+        let padded = info_span!("repeating evals").in_scope(|| {
+            let mut padded = EF::zero_vec(folded_evaluations.len() * inv_rate);
+            padded[..folded_evaluations.len()].copy_from_slice(folded_evaluations.as_slice());
+            RowMajorMatrix::new(padded, 1 << folding_factor_next)
         });
+
+        // Perform DFT on the padded evaluations matrix
+        let folded_matrix = info_span!("dft", height = padded.height(), width = padded.width())
+            .in_scope(|| dft.dft_algebra_batch(padded).to_row_major_matrix());
 
         let mmcs = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
             self.merkle_hash.clone(),
@@ -238,16 +234,17 @@ where
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
         let (root, prover_data) =
             info_span!("commit matrix").in_scope(|| extension_mmcs.commit_matrix(folded_matrix));
-
         prover_state.add_base_scalars(root.as_ref());
 
         // Handle OOD (Out-Of-Domain) samples
-        let (ood_points, ood_answers) = sample_ood_points(
-            prover_state,
-            round_params.ood_samples,
-            num_variables,
-            |point| info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point)),
-        );
+        let mut ood_statement = Statement::initialize(num_variables);
+        (0..round_params.ood_samples).for_each(|_| {
+            let point =
+                MultilinearPoint::expand_from_univariate(prover_state.sample(), num_variables);
+            let eval = folded_evaluations.evaluate(&point);
+            prover_state.add_extension_scalar(eval);
+            ood_statement.add_evaluated_constraint(point, eval);
+        });
 
         // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
         //
@@ -265,18 +262,20 @@ where
         prover_state.pow_grinding(round_params.pow_bits);
 
         // STIR Queries
-        let (ood_challenges, stir_challenges, stir_challenges_indexes) = self
-            .compute_stir_queries(
-                round_index,
-                prover_state,
-                round_state,
-                num_variables,
-                round_params,
-                &ood_points,
-            )?;
+        let stir_challenges_indexes = get_challenge_stir_queries(
+            round_state.domain_size,
+            self.folding_factor.at_round(round_index),
+            round_params.num_queries,
+            prover_state,
+        )?;
+        let stir_vars = stir_challenges_indexes
+            .iter()
+            .map(|&i| round_state.next_domain_gen.exp_u64(i as u64))
+            .collect::<Vec<_>>();
+        let mut stir_statement = SelectStatement::initialize(num_variables);
 
         // Collect Merkle proofs for stir queries
-        let stir_evaluations = match &round_state.merkle_prover_data {
+        match &round_state.merkle_prover_data {
             None => {
                 let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
                 let mut merkle_proofs = Vec::with_capacity(stir_challenges_indexes.len());
@@ -299,9 +298,6 @@ where
                     }
                 }
 
-                // Evaluate answers in the folding randomness.
-                let mut stir_evaluations = Vec::with_capacity(answers.len());
-
                 // Determine if this is the special first round where the univariate skip is applied.
                 let is_skip_round = self.initial_statement
                     && round_index == 0
@@ -309,14 +305,13 @@ where
                     && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
                 // Process each set of evaluations retrieved from the Merkle tree openings.
-                for answer in &answers {
+                for (answer, var) in answers.iter().zip(stir_vars.into_iter()) {
+                    let evals = EvaluationsList::new(answer.clone());
                     // Fold the polynomial represented by the `answer` evaluations using the verifier's challenge.
                     // The evaluation method depends on whether this is a "skip round" or a "standard round".
-                    let eval = if is_skip_round {
+                    if is_skip_round {
                         // Case 1: Univariate Skip Round Evaluation
                         //
-                        // The `answer` contains evaluations of a polynomial over the `k_skip` variables.
-                        let evals = EvaluationsList::new(answer.clone());
 
                         // The challenges for the remaining (non-skipped) variables.
                         let num_remaining_vars = evals.num_variables() - K_SKIP_SUMCHECK;
@@ -344,24 +339,18 @@ where
                         // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
                         let folded_row = interpolate_subgroup(&mat, r_skip);
                         // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-                        EvaluationsList::new(folded_row).evaluate(&r_rest)
+                        let eval = EvaluationsList::new(folded_row).evaluate(&r_rest);
+                        stir_statement.add_constraint(var, eval);
                     } else {
                         // Case 2: Standard Sumcheck Round
                         //
                         // The `answer` represents a standard multilinear polynomial.
 
-                        // Wrap the evaluations to represent the polynomial.
-                        let evals_list = EvaluationsList::new(answer.clone());
-
                         // Perform a standard multilinear evaluation at the full challenge point `r`.
-                        evals_list.evaluate(&round_state.folding_randomness)
-                    };
-
-                    // Store the single, folded scalar value.
-                    stir_evaluations.push(eval);
+                        let eval = evals.evaluate(&round_state.folding_randomness);
+                        stir_statement.add_constraint(var, eval);
+                    }
                 }
-
-                stir_evaluations
             }
             Some(data) => {
                 let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
@@ -384,45 +373,23 @@ where
                     }
                 }
 
-                // Evaluate answers in the folding randomness.
-                let mut stir_evaluations = Vec::with_capacity(answers.len());
-                for answer in &answers {
-                    stir_evaluations.push(
-                        EvaluationsList::new(answer.clone())
-                            .evaluate(&round_state.folding_randomness),
-                    );
+                // Process each set of evaluations retrieved from the Merkle tree openings.
+                for (answer, var) in answers.iter().zip(stir_vars.into_iter()) {
+                    // Wrap the evaluations to represent the polynomial.
+                    let evals = EvaluationsList::new(answer.clone());
+                    // Perform a standard multilinear evaluation at the full challenge point `r`.
+                    let eval = evals.evaluate(&round_state.folding_randomness);
+                    stir_statement.add_constraint(var, eval);
                 }
-
-                stir_evaluations
             }
-        };
+        }
 
-        // Randomness for combination
-        let combination_randomness_gen: EF = prover_state.sample();
-        let ood_combination_randomness: Vec<_> = combination_randomness_gen
-            .powers()
-            .collect_n(ood_challenges.len());
-        round_state.sumcheck_prover.add_new_equality(
-            &ood_challenges,
-            &ood_answers,
-            &ood_combination_randomness,
-        );
-        let stir_combination_randomness = combination_randomness_gen
-            .powers()
-            .skip(ood_challenges.len())
-            .take(stir_challenges.len())
-            .collect::<Vec<_>>();
-
-        round_state.sumcheck_prover.add_new_base_equality(
-            &stir_challenges,
-            &stir_evaluations,
-            &stir_combination_randomness,
-        );
-
+        let constraint = Constraint::new(prover_state.sample(), ood_statement, stir_statement);
         let folding_randomness = round_state.sumcheck_prover.compute_sumcheck_polynomials(
             prover_state,
             folding_factor_next,
             round_params.folding_pow_bits,
+            Some(constraint),
         );
 
         let start_idx = self.folding_factor.total_number(round_index);
@@ -553,6 +520,7 @@ where
                     prover_state,
                     self.final_sumcheck_rounds,
                     self.final_folding_pow_bits,
+                    None,
                 );
             let start_idx = self.folding_factor.total_number(round_index);
             let rand_dst = &mut round_state.randomness_vec
@@ -567,49 +535,5 @@ where
         }
 
         Ok(())
-    }
-
-    #[instrument(skip_all, level = "debug")]
-    #[allow(clippy::type_complexity)]
-    fn compute_stir_queries<const DIGEST_ELEMS: usize>(
-        &self,
-        round_index: usize,
-        prover_state: &mut ProverState<F, EF, Challenger>,
-        round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
-        num_variables: usize,
-        round_params: &RoundConfig<F>,
-        ood_points: &[EF],
-    ) -> Result<
-        (
-            Vec<MultilinearPoint<EF>>,
-            Vec<MultilinearPoint<F>>,
-            Vec<usize>,
-        ),
-        FiatShamirError,
-    > {
-        let stir_challenges_indexes = get_challenge_stir_queries(
-            round_state.domain_size,
-            self.folding_factor.at_round(round_index),
-            round_params.num_queries,
-            prover_state,
-        )?;
-
-        // Compute the generator of the folded domain, in the extension field
-        let domain_scaled_gen = round_state.next_domain_gen;
-        let ood_challenges = ood_points
-            .iter()
-            .map(|univariate| MultilinearPoint::expand_from_univariate(*univariate, num_variables))
-            .collect();
-        let stir_challenges = stir_challenges_indexes
-            .iter()
-            .map(|i| {
-                MultilinearPoint::expand_from_univariate(
-                    domain_scaled_gen.exp_u64(*i as u64),
-                    num_variables,
-                )
-            })
-            .collect();
-
-        Ok((ood_challenges, stir_challenges, stir_challenges_indexes))
     }
 }

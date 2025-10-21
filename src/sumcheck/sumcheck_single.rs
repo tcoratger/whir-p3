@@ -11,7 +11,7 @@ use crate::{
     sumcheck::{
         sumcheck_single_skip::compute_skipping_sumcheck_polynomial, utils::sumcheck_quadratic,
     },
-    whir::constraints::statement::Statement,
+    whir::constraints::{evaluator::Constraint, statement::Statement},
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;
@@ -239,9 +239,11 @@ where
     pub fn from_extension_evals(
         evals: EvaluationsList<EF>,
         statement: &Statement<EF>,
-        combination_randomness: EF,
+        challenge: EF,
     ) -> Self {
-        let (weights, sum) = statement.combine::<F>(combination_randomness);
+        let mut weights = EvaluationsList::zero(statement.num_variables());
+        let mut sum = EF::ZERO;
+        statement.combine(&mut weights, &mut sum, challenge);
 
         Self {
             evals,
@@ -261,11 +263,10 @@ where
     #[instrument(skip_all)]
     pub fn from_base_evals<Challenger>(
         evals: &EvaluationsList<F>,
-        statement: &Statement<EF>,
-        combination_randomness: EF,
         prover_state: &mut ProverState<F, EF, Challenger>,
         folding_factor: usize,
         pow_bits: usize,
+        constraint: &Constraint<F, EF>,
     ) -> (Self, MultilinearPoint<EF>)
     where
         F: TwoAdicField,
@@ -274,8 +275,7 @@ where
     {
         assert_ne!(folding_factor, 0);
         let mut res = Vec::with_capacity(folding_factor);
-
-        let (mut weights, mut sum) = statement.combine::<F>(combination_randomness);
+        let (mut weights, mut sum) = constraint.combine_new();
         // In the first round base field evaluations are folded into extension field elements
         let (r, mut evals) = initial_round(prover_state, evals, &mut weights, &mut sum, pow_bits);
         res.push(r);
@@ -309,12 +309,11 @@ where
     #[instrument(skip_all)]
     pub fn with_skip<Challenger>(
         evals: &EvaluationsList<F>,
-        statement: &Statement<EF>,
-        combination_randomness: EF,
         prover_state: &mut ProverState<F, EF, Challenger>,
         folding_factor: usize,
         pow_bits: usize,
         k_skip: usize,
+        constraint: &Constraint<F, EF>,
     ) -> (Self, MultilinearPoint<EF>)
     where
         F: TwoAdicField,
@@ -326,8 +325,8 @@ where
 
         assert!(k_skip > 1);
         assert!(k_skip <= folding_factor);
-
-        let (weights, _sum) = statement.combine::<F>(combination_randomness);
+        constraint.validate_for_skip_case();
+        let (weights, _) = constraint.combine_new();
 
         // Compute the skipped-round polynomial h and the rectangular views f̂, ŵ.
         //
@@ -390,95 +389,6 @@ where
         self.evals.num_variables()
     }
 
-    /// Adds new weighted constraints to the polynomial.
-    ///
-    /// This function updates the weight evaluations and sum by incorporating new constraints.
-    ///
-    /// Given points `z_i`, weights `ε_i`, and evaluation values `f(z_i)`, it updates:
-    ///
-    /// \begin{equation}
-    ///     w(X) = w(X) + \sum ε_i \cdot w_{z_i}(X)
-    /// \end{equation}
-    ///
-    /// and updates the sum as:
-    ///
-    /// \begin{equation}
-    ///     S = S + \sum ε_i \cdot f(z_i)
-    /// \end{equation}
-    ///
-    /// where `w_{z_i}(X)` represents the constraint encoding at point `z_i`.
-    #[instrument(skip_all, fields(
-        num_points = points.len(),
-        num_variables = self.num_variables(),
-    ))]
-    pub fn add_new_equality(
-        &mut self,
-        points: &[MultilinearPoint<EF>],
-        evaluations: &[EF],
-        combination_randomness: &[EF],
-    ) {
-        assert_eq!(combination_randomness.len(), points.len());
-        assert_eq!(evaluations.len(), points.len());
-
-        tracing::info_span!("accumulate_weight_buffer").in_scope(|| {
-            self.weights
-                .accumulate_batch(points, combination_randomness);
-        });
-
-        // Accumulate the weighted sum
-        self.sum += combination_randomness
-            .iter()
-            .zip(evaluations.iter())
-            .map(|(&rand, &eval)| rand * eval)
-            .sum::<EF>();
-    }
-
-    /// Adds new weighted constraints to the polynomial.
-    ///
-    /// Similar to `add_new_equality`, but specifically for constraints involving points
-    /// in the base field.
-    ///
-    /// This function updates the weight evaluations and sum by incorporating new constraints.
-    ///
-    /// Given points `z_i`, weights `ε_i`, and evaluation values `f(z_i)`, it updates:
-    ///
-    /// \begin{equation}
-    ///     w(X) = w(X) + \sum ε_i \cdot w_{z_i}(X)
-    /// \end{equation}
-    ///
-    /// and updates the sum as:
-    ///
-    /// \begin{equation}
-    ///     S = S + \sum ε_i \cdot f(z_i)
-    /// \end{equation}
-    ///
-    /// where `w_{z_i}(X)` represents the constraint encoding at point `z_i`.
-    #[instrument(skip_all, fields(
-        num_points = points.len(),
-        num_variables = self.num_variables(),
-    ))]
-    pub fn add_new_base_equality(
-        &mut self,
-        points: &[MultilinearPoint<F>],
-        evaluations: &[EF],
-        combination_randomness: &[EF],
-    ) {
-        assert_eq!(combination_randomness.len(), points.len());
-        assert_eq!(evaluations.len(), points.len());
-
-        tracing::info_span!("accumulate_weight_buffer_base").in_scope(|| {
-            self.weights
-                .accumulate_base_batch(points, combination_randomness);
-        });
-
-        // Accumulate the weighted sum
-        self.sum += combination_randomness
-            .iter()
-            .zip(evaluations.iter())
-            .map(|(&rand, &eval)| rand * eval)
-            .sum::<EF>();
-    }
-
     /// Executes the sumcheck protocol for a multilinear polynomial with optional **univariate skip**.
     ///
     /// This function performs `folding_factor` rounds of the sumcheck protocol:
@@ -510,12 +420,16 @@ where
         prover_state: &mut ProverState<F, EF, Challenger>,
         folding_factor: usize,
         pow_bits: usize,
+        constraint: Option<Constraint<F, EF>>,
     ) -> MultilinearPoint<EF>
     where
         F: TwoAdicField,
         EF: TwoAdicField,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
+        if let Some(constraint) = constraint {
+            constraint.combine(&mut self.weights, &mut self.sum);
+        }
         // Standard round-by-round folding
         // Proceed with one-variable-per-round folding for remaining variables.
         let mut res = (0..folding_factor)

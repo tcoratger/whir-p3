@@ -27,10 +27,8 @@ pub struct ParsedCommitment<F, D> {
     /// Points queried by the verifier outside the low-degree evaluation domain.
     ///
     /// These are chosen using Fiat-Shamir and used to test polynomial consistency.
-    pub ood_points: Vec<F>,
-
     /// Answers (evaluations) of the committed polynomial at the corresponding `ood_points`.
-    pub ood_answers: Vec<F>,
+    pub ood_statement: Statement<F>,
 }
 
 impl<F, D> ParsedCommitment<F, D>
@@ -73,44 +71,25 @@ where
             .next_base_scalars_const::<DIGEST_ELEMS>()?
             .into();
 
-        // Allocate space for the OOD challenge points and answers.
-        let mut ood_points = EF::zero_vec(ood_samples);
-
-        // If there are any OOD samples expected, read them from the transcript.
-        let ood_answers = if ood_samples > 0 {
-            // Read challenge points chosen by Fiat-Shamir.
-            for ood_point in &mut ood_points {
-                *ood_point = verifier_state.sample();
-            }
-
-            verifier_state.next_extension_scalars_vec(ood_samples)?
-        } else {
-            Vec::new()
-        };
+        // Construct equality constraints for all out-of-domain (OOD) samples.
+        // Each constraint enforces that the committed polynomial evaluates to the
+        // claimed `ood_answer` at the corresponding `ood_point`, using a univariate
+        // equality weight over `num_variables` inputs.
+        let mut ood_statement = Statement::initialize(num_variables);
+        (0..ood_samples).try_for_each(|_| {
+            let point = verifier_state.sample();
+            let point = MultilinearPoint::expand_from_univariate(point, num_variables);
+            let eval = verifier_state.next_extension_scalar()?;
+            ood_statement.add_evaluated_constraint(point, eval);
+            Ok(())
+        })?;
 
         // Return a structured representation of the commitment.
         Ok(ParsedCommitment {
             num_variables,
             root,
-            ood_points,
-            ood_answers,
+            ood_statement,
         })
-    }
-
-    /// Construct equality constraints for all out-of-domain (OOD) samples.
-    ///
-    /// Each constraint enforces that the committed polynomial evaluates to the
-    /// claimed `ood_answer` at the corresponding `ood_point`, using a univariate
-    /// equality weight over `num_variables` inputs.
-    pub fn oods_constraints(&self) -> Statement<F> {
-        Statement::new(
-            self.num_variables,
-            self.ood_points
-                .iter()
-                .map(|&point| MultilinearPoint::expand_from_univariate(point, self.num_variables))
-                .collect(),
-            self.ood_answers.clone(),
-        )
     }
 }
 
@@ -175,14 +154,14 @@ where
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
+    use p3_dft::Radix2DFTSmallBatch;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
     use crate::{
-        dft::EvalsDft,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+        poly::evals::EvaluationsList,
         whir::{DomainSeparator, committer::writer::CommitmentWriter},
     };
 
@@ -249,7 +228,7 @@ mod tests {
         let committer = CommitmentWriter::new(&params);
 
         // Use a DFT engine to expand/fold the polynomial for evaluation.
-        let dft = EvalsDft::default();
+        let dft = Radix2DFTSmallBatch::<F>::default();
 
         // Set up Fiat-Shamir transcript and commit the protocol parameters.
         let mut ds = DomainSeparator::new(vec![]);
@@ -278,8 +257,7 @@ mod tests {
         assert_eq!(parsed.root, witness.prover_data.root());
 
         // Ensure the out-of-domain points and their answers match what was committed.
-        assert_eq!(parsed.ood_points, witness.ood_points);
-        assert_eq!(parsed.ood_answers, witness.ood_answers);
+        assert_eq!(parsed.ood_statement, witness.ood_statement);
     }
 
     #[test]
@@ -292,7 +270,7 @@ mod tests {
 
         // Set up the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);
-        let dft = EvalsDft::default();
+        let dft = Radix2DFTSmallBatch::<F>::default();
 
         // Begin the transcript and commit to the statement parameters.
         let mut ds = DomainSeparator::new(vec![]);
@@ -320,11 +298,7 @@ mod tests {
         assert_eq!(parsed.root, witness.prover_data.root());
 
         // OOD samples should be empty since none were requested.
-        assert!(parsed.ood_points.is_empty());
-        assert!(parsed.ood_answers.is_empty());
-
-        assert_eq!(parsed.ood_points, witness.ood_points);
-        assert_eq!(parsed.ood_answers, witness.ood_answers);
+        assert!(parsed.ood_statement.is_empty());
     }
 
     #[test]
@@ -337,7 +311,7 @@ mod tests {
 
         // Initialize the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);
-        let dft = EvalsDft::default();
+        let dft = Radix2DFTSmallBatch::<F>::default();
 
         // Start a new transcript and commit to the public parameters.
         let mut ds = DomainSeparator::new(vec![]);
@@ -364,8 +338,7 @@ mod tests {
 
         // Check Merkle root and OOD answers match.
         assert_eq!(parsed.root, witness.prover_data.root());
-        assert_eq!(parsed.ood_points, witness.ood_points);
-        assert_eq!(parsed.ood_answers, witness.ood_answers);
+        assert_eq!(parsed.ood_statement, witness.ood_statement);
     }
 
     #[test]
@@ -378,7 +351,7 @@ mod tests {
 
         // Instantiate a committer and DFT backend.
         let committer = CommitmentWriter::new(&params);
-        let dft = EvalsDft::default();
+        let dft = Radix2DFTSmallBatch::<F>::default();
 
         // Set up Fiat-Shamir transcript and commit to the public parameters.
         let mut ds = DomainSeparator::new(vec![]);
@@ -389,7 +362,7 @@ mod tests {
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
-        let _ = committer
+        let witness = committer
             .commit(&dft, &mut prover_state, polynomial)
             .unwrap();
         let mut verifier_state =
@@ -399,20 +372,10 @@ mod tests {
         let reader = CommitmentReader::new(&params);
         let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
 
-        // Extract constraints from parsed commitment.
-        let constraints = parsed.oods_constraints();
-
-        // Ensure we got one constraint per OOD point.
-        assert_eq!(constraints.len(), parsed.ood_points.len());
-
         // Each constraint should have correct univariate weight, sum, and flag.
-        for (i, (point, &eval)) in constraints.iter().enumerate() {
-            let univariate_point = parsed.ood_points[i];
-            let expected_eval = parsed.ood_answers[i];
-
-            // Manually compute the expanded univariate point
-            let expected_point = MultilinearPoint::expand_from_univariate(univariate_point, 4);
-
+        for (i, (point, &eval)) in parsed.ood_statement.iter().enumerate() {
+            let expected_point = witness.ood_statement.points[i].clone();
+            let expected_eval = witness.ood_statement.evaluations[i];
             assert_eq!(
                 point.clone(),
                 expected_point,
