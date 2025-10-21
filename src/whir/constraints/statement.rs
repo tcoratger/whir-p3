@@ -217,36 +217,32 @@ impl<F: Field> Statement<F> {
         gammas
     }
 
-    /// Computes the equality polynomial for a point within a multiplicative subgroup.
+    /// Computes the equality polynomial for a point over a multiplicative subgroup domain.
     ///
-    /// This function implements the Lagrange basis polynomial $L_y(X)$ for a point `y`
-    /// over a multiplicative subgroup domain `D`. This is the correct method for checking
-    /// equality in a domain that is not a Boolean hypercube.
+    /// This function evaluates the unique polynomial `eq_D(X, y)` which is `1` if `X=y`
+    /// and `0` at all other points `X` in the subgroup `D`. This implementation correctly
+    /// interpolates the polynomial, allowing the constraint point `y` to be an arbitrary
+    /// field element, not necessarily in `D`.
     ///
     /// The formula is:
     /// ```text
-    /// eq_D(X, y) = (1/|D|) * Σ_{i=0}^{|D|-1} (X * y⁻¹)^i
+    /// eq_D(X, y) = (1/|D|) * Σ_{i=0}^{|D|-1} (X * y^{-1})^i
     /// ```
-    /// It evaluates to `1` if `x == y` and `0` for all other `x` in the subgroup `D`.
     ///
     /// # Arguments
     /// * `x`: The evaluation point, which is an element of the subgroup `D`.
-    /// * `y`: The target constraint point, which is also an element of `D`.
+    /// * `y`: The target constraint point, which is an arbitrary field element.
     /// * `subgroup_size`: The size of the multiplicative subgroup, `|D|`.
     ///
     /// # Returns
-    /// The value of the equality polynomial at `x`.
+    /// The value of the equality polynomial `eq_D` evaluated at `x`.
     fn eq_d(x: F, y: F, subgroup_size: usize) -> F
     where
         F: TwoAdicField,
     {
-        // A point in a multiplicative subgroup cannot be zero, so its inverse must exist.
-        // This check is for safety and should ideally not be triggered in practice.
-        if y == F::ZERO {
-            return F::ZERO;
-        }
-
-        // Calculate the modular inverse of the subgroup's order, which is the `1/|D|` term.
+        // Calculate the modular inverse of the subgroup's order, `1/|D|`.
+        //
+        // As `subgroup_size` is a power of two, this inversion is guaranteed to exist.
         let order = F::from_usize(subgroup_size);
         let order_inv = order
             .try_inverse()
@@ -255,11 +251,10 @@ impl<F: Field> Statement<F> {
         // Calculate the modular inverse of the target point `y`.
         let y_inv = y.inverse();
 
-        // Calculate the base of the geometric series, `X * y⁻¹`.
+        // Calculate the base for the polynomial evaluation, `X * y^{-1}`.
         let base = x * y_inv;
 
-        // Compute the geometric series sum: Σ base^i from i=0 to |D|-1.
-        // This sum is `|D|` if base is 1 (i.e., x == y), and 0 otherwise.
+        // Evaluate the polynomial `P(z) = Σ z^i` for `i` from 0 to `|D|-1` at the point `z = base`.
         let mut total_sum = F::ZERO;
         let mut power = F::ONE;
         for _ in 0..subgroup_size {
@@ -267,26 +262,36 @@ impl<F: Field> Statement<F> {
             power *= base;
         }
 
-        // Multiply the sum by the inverse order to get the final result (1 or 0).
+        // Multiply by `1/|D|` to get the final evaluation.
         total_sum * order_inv
     }
 
-    /// Combines constraints into a polynomial evaluation table using the univariate skip optimization.
+    /// Combines constraints with the univariate skip optimization in mind.
     ///
-    /// This function takes standard `n`-dimensional constraint points and reinterprets them
-    /// to produce an evaluation table for the mixed domain `D x H^j`, where `D` is a
-    /// multiplicative subgroup of size `2^k`.
+    /// This function implements a protocol where constraint points are structured for a mixed
+    /// domain. For an n-variable problem with a k-variable skip, constraint points must have
+    /// `(n-k) + 1` coordinates.
     ///
-    /// The function then computes the combined polynomial `W(X, Y)` where the equality check for
-    /// each constraint is the product `eq_D(X, y) * eq_H(Y, b)`.
+    /// ## Protocol Point Structure
+    ///
+    /// - `point[0]` is a **single field element** `z_skip`, representing the constraint for the `k` skipped variables.
+    /// - `point[1..]` is an **`(n-k)`-dimensional vector** `z_suffix` for the remaining hypercube variables.
+    ///
+    /// ## Mathematical Formulation
+    ///
+    /// The function computes the combined polynomial `W` over a `2^k x 2^j` grid (where `j=n-k`).
+    /// The equality check for a constraint `z = (z_skip, z_suffix)` at a grid cell corresponding
+    /// to the evaluation point `(x, y)` (where `x ∈ D` and `y ∈ H^j`) is:
+    ///
+    /// `eq(x, y) = eq_D(x, z_skip) * eq_H(y, z_suffix)`
     ///
     /// # Arguments
     /// * `challenge`: A random challenge `γ` for batching constraints.
-    /// * `k_skip`: The number of variables to fold into the subgroup `D`.
+    /// * `k_skip`: The number of variables folded into the subgroup `D`.
     ///
     /// # Returns
     /// A tuple containing:
-    /// - An `EvaluationsList` with the `2^k * 2^j` evaluations of `W(X, Y)`.
+    /// - An `EvaluationsList` with the `2^n` evaluations of the combined polynomial `W`.
     /// - The combined expected sum `S = Σ γ^i * s_i`.
     pub fn combine_univariate_skip<Base>(
         &self,
@@ -297,7 +302,6 @@ impl<F: Field> Statement<F> {
         Base: Field,
         F: ExtensionField<Base> + TwoAdicField,
     {
-        // If there are no constraints, return a zero polynomial and a zero sum.
         if self.is_empty() {
             return (
                 EvaluationsList::new(F::zero_vec(1 << self.num_variables())),
@@ -307,16 +311,16 @@ impl<F: Field> Statement<F> {
 
         // The number of constraints to be combined.
         let num_constraints = self.len();
-        // The total number of variables in the original constraint space.
-        let num_variables = self.num_variables();
-        // The number of variables remaining in the hypercube part.
-        let num_hypercube_vars = num_variables - k_skip;
+        // The dimension of the points for this protocol, i.e., 1 + j.
+        let num_point_vars = self.num_variables();
+        // The number of variables for the hypercube part of the domain.
+        let num_hypercube_vars = num_point_vars - 1;
 
         // The size of the multiplicative subgroup domain `D`.
         let subgroup_size = 1 << k_skip;
         // The size of the Boolean hypercube domain `H^j`.
         let hypercube_size = 1 << num_hypercube_vars;
-        // The total size of the mixed evaluation domain `D x H^j`.
+        // The total size of the evaluation table for the mixed domain `D x H^j`.
         let total_domain_size = subgroup_size * hypercube_size;
 
         // Precompute powers of the random challenge `γ` for batching.
@@ -327,58 +331,54 @@ impl<F: Field> Statement<F> {
         // Get the generator for the subgroup `D` to map indices to subgroup elements.
         let subgroup_gen = F::two_adic_generator(k_skip);
 
-        // Iterate over each n-dimensional constraint point `z_i` and its challenge `γ^i`.
+        // Iterate over each constraint `z_i = (z_skip, z_suffix)` and its challenge `γ^i`.
         for (constraint_idx, (point, &_expected_eval)) in self.iter().enumerate() {
             // The challenge power for the current constraint.
             let gamma_i = challenges[constraint_idx];
 
-            // Internal Mapping: Convert the n-dimensional point `z_i` to `(y_i, b_i)`
+            // Extract the single coordinate for the skipped part and the vector for the hypercube part.
+            assert!(
+                !point.as_slice().is_empty(),
+                "Constraint point cannot be empty"
+            );
+            let z_skip = point[0];
+            let z_suffix = &point.as_slice()[1..];
+            assert_eq!(
+                z_suffix.len(),
+                num_hypercube_vars,
+                "Point has an incorrect number of hypercube coordinates"
+            );
 
-            // Split the point into the first `k` coordinates and the remaining `n-k`.
-            let (z_subgroup_coords, z_hypercube_coords) = point.as_slice().split_at(k_skip);
-
-            // Map the `k` binary coordinates to an integer index.
+            // Pre-compute the evaluations for the "column" (hypercube) part of the equality check.
             //
-            // WARNING: This assumes the first `k` coordinates are binary (0 or 1).
-            let mut index = 0;
-            for (i, &coord) in z_subgroup_coords.iter().enumerate() {
-                if coord == F::ONE {
-                    index += 1 << i;
-                } else {
-                    // This protocol requires the first `k` coordinates to be binary.
-                    debug_assert_eq!(coord, F::ZERO, "First k_skip coordinates must be binary");
-                }
-            }
+            // This result is constant for all `2^k` rows, so we compute it once per constraint.
+            let suffix_point = MultilinearPoint::new(z_suffix.to_vec());
+            let suffix_evals = EvaluationsList::<F>::new_from_point(&suffix_point, F::ONE);
 
-            // Convert the integer index to a unique subgroup element `y_i`.
-            let y_i = subgroup_gen.exp_u64(index as u64);
-
-            // The remaining n-k coordinates form the hypercube part `b_i`.
-            let b_coords = z_hypercube_coords;
-
-            // Pre-compute the evaluations of the hypercube part (`eq_H`) for this constraint.
+            // Pre-compute the evaluations for the "row" (subgroup) part of the equality check.
             //
-            // This is constant for all `2^k` rows, so we do it once per constraint.
-            let b_point = MultilinearPoint::new(b_coords.to_vec());
-            let hypercube_evals_i = EvaluationsList::<F>::new_from_point(&b_point, F::ONE);
-
-            // Iterate over each evaluation point `x` in the subgroup `D`.
+            // This calculates `eq_D(x, z_skip)` for all `x` in `D`.
+            let mut prefix_evals = Vec::with_capacity(subgroup_size);
             for lex_row_idx in 0..subgroup_size {
-                // Map the table's row index to a specific subgroup element `x`.
+                // Map the table's row index to a specific subgroup element `x` for evaluation.
                 let subgroup_idx = ((lex_row_idx as u32).reverse_bits() >> (32 - k_skip)) as usize;
                 let x = subgroup_gen.exp_u64(subgroup_idx as u64);
+                // Evaluate the Lagrange polynomial and store the result.
+                prefix_evals.push(Self::eq_d(x, z_skip, subgroup_size));
+            }
 
-                // Calculate the subgroup part of the equality check, `eq_D(x, y_i)`.
-                let subgroup_eq_val = Self::eq_d(x, y_i, subgroup_size);
+            // Combine the pre-computed parts using a tensor product to build the final table.
+            for row_idx in 0..subgroup_size {
+                // Get the pre-computed evaluation for the current row `x`.
+                let prefix_eq_val = prefix_evals[row_idx];
+                // Combine with the challenge to get the scaling factor for this row.
+                let scalar_for_row = gamma_i * prefix_eq_val;
 
-                // This becomes the scaling factor for all evaluations in the current row.
-                let scalar_for_row = gamma_i * subgroup_eq_val;
-
-                // Apply the scaling factor to the pre-computed hypercube evaluations.
-                let row_start = lex_row_idx * hypercube_size;
+                // Apply the scaling factor to each column's pre-computed hypercube evaluation.
+                let row_start = row_idx * hypercube_size;
                 for col_idx in 0..hypercube_size {
                     final_evals[row_start + col_idx] +=
-                        scalar_for_row * hypercube_evals_i.as_slice()[col_idx];
+                        scalar_for_row * suffix_evals.as_slice()[col_idx];
                 }
             }
         }
