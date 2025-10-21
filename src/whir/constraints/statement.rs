@@ -368,9 +368,7 @@ impl<F: Field> Statement<F> {
             }
 
             // Combine the pre-computed parts using a tensor product to build the final table.
-            for row_idx in 0..subgroup_size {
-                // Get the pre-computed evaluation for the current row `x`.
-                let prefix_eq_val = prefix_evals[row_idx];
+            for (row_idx, &prefix_eq_val) in prefix_evals.iter().enumerate().take(subgroup_size) {
                 // Combine with the challenge to get the scaling factor for this row.
                 let scalar_for_row = gamma_i * prefix_eq_val;
 
