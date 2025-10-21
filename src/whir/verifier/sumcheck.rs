@@ -75,6 +75,7 @@ where
         // The prover sends evaluations on a coset of H.
         // The even-indexed evaluations correspond to the points in H itself.
         let actual_sum: EF = poly.iter().step_by(2).copied().sum();
+        dbg!("avant");
         if actual_sum != *claimed_sum {
             return Err(VerifierError::SumcheckFailed {
                 round: 0,
@@ -82,6 +83,7 @@ where
                 actual: actual_sum.to_string(),
             });
         }
+        dbg!("apres");
 
         // Optional: apply proof-of-work query
         verifier_state.check_pow_grinding(pow_bits)?;

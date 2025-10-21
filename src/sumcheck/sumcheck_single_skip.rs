@@ -164,7 +164,7 @@ mod tests {
         // So the resulting sumcheck polynomial must be identically zero.
         // ----------------------------------------------------------------
         let statement = Statement::<EF4>::initialize(3);
-        let (weights, sum) = statement.combine_univariate_skip::<F>(EF4::ONE, 2);
+        let (weights, sum) = statement.combine::<F>(EF4::ONE);
 
         // ----------------------------------------------------------------
         // Apply the univariate skip optimization with k = 2:
@@ -284,7 +284,7 @@ mod tests {
             f_extension(EF4::ONE, EF4::ZERO, EF4::ONE),
         );
 
-        let (weights, expected_sum) = statement.combine_univariate_skip::<F>(EF4::ONE, 2);
+        let (weights, expected_sum) = statement.combine::<F>(EF4::ONE);
 
         // Get the f evaluations
         let evals_f = coeffs.to_evaluations();

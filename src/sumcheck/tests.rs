@@ -531,6 +531,8 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
         K_SKIP_SUMCHECK,
     );
 
+    dbg!(&statement);
+
     // Track how many variables remain after folding
     let mut num_vars_inter = num_vars - folding;
 
@@ -605,12 +607,18 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
         // Reconstruct the equality statement from the proof stream
         let statement = read_statement(verifier, num_vars_inter, num_pts);
 
+        dbg!(&statement);
+
         // Sample αᵢ for combining constraints
         let alpha = verifier.sample();
         alphas.push(alpha);
 
+        let _ = dbg!(sum);
+
         // Accumulate the weighted sum of constraint values
         statement.combine_evals(&mut sum, alpha);
+
+        let _ = dbg!(sum);
 
         // Save constraints for later equality check
         constraints.push(statement.clone());

@@ -327,9 +327,7 @@ where
         assert!(k_skip > 1);
         assert!(k_skip <= folding_factor);
 
-        // Use univariate skip optimization to combine constraints over the mixed domain D × H^j
-        let (weights, _sum) =
-            statement.combine_univariate_skip::<F>(combination_randomness, k_skip);
+        let (weights, sum) = statement.combine::<F>(combination_randomness);
 
         // Compute the skipped-round polynomial h and the rectangular views f̂, ŵ.
         //
@@ -340,6 +338,16 @@ where
         let (sumcheck_poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(
             evals.clone().into_mat(width),
             weights.into_mat(width),
+        );
+
+        debug_assert_eq!(
+            sumcheck_poly
+                .evaluations()
+                .iter()
+                .step_by(2)
+                .copied()
+                .sum::<EF>(),
+            sum
         );
 
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
