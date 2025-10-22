@@ -243,7 +243,7 @@ where
     ) -> Self {
         let mut weights = EvaluationsList::zero(statement.num_variables());
         let mut sum = EF::ZERO;
-        statement.combine(&mut weights, &mut sum, challenge);
+        statement.combine::<F, false>(&mut weights, &mut sum, challenge);
 
         Self {
             evals,

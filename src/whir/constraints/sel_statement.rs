@@ -4,12 +4,15 @@ use tracing::instrument;
 
 use crate::poly::evals::EvaluationsList;
 
-/// A batched system of select constraints $p(z_i) = s_i$ on $\{0,1\}^m$.
+/// A batched system of `select` constraints of the form `p(z_i) = s_i` on `{0,1}^k`.
 ///
-/// Each entry ties a variable `z_i` to an expected polynomial evaluation `s_i`.
+/// Each entry ties a variable `z_i ∈ F` to an expected polynomial evaluation `s_i ∈ EF`.
+/// This check is performed using the "select trick", which verifies the claim:
 ///
-/// Batching with a random challenge $\gamma$ produces a single combined weight
-/// polynomial $W$ and a single scalar $S$ that summarize all constraints.
+/// $$ \sum_{b \in \{0,1\}^k} P(b) \cdot select(pow(z_i), b) = s_i $$
+///
+/// Batching multiple constraints with a random challenge `γ` produces a single
+/// combined weight polynomial `W(b)` and a single scalar `S`.
 ///
 /// Invariants
 /// ----------
@@ -119,7 +122,7 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
         let bin_powers = self
             .vars
             .par_iter()
-            .cloned()
+            .copied()
             .map(|mut var| {
                 (0..k)
                     .map(|_| {
@@ -164,7 +167,7 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
         let challenges = challenge.powers().skip(shift).take(n).collect::<Vec<_>>();
 
         acc.par_chunks(n)
-            .zip(acc_weights.par_iter_mut())
+            .zip(acc_weights.0.par_iter_mut())
             .for_each(|(row, out)| {
                 *out += row
                     .iter()

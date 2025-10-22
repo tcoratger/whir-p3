@@ -217,9 +217,10 @@ where
         let inv_rate = new_domain_size / folded_evaluations.num_evals();
 
         // Pad evaluation vector with zeros
+        let n = folded_evaluations.num_evals();
         let padded = info_span!("repeating evals").in_scope(|| {
-            let mut padded = EF::zero_vec(folded_evaluations.len() * inv_rate);
-            padded[..folded_evaluations.len()].copy_from_slice(folded_evaluations.as_slice());
+            let mut padded = EF::zero_vec(n * inv_rate);
+            padded[..n].copy_from_slice(folded_evaluations.as_slice());
             RowMajorMatrix::new(padded, 1 << folding_factor_next)
         });
 

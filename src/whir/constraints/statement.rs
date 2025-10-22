@@ -130,8 +130,12 @@ impl<F: Field> Statement<F> {
     /// Panics if any constraint's number of variables does not match the system.
     /// Combines all constraints into a single aggregated polynomial and expected sum using a challenge.
     #[instrument(skip_all, fields(num_constraints = self.len(), num_variables = self.num_variables()))]
-    pub fn combine<Base>(&self, acc_weights: &mut EvaluationsList<F>, acc_sum: &mut F, challenge: F)
-    where
+    pub fn combine<Base, const INITIALIZED: bool>(
+        &self,
+        acc_weights: &mut EvaluationsList<F>,
+        acc_sum: &mut F,
+        challenge: F,
+    ) where
         Base: Field,
         F: ExtensionField<Base>,
     {
@@ -170,7 +174,11 @@ impl<F: Field> Statement<F> {
 
         // Compute the batched equality polynomial evaluations.
         // This computes W(x) = ∑_i γ^i * eq(x, z_i) for all x ∈ {0,1}^k.
-        eval_eq_batch::<Base, F, true>(points_matrix.as_view(), acc_weights, &challenges);
+        eval_eq_batch::<Base, F, INITIALIZED>(
+            points_matrix.as_view(),
+            &mut acc_weights.0,
+            &challenges,
+        );
 
         // Combine expected evaluations: S = ∑_i γ^i * s_i
         *acc_sum +=
@@ -207,7 +215,7 @@ mod tests {
         let challenge = F::from_u64(2); // This is unused with one constraint.
         let mut combined_evals = EvaluationsList::zero(statement.num_variables());
         let mut combined_sum = F::ZERO;
-        statement.combine(&mut combined_evals, &mut combined_sum, challenge);
+        statement.combine::<_, false>(&mut combined_evals, &mut combined_sum, challenge);
 
         // Expected evals for eq_z(X) where z = (1).
         // For x=0, eq=0. For x=1, eq=1.
@@ -234,7 +242,7 @@ mod tests {
         let challenge = F::from_u64(2);
         let mut combined_evals = EvaluationsList::zero(statement.num_variables());
         let mut combined_sum = F::ZERO;
-        statement.combine(&mut combined_evals, &mut combined_sum, challenge);
+        statement.combine::<_, false>(&mut combined_evals, &mut combined_sum, challenge);
 
         // Expected evals: W(X) = eq_z1(X) + challenge * eq_z2(X)
         let mut expected_combined_evals_vec = EvaluationsList::new_from_point(&point1, F::ONE);
@@ -361,7 +369,11 @@ mod tests {
 
         let mut combined_evals = EvaluationsList::zero(empty_statement.num_variables());
         let mut combined_sum = F::ZERO;
-        empty_statement.combine(&mut combined_evals, &mut combined_sum, F::from_u64(42));
+        empty_statement.combine::<_, false>(
+            &mut combined_evals,
+            &mut combined_sum,
+            F::from_u64(42),
+        );
         assert_eq!(combined_sum, F::ZERO);
 
         // Test combine_evals with constraints
@@ -415,7 +427,7 @@ mod tests {
             let gamma = F::from_u32(challenge);
             let mut combined_poly = EvaluationsList::zero(statement.num_variables());
             let mut combined_sum = F::ZERO;
-            statement.combine(&mut combined_poly, &mut combined_sum, gamma);
+            statement.combine::<_, false>(&mut combined_poly, &mut combined_sum, gamma);
 
             // Combined polynomial should have same number of variables
             prop_assert_eq!(combined_poly.num_variables(), 4);

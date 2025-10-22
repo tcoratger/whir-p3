@@ -66,7 +66,7 @@ fn verifier(proof: Vec<F>) -> VerifierState<F, EF, MyChallenger> {
     domsep.to_verifier_state(proof, challenger)
 }
 
-pub(super) fn make_constraint<Challenger>(
+fn make_constraint<Challenger>(
     prover: &mut ProverState<F, EF, Challenger>,
     num_vars: usize,
     num_eqs: usize,
@@ -267,9 +267,10 @@ fn extend_point<F: Field>(
 /// - The verifier-side evaluation differs from the expected one.
 ///
 /// # Arguments
+/// - `num_vars`: Number of variables of the initial polynomial.
 /// - `folding_factors`: List of how many variables to fold per round.
-/// - `num_points`: Number of equality constraints to apply at each stage.
-///   Must be one shorter than `folding_factors` (initial + intermediate).
+/// - `num_eqs`: Number of equality statements to apply at each stage.
+/// - `num_sels`: Number of select statements to apply at each stage.
 fn run_sumcheck_test(
     num_vars: usize,
     folding_factor: FoldingFactor,
@@ -410,7 +411,7 @@ fn run_sumcheck_test(
 
 /// Runs an end-to-end prover-verifier test for the `SumcheckSingle` protocol with skipping enabled.
 ///
-/// This variant uses the univariate skip optimization: in the first round, `k_k_skip
+/// This variant uses the univariate skip optimization: in the first round, `K_SKIP_SUMCHECK`
 /// variables are folded at once using a low-degree extension (LDE) and DFT interpolation.
 ///
 /// It checks:
@@ -422,8 +423,10 @@ fn run_sumcheck_test(
 ///   \end{equation}
 ///
 /// # Arguments
-/// - `folding_factors`: A list of folding amounts (how many variables are folded each round).
-/// - `num_points`: Number of equality constraints applied in each round, except the final one.
+/// - `num_vars`: Number of variables of the initial polynomial.
+/// - `folding_factors`: List of how many variables to fold per round.
+/// - `num_eqs`: Number of equality statements to apply at each stage.
+/// - `num_sels`: Number of select statements to apply at each stage.
 fn run_sumcheck_test_skips(
     num_vars: usize,
     folding_factor: FoldingFactor,
@@ -449,7 +452,7 @@ fn run_sumcheck_test_skips(
     constraint.validate_for_skip_case();
 
     // ROUND 0
-    // Initialize sumcheck with univariate skip (skips k_ k_skip)
+    // Initialize sumcheck with univariate skip (skips K_SKIP_SUMCHECK)
     let folding0 = folding_factor.at_round(0);
     let (mut sumcheck, mut prover_randomness) =
         SumcheckSingle::with_skip(&poly, prover, folding0, 0, K_SKIP_SUMCHECK, &constraint);

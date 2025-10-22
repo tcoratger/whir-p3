@@ -24,10 +24,9 @@ pub struct ParsedCommitment<F, D> {
     /// This hash is used by the verifier to check Merkle proofs of queried evaluations.
     pub root: D,
 
-    /// Points queried by the verifier outside the low-degree evaluation domain.
-    ///
-    /// These are chosen using Fiat-Shamir and used to test polynomial consistency.
-    /// Answers (evaluations) of the committed polynomial at the corresponding `ood_points`.
+    /// Out-of-domain statement with:
+    /// - Out-of-domain challenge points used for polynomial verification.
+    /// - The corresponding polynomial evaluations at the OOD challenge point
     pub ood_statement: Statement<F>,
 }
 

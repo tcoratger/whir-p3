@@ -97,16 +97,13 @@ where
     pub fn eq_poly(&self, point: &Self) -> F {
         assert_eq!(self.num_variables(), point.num_variables());
 
-        let mut acc = F::ONE;
-
-        for (&l, &r) in self.into_iter().zip(point) {
-            // This uses the algebraic identity:
-            // l * r + (1 - l) * (1 - r) = 1 + 2 * l * r - l - r
-            // to avoid unnecessary multiplications.
-            acc *= F::ONE + l * r.double() - l - r;
-        }
-
-        acc
+        // This uses the algebraic identity:
+        // l * r + (1 - l) * (1 - r) = 1 + 2 * l * r - l - r
+        // to avoid unnecessary multiplications.
+        self.into_iter()
+            .zip(point)
+            .map(|(&l, &r)| F::ONE + l * r.double() - l - r)
+            .product()
     }
 
     /// Computes `select(c, p)`, where `p` is another `MultilinearPoint`.
@@ -116,16 +113,13 @@ where
     /// select(s1, s2) = ∏ (s1_i * s2_i - s2_i + 1)
     /// ```
     #[must_use]
-    pub fn select_poly(&self, point: &Self) -> F {
+    pub fn select_poly<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         assert_eq!(self.num_variables(), point.num_variables());
 
-        let mut acc = F::ONE;
-
-        for (&l, &r) in self.into_iter().zip(point) {
-            acc *= (r * l) - r + F::ONE;
-        }
-
-        acc
+        self.into_iter()
+            .zip(point)
+            .map(|(&l, &r)| r * (l - F::ONE) + F::ONE)
+            .product()
     }
 
     /// Evaluates the equality polynomial `eq(self, X)` at a folded challenge point.

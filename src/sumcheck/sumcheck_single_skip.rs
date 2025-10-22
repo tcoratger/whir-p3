@@ -167,7 +167,7 @@ mod tests {
 
         let mut weights = EvaluationsList::zero(statement.num_variables());
         let mut sum = EF4::ZERO;
-        statement.combine::<F>(&mut weights, &mut sum, EF4::ONE);
+        statement.combine::<F, false>(&mut weights, &mut sum, EF4::ONE);
 
         // ----------------------------------------------------------------
         // Apply the univariate skip optimization with k = 2:
@@ -207,7 +207,7 @@ mod tests {
         let statement = Statement::<EF4>::initialize(1);
         let mut weights = EvaluationsList::zero(statement.num_variables());
         let mut sum = EF4::ZERO;
-        statement.combine::<F>(&mut weights, &mut sum, EF4::ONE);
+        statement.combine::<F, false>(&mut weights, &mut sum, EF4::ONE);
 
         // This should panic because:
         // - the polynomial has only 1 variable
@@ -287,7 +287,7 @@ mod tests {
 
         let mut weights = EvaluationsList::zero(statement.num_variables());
         let mut expected_sum = EF4::ZERO;
-        statement.combine::<F>(&mut weights, &mut expected_sum, EF4::ONE);
+        statement.combine::<F, false>(&mut weights, &mut expected_sum, EF4::ONE);
 
         // Get the f evaluations
         let evals_f = coeffs.to_evaluations();

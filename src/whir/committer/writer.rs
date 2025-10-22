@@ -69,9 +69,10 @@ where
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Pad with zeros
+        let n = polynomial.num_evals();
         let padded = info_span!("pad evals").in_scope(|| {
-            let mut padded = F::zero_vec(polynomial.len() * (1 << self.starting_log_inv_rate));
-            padded[..polynomial.len()].copy_from_slice(polynomial.as_slice());
+            let mut padded = F::zero_vec(n * (1 << self.starting_log_inv_rate));
+            padded[..n].copy_from_slice(polynomial.as_slice());
             RowMajorMatrix::new(padded, 1 << self.folding_factor.at_round(0))
         });
 
@@ -94,7 +95,7 @@ where
             // Generate OOD points from ProverState randomness
             let point =
                 MultilinearPoint::expand_from_univariate(prover_state.sample(), self.num_variables);
-            let eval = polynomial.evaluate(&point);
+            let eval = info_span!("ood evaluation").in_scope(|| polynomial.evaluate(&point));
             prover_state.add_extension_scalar(eval);
             ood_statement.add_evaluated_constraint(point, eval);
         });

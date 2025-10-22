@@ -51,7 +51,8 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     }
 
     pub fn combine(&self, combined: &mut EvaluationsList<EF>, eval: &mut EF) {
-        self.eq_statement.combine(combined, eval, self.challenge);
+        self.eq_statement
+            .combine::<F, true>(combined, eval, self.challenge);
         self.sel_statement
             .combine(combined, eval, self.challenge, self.eq_statement.len());
     }
@@ -59,7 +60,14 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     pub fn combine_new(&self) -> (EvaluationsList<EF>, EF) {
         let mut combined = EvaluationsList::zero(self.num_variables());
         let mut eval = EF::ZERO;
-        self.combine(&mut combined, &mut eval);
+        self.eq_statement
+            .combine::<F, false>(&mut combined, &mut eval, self.challenge);
+        self.sel_statement.combine(
+            &mut combined,
+            &mut eval,
+            self.challenge,
+            self.eq_statement.len(),
+        );
         (combined, eval)
     }
 
@@ -140,17 +148,11 @@ impl ConstraintPolyEvaluator {
             };
 
             // Check if this is the first round and if the univariate skip optimization is active.
-            #[allow(clippy::option_if_let_else)]
-            let is_skip_round = if round_idx == 0 {
-                if let Some(skip_step) = self.univariate_skip {
+            let is_skip_round = round_idx == 0
+                && self.univariate_skip.is_some_and(|skip_step| {
                     constraint.validate_for_skip_case();
                     self.folding_factor.at_round(0) >= skip_step
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
+                });
 
             acc += constraint
                 .iter_eqs()
@@ -175,7 +177,7 @@ impl ConstraintPolyEvaluator {
             acc += constraint
                 .iter_sels()
                 .map(|(&var, alpha_i)| {
-                    let point = MultilinearPoint::expand_from_univariate(EF::from(var), vars_left);
+                    let point = MultilinearPoint::expand_from_univariate(var, vars_left);
                     alpha_i * point.select_poly(&point_for_round)
                 })
                 .sum::<EF>();
@@ -542,7 +544,7 @@ mod tests {
         // Combine the constraints for the first round into a single polynomial, W_0(X).
         let mut w0_combined = EvaluationsList::zero(constraints[0].eq_statement.num_variables());
         let mut sum = EF::ZERO;
-        constraints[0].eq_statement.combine::<F>(
+        constraints[0].eq_statement.combine::<F, false>(
             &mut w0_combined,
             &mut sum,
             constraints[0].challenge,
@@ -697,7 +699,7 @@ mod tests {
             let mut sum = EF::ZERO;
             constraints[0]
                 .eq_statement
-                .combine::<F>(&mut w0_combined, &mut sum, constraints[0].challenge);
+                .combine::<F, false>(&mut w0_combined, &mut sum, constraints[0].challenge);
 
 
             let num_remaining = num_vars - K_SKIP_SUMCHECK;

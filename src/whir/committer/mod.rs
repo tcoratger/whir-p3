@@ -27,7 +27,8 @@ where
     pub polynomial: EvaluationsList<F>,
     /// Prover data of the Merkle tree.  
     pub prover_data: Arc<MerkleTree<F, F, M, DIGEST_ELEMS>>,
-    /// Out-of-domain challenge points used for polynomial verification.
-    /// The corresponding polynomial evaluations at the OOD challenge points.  
+    /// Out-of-domain statement with:
+    /// - Out-of-domain challenge points used for polynomial verification.
+    /// - The corresponding polynomial evaluations at the OOD challenge point
     pub ood_statement: Statement<EF>,
 }

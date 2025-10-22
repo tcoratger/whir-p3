@@ -1,5 +1,3 @@
-use std::ops::{Deref, DerefMut};
-
 use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixView};
@@ -20,21 +18,7 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// `self.len() = 2^n`.
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[must_use]
-pub struct EvaluationsList<F>(Vec<F>);
-
-impl<F> Deref for EvaluationsList<F> {
-    type Target = [F];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<F> DerefMut for EvaluationsList<F> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+pub struct EvaluationsList<F>(pub(crate) Vec<F>);
 
 impl<F> EvaluationsList<F>
 where
