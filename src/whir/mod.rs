@@ -1,5 +1,5 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
-use constraints::statement::Statement;
+use constraints::statement::EqStatement;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
@@ -88,7 +88,7 @@ pub fn make_whir_things(
         .collect();
 
     // Initialize constraint system for the given number of variables
-    let mut statement = Statement::<EF>::initialize(num_variables);
+    let mut statement = EqStatement::<EF>::initialize(num_variables);
 
     // Add equality constraints: polynomial(point) = expected_value for each point
     for point in &points {

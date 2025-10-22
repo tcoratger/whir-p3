@@ -5,14 +5,14 @@ use crate::{
     parameters::FoldingFactor,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        constraints::{sel_statement::SelectStatement, statement::Statement},
+        constraints::{sel_statement::SelectStatement, statement::EqStatement},
         parameters::WhirConfig,
     },
 };
 
 #[derive(Clone, Debug)]
 pub struct Constraint<F: Field, EF: ExtensionField<F>> {
-    pub eq_statement: Statement<EF>,
+    pub eq_statement: EqStatement<EF>,
     pub sel_statement: SelectStatement<F, EF>,
     pub challenge: EF,
 }
@@ -20,7 +20,7 @@ pub struct Constraint<F: Field, EF: ExtensionField<F>> {
 impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     pub fn new(
         challenge: EF,
-        eq_statement: Statement<EF>,
+        eq_statement: EqStatement<EF>,
         sel_statement: SelectStatement<F, EF>,
     ) -> Self {
         assert_eq!(eq_statement.num_variables(), sel_statement.num_variables());
@@ -31,7 +31,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
         }
     }
 
-    pub fn new_eq_only(challenge: EF, eq_statement: Statement<EF>) -> Self {
+    pub fn new_eq_only(challenge: EF, eq_statement: EqStatement<EF>) -> Self {
         let num_variables = eq_statement.num_variables();
         Self::new(
             challenge,
@@ -215,7 +215,7 @@ mod tests {
     use crate::{
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
-        whir::constraints::statement::Statement,
+        whir::constraints::statement::EqStatement,
     };
 
     type F = BabyBear;
@@ -279,7 +279,7 @@ mod tests {
             // Generate a random combination challenge for this round.
             let gamma = rng.random();
             // Create eq statement for the current domain size (20, then 15, then 10).
-            let mut eq_statement = Statement::initialize(num_vars_at_round);
+            let mut eq_statement = EqStatement::initialize(num_vars_at_round);
             (0..num_eq).for_each(|_| {
                 eq_statement.add_evaluated_constraint(
                     MultilinearPoint::rand(&mut rng, num_vars_at_round),
@@ -408,7 +408,7 @@ mod tests {
                 // Generate a random combination scalar (alpha) for this round.
                 let gamma = rng.random();
                 // Create eq statement for the current domain size (20, then 15, then 10).
-                let mut eq_statement = Statement::initialize(num_vars_current);
+                let mut eq_statement = EqStatement::initialize(num_vars_current);
                 (0..num_eq).for_each(|_| {
                     eq_statement.add_evaluated_constraint(
                         MultilinearPoint::rand(&mut rng, num_vars_current),
@@ -511,7 +511,7 @@ mod tests {
             .enumerate()
         {
             // Create eq statement for the current domain size (20, then 15, then 10).
-            let mut eq_statement = Statement::initialize(num_vars_at_round);
+            let mut eq_statement = EqStatement::initialize(num_vars_at_round);
             (0..num_eq).for_each(|_| {
                 eq_statement.add_evaluated_constraint(
                     MultilinearPoint::rand(&mut rng, num_vars_at_round),
@@ -661,7 +661,7 @@ mod tests {
                 .enumerate()
             {
                 // Create eq statement for the current domain size (20, then 15, then 10).
-                let mut eq_statement = Statement::initialize(num_vars_current);
+                let mut eq_statement = EqStatement::initialize(num_vars_current);
                 (0..num_eq).for_each(|_| {
                     eq_statement.add_evaluated_constraint(
                         MultilinearPoint::rand(&mut rng, num_vars_current),

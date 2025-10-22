@@ -19,7 +19,7 @@ use crate::{
         constraints::{
             evaluator::{Constraint, ConstraintPolyEvaluator},
             sel_statement::SelectStatement,
-            statement::Statement,
+            statement::EqStatement,
         },
         verifier::sumcheck::verify_sumcheck_rounds,
     },
@@ -80,7 +80,7 @@ where
     let omega = F::two_adic_generator(num_vars);
 
     // Create a new empty eq and select statements of that arity
-    let mut eq_statement = Statement::initialize(num_vars);
+    let mut eq_statement = EqStatement::initialize(num_vars);
     let mut sel_statement = SelectStatement::initialize(num_vars);
 
     // - Sample `num_eqs` univariate challenge points.
@@ -141,7 +141,7 @@ where
     let omega = F::two_adic_generator(num_vars);
 
     // Create a new empty eq and select statements of that arity
-    let mut eq_statement = Statement::initialize(num_vars);
+    let mut eq_statement = EqStatement::initialize(num_vars);
     let mut sel_statement = SelectStatement::initialize(num_vars);
 
     // - Sample `num_eqs` univariate challenge points.
@@ -198,7 +198,7 @@ where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     // Create a new statement that will hold all reconstructed constraints.
-    let mut eq_statement = Statement::initialize(num_vars);
+    let mut eq_statement = EqStatement::initialize(num_vars);
 
     // For each point, sample a challenge and read its corresponding evaluation from the transcript.
     for _ in 0..num_eqs {

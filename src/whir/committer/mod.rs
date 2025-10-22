@@ -4,7 +4,7 @@ use p3_field::{ExtensionField, Field};
 use p3_matrix::{dense::DenseMatrix, extension::FlatMatrixView};
 use p3_merkle_tree::MerkleTree;
 
-use crate::{poly::evals::EvaluationsList, whir::constraints::statement::Statement};
+use crate::{poly::evals::EvaluationsList, whir::constraints::statement::EqStatement};
 
 pub mod reader;
 pub mod writer;
@@ -30,5 +30,5 @@ where
     /// Out-of-domain statement with:
     /// - Out-of-domain challenge points used for polynomial verification.
     /// - The corresponding polynomial evaluations at the OOD challenge point
-    pub ood_statement: Statement<EF>,
+    pub ood_statement: EqStatement<EF>,
 }

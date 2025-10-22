@@ -15,7 +15,7 @@ use round_state::RoundState;
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
-use super::{committer::Witness, constraints::statement::Statement, parameters::WhirConfig};
+use super::{committer::Witness, constraints::statement::EqStatement, parameters::WhirConfig};
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
@@ -82,7 +82,7 @@ where
     ///
     /// # Returns
     /// `true` if the statement structure is valid for this protocol instance.
-    const fn validate_statement(&self, statement: &Statement<EF>) -> bool {
+    const fn validate_statement(&self, statement: &EqStatement<EF>) -> bool {
         statement.num_variables() == self.0.num_variables
             && (self.0.initial_statement || statement.is_empty())
     }
@@ -140,7 +140,7 @@ where
         &self,
         dft: &Dft,
         prover_state: &mut ProverState<F, EF, Challenger>,
-        statement: Statement<EF>,
+        statement: EqStatement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<MultilinearPoint<EF>, FiatShamirError>
     where
@@ -238,7 +238,7 @@ where
         prover_state.add_base_scalars(root.as_ref());
 
         // Handle OOD (Out-Of-Domain) samples
-        let mut ood_statement = Statement::initialize(num_variables);
+        let mut ood_statement = EqStatement::initialize(num_variables);
         (0..round_params.ood_samples).for_each(|_| {
             let point =
                 MultilinearPoint::expand_from_univariate(prover_state.sample(), num_variables);

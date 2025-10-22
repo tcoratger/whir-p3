@@ -19,7 +19,7 @@ use crate::{
     fiat_shamir::verifier::VerifierState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        Statement,
+        EqStatement,
         constraints::{
             evaluator::{Constraint, ConstraintPolyEvaluator},
             sel_statement::SelectStatement,
@@ -61,7 +61,7 @@ where
         &self,
         verifier_state: &mut VerifierState<F, EF, Challenger>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
-        mut statement: Statement<EF>,
+        mut statement: EqStatement<EF>,
     ) -> Result<MultilinearPoint<EF>, VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,

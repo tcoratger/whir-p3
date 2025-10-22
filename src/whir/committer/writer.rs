@@ -14,7 +14,7 @@ use super::Witness;
 use crate::{
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{committer::DenseMatrix, constraints::statement::Statement, parameters::WhirConfig},
+    whir::{committer::DenseMatrix, constraints::statement::EqStatement, parameters::WhirConfig},
 };
 
 /// Responsible for committing polynomials using a Merkle-based scheme.
@@ -90,7 +90,7 @@ where
 
         prover_state.add_base_scalars(root.as_ref());
 
-        let mut ood_statement = Statement::initialize(self.num_variables);
+        let mut ood_statement = EqStatement::initialize(self.num_variables);
         (0..self.0.commitment_ood_samples).for_each(|_| {
             // Generate OOD points from ProverState randomness
             let point =

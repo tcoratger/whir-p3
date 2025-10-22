@@ -158,7 +158,7 @@ mod tests {
         poly::{coeffs::CoefficientList, evals::EvaluationsList},
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
-            constraints::{evaluator::Constraint, statement::Statement},
+            constraints::{evaluator::Constraint, statement::EqStatement},
             parameters::WhirConfig,
         },
     };
@@ -233,7 +233,7 @@ mod tests {
         assert_eq!(n_vars, 3);
 
         // Create a constraint system with evaluations of f at various points
-        let mut statement = Statement::initialize(n_vars);
+        let mut statement = EqStatement::initialize(n_vars);
 
         let x_000 = MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]);
         let x_100 = MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ZERO]);
@@ -361,7 +361,7 @@ mod tests {
         // Construct a Statement by evaluating f at several Boolean points
         // These evaluations will serve as equality constraints
         // -------------------------------------------------------------
-        let mut statement = Statement::initialize(NUM_VARS);
+        let mut statement = EqStatement::initialize(NUM_VARS);
         for i in 0..5 {
             let bool_point: Vec<_> = (0..NUM_VARS)
                 .map(|j| {

@@ -14,7 +14,7 @@ use whir_p3::{
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        committer::writer::CommitmentWriter, constraints::statement::Statement,
+        committer::writer::CommitmentWriter, constraints::statement::EqStatement,
         parameters::WhirConfig, prover::Prover,
     },
 };
@@ -35,7 +35,7 @@ fn prepare_inputs() -> (
     WhirConfig<EF, F, MerkleHash, MerkleCompress, MyChallenger>,
     Radix2DFTSmallBatch<F>,
     EvaluationsList<F>,
-    Statement<EF>,
+    EqStatement<EF>,
     MyChallenger,
     DomainSeparator<EF, F>,
 ) {
@@ -106,7 +106,7 @@ fn prepare_inputs() -> (
     let point = MultilinearPoint::rand(&mut rng, num_variables);
 
     // Create a new WHIR `Statement` with one constraint.
-    let mut statement = Statement::<EF>::initialize(num_variables);
+    let mut statement = EqStatement::<EF>::initialize(num_variables);
     statement.add_unevaluated_constraint(point, &polynomial);
 
     // Fiat-Shamir setup

@@ -7,7 +7,7 @@ use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
-    whir::constraints::{evaluator::Constraint, statement::Statement},
+    whir::constraints::{evaluator::Constraint, statement::EqStatement},
 };
 
 type F = BabyBear;
@@ -36,11 +36,11 @@ fn generate_statement<C>(
     num_vars: usize,
     poly: &EvaluationsList<F>,
     num_constraints: usize,
-) -> Statement<EF>
+) -> EqStatement<EF>
 where
     C: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    let mut statement = Statement::initialize(num_vars);
+    let mut statement = EqStatement::initialize(num_vars);
     for _ in 0..num_constraints {
         let point = MultilinearPoint::expand_from_univariate(prover.sample(), num_vars);
         statement.add_unevaluated_constraint(point, poly);

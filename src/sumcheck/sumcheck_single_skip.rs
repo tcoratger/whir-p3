@@ -102,7 +102,7 @@ mod tests {
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
         poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
-        whir::constraints::statement::Statement,
+        whir::constraints::statement::EqStatement,
     };
 
     type F = BabyBear;
@@ -163,7 +163,7 @@ mod tests {
         // Therefore the product f(X)·w(X) = 0 for all X ∈ {0,1}³
         // So the resulting sumcheck polynomial must be identically zero.
         // ----------------------------------------------------------------
-        let statement = Statement::<EF4>::initialize(3);
+        let statement = EqStatement::<EF4>::initialize(3);
 
         let mut weights = EvaluationsList::zero(statement.num_variables());
         let mut sum = EF4::ZERO;
@@ -204,7 +204,7 @@ mod tests {
         let c1 = F::from_u64(2);
         let coeffs = CoefficientList::new(vec![c0, c1]);
 
-        let statement = Statement::<EF4>::initialize(1);
+        let statement = EqStatement::<EF4>::initialize(1);
         let mut weights = EvaluationsList::zero(statement.num_variables());
         let mut sum = EF4::ZERO;
         statement.combine::<F, false>(&mut weights, &mut sum, EF4::ONE);
@@ -275,7 +275,7 @@ mod tests {
         };
 
         // Constraints
-        let mut statement = Statement::initialize(3);
+        let mut statement = EqStatement::initialize(3);
         statement.add_evaluated_constraint(
             MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]),
             f_extension(EF4::ZERO, EF4::ZERO, EF4::ZERO),

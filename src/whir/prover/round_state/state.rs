@@ -17,7 +17,7 @@ use crate::{
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{RoundMerkleTree, Witness},
-        constraints::{evaluator::Constraint, statement::Statement},
+        constraints::{evaluator::Constraint, statement::EqStatement},
         prover::Prover,
     },
 };
@@ -123,7 +123,7 @@ where
     ///
     /// The WHIR protocol maintains that satisfying these constraints implies
     /// the committed polynomial is close to some Reed-Solomon codeword.
-    pub statement: Statement<EF>,
+    pub statement: EqStatement<EF>,
 }
 
 #[allow(clippy::mismatching_type_param_order)]
@@ -149,7 +149,7 @@ where
     pub fn initialize_first_round_state<MyChallenger, C, Challenger>(
         prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
         prover_state: &mut ProverState<F, EF, Challenger>,
-        mut statement: Statement<EF>,
+        mut statement: EqStatement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<Self, FiatShamirError>
     where
@@ -204,7 +204,7 @@ where
             // Create trivial sumcheck prover (no constraints to batch)
             let sumcheck = SumcheckSingle::from_extension_evals(
                 poly,
-                &Statement::initialize(num_variables),
+                &EqStatement::initialize(num_variables),
                 EF::ONE,
             );
 

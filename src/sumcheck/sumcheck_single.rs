@@ -11,7 +11,7 @@ use crate::{
     sumcheck::{
         sumcheck_single_skip::compute_skipping_sumcheck_polynomial, utils::sumcheck_quadratic,
     },
-    whir::constraints::{evaluator::Constraint, statement::Statement},
+    whir::constraints::{evaluator::Constraint, statement::EqStatement},
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;
@@ -238,7 +238,7 @@ where
     /// This is the entry point when the polynomial is defined directly over `EF`.
     pub fn from_extension_evals(
         evals: EvaluationsList<EF>,
-        statement: &Statement<EF>,
+        statement: &EqStatement<EF>,
         challenge: EF,
     ) -> Self {
         let mut weights = EvaluationsList::zero(statement.num_variables());

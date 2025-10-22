@@ -7,7 +7,7 @@ use p3_symmetric::Hash;
 use crate::{
     fiat_shamir::{errors::FiatShamirError, verifier::VerifierState},
     poly::multilinear::MultilinearPoint,
-    whir::{constraints::statement::Statement, parameters::WhirConfig},
+    whir::{constraints::statement::EqStatement, parameters::WhirConfig},
 };
 
 /// Represents a parsed commitment from the prover in the WHIR protocol.
@@ -27,7 +27,7 @@ pub struct ParsedCommitment<F, D> {
     /// Out-of-domain statement with:
     /// - Out-of-domain challenge points used for polynomial verification.
     /// - The corresponding polynomial evaluations at the OOD challenge point
-    pub ood_statement: Statement<F>,
+    pub ood_statement: EqStatement<F>,
 }
 
 impl<F, D> ParsedCommitment<F, D>
@@ -74,7 +74,7 @@ where
         // Each constraint enforces that the committed polynomial evaluates to the
         // claimed `ood_answer` at the corresponding `ood_point`, using a univariate
         // equality weight over `num_variables` inputs.
-        let mut ood_statement = Statement::initialize(num_variables);
+        let mut ood_statement = EqStatement::initialize(num_variables);
         (0..ood_samples).try_for_each(|_| {
             let point = verifier_state.sample();
             let point = MultilinearPoint::expand_from_univariate(point, num_variables);

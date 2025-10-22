@@ -17,7 +17,7 @@ use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 /// - `points.len() == evaluations.len()`.
 /// - Every `MultilinearPoint` in `points` has exactly `num_variables` coordinates.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Statement<F> {
+pub struct EqStatement<F> {
     /// Number of variables in the multilinear polynomial space.
     num_variables: usize,
     /// List of evaluation points.
@@ -26,7 +26,7 @@ pub struct Statement<F> {
     pub(crate) evaluations: Vec<F>,
 }
 
-impl<F: Field> Statement<F> {
+impl<F: Field> EqStatement<F> {
     /// Creates an empty `Statement<F>` for polynomials with `num_variables` variables.
     #[must_use]
     pub const fn initialize(num_variables: usize) -> Self {
@@ -44,7 +44,7 @@ impl<F: Field> Statement<F> {
         points: Vec<MultilinearPoint<F>>,
         evaluations: Vec<F>,
     ) -> Self {
-        for point in points.iter() {
+        for point in &points {
             assert_eq!(point.num_variables(), num_variables);
         }
         Self {
@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_statement_combine_single_constraint() {
-        let mut statement = Statement::initialize(1);
+        let mut statement = EqStatement::initialize(1);
         let point = MultilinearPoint::new(vec![F::ONE]);
         let expected_eval = F::from_u64(7);
         statement.add_evaluated_constraint(point.clone(), expected_eval);
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_statement_with_multiple_constraints() {
-        let mut statement = Statement::initialize(2);
+        let mut statement = EqStatement::initialize(2);
 
         // Constraint 1: evaluate at z1 = (1,0), expected value 5
         let point1 = MultilinearPoint::new(vec![F::ONE, F::ZERO]);
@@ -274,14 +274,14 @@ mod tests {
         // Test new constructor
         let point = MultilinearPoint::new(vec![F::ONE]);
         let eval = F::from_u64(42);
-        let statement = Statement::new(1, vec![point], vec![eval]);
+        let statement = EqStatement::new(1, vec![point], vec![eval]);
 
         assert_eq!(statement.num_variables(), 1);
         assert_eq!(statement.len(), 1);
         assert!(!statement.is_empty());
 
         // Test initialize constructor
-        let empty_statement = Statement::<F>::initialize(2);
+        let empty_statement = EqStatement::<F>::initialize(2);
         assert_eq!(empty_statement.num_variables(), 2);
         assert_eq!(empty_statement.len(), 0);
         assert!(empty_statement.is_empty());
@@ -291,7 +291,7 @@ mod tests {
     fn test_verify_constraints() {
         // Create polynomial with evaluations [1, 2]
         let poly = EvaluationsList::new(vec![F::from_u64(1), F::from_u64(2)]);
-        let mut statement = Statement::<F>::initialize(1);
+        let mut statement = EqStatement::<F>::initialize(1);
 
         // Test matching constraint: f(0) = 1
         statement.add_evaluated_constraint(MultilinearPoint::new(vec![F::ZERO]), F::from_u64(1));
@@ -305,8 +305,8 @@ mod tests {
     #[test]
     fn test_concatenate() {
         // Test successful concatenation
-        let mut statement1 = Statement::<F>::initialize(1);
-        let mut statement2 = Statement::<F>::initialize(1);
+        let mut statement1 = EqStatement::<F>::initialize(1);
+        let mut statement2 = EqStatement::<F>::initialize(1);
         statement1.add_evaluated_constraint(MultilinearPoint::new(vec![F::ZERO]), F::from_u64(10));
         statement2.add_evaluated_constraint(MultilinearPoint::new(vec![F::ONE]), F::from_u64(20));
 
@@ -317,8 +317,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "assertion `left == right` failed")]
     fn test_concatenate_mismatched_variables() {
-        let mut statement1 = Statement::<F>::initialize(2);
-        let statement2 = Statement::<F>::initialize(3);
+        let mut statement1 = EqStatement::<F>::initialize(2);
+        let statement2 = EqStatement::<F>::initialize(3);
         statement1.concatenate(&statement2); // Should panic
     }
 
@@ -329,8 +329,8 @@ mod tests {
         let point = MultilinearPoint::new(vec![F::ZERO]);
 
         // Create two identical statements
-        let mut statement1 = Statement::<F>::initialize(1);
-        let mut statement2 = Statement::<F>::initialize(1);
+        let mut statement1 = EqStatement::<F>::initialize(1);
+        let mut statement2 = EqStatement::<F>::initialize(1);
 
         // Add same constraint using both methods
         let eval = poly.evaluate(&point);
@@ -357,7 +357,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "assertion `left == right` failed")]
     fn test_wrong_variable_count() {
-        let mut statement = Statement::<F>::initialize(1);
+        let mut statement = EqStatement::<F>::initialize(1);
         let wrong_point = MultilinearPoint::new(vec![F::ONE, F::ZERO]); // 2 vars for 1-var statement
         statement.add_evaluated_constraint(wrong_point, F::from_u64(5));
     }
@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn test_combine_operations() {
         // Test empty statement combine
-        let empty_statement = Statement::<F>::initialize(1);
+        let empty_statement = EqStatement::<F>::initialize(1);
 
         let mut combined_evals = EvaluationsList::zero(empty_statement.num_variables());
         let mut combined_sum = F::ZERO;
@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(combined_sum, F::ZERO);
 
         // Test combine_evals with constraints
-        let mut statement = Statement::<F>::initialize(1);
+        let mut statement = EqStatement::<F>::initialize(1);
         statement.add_evaluated_constraint(MultilinearPoint::new(vec![F::ZERO]), F::from_u64(3));
         statement.add_evaluated_constraint(MultilinearPoint::new(vec![F::ONE]), F::from_u64(7));
 
@@ -404,7 +404,7 @@ mod tests {
             let poly = EvaluationsList::new(poly_evals.into_iter().map(F::from_u32).collect());
 
             // Create statement with random constraints that match the polynomial
-            let mut statement = Statement::<F>::initialize(4);
+            let mut statement = EqStatement::<F>::initialize(4);
             let point1 = MultilinearPoint::new(vec![
                 F::from_u32(point_coords[0]), F::from_u32(point_coords[1]),
                 F::from_u32(point_coords[2]), F::from_u32(point_coords[3])

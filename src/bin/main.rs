@@ -20,7 +20,7 @@ use whir_p3::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
-        constraints::statement::Statement,
+        constraints::statement::EqStatement,
         parameters::WhirConfig,
         prover::Prover,
         verifier::Verifier,
@@ -138,7 +138,7 @@ fn main() {
         .collect();
 
     // Construct a new statement with the correct number of variables
-    let mut statement = Statement::<EF>::initialize(num_variables);
+    let mut statement = EqStatement::<EF>::initialize(num_variables);
 
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
