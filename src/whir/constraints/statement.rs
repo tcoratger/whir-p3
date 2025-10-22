@@ -44,9 +44,9 @@ impl<F: Field> Statement<F> {
         points: Vec<MultilinearPoint<F>>,
         evaluations: Vec<F>,
     ) -> Self {
-        points
-            .iter()
-            .for_each(|point| assert_eq!(point.num_variables(), num_variables));
+        for point in points.iter() {
+            assert_eq!(point.num_variables(), num_variables);
+        }
         Self {
             num_variables,
             points,
