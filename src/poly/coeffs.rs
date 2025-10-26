@@ -6,7 +6,7 @@ use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use super::{
-    dense::UnivariatePolynomial, evals::EvaluationsList, multilinear::MultilinearPoint,
+    evals::EvaluationsList, multilinear::MultilinearPoint, univariate::UnivariatePolynomial,
     wavelet::Radix2WaveletKernel,
 };
 

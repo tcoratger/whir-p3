@@ -3,7 +3,7 @@ use std::{collections::HashSet, hint::black_box};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use whir_p3::poly::dense::UnivariatePolynomial;
+use whir_p3::poly::univariate::UnivariatePolynomial;
 
 // Field type used for the benchmark.
 type F = BabyBear;
