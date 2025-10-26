@@ -3,7 +3,7 @@ use std::{collections::HashSet, hint::black_box};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use whir_p3::poly::dense::WhirDensePolynomial;
+use whir_p3::poly::dense::UnivariatePolynomial;
 
 // Field type used for the benchmark.
 type F = BabyBear;
@@ -12,7 +12,7 @@ type F = BabyBear;
 ///
 /// Returns `degree + 1` unique (x, y) pairs from a random polynomial.
 fn generate_interpolation_points(rng: &mut StdRng, degree: usize) -> Vec<(F, F)> {
-    let poly = WhirDensePolynomial::<F>::random(rng, degree);
+    let poly = UnivariatePolynomial::<F>::random(rng, degree);
     let mut points = Vec::with_capacity(degree + 1);
     let mut used_x = HashSet::with_capacity(degree + 1);
 
@@ -38,7 +38,7 @@ fn lagrange_benchmark(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::from_parameter(degree), &degree, |b, _| {
             b.iter(|| {
-                WhirDensePolynomial::<F>::lagrange_interpolation(black_box(&points));
+                UnivariatePolynomial::<F>::lagrange_interpolation(black_box(&points));
             });
         });
     }
