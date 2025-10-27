@@ -7,7 +7,7 @@ use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
-    whir::constraints::statement::Statement,
+    whir::constraints::{evaluator::Constraint, statement::EqStatement},
 };
 
 type F = BabyBear;
@@ -36,11 +36,11 @@ fn generate_statement<C>(
     num_vars: usize,
     poly: &EvaluationsList<F>,
     num_constraints: usize,
-) -> Statement<EF>
+) -> EqStatement<EF>
 where
     C: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    let mut statement = Statement::initialize(num_vars);
+    let mut statement = EqStatement::initialize(num_vars);
     for _ in 0..num_constraints {
         let point = MultilinearPoint::expand_from_univariate(prover.sample(), num_vars);
         statement.add_unevaluated_constraint(point, poly);
@@ -64,17 +64,16 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
 
         let mut prover = setup_prover();
         let statement = generate_statement(&mut prover, *num_vars, &poly, 3);
-        let combination_randomness: EF = prover.sample();
+        let constraint = Constraint::new_eq_only(prover.sample(), statement.clone());
 
         group.bench_with_input(BenchmarkId::new("Classic", *num_vars), &poly, |b, poly| {
             b.iter(|| {
                 let (mut sumcheck, _) = SumcheckSingle::from_base_evals(
                     poly,
-                    &statement,
-                    combination_randomness,
                     &mut prover,
                     classic_folding_schedule[0],
                     0,
+                    &constraint,
                 );
 
                 // Run the remaining folding rounds
@@ -83,6 +82,7 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
                         &mut prover,
                         classic_folding_schedule[1],
                         0,
+                        None,
                     );
                 }
             });

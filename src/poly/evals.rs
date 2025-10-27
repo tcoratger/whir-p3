@@ -18,7 +18,7 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// `self.len() = 2^n`.
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[must_use]
-pub struct EvaluationsList<F>(Vec<F>);
+pub struct EvaluationsList<F>(pub(crate) Vec<F>);
 
 impl<F> EvaluationsList<F>
 where
@@ -42,6 +42,11 @@ where
         );
 
         Self(evals)
+    }
+
+    /// Given a number of points initializes a new zero polynomial
+    pub fn zero(num_evals: usize) -> Self {
+        Self(F::zero_vec(1 << num_evals))
     }
 
     /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`

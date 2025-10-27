@@ -1,19 +1,19 @@
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
+use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_matrix::dense::DenseMatrix;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{SeedableRng, rngs::SmallRng};
 
 use crate::{
-    dft::EvalsDft,
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         WhirConfig,
         committer::{Witness, writer::CommitmentWriter},
-        constraints::statement::Statement,
+        constraints::statement::EqStatement,
         prover::{Prover, round_state::RoundState},
     },
 };
@@ -108,7 +108,11 @@ fn setup_domain_and_commitment(
     // Perform DFT-based commitment to the polynomial, producing a witness
     // which includes the Merkle tree and polynomial values.
     let witness = committer
-        .commit(&EvalsDft::<F>::default(), &mut prover_state, poly)
+        .commit(
+            &Radix2DFTSmallBatch::<F>::default(),
+            &mut prover_state,
+            poly,
+        )
         .unwrap();
 
     // Return all initialized components needed for round state setup.
@@ -136,7 +140,7 @@ fn test_no_initial_statement_no_sumcheck() {
     let (_, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
 
     // Create an empty public statement (no constraints)
-    let statement = Statement::<EF4>::initialize(num_variables);
+    let statement = EqStatement::<EF4>::initialize(num_variables);
 
     // Initialize the round state using the setup configuration and witness
     let state = RoundState::initialize_first_round_state(
@@ -195,7 +199,7 @@ fn test_initial_statement_with_folding_factor_3() {
     };
 
     // Add a single equality constraint to the statement: f(1,1,1) = expected value
-    let mut statement = Statement::<EF4>::initialize(num_variables);
+    let mut statement = EqStatement::<EF4>::initialize(num_variables);
     statement.add_evaluated_constraint(
         MultilinearPoint::new(vec![EF4::ONE, EF4::ONE, EF4::ONE]),
         f(EF4::ONE, EF4::ONE, EF4::ONE),
@@ -277,7 +281,7 @@ fn test_zero_poly_multiple_constraints() {
     let (_, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
 
     // Create a new statement with multiple constraints
-    let mut statement = Statement::<EF4>::initialize(num_variables);
+    let mut statement = EqStatement::<EF4>::initialize(num_variables);
 
     // Add one equality constraint per Boolean input: f(x) = 0 for all x ∈ {0,1}³
     for i in 0..1 << num_variables {
@@ -367,7 +371,7 @@ fn test_initialize_round_state_with_initial_statement() {
     };
 
     // Construct a statement with one evaluation constraint at the point (1, 0, 1)
-    let mut statement = Statement::<EF4>::initialize(num_variables);
+    let mut statement = EqStatement::<EF4>::initialize(num_variables);
     statement.add_evaluated_constraint(
         MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE]),
         f(EF4::ONE, EF4::ZERO, EF4::ONE),

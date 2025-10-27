@@ -155,9 +155,12 @@ mod tests {
             pattern::{Observe, Sample},
         },
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::coeffs::CoefficientList,
+        poly::{coeffs::CoefficientList, evals::EvaluationsList},
         sumcheck::sumcheck_single::SumcheckSingle,
-        whir::{constraints::statement::Statement, parameters::WhirConfig},
+        whir::{
+            constraints::{evaluator::Constraint, statement::EqStatement},
+            parameters::WhirConfig,
+        },
     };
 
     type F = BabyBear;
@@ -230,7 +233,7 @@ mod tests {
         assert_eq!(n_vars, 3);
 
         // Create a constraint system with evaluations of f at various points
-        let mut statement = Statement::initialize(n_vars);
+        let mut statement = EqStatement::initialize(n_vars);
 
         let x_000 = MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]);
         let x_100 = MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ZERO]);
@@ -268,21 +271,24 @@ mod tests {
         // Convert domain separator into prover state object
         let mut prover_state = domsep.to_prover_state(challenger.clone());
 
+        let constraint = Constraint::new_eq_only(EF4::ONE, statement.clone());
+
         // Instantiate the prover with base field coefficients
         let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals(
             &coeffs.to_evaluations(),
-            &statement,
-            EF4::ONE,
             &mut prover_state,
             folding_factor,
             pow_bits,
+            &constraint,
         );
 
         // Reconstruct verifier state to simulate the rounds
         let mut verifier_state =
             domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger.clone());
 
-        let (_, mut expected_initial_sum) = statement.combine::<F>(EF4::ONE);
+        let mut t = EvaluationsList::zero(statement.num_variables());
+        let mut expected_initial_sum = EF4::ZERO;
+        statement.combine::<F, false>(&mut t, &mut expected_initial_sum, EF4::ONE);
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
 
@@ -355,7 +361,7 @@ mod tests {
         // Construct a Statement by evaluating f at several Boolean points
         // These evaluations will serve as equality constraints
         // -------------------------------------------------------------
-        let mut statement = Statement::initialize(NUM_VARS);
+        let mut statement = EqStatement::initialize(NUM_VARS);
         for i in 0..5 {
             let bool_point: Vec<_> = (0..NUM_VARS)
                 .map(|j| {
@@ -396,19 +402,19 @@ mod tests {
         // Run prover-side folding
         // -------------------------------------------------------------
 
-        let (_, mut expected_sum) = statement.combine::<F>(EF4::ONE);
+        let constraint = Constraint::new_eq_only(EF4::ONE, statement.clone());
+        let (_, mut expected_sum) = constraint.combine_new();
 
         // -------------------------------------------------------------
         // Construct prover with base coefficients
         // -------------------------------------------------------------
         let (_, _) = SumcheckSingle::<F, EF4>::with_skip(
             &coeffs.to_evaluations(),
-            &statement,
-            EF4::ONE,
             &mut prover_state,
             NUM_VARS,
             0,
             K_SKIP,
+            &constraint,
         );
 
         // -------------------------------------------------------------
