@@ -3,7 +3,10 @@ use std::{f64::consts::LOG2_10, marker::PhantomData};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use crate::parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption};
+use crate::{
+    dft::EvalsDft,
+    parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+};
 
 #[derive(Debug, Clone)]
 pub struct RoundConfig<F> {
@@ -48,6 +51,9 @@ where
     pub final_log_inv_rate: usize,
     pub final_sumcheck_rounds: usize,
     pub final_folding_pow_bits: usize,
+
+    // Cached DFT
+    pub dft: EvalsDft<F>,
 
     // Merkle tree parameters
     pub merkle_hash: Hash,
@@ -237,6 +243,10 @@ where
             final_sumcheck_rounds,
             final_folding_pow_bits: final_folding_pow_bits as usize,
             final_log_inv_rate: log_inv_rate,
+            dft: EvalsDft::<F>::new(
+                1 << (initial_num_variables + whir_parameters.starting_log_inv_rate
+                    - whir_parameters.folding_factor.at_round(0)),
+            ),
             merkle_hash: whir_parameters.merkle_hash,
             merkle_compress: whir_parameters.merkle_compress,
             univariate_skip: whir_parameters.univariate_skip,

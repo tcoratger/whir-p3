@@ -14,7 +14,6 @@ use tracing::{info_span, instrument};
 use super::{committer::Witness, constraints::statement::Statement, parameters::WhirConfig};
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    dft::EvalsDft,
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::parallel_repeat,
@@ -137,7 +136,6 @@ where
     #[instrument(skip_all)]
     pub fn prove<const DIGEST_ELEMS: usize>(
         &self,
-        dft: &EvalsDft<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
         statement: Statement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
@@ -165,7 +163,7 @@ where
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
-            self.round(round, dft, prover_state, &mut round_state)?;
+            self.round(round, prover_state, &mut round_state)?;
         }
 
         // Reverse the vector of verifier challenges (used as evaluation point)
@@ -183,7 +181,6 @@ where
     fn round<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        dft: &EvalsDft<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
@@ -224,7 +221,7 @@ where
                 width = 1 << folding_factor_next
             )
             .in_scope(|| {
-                dft.dft_algebra_batch_by_evals(RowMajorMatrix::new(
+                self.0.dft.dft_algebra_batch_by_evals(RowMajorMatrix::new(
                     evals_repeated,
                     1 << folding_factor_next,
                 ))

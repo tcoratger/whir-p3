@@ -180,7 +180,6 @@ mod tests {
 
     use super::*;
     use crate::{
-        dft::EvalsDft,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
         whir::{DomainSeparator, committer::writer::CommitmentWriter},
@@ -248,9 +247,6 @@ mod tests {
         // Instantiate the committer using the test config.
         let committer = CommitmentWriter::new(&params);
 
-        // Use a DFT engine to expand/fold the polynomial for evaluation.
-        let dft = EvalsDft::default();
-
         // Set up Fiat-Shamir transcript and commit the protocol parameters.
         let mut ds = DomainSeparator::new(vec![]);
         ds.commit_statement::<_, _, _, 8>(&params);
@@ -262,9 +258,7 @@ mod tests {
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
-        let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
+        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
         // Simulate verifier state using transcript view of prover’s nonce string.
         let mut verifier_state =
@@ -290,9 +284,8 @@ mod tests {
         // Generate a polynomial with 16 random coefficients.
         let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
 
-        // Set up the committer and DFT engine.
+        // Set up the committer
         let committer = CommitmentWriter::new(&params);
-        let dft = EvalsDft::default();
 
         // Begin the transcript and commit to the statement parameters.
         let mut ds = DomainSeparator::new(vec![]);
@@ -304,9 +297,7 @@ mod tests {
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial to obtain the witness.
-        let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
+        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
         // Initialize the verifier view of the transcript.
         let mut verifier_state =
@@ -335,9 +326,8 @@ mod tests {
         // Generate a large polynomial with 1024 random coefficients.
         let polynomial = EvaluationsList::new((0..1024).map(|_| rng.random()).collect());
 
-        // Initialize the committer and DFT engine.
+        // Initialize the committer
         let committer = CommitmentWriter::new(&params);
-        let dft = EvalsDft::default();
 
         // Start a new transcript and commit to the public parameters.
         let mut ds = DomainSeparator::new(vec![]);
@@ -350,9 +340,7 @@ mod tests {
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain the witness.
-        let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
+        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
         // Initialize verifier view from prover's transcript string.
         let mut verifier_state =
@@ -376,9 +364,8 @@ mod tests {
         // Generate a multilinear polynomial with 16 coefficients.
         let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
 
-        // Instantiate a committer and DFT backend.
+        // Instantiate a committer
         let committer = CommitmentWriter::new(&params);
-        let dft = EvalsDft::default();
 
         // Set up Fiat-Shamir transcript and commit to the public parameters.
         let mut ds = DomainSeparator::new(vec![]);
@@ -389,9 +376,7 @@ mod tests {
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
-        let _ = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
+        let _ = committer.commit(&mut prover_state, polynomial).unwrap();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 

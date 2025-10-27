@@ -6,7 +6,6 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{SeedableRng, rngs::SmallRng};
 
 use crate::{
-    dft::EvalsDft,
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -107,9 +106,7 @@ fn setup_domain_and_commitment(
 
     // Perform DFT-based commitment to the polynomial, producing a witness
     // which includes the Merkle tree and polynomial values.
-    let witness = committer
-        .commit(&EvalsDft::<F>::default(), &mut prover_state, poly)
-        .unwrap();
+    let witness = committer.commit(&mut prover_state, poly).unwrap();
 
     // Return all initialized components needed for round state setup.
     (domsep, prover_state, witness)
