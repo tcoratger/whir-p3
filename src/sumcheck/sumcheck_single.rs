@@ -325,8 +325,9 @@ where
 
         assert!(k_skip > 1);
         assert!(k_skip <= folding_factor);
+
         constraint.validate_for_skip_case();
-        let (weights, _) = constraint.combine_new();
+        let (weights, sum) = constraint.combine_new();
 
         // Compute the skipped-round polynomial h and the rectangular views f̂, ŵ.
         //
@@ -337,6 +338,16 @@ where
         let (sumcheck_poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(
             evals.clone().into_mat(width),
             weights.into_mat(width),
+        );
+
+        debug_assert_eq!(
+            sumcheck_poly
+                .evaluations()
+                .iter()
+                .step_by(2)
+                .copied()
+                .sum::<EF>(),
+            sum
         );
 
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.

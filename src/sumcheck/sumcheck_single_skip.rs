@@ -194,6 +194,10 @@ mod tests {
             poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
             EF4::ZERO
         );
+        assert_eq!(
+            poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
+            sum
+        );
     }
 
     #[test]

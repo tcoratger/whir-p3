@@ -1,4 +1,4 @@
-use p3_field::{ExtensionField, Field, dot_product};
+use p3_field::{ExtensionField, Field, TwoAdicField, dot_product};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_multilinear_util::eq_batch::eval_eq_batch;
 use tracing::instrument;
@@ -194,12 +194,189 @@ impl<F: Field> EqStatement<F> {
     pub fn combine_evals(&self, claimed_eval: &mut F, gamma: F) {
         *claimed_eval += dot_product(self.evaluations.iter().copied(), gamma.powers());
     }
+
+    /// Computes the equality polynomial for a point over a multiplicative subgroup domain.
+    ///
+    /// This function evaluates the unique polynomial `eq_D(X, y)` which is `1` if `X=y`
+    /// and `0` at all other points `X` in the subgroup `D`. This implementation correctly
+    /// interpolates the polynomial, allowing the constraint point `y` to be an arbitrary
+    /// field element, not necessarily in `D`.
+    ///
+    /// The formula is:
+    /// ```text
+    /// eq_D(X, y) = (1/|D|) * Σ_{i=0}^{|D|-1} (X * y^{-1})^i
+    /// ```
+    ///
+    /// # Arguments
+    /// * `x`: The evaluation point, which is an element of the subgroup `D`.
+    /// * `y`: The target constraint point, which is an arbitrary field element.
+    /// * `subgroup_size`: The size of the multiplicative subgroup, `|D|`.
+    ///
+    /// # Returns
+    /// The value of the equality polynomial `eq_D` evaluated at `x`.
+    fn eq_d(x: F, y: F, subgroup_size: usize) -> F
+    where
+        F: TwoAdicField,
+    {
+        // Calculate the modular inverse of the subgroup's order, `1/|D|`.
+        //
+        // As `subgroup_size` is a power of two, this inversion is guaranteed to exist.
+        let order = F::from_usize(subgroup_size);
+        let order_inv = order
+            .try_inverse()
+            .expect("subgroup size must be invertible in the field");
+
+        // Calculate the modular inverse of the target point `y`.
+        let y_inv = y.inverse();
+
+        // Calculate the base for the polynomial evaluation, `X * y^{-1}`.
+        let base = x * y_inv;
+
+        // Evaluate the polynomial `P(z) = Σ z^i` for `i` from 0 to `|D|-1` at the point `z = base`.
+        let mut total_sum = F::ZERO;
+        let mut power = F::ONE;
+        for _ in 0..subgroup_size {
+            total_sum += power;
+            power *= base;
+        }
+
+        // Multiply by `1/|D|` to get the final evaluation.
+        total_sum * order_inv
+    }
+
+    /// Combines constraints with the univariate skip optimization in mind.
+    ///
+    /// This function implements a protocol where constraint points are structured for a mixed
+    /// domain. For an n-variable problem with a k-variable skip, constraint points must have
+    /// `(n-k) + 1` coordinates.
+    ///
+    /// ## Protocol Point Structure
+    ///
+    /// - `point[0]` is a **single field element** `z_skip`, representing the constraint for the `k` skipped variables.
+    /// - `point[1..]` is an **`(n-k)`-dimensional vector** `z_suffix` for the remaining hypercube variables.
+    ///
+    /// ## Mathematical Formulation
+    ///
+    /// The function computes the combined polynomial `W` over a `2^k x 2^j` grid (where `j=n-k`).
+    /// The equality check for a constraint `z = (z_skip, z_suffix)` at a grid cell corresponding
+    /// to the evaluation point `(x, y)` (where `x ∈ D` and `y ∈ H^j`) is:
+    ///
+    /// `eq(x, y) = eq_D(x, z_skip) * eq_H(y, z_suffix)`
+    ///
+    /// # Arguments
+    /// * `challenge`: A random challenge `γ` for batching constraints.
+    /// * `k_skip`: The number of variables folded into the subgroup `D`.
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// - An `EvaluationsList` with the `2^n` evaluations of the combined polynomial `W`.
+    /// - The combined expected sum `S = Σ γ^i * s_i`.
+    pub fn combine_univariate_skip<Base>(
+        &self,
+        challenge: F,
+        k_skip: usize,
+    ) -> (EvaluationsList<F>, F)
+    where
+        Base: Field,
+        F: ExtensionField<Base> + TwoAdicField,
+    {
+        if self.is_empty() {
+            return (
+                EvaluationsList::new(F::zero_vec(1 << self.num_variables())),
+                F::ZERO,
+            );
+        }
+
+        // The number of constraints to be combined.
+        let num_constraints = self.len();
+        // The dimension of the points for this protocol, i.e., 1 + j.
+        let num_point_vars = self.num_variables();
+        // The number of variables for the hypercube part of the domain.
+        let num_hypercube_vars = num_point_vars - 1;
+
+        // The size of the multiplicative subgroup domain `D`.
+        let subgroup_size = 1 << k_skip;
+        // The size of the Boolean hypercube domain `H^j`.
+        let hypercube_size = 1 << num_hypercube_vars;
+        // The total size of the evaluation table for the mixed domain `D x H^j`.
+        let total_domain_size = subgroup_size * hypercube_size;
+
+        // Precompute powers of the random challenge `γ` for batching.
+        let challenges = challenge.powers().collect_n(num_constraints);
+        // Initialize the table that will hold all evaluations of the combined polynomial `W`.
+        let mut final_evals = F::zero_vec(total_domain_size);
+
+        // Get the generator for the subgroup `D` to map indices to subgroup elements.
+        let subgroup_gen = F::two_adic_generator(k_skip);
+
+        // Iterate over each constraint `z_i = (z_skip, z_suffix)` and its challenge `γ^i`.
+        for (constraint_idx, (point, &_expected_eval)) in self.iter().enumerate() {
+            // The challenge power for the current constraint.
+            let gamma_i = challenges[constraint_idx];
+
+            // Extract the single coordinate for the skipped part and the vector for the hypercube part.
+            assert!(
+                !point.as_slice().is_empty(),
+                "Constraint point cannot be empty"
+            );
+            let z_skip = point[0];
+            let z_suffix = &point.as_slice()[1..];
+            assert_eq!(
+                z_suffix.len(),
+                num_hypercube_vars,
+                "Point has an incorrect number of hypercube coordinates"
+            );
+
+            // Pre-compute the evaluations for the "column" (hypercube) part of the equality check.
+            //
+            // This result is constant for all `2^k` rows, so we compute it once per constraint.
+            let suffix_point = MultilinearPoint::new(z_suffix.to_vec());
+            let suffix_evals = EvaluationsList::<F>::new_from_point(&suffix_point, F::ONE);
+
+            // Pre-compute the evaluations for the "row" (subgroup) part of the equality check.
+            //
+            // - We iterate through subgroup elements `x` in natural order (g^0, g^1, ...),
+            // - We place their evaluations into the bit-reversed position in the `prefix_evals` array
+            // to match the lexicographical layout of the evaluation table.
+            //
+            // TODO: we need to check this ordering is correct when spread in the code.
+            // But with some trials it seems we need to do bit-reversed indexing.
+            let mut prefix_evals = F::zero_vec(subgroup_size);
+            let mut x = F::ONE;
+            for i in 0..subgroup_size {
+                // The bit-reversed index determines where the evaluation for x = g^i goes.
+                let bit_rev_i = i.reverse_bits() >> (usize::BITS - k_skip as u32);
+                prefix_evals[bit_rev_i] = Self::eq_d(x, z_skip, subgroup_size);
+                x *= subgroup_gen; // Next subgroup element is g^(i+1)
+            }
+
+            // Combine the pre-computed parts using a tensor product to build the final table.
+            for (row_idx, &prefix_eq_val) in prefix_evals.iter().enumerate().take(subgroup_size) {
+                // Combine with the challenge to get the scaling factor for this row.
+                let scalar_for_row = gamma_i * prefix_eq_val;
+
+                // Apply the scaling factor to each column's pre-computed hypercube evaluation.
+                let row_start = row_idx * hypercube_size;
+                for col_idx in 0..hypercube_size {
+                    final_evals[row_start + col_idx] +=
+                        scalar_for_row * suffix_evals.as_slice()[col_idx];
+                }
+            }
+        }
+
+        // Compute the combined expected sum `S = Σ γ^i * s_i`.
+        let sum = dot_product(self.evaluations.iter().copied(), challenges.into_iter());
+
+        // Return the fully computed evaluation table and the combined sum.
+        (EvaluationsList::new(final_evals), sum)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+    use proptest::prelude::*;
 
     use super::*;
 
@@ -388,7 +565,220 @@ mod tests {
         assert_eq!(claimed_eval, F::from_u64(17));
     }
 
-    use proptest::prelude::*;
+    #[test]
+    fn test_eq_d_basic() {
+        // Test the eq_D function with a small subgroup of size 4
+        let subgroup_size = 4;
+
+        // Generate the subgroup: {1, g, g^2, g^3} where g is the 4th root of unity
+        let generator = F::two_adic_generator(2); // 2^2 = 4
+        let subgroup: Vec<F> = (0..subgroup_size)
+            .map(|i| generator.exp_u64(i as u64))
+            .collect();
+
+        // Test that eq_D(x, y) = 1 when x == y
+        for &y in &subgroup {
+            for &x in &subgroup {
+                let result = EqStatement::<F>::eq_d(x, y, subgroup_size);
+                if x == y {
+                    assert_eq!(result, F::ONE, "eq_D({x:?}, {y:?}) should be 1");
+                } else {
+                    assert_eq!(result, F::ZERO, "eq_D({x:?}, {y:?}) should be 0");
+                }
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_eq_d(k_skip in 1usize..=5usize) {
+            // The index for the evaluation point `x` in the subgroup.
+            let x_idx = 0u64;
+            // The index for the constraint point `y` in the subgroup.
+            let y_idx = 0u64;
+            // Calculate the size of the subgroup, |D| = 2^k.
+            let subgroup_size = 1 << k_skip;
+            // Get the generator `g` for the 2^k-th roots of unity.
+            let generator = F::two_adic_generator(k_skip);
+
+            // Determine the evaluation point `x = g^x_idx`.
+            let x = generator.exp_u64(x_idx);
+            // Determine the constraint point `y = g^y_idx`.
+            let y = generator.exp_u64(y_idx);
+
+            // Compute the equality polynomial evaluation eq_D(x, y).
+            let result = EqStatement::<F>::eq_d(x, y, subgroup_size);
+
+            // The equality polynomial must be 1 if the points are the same, and 0 otherwise.
+            if x_idx == y_idx {
+                // If x == y, the result must be 1.
+                prop_assert_eq!(result, F::ONE, "eq_D(x, y) should be 1 for x == y");
+            } else {
+                // If x != y, the result must be 0.
+                prop_assert_eq!(result, F::ZERO, "eq_D(x, y) should be 0 for x != y");
+            }
+        }
+    }
+
+    #[test]
+    fn test_combine_univariate_skip_two_constraints() {
+        // We test with:
+        // - k=2 skipped variables (subgroup D of size 4). Let the generator be `g`.
+        // - j=1 hypercube variable (H^1 of size 2).
+        // The domain is a 4x2 grid (8 total points).
+        let k_skip = 2;
+        let num_hypercube_vars = 1;
+        let num_point_vars = num_hypercube_vars + 1;
+
+        // Get the subgroup generator `g`.
+        let subgroup_gen = F::two_adic_generator(k_skip);
+        let num_cols = 1 << num_hypercube_vars;
+
+        // Constraints
+        let mut statement = EqStatement::initialize(num_point_vars);
+        // Constraint 0: z0 = (g^1, [1]), with evaluation s0 = 5.
+        let point0 = MultilinearPoint::new([vec![subgroup_gen.exp_u64(1)], vec![F::ONE]].concat());
+        let eval0 = F::from_u64(5);
+        statement.add_evaluated_constraint(point0, eval0);
+
+        // Constraint 1: z1 = (g^3, [0]), with evaluation s1 = 8.
+        let point1 = MultilinearPoint::new([vec![subgroup_gen.exp_u64(3)], vec![F::ZERO]].concat());
+        let eval1 = F::from_u64(8);
+        statement.add_evaluated_constraint(point1, eval1);
+
+        // Use a random challenge for batching.
+        let challenge = F::from_u64(2);
+
+        // Execution
+        let (combined_evals, combined_sum) =
+            statement.combine_univariate_skip::<F>(challenge, k_skip);
+
+        // Verification
+
+        // Manually compute the expected combined sum: S = s0 * γ^0 + s1 * γ^1.
+        let expected_sum = eval0 * challenge.exp_u64(0) + eval1 * challenge.exp_u64(1);
+        assert_eq!(combined_sum, expected_sum);
+
+        // Manually derive the expected evaluation table W(x, y) = eq(z0) * γ^0 + eq(z1) * γ^1.
+        // This table should have exactly two non-zero entries.
+
+        // Location of z0 = (g^1, [1]):
+        // - The row for g^1 has a natural index of 1. Its bit-reversed index is 2.
+        let row0 = 1usize.reverse_bits() >> (usize::BITS - k_skip as u32); // 2
+        // - The column for [1] is index 1.
+        let col0 = 1;
+        // - The 1D memory index is row * num_cols + col.
+        let idx0 = row0 * num_cols + col0;
+        // - The value at this index should be the weight γ^0 = 1.
+        // This corresponds to the first constraint (i=0),
+        // which contributes its weight as eq(z0) is 1 at this location.
+        let val0 = challenge.exp_u64(0);
+
+        // Location of z1 = (g^3, [0]):
+        // - The row for g^3 has a natural index of 3. Its bit-reversed index is 3.
+        let row1 = 3usize.reverse_bits() >> (usize::BITS - k_skip as u32); // 3
+        // - The column for [0] is index 0.
+        let col1 = 0;
+        // - The 1D memory index is row * num_cols + col.
+        let idx1 = row1 * num_cols + col1;
+        // - The value at this index should be the weight γ^1 = 2.
+        // This corresponds to the second constraint (i=1),
+        // which contributes its weight as eq(z1) is 1 at this location.
+        let val1 = challenge.exp_u64(1);
+
+        // Construct the full expected table from our manual calculations.
+        let mut expected_evals_vec = F::zero_vec(8);
+        expected_evals_vec[idx0] = val0;
+        expected_evals_vec[idx1] = val1;
+
+        // The computed evaluations must match our manually derived table.
+        assert_eq!(combined_evals.as_slice(), expected_evals_vec.as_slice());
+    }
+
+    #[test]
+    fn test_combine_univariate_skip_with_collision() {
+        // This test uses four constraints, two of which are at the *same point*.
+        //
+        // This validates that the combination logic correctly *accumulates* weights.
+        // Domain:
+        // - k=2 skip vars (4 rows),
+        // - j=1 hypercube var (2 cols).
+        let k_skip = 2;
+        let num_hypercube_vars = 1;
+
+        let subgroup_gen = F::two_adic_generator(k_skip);
+
+        // Constraints
+        let mut statement = EqStatement::initialize(num_hypercube_vars + 1);
+        // Constraint 0: z0 = (g^1, [1]), eval s0 = 5.
+        statement.add_evaluated_constraint(
+            MultilinearPoint::new([vec![subgroup_gen.exp_u64(1)], vec![F::ONE]].concat()),
+            F::from_u64(5),
+        );
+        // Constraint 1: z1 = (g^3, [0]), eval s1 = 8.
+        statement.add_evaluated_constraint(
+            MultilinearPoint::new([vec![subgroup_gen.exp_u64(3)], vec![F::ZERO]].concat()),
+            F::from_u64(8),
+        );
+        // Constraint 2: z2 = (g^0, [1]), eval s2 = 3.
+        statement.add_evaluated_constraint(
+            MultilinearPoint::new([vec![subgroup_gen.exp_u64(0)], vec![F::ONE]].concat()),
+            F::from_u64(3),
+        );
+        // Constraint 3: z3 = (g^1, [1]), eval s3 = 1. *** This collides with z0 ***
+        statement.add_evaluated_constraint(
+            MultilinearPoint::new([vec![subgroup_gen.exp_u64(1)], vec![F::ONE]].concat()),
+            F::from_u64(1),
+        );
+
+        let challenge = F::from_u64(2);
+
+        // Execution
+        let (combined_evals, combined_sum) =
+            statement.combine_univariate_skip::<F>(challenge, k_skip);
+
+        // Verification
+
+        // Manually compute the expected sum: S = Σ s_i * γ^i.
+        let s = &statement.evaluations;
+        let expected_sum = s[0] * challenge.exp_u64(0)
+            + s[1] * challenge.exp_u64(1)
+            + s[2] * challenge.exp_u64(2)
+            + s[3] * challenge.exp_u64(3);
+        assert_eq!(combined_sum, expected_sum);
+
+        // Manually derive the expected evaluation table.
+        //
+        // It will have 3 non-zero entries, one of which is an accumulation of two weights.
+        let mut expected_evals_vec = F::zero_vec(8);
+
+        // Contribution from z0=(g^1, [1]) is γ^0 = 1.
+        // Location: row=bit_rev(1)=2, col=1 -> index=5.
+        expected_evals_vec[5] += challenge.exp_u64(0);
+
+        // Contribution from z1=(g^3, [0]) is γ^1 = 2.
+        // Location: row=bit_rev(3)=3, col=0 -> index=6.
+        expected_evals_vec[6] += challenge.exp_u64(1); // val = 2
+
+        // Contribution from z2=(g^0, [1]) is γ^2 = 4.
+        // Location: row=bit_rev(0)=0, col=1 -> index=1.
+        expected_evals_vec[1] += challenge.exp_u64(2); // val = 4
+
+        // Contribution from z3=(g^1, [1]) is γ^3 = 8.
+        // Location: same as z0, index=5.
+        expected_evals_vec[5] += challenge.exp_u64(3); // val at index 5 is now 1 + 8 = 9
+
+        // Final expected table:
+        // Index 0: 0
+        // Index 1: 4 (from z2)
+        // Index 2: 0
+        // Index 3: 0
+        // Index 4: 0
+        // Index 5: 9 (from z0 + z3)
+        // Index 6: 2 (from z1)
+        // Index 7: 0
+        assert_eq!(combined_evals.as_slice(), expected_evals_vec.as_slice());
+    }
 
     proptest! {
         #[test]
