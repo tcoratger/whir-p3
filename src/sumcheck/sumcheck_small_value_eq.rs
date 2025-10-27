@@ -10,6 +10,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
+use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::eq::eval_eq;
 
 // WE ASSUME THE NUMBER OF ROUNDS WE ARE DOING WITH SMALL VALUES IS 3
@@ -33,6 +34,47 @@ fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_OF_ROUNDS
     })
 }
 
+/// Reorders the polynomial evaluations to improve cache locality.
+///
+/// Instead of the original layout, this function groups the 8 values
+/// needed for each `compute_p_beta` call into contiguous blocks.
+fn transpose_poly_for_svo<F: Field>(
+    poly: &EvaluationsList<F>,
+    num_variables: usize,
+    x_out_num_vars: usize,
+    half_l: usize,
+) -> Vec<F> {
+    let num_x_in = 1 << half_l;
+    let num_x_out = 1 << x_out_num_vars;
+    let step_size = 1 << (num_variables - NUM_OF_ROUNDS);
+    let block_size = 8;
+
+    // Pre-allocate the full memory for the transposed data.
+    let mut transposed_poly = vec![F::ZERO; 1 << num_variables];
+    let x_out_block_size = num_x_in * block_size;
+
+    // Parallelize the transposition work.
+    transposed_poly
+        .par_chunks_mut(x_out_block_size)
+        .enumerate()
+        .for_each(|(x_out, chunk)| {
+            // Each thread works on a separate `x_out` chunk.
+            for x_in in 0..num_x_in {
+                let start_index = (x_in << x_out_num_vars) | x_out;
+
+                // The destination index is relative to the start of the current chunk.
+                let dest_base_index = x_in * block_size;
+
+                let mut iter = poly.iter().skip(start_index).step_by(step_size);
+                for i in 0..block_size {
+                    chunk[dest_base_index + i] = *iter.next().unwrap();
+                }
+            }
+        });
+
+    transposed_poly
+}
+
 // Procedure 9. Page 37.
 fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
     poly: &EvaluationsList<F>,
@@ -42,63 +84,180 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
     let l = poly.num_variables();
     let half_l = l / 2;
 
-    let mut accumulators = Accumulators::<EF>::new_empty();
-
     let x_out_num_variables = half_l - NUM_OF_ROUNDS + (l % 2);
     debug_assert_eq!(half_l + x_out_num_variables, l - NUM_OF_ROUNDS);
 
-    for x_out in 0..1 << (x_out_num_variables) {
-        let mut temp_accumulators: Vec<EF> = vec![EF::ZERO; 27];
+    // Optimization number 3: Transpose the polynomial to improve cache locality.
+    // 1 . Transpose the polynomial befoere entering the parallel loop.
+    let transposed_poly = transpose_poly_for_svo(poly, l, x_out_num_variables, half_l);
 
-        for x_in in 0..1 << half_l {
-            // We collect the evaluations of p(X_0, X_1, X_2, x_in, x_out) where
-            // x_in and x_out are fixed and X_0, X_1, X_2 are variables.
-            let start_index = (x_in << x_out_num_variables) | x_out;
-            let step_size = 1 << (l - NUM_OF_ROUNDS);
+    // Parallelize the outer loop over `x_out`
+    (0..1 << x_out_num_variables)
+        .into_par_iter()
+        .map(|x_out| {
+            // Each thread will compute its own set of local accumulators.
+            // This avoids mutable state sharing and the need for locks.
+            let mut local_accumulators = Accumulators::<EF>::new_empty();
 
-            let current_evals: Vec<F> = poly
-                .iter()
-                .skip(start_index)
-                .step_by(step_size)
-                .copied()
-                .collect();
+            // This inner part remains the same, but operates on local variables.
+            let mut temp_accumulators: Vec<EF> = vec![EF::ZERO; 27];
+            let mut p_evals_buffer = [F::ZERO; 27];
+            let num_x_in = 1 << half_l;
 
-            // We compute p(beta, x_in, x_out) for all beta in {0, 1, inf}^3
-            let p_evals = compute_p_beta(current_evals);
-            let e_in_value = e_in[x_in];
+            for x_in in 0..num_x_in {
+                // 2. Read a contiguous block instead of jumping through memory.
+                let block_start = (x_out * num_x_in + x_in) * 8;
+                let current_evals_arr: [F; 8] = transposed_poly[block_start..block_start + 8]
+                    .try_into()
+                    .unwrap();
 
-            for (accumulator, &p_eval) in temp_accumulators.iter_mut().zip(&p_evals) {
-                *accumulator += e_in_value * p_eval;
-            }
-        }
+                compute_p_beta(&current_evals_arr, &mut p_evals_buffer);
+                let e_in_value = e_in[x_in];
 
-        // TODO: This can be hardcoded for better performance.
-        for beta_index in 0..27 {
-            let [index_1, index_2, index_3] = idx4_v2(beta_index);
-            let [_, beta_2, beta_3] = to_base_three_coeff(beta_index);
-            let temp_acc = temp_accumulators[beta_index];
-
-            // Accumulator 1: uses y = beta_2 || beta_3
-            if let Some(index) = index_1 {
-                let y = beta_2 << 1 | beta_3;
-                let e_out_value = e_out[0][(y << x_out_num_variables) | x_out];
-                accumulators.accumulate(0, index, e_out_value * temp_acc);
+                for (accumulator, &p_eval) in
+                    temp_accumulators.iter_mut().zip(p_evals_buffer.iter())
+                {
+                    *accumulator += e_in_value * p_eval;
+                }
             }
 
-            // Accumulator 2: uses y = beta_3
-            if let Some(index) = index_2 {
-                let y = beta_3;
-                let e_out_value = e_out[1][(y << x_out_num_variables) | x_out];
-                accumulators.accumulate(1, index, e_out_value * temp_acc);
-            }
+            // hardcoded accumulator distribution
+            // This now populates the `local_accumulators` for this specific `x_out`.
+            let temp_acc = &temp_accumulators;
+            let e_out_2 = e_out[2][x_out];
 
-            // Accumulator 3: uses x_out directly
-            if let Some(index) = index_3 {
-                accumulators.accumulate(2, index, e_out[2][x_out] * temp_acc);
-            }
-        }
-    }
-    accumulators
+            // Pre-fetch e_out values to avoid repeated indexing and allocations.
+            let e0_0 = e_out[0][(0 << x_out_num_variables) | x_out];
+            let e0_1 = e_out[0][(1 << x_out_num_variables) | x_out];
+            let e0_2 = e_out[0][(2 << x_out_num_variables) | x_out];
+            let e0_3 = e_out[0][(3 << x_out_num_variables) | x_out];
+            let e1_0 = e_out[1][(0 << x_out_num_variables) | x_out];
+            let e1_1 = e_out[1][(1 << x_out_num_variables) | x_out];
+
+            // Now we do not use the idx4 function since we are directly computing the indices.
+
+            // beta_index = 0; b=(0,0,0);
+            local_accumulators.accumulate(0, 0, e0_0 * temp_acc[0]); // y=0<<1|0=0
+            local_accumulators.accumulate(1, 0, e1_0 * temp_acc[0]); // y=0
+            local_accumulators.accumulate(2, 0, e_out_2 * temp_acc[0]);
+
+            // beta_index = 1; b=(0,0,1);
+            local_accumulators.accumulate(0, 0, e0_1 * temp_acc[1]); // y=0<<1|1=1
+            local_accumulators.accumulate(1, 0, e1_1 * temp_acc[1]); // y=1
+            local_accumulators.accumulate(2, 1, e_out_2 * temp_acc[1]);
+
+            // beta_index = 2; b=(0,0,2);
+            local_accumulators.accumulate(2, 2, e_out_2 * temp_acc[2]);
+
+            // beta_index = 3; b=(0,1,0);
+            local_accumulators.accumulate(0, 0, e0_2 * temp_acc[3]); // y=1<<1|0=2
+            local_accumulators.accumulate(1, 1, e1_0 * temp_acc[3]); // y=0
+            local_accumulators.accumulate(2, 3, e_out_2 * temp_acc[3]);
+
+            // beta_index = 4; b=(0,1,1);
+            local_accumulators.accumulate(0, 0, e0_3 * temp_acc[4]); // y=1<<1|1=3
+            local_accumulators.accumulate(1, 1, e1_1 * temp_acc[4]); // y=1
+            local_accumulators.accumulate(2, 4, e_out_2 * temp_acc[4]);
+
+            // beta_index = 5; b=(0,1,2);
+            local_accumulators.accumulate(2, 5, e_out_2 * temp_acc[5]);
+
+            // beta_index = 6; b=(0,2,0);
+            local_accumulators.accumulate(1, 2, e1_0 * temp_acc[6]); // y=0
+            local_accumulators.accumulate(2, 6, e_out_2 * temp_acc[6]);
+
+            // beta_index = 7; b=(0,2,1);
+            local_accumulators.accumulate(1, 2, e1_1 * temp_acc[7]); // y=1
+            local_accumulators.accumulate(2, 7, e_out_2 * temp_acc[7]);
+
+            // beta_index = 8; b=(0,2,2);
+            local_accumulators.accumulate(2, 8, e_out_2 * temp_acc[8]);
+
+            // beta_index = 9; b=(1,0,0);
+            local_accumulators.accumulate(0, 1, e0_0 * temp_acc[9]); // y=0<<1|0=0
+            local_accumulators.accumulate(1, 3, e1_0 * temp_acc[9]); // y=0
+            local_accumulators.accumulate(2, 9, e_out_2 * temp_acc[9]);
+
+            // beta_index = 10; b=(1,0,1);
+            local_accumulators.accumulate(0, 1, e0_1 * temp_acc[10]); // y=0<<1|1=1
+            local_accumulators.accumulate(1, 3, e1_1 * temp_acc[10]); // y=1
+            local_accumulators.accumulate(2, 10, e_out_2 * temp_acc[10]);
+
+            // beta_index = 11; b=(1,0,2);
+            local_accumulators.accumulate(2, 11, e_out_2 * temp_acc[11]);
+
+            // beta_index = 12; b=(1,1,0);
+            local_accumulators.accumulate(0, 1, e0_2 * temp_acc[12]); // y=1<<1|0=2
+            local_accumulators.accumulate(1, 4, e1_0 * temp_acc[12]); // y=0
+            local_accumulators.accumulate(2, 12, e_out_2 * temp_acc[12]);
+
+            // beta_index = 13; b=(1,1,1);
+            local_accumulators.accumulate(0, 1, e0_3 * temp_acc[13]); // y=1<<1|1=3
+            local_accumulators.accumulate(1, 4, e1_1 * temp_acc[13]); // y=1
+            local_accumulators.accumulate(2, 13, e_out_2 * temp_acc[13]);
+
+            // beta_index = 14; b=(1,1,2);
+            local_accumulators.accumulate(2, 14, e_out_2 * temp_acc[14]);
+
+            // beta_index = 15; b=(1,2,0);
+            local_accumulators.accumulate(1, 5, e1_0 * temp_acc[15]); // y=0
+            local_accumulators.accumulate(2, 15, e_out_2 * temp_acc[15]);
+
+            // beta_index = 16; b=(1,2,1);
+            local_accumulators.accumulate(1, 5, e1_1 * temp_acc[16]); // y=1
+            local_accumulators.accumulate(2, 16, e_out_2 * temp_acc[16]);
+
+            // beta_index = 17; b=(1,2,2);
+            local_accumulators.accumulate(2, 17, e_out_2 * temp_acc[17]);
+
+            // beta_index = 18; b=(2,0,0);
+            local_accumulators.accumulate(1, 6, e1_0 * temp_acc[18]); // y=0
+            local_accumulators.accumulate(2, 18, e_out_2 * temp_acc[18]);
+
+            // beta_index = 19; b=(2,0,1);
+            local_accumulators.accumulate(1, 6, e1_1 * temp_acc[19]); // y=1
+            local_accumulators.accumulate(2, 19, e_out_2 * temp_acc[19]);
+
+            // beta_index = 20; b=(2,0,2);
+            local_accumulators.accumulate(2, 20, e_out_2 * temp_acc[20]);
+
+            // beta_index = 21; b=(2,1,0);
+            local_accumulators.accumulate(1, 7, e1_0 * temp_acc[21]); // y=0
+            local_accumulators.accumulate(2, 21, e_out_2 * temp_acc[21]);
+
+            // beta_index = 22; b=(2,1,1);
+            local_accumulators.accumulate(1, 7, e1_1 * temp_acc[22]); // y=1
+            local_accumulators.accumulate(2, 22, e_out_2 * temp_acc[22]);
+
+            // beta_index = 23; b=(2,1,2);
+            local_accumulators.accumulate(2, 23, e_out_2 * temp_acc[23]);
+
+            // beta_index = 24; b=(2,2,0);
+            local_accumulators.accumulate(1, 8, e1_0 * temp_acc[24]); // y=0
+            local_accumulators.accumulate(2, 24, e_out_2 * temp_acc[24]);
+
+            // beta_index = 25; b=(2,2,1);
+            local_accumulators.accumulate(1, 8, e1_1 * temp_acc[25]); // y=1
+            local_accumulators.accumulate(2, 25, e_out_2 * temp_acc[25]);
+
+            // beta_index = 26; b=(2,2,2);
+            local_accumulators.accumulate(2, 26, e_out_2 * temp_acc[26]);
+
+            // Return the computed local accumulators for this thread.
+            local_accumulators
+        })
+        // Reduce the results from all threads into a single Accumulators struct.
+        .reduce(
+            || Accumulators::<EF>::new_empty(),
+            |mut a, b| {
+                for (round_a, round_b) in a.accumulators.iter_mut().zip(b.accumulators.iter()) {
+                    for (acc_a, acc_b) in round_a.iter_mut().zip(round_b.iter()) {
+                        *acc_a += *acc_b;
+                    }
+                }
+                a
+            },
+        )
 }
 
 // Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
@@ -580,6 +739,7 @@ mod tests {
         assert_eq!(e_out[2][3], w[8] * w[9]);
     }
 
+    // This tests is outdated and should be removed
     #[test]
     fn test_compute_accumulators_eq_l_10() {
         // We'll use polynomials of 10 variables.
@@ -807,6 +967,7 @@ mod tests {
         // assert_eq!(expected_accumulator, accumulators[0].accumulators[0]);
     }
 
+    // This tests is outdated and should be removed
     #[test]
     fn test_compute_accumulators_eq_l_11() {
         // We'll use polynomials of 10 variables.

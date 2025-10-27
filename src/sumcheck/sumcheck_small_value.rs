@@ -19,25 +19,32 @@ pub fn compute_accumulators<F: Field>(
     let mut round_2_accumulator = RoundAccumlators::<F>::new_empty(2);
     let mut round_3_accumulator = RoundAccumlators::<F>::new_empty(3);
 
+    let mut evals_1_buffer = [F::ZERO; 27];
+    let mut evals_2_buffer = [F::ZERO; 27];
+
     // For x'' in {0 .. 2^{l - 3}}:
     for x in 0..1 << (l - NUM_OF_ROUNDS) {
         // We compute p_1(beta, x'') for all beta in {0, 1, inf}^3
-        let current_evals_1: Vec<F> = poly_1
+        let current_evals_1: [F; 8] = poly_1
             .iter()
             .skip(x)
             .step_by(1 << (l - NUM_OF_ROUNDS))
             .cloned()
-            .collect();
-        let evals_1 = compute_p_beta(current_evals_1);
+            .collect::<Vec<F>>()
+            .try_into()
+            .unwrap();
+        compute_p_beta(&current_evals_1, &mut evals_1_buffer);
 
         // We compute p_2(beta, x'') for all beta in {0, 1, inf}^3
-        let current_evals_2: Vec<F> = poly_2
+        let current_evals_2: [F; 8] = poly_2
             .iter()
             .skip(x)
             .step_by(1 << (l - NUM_OF_ROUNDS))
             .cloned()
-            .collect();
-        let evals_2 = compute_p_beta(current_evals_2);
+            .collect::<Vec<F>>()
+            .try_into()
+            .unwrap();
+        compute_p_beta(&current_evals_2, &mut evals_2_buffer);
 
         // For each beta in {0, 1, inf}^3:
         // (We have 27 = 3 ^ NUM_OF_ROUNDS number of betas)
@@ -54,7 +61,10 @@ pub fn compute_accumulators<F: Field>(
                 (index_accumulator_3, &mut round_3_accumulator),
             ] {
                 if let Some(index) = index_opt {
-                    acc.accumulate_eval(evals_1[beta_index] * evals_2[beta_index], index);
+                    acc.accumulate_eval(
+                        evals_1_buffer[beta_index] * evals_2_buffer[beta_index],
+                        index,
+                    );
                 }
             }
         }
