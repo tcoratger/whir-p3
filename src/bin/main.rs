@@ -118,13 +118,14 @@ fn main() {
         folding_factor,
         merkle_hash,
         merkle_compress,
+        dft: Radix2DFTSmallBatch::<F>::default(),
         soundness_type,
         starting_log_inv_rate: starting_rate,
         rs_domain_initial_reduction_factor,
         univariate_skip: false,
     };
 
-    let params = WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(
+    let params = WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger, _>::new(
         num_variables,
         whir_params,
     );
@@ -147,8 +148,8 @@ fn main() {
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
     let mut domainsep = DomainSeparator::new(vec![]);
-    domainsep.commit_statement::<_, _, _, 32>(&params);
-    domainsep.add_whir_proof::<_, _, _, 32>(&params);
+    domainsep.commit_statement::<_, _, _, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, _, _, 32>(&params);
 
     println!("=========================================");
     println!("Whir (PCS) 🌪️");
@@ -164,12 +165,8 @@ fn main() {
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
 
-    let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
-
     let time = Instant::now();
-    let witness = committer
-        .commit(&dft, &mut prover_state, polynomial)
-        .unwrap();
+    let witness = committer.commit(&mut prover_state, polynomial).unwrap();
     let commit_time = time.elapsed();
 
     // Generate a proof using the prover
@@ -178,7 +175,7 @@ fn main() {
     // Generate a proof for the given statement and witness
     let time = Instant::now();
     prover
-        .prove(&dft, &mut prover_state, statement.clone(), witness)
+        .prove(&mut prover_state, statement.clone(), witness)
         .unwrap();
     let opening_time = time.elapsed();
 

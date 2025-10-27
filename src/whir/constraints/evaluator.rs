@@ -1,3 +1,4 @@
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
@@ -187,12 +188,14 @@ impl ConstraintPolyEvaluator {
     }
 }
 
-impl<EF, F, H, C, Challenger> From<WhirConfig<EF, F, H, C, Challenger>> for ConstraintPolyEvaluator
+impl<EF, F, H, C, Challenger, Dft> From<WhirConfig<EF, F, H, C, Challenger, Dft>>
+    for ConstraintPolyEvaluator
 where
-    F: Field,
+    F: TwoAdicField,
     EF: ExtensionField<F>,
+    Dft: TwoAdicSubgroupDft<F>,
 {
-    fn from(cfg: WhirConfig<EF, F, H, C, Challenger>) -> Self {
+    fn from(cfg: WhirConfig<EF, F, H, C, Challenger, Dft>) -> Self {
         Self {
             num_variables: cfg.num_variables,
             folding_factor: cfg.folding_factor,
@@ -205,6 +208,7 @@ where
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
+    use p3_dft::Radix2DFTSmallBatch;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_interpolation::interpolate_subgroup;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -253,6 +257,7 @@ mod tests {
             folding_factor,
             merkle_hash,
             merkle_compress,
+            dft: Radix2DFTSmallBatch::<F>::default(),
             univariate_skip: false,
             initial_statement: true,
             security_level: 90,
@@ -262,7 +267,7 @@ mod tests {
             rs_domain_initial_reduction_factor: 1,
         };
         let params =
-            WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_vars, whir_params);
+            WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger, _>::new(num_vars, whir_params);
         let evaluator: ConstraintPolyEvaluator = params.into();
 
         // -- Random Constraints and Challenges --
@@ -380,6 +385,7 @@ mod tests {
                 folding_factor,
                 merkle_hash,
                 merkle_compress,
+                dft: Radix2DFTSmallBatch::<F>::default(),
                 // This test is for the standard, non-skip case.
                 univariate_skip: false,
                 initial_statement: true,
@@ -391,7 +397,7 @@ mod tests {
             };
             // Create the complete verifier configuration object.
             let params =
-                WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_vars, whir_params);
+                WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger, _>::new(num_vars, whir_params);
             let evaluator: ConstraintPolyEvaluator = params.into();
 
             // -- Random Constraints and Challenges --
@@ -487,6 +493,7 @@ mod tests {
             folding_factor,
             merkle_hash,
             merkle_compress,
+            dft: Radix2DFTSmallBatch::<F>::default(),
             // This test is for the skip case.
             univariate_skip: true,
             initial_statement: true,
@@ -497,7 +504,7 @@ mod tests {
             rs_domain_initial_reduction_factor: 1,
         };
         let params =
-            WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_vars, whir_params);
+            WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger, _>::new(num_vars, whir_params);
         let evaluator: ConstraintPolyEvaluator = params.into();
 
         // -- Random Constraints and Challenges --
@@ -637,6 +644,7 @@ mod tests {
                 folding_factor,
                 merkle_hash,
                 merkle_compress,
+                dft: Radix2DFTSmallBatch::<F>::default(),
                 // This test is for the skip case.
                 univariate_skip: true,
                 initial_statement: true,
@@ -647,7 +655,7 @@ mod tests {
                 rs_domain_initial_reduction_factor: 1,
             };
             let params =
-                WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_vars, whir_params);
+                WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger, _>::new(num_vars, whir_params);
             let evaluator: ConstraintPolyEvaluator = params.into();
 
             // -- Random Constraints and Challenges --
