@@ -6,7 +6,7 @@ use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use super::{
-    dense::WhirDensePolynomial, evals::EvaluationsList, multilinear::MultilinearPoint,
+    evals::EvaluationsList, multilinear::MultilinearPoint, univariate::UnivariatePolynomial,
     wavelet::Radix2WaveletKernel,
 };
 
@@ -39,9 +39,9 @@ where
     /// single point) self.evaluate_at_univariate(x) == self.evaluate([x^(2^n), x^(2^{n-1}),
     /// ..., x^2, x])
     pub fn evaluate_at_univariate(&self, points: &[F]) -> Vec<F> {
-        // WhirDensePolynomial::from_coefficients_slice converts to a dense univariate polynomial.
+        // UnivariatePolynomial::from_coefficients_slice converts to a dense univariate polynomial.
         // The coefficient order is "coefficient of 1 first".
-        let univariate = WhirDensePolynomial::from_coefficients_slice(self);
+        let univariate = UnivariatePolynomial::from_coefficients_slice(self);
         points
             .iter()
             .map(|point| univariate.evaluate(*point))
