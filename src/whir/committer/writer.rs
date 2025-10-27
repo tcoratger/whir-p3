@@ -11,7 +11,6 @@ use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
-    dft::EvalsDft,
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::evals::EvaluationsList,
     utils::parallel_repeat,
@@ -56,7 +55,6 @@ where
     #[instrument(skip_all)]
     pub fn commit<const DIGEST_ELEMS: usize>(
         &self,
-        dft: &EvalsDft<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
         polynomial: EvaluationsList<F>,
     ) -> Result<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>, FiatShamirError>
@@ -76,7 +74,9 @@ where
         let width = 1 << self.folding_factor.at_round(0);
         let folded_matrix = info_span!("dft", height = evals_repeated.len() / width, width)
             .in_scope(|| {
-                dft.dft_batch_by_evals(RowMajorMatrix::new(evals_repeated, width))
+                self.0
+                    .dft
+                    .dft_batch_by_evals(RowMajorMatrix::new(evals_repeated, width))
                     .to_row_major_matrix()
             });
 
@@ -192,9 +192,8 @@ mod tests {
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(&params);
-        let dft_committer = EvalsDft::<F>::default();
         let witness = committer
-            .commit(&dft_committer, &mut prover_state, polynomial.clone())
+            .commit(&mut prover_state, polynomial.clone())
             .unwrap();
 
         // Ensure OOD (out-of-domain) points are generated.
@@ -268,11 +267,8 @@ mod tests {
 
         let mut prover_state = domainsep.to_prover_state(challenger);
 
-        let dft_committer = EvalsDft::<F>::default();
         let committer = CommitmentWriter::new(&params);
-        let _ = committer
-            .commit(&dft_committer, &mut prover_state, polynomial)
-            .unwrap();
+        let _ = committer.commit(&mut prover_state, polynomial).unwrap();
     }
 
     #[test]
@@ -323,11 +319,8 @@ mod tests {
 
         let mut prover_state = domainsep.to_prover_state(challenger);
 
-        let dft_committer = EvalsDft::<F>::default();
         let committer = CommitmentWriter::new(&params);
-        let witness = committer
-            .commit(&dft_committer, &mut prover_state, polynomial)
-            .unwrap();
+        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
         assert!(
             witness.ood_points.is_empty(),

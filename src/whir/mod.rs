@@ -10,7 +10,6 @@ use rand::{SeedableRng, rngs::SmallRng};
 use verifier::Verifier;
 
 use crate::{
-    dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
@@ -111,22 +110,16 @@ pub fn make_whir_things(
 
     // Create polynomial commitment using Merkle tree over evaluation domain
     let committer = CommitmentWriter::new(&params);
-    // DFT evaluator for polynomial
-    let dft_committer = EvalsDft::<F>::default();
 
     // Commit to polynomial evaluations and generate cryptographic witness
-    let witness = committer
-        .commit(&dft_committer, &mut prover_state, polynomial)
-        .unwrap();
+    let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
     // Initialize WHIR prover with the configured parameters
     let prover = Prover(&params);
-    // DFT evaluator for proving
-    let dft_prover = EvalsDft::<F>::default();
 
     // Generate WHIR proof
     prover
-        .prove(&dft_prover, &mut prover_state, statement.clone(), witness)
+        .prove(&mut prover_state, statement.clone(), witness)
         .unwrap();
 
     // Sample final challenge to ensure transcript consistency between prover/verifier

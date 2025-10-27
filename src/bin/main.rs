@@ -14,7 +14,6 @@ use rand::{
 use tracing_forest::{ForestLayer, util::LevelFilter};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::{
-    dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -164,12 +163,8 @@ fn main() {
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
 
-    let dft = EvalsDft::<F>::new(1 << params.max_fft_size());
-
     let time = Instant::now();
-    let witness = committer
-        .commit(&dft, &mut prover_state, polynomial)
-        .unwrap();
+    let witness = committer.commit(&mut prover_state, polynomial).unwrap();
     let commit_time = time.elapsed();
 
     // Generate a proof using the prover
@@ -178,7 +173,7 @@ fn main() {
     // Generate a proof for the given statement and witness
     let time = Instant::now();
     prover
-        .prove(&dft, &mut prover_state, statement.clone(), witness)
+        .prove(&mut prover_state, statement.clone(), witness)
         .unwrap();
     let opening_time = time.elapsed();
 
