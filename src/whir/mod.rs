@@ -1,7 +1,8 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
-use constraints::statement::Statement;
+use constraints::statement::EqStatement;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
+use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
@@ -10,7 +11,6 @@ use rand::{SeedableRng, rngs::SmallRng};
 use verifier::Verifier;
 
 use crate::{
-    dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
@@ -88,7 +88,7 @@ pub fn make_whir_things(
         .collect();
 
     // Initialize constraint system for the given number of variables
-    let mut statement = Statement::<EF>::initialize(num_variables);
+    let mut statement = EqStatement::<EF>::initialize(num_variables);
 
     // Add equality constraints: polynomial(point) = expected_value for each point
     for point in &points {
@@ -112,21 +112,19 @@ pub fn make_whir_things(
     // Create polynomial commitment using Merkle tree over evaluation domain
     let committer = CommitmentWriter::new(&params);
     // DFT evaluator for polynomial
-    let dft_committer = EvalsDft::<F>::default();
+    let dft = Radix2DFTSmallBatch::<F>::default();
 
     // Commit to polynomial evaluations and generate cryptographic witness
     let witness = committer
-        .commit(&dft_committer, &mut prover_state, polynomial)
+        .commit(&dft, &mut prover_state, polynomial)
         .unwrap();
 
     // Initialize WHIR prover with the configured parameters
     let prover = Prover(&params);
-    // DFT evaluator for proving
-    let dft_prover = EvalsDft::<F>::default();
 
     // Generate WHIR proof
     prover
-        .prove(&dft_prover, &mut prover_state, statement.clone(), witness)
+        .prove(&dft, &mut prover_state, statement.clone(), witness)
         .unwrap();
 
     // Sample final challenge to ensure transcript consistency between prover/verifier
@@ -149,7 +147,7 @@ pub fn make_whir_things(
 
     // Execute WHIR verification
     verifier
-        .verify(&mut verifier_state, &parsed_commitment, &statement)
+        .verify(&mut verifier_state, &parsed_commitment, statement)
         .unwrap();
 
     let checkpoint_verifier: EF = verifier_state.sample();

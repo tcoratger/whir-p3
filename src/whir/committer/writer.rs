@@ -2,6 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -11,11 +12,9 @@ use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
-    dft::EvalsDft,
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
-    poly::evals::EvaluationsList,
-    utils::parallel_repeat,
-    whir::{committer::DenseMatrix, parameters::WhirConfig, utils::sample_ood_points},
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    whir::{committer::DenseMatrix, constraints::statement::EqStatement, parameters::WhirConfig},
 };
 
 /// Responsible for committing polynomials using a Merkle-based scheme.
@@ -54,9 +53,9 @@ where
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
     #[instrument(skip_all)]
-    pub fn commit<const DIGEST_ELEMS: usize>(
+    pub fn commit<Dft: TwoAdicSubgroupDft<F>, const DIGEST_ELEMS: usize>(
         &self,
-        dft: &EvalsDft<F>,
+        dft: &Dft,
         prover_state: &mut ProverState<F, EF, Challenger>,
         polynomial: EvaluationsList<F>,
     ) -> Result<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>, FiatShamirError>
@@ -69,16 +68,17 @@ where
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
-        let evals_repeated = info_span!("repeating evals")
-            .in_scope(|| parallel_repeat(polynomial.as_slice(), 1 << self.starting_log_inv_rate));
+        // Pad with zeros
+        let n = polynomial.num_evals();
+        let padded = info_span!("pad evals").in_scope(|| {
+            let mut padded = F::zero_vec(n * (1 << self.starting_log_inv_rate));
+            padded[..n].copy_from_slice(polynomial.as_slice());
+            RowMajorMatrix::new(padded, 1 << self.folding_factor.at_round(0))
+        });
 
         // Perform DFT on the padded evaluations matrix
-        let width = 1 << self.folding_factor.at_round(0);
-        let folded_matrix = info_span!("dft", height = evals_repeated.len() / width, width)
-            .in_scope(|| {
-                dft.dft_batch_by_evals(RowMajorMatrix::new(evals_repeated, width))
-                    .to_row_major_matrix()
-            });
+        let folded_matrix = info_span!("dft", height = padded.height(), width = padded.width())
+            .in_scope(|| dft.dft_batch(padded).to_row_major_matrix());
 
         // Commit to the Merkle tree
         let merkle_tree = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
@@ -90,20 +90,21 @@ where
 
         prover_state.add_base_scalars(root.as_ref());
 
-        // Handle OOD (Out-Of-Domain) samples
-        let (ood_points, ood_answers) = sample_ood_points(
-            prover_state,
-            self.commitment_ood_samples,
-            self.num_variables,
-            |point| info_span!("ood evaluation").in_scope(|| polynomial.evaluate(point)),
-        );
+        let mut ood_statement = EqStatement::initialize(self.num_variables);
+        (0..self.0.commitment_ood_samples).for_each(|_| {
+            // Generate OOD points from ProverState randomness
+            let point =
+                MultilinearPoint::expand_from_univariate(prover_state.sample(), self.num_variables);
+            let eval = info_span!("ood evaluation").in_scope(|| polynomial.evaluate(&point));
+            prover_state.add_extension_scalar(eval);
+            ood_statement.add_evaluated_constraint(point, eval);
+        });
 
         // Return the witness containing the polynomial, Merkle tree, and OOD results.
         Ok(Witness {
             polynomial,
             prover_data: Arc::new(prover_data),
-            ood_points,
-            ood_answers,
+            ood_statement,
         })
     }
 }
@@ -124,6 +125,7 @@ where
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
+    use p3_dft::Radix2DFTSmallBatch;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -131,7 +133,6 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::multilinear::MultilinearPoint,
     };
 
     type F = BabyBear;
@@ -192,32 +193,29 @@ mod tests {
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(&params);
-        let dft_committer = EvalsDft::<F>::default();
+        let dft = Radix2DFTSmallBatch::<F>::default();
         let witness = committer
-            .commit(&dft_committer, &mut prover_state, polynomial.clone())
+            .commit(&dft, &mut prover_state, polynomial.clone())
             .unwrap();
 
         // Ensure OOD (out-of-domain) points are generated.
         assert!(
-            !witness.ood_points.is_empty(),
+            !witness.ood_statement.is_empty(),
             "OOD points should be generated"
         );
 
         // Validate the number of generated OOD points.
         assert_eq!(
-            witness.ood_points.len(),
+            witness.ood_statement.len(),
             params.commitment_ood_samples,
             "OOD points count should match expected samples"
         );
 
         // Check that OOD answers match expected evaluations
-        for (i, ood_point) in witness.ood_points.iter().enumerate() {
-            let expected_eval = polynomial.evaluate(&MultilinearPoint::expand_from_univariate(
-                *ood_point,
-                num_variables,
-            ));
+        for (i, (ood_point, ood_eval)) in witness.ood_statement.iter().enumerate() {
+            let expected_eval = polynomial.evaluate(ood_point);
             assert_eq!(
-                witness.ood_answers[i], expected_eval,
+                *ood_eval, expected_eval,
                 "OOD answer at index {i} should match expected evaluation"
             );
         }
@@ -268,10 +266,10 @@ mod tests {
 
         let mut prover_state = domainsep.to_prover_state(challenger);
 
-        let dft_committer = EvalsDft::<F>::default();
+        let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let _ = committer
-            .commit(&dft_committer, &mut prover_state, polynomial)
+            .commit(&dft, &mut prover_state, polynomial)
             .unwrap();
     }
 
@@ -323,15 +321,15 @@ mod tests {
 
         let mut prover_state = domainsep.to_prover_state(challenger);
 
-        let dft_committer = EvalsDft::<F>::default();
+        let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let witness = committer
-            .commit(&dft_committer, &mut prover_state, polynomial)
+            .commit(&dft, &mut prover_state, polynomial)
             .unwrap();
 
         assert!(
-            witness.ood_points.is_empty(),
-            "There should be no OOD points when commitment_ood_samples is 0"
+            witness.ood_statement.is_empty(),
+            "There should be no OOD points when committment_ood_samples is 0"
         );
     }
 }

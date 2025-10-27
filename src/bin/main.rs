@@ -3,6 +3,7 @@ use std::time::Instant;
 use clap::Parser;
 use p3_baby_bear::BabyBear;
 use p3_challenger::DuplexChallenger;
+use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeField64, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
@@ -14,13 +15,12 @@ use rand::{
 use tracing_forest::{ForestLayer, util::LevelFilter};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::{
-    dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
-        constraints::statement::Statement,
+        constraints::statement::EqStatement,
         parameters::WhirConfig,
         prover::Prover,
         verifier::Verifier,
@@ -138,7 +138,7 @@ fn main() {
         .collect();
 
     // Construct a new statement with the correct number of variables
-    let mut statement = Statement::<EF>::initialize(num_variables);
+    let mut statement = EqStatement::<EF>::initialize(num_variables);
 
     // Add constraints for each sampled point (equality constraints)
     for point in &points {
@@ -164,7 +164,7 @@ fn main() {
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
 
-    let dft = EvalsDft::<F>::new(1 << params.max_fft_size());
+    let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
 
     let time = Instant::now();
     let witness = committer
@@ -199,7 +199,7 @@ fn main() {
 
     let verif_time = Instant::now();
     verifier
-        .verify(&mut verifier_state, &parsed_commitment, &statement)
+        .verify(&mut verifier_state, &parsed_commitment, statement)
         .unwrap();
     let verify_time = verif_time.elapsed();
 
