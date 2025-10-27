@@ -1,4 +1,5 @@
 use p3_field::Field;
+use std::ops::Add;
 
 pub const NUM_OF_ROUNDS: usize = 3;
 
@@ -47,6 +48,20 @@ where
 
     pub fn get_accumulators_for_round(&self, round: usize) -> &[F] {
         &self.accumulators[round]
+    }
+}
+
+impl<F: Field> Add for Accumulators<F> {
+    type Output = Self;
+
+    fn add(mut self, other: Self) -> Self {
+        for i in 0..NUM_OF_ROUNDS {
+            // NUM_OF_ROUNDS is 3
+            for j in 0..self.accumulators[i].len() {
+                self.accumulators[i][j] += other.accumulators[i][j];
+            }
+        }
+        self
     }
 }
 // For round i, RoundAccumulators has all the accumulators of the form A_i(u, v).
@@ -129,7 +144,7 @@ pub fn idx4_v2(index_beta: usize) -> [Option<usize>; 3] {
 // Implement Procedure 6 (Page 34).
 // Fijado x'' en {0, 1}^{l-3}, dadas las evaluaciones del multilineal q(x1, x2, x3) = p(x1, x2, x3, x'') en el booleano devuelve las
 // evaluaciones de q en beta para todo beta in {0, 1, inf}^3.
-pub fn compute_p_beta<F: Field>(current_evals: Vec<F>) -> Vec<F> {
+pub fn compute_p_beta<F: Field>(current_evals: &[F; 8]) -> Vec<F> {
     let mut next_evals = vec![F::ZERO; 27];
 
     next_evals[0] = current_evals[0]; // 000
