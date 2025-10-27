@@ -83,7 +83,7 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
                 b.iter(|| {
                     let mut prover = setup_prover();
                     let combination_randomness: EF = prover.sample();
-                    let result = SumcheckSingle::from_base_evals_svo_2(
+                    let result = SumcheckSingle::from_base_evals_svo(
                         &poly,
                         &statement,
                         combination_randomness,

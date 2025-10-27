@@ -144,9 +144,7 @@ pub fn idx4_v2(index_beta: usize) -> [Option<usize>; 3] {
 // Implement Procedure 6 (Page 34).
 // Fijado x'' en {0, 1}^{l-3}, dadas las evaluaciones del multilineal q(x1, x2, x3) = p(x1, x2, x3, x'') en el booleano devuelve las
 // evaluaciones de q en beta para todo beta in {0, 1, inf}^3.
-pub fn compute_p_beta<F: Field>(current_evals: &[F; 8]) -> Vec<F> {
-    let mut next_evals = vec![F::ZERO; 27];
-
+pub fn compute_p_beta<F: Field>(current_evals: &[F; 8], next_evals: &mut [F; 27]) {
     next_evals[0] = current_evals[0]; // 000
     next_evals[1] = current_evals[1]; // 001
     next_evals[3] = current_evals[2]; // 010
@@ -180,6 +178,4 @@ pub fn compute_p_beta<F: Field>(current_evals: &[F; 8]) -> Vec<F> {
     next_evals[20] = next_evals[19] - next_evals[18]; // 202
     next_evals[23] = next_evals[22] - next_evals[21]; // 212
     next_evals[26] = next_evals[25] - next_evals[24]; // 222
-
-    next_evals
 }
