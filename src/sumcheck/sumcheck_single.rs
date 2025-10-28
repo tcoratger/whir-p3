@@ -335,10 +335,13 @@ where
         // - `f_mat`, `w_mat`: The original evaluations reshaped into matrices of size 2^k x 2^(n-k).
         let num_remaining_vars = evals.num_variables() - k_skip;
         let width = 1 << num_remaining_vars;
-        let (sumcheck_poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(
-            evals.clone().into_mat(width),
-            weights.into_mat(width),
-        );
+
+        // Create the matrices that we'll need for interpolation later.
+        let f_mat = evals.clone().into_mat(width);
+        let w_mat = weights.into_mat(width);
+
+        // Compute the sumcheck polynomial.
+        let sumcheck_poly = compute_skipping_sumcheck_polynomial(f_mat.clone(), w_mat.clone());
 
         debug_assert_eq!(
             sumcheck_poly
