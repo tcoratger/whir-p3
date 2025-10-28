@@ -42,6 +42,7 @@ where
     EF: ExtensionField<F>,
 {
     // Apply a low-degree extension (LDE) to each column of f_mat and weights_mat.
+    //
     // This gives us access to evaluations of f(X, b) and w(X, b)
     // for X ∈ D' (coset of size 2^{k+1}).
     let dft = Radix2DitParallel::<F>::default();
@@ -49,8 +50,10 @@ where
     let f_on_coset = dft.lde_batch(f_mat, 1).to_row_major_matrix();
     let weights_on_coset = dft.lde_algebra_batch(weights_mat, 1).to_row_major_matrix();
 
-    // For each row (i.e., each value X),
-    // compute: \sum_{b \in \{0,1\}^{n-k}} f(X, b) \cdot w(X, b)
+    // For each row (i.e., each value X), compute:
+    // ```
+    // \sum_{b \in \{0,1\}^{n-k}} f(X, b) \cdot w(X, b)
+    // ```
     //
     // This is done by pointwise multiplying the f and w values in each row,
     // then summing across the row.
