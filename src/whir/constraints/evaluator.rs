@@ -5,7 +5,7 @@ use crate::{
     parameters::FoldingFactor,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        constraints::{sel_statement::SelectStatement, statement::EqStatement},
+        constraints::statement::{EqStatement, SelectStatement},
         parameters::WhirConfig,
     },
 };

@@ -1,3 +1,5 @@
+/// Constraint evaluation utilities.
 pub mod evaluator;
-pub mod sel_statement;
+
+/// Statement types for polynomial evaluation constraints.
 pub mod statement;
