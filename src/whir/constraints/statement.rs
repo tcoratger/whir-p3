@@ -45,7 +45,7 @@ impl<F: Field> EqStatement<F> {
         evaluations: Vec<F>,
     ) -> Self {
         // Validate that we have one evaluation per point.
-        debug_assert_eq!(
+        assert_eq!(
             points.len(),
             evaluations.len(),
             "Number of points ({}) must match number of evaluations ({})",
@@ -96,7 +96,7 @@ impl<F: Field> EqStatement<F> {
         evaluations: Vec<F>,
     ) -> Self {
         // Validate that we have one evaluation per point.
-        debug_assert_eq!(
+        assert_eq!(
             points.len(),
             evaluations.len(),
             "Number of points ({}) must match number of evaluations ({})",
