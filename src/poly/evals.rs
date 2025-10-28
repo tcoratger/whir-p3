@@ -150,7 +150,7 @@ where
     /// ```
     #[must_use]
     #[inline]
-    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
+    pub fn evaluate_hypercube<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
         eval_multilinear(&self.0, point)
     }
 
@@ -426,7 +426,7 @@ where
         let final_poly = EvaluationsList::new(folded_evals);
 
         // Perform standard multilinear interpolation at y and return the result.
-        final_poly.evaluate(&y_point)
+        final_poly.evaluate_hypercube(&y_point)
     }
 }
 
@@ -713,19 +713,19 @@ mod tests {
 
         // Evaluating at a binary hypercube point should return the direct value
         assert_eq!(
-            evals.evaluate(&MultilinearPoint::new(vec![F::ZERO, F::ZERO])),
+            evals.evaluate_hypercube(&MultilinearPoint::new(vec![F::ZERO, F::ZERO])),
             e1
         );
         assert_eq!(
-            evals.evaluate(&MultilinearPoint::new(vec![F::ZERO, F::ONE])),
+            evals.evaluate_hypercube(&MultilinearPoint::new(vec![F::ZERO, F::ONE])),
             e2
         );
         assert_eq!(
-            evals.evaluate(&MultilinearPoint::new(vec![F::ONE, F::ZERO])),
+            evals.evaluate_hypercube(&MultilinearPoint::new(vec![F::ONE, F::ZERO])),
             e3
         );
         assert_eq!(
-            evals.evaluate(&MultilinearPoint::new(vec![F::ONE, F::ONE])),
+            evals.evaluate_hypercube(&MultilinearPoint::new(vec![F::ONE, F::ONE])),
             e4
         );
     }
@@ -753,7 +753,7 @@ mod tests {
 
         let point = MultilinearPoint::new(vec![F::from_u64(2), F::from_u64(3)]);
 
-        let result = evals.evaluate(&point);
+        let result = evals.evaluate_hypercube(&point);
 
         // Expected result using `eval_multilinear`
         let expected = eval_multilinear(evals.as_slice(), &point);
@@ -917,8 +917,8 @@ mod tests {
             ]);
 
             // Evaluate using both base and extension representations
-            let eval_f = poly_f.evaluate(&point_ef);
-            let eval_ef = poly_ef.evaluate(&point_ef);
+            let eval_f = poly_f.evaluate_hypercube(&point_ef);
+            let eval_ef = poly_ef.evaluate_hypercube(&point_ef);
 
             prop_assert_eq!(eval_f, eval_ef);
         }
@@ -970,7 +970,7 @@ mod tests {
         let expected = c0 + c1 * x2 + c2 * x1 + c3 * x1 * x2;
 
         // Now evaluate using the function under test
-        let result = evals.evaluate(&coords);
+        let result = evals.evaluate_hypercube(&coords);
 
         // Check that it matches the manual computation
         assert_eq!(result, expected);
@@ -1032,7 +1032,7 @@ mod tests {
             + c6 * x0 * x1
             + c7 * x0 * x1 * x2;
 
-        let result = evals.evaluate(&point);
+        let result = evals.evaluate_hypercube(&point);
         assert_eq!(result, expected);
     }
 
@@ -1098,8 +1098,8 @@ mod tests {
             + EF4::from(c6) * x0 * x1
             + EF4::from(c7) * x0 * x1 * x2;
 
-        // Evaluate via `evaluate` method
-        let result = evals.evaluate(&point);
+        // Evaluate via `evaluate_hypercube` method
+        let result = evals.evaluate_hypercube(&point);
 
         // Verify that result matches manual computation
         assert_eq!(result, expected);
@@ -1154,14 +1154,14 @@ mod tests {
             // Verify correctness:
             // folded(e) == original([e, r]) for all k
             assert_eq!(
-                folded_evals.evaluate(&MultilinearPoint::new(eval_part.clone())),
-                evals_list.evaluate(&eval_point)
+                folded_evals.evaluate_hypercube(&MultilinearPoint::new(eval_part.clone())),
+                evals_list.evaluate_hypercube(&eval_point)
             );
 
             // Compare with the coefficient list equivalent
             assert_eq!(
                 folded_coeffs.evaluate(&MultilinearPoint::new(eval_part)),
-                evals_list.evaluate(&eval_point)
+                evals_list.evaluate_hypercube(&eval_point)
             );
         }
     }
@@ -1202,7 +1202,7 @@ mod tests {
             let expected = poly.evaluate(&full_point);
 
             // Evaluate folded poly at x₀
-            let actual = folded.evaluate(&folded_point);
+            let actual = folded.evaluate_hypercube(&folded_point);
 
             // Ensure the results agree
             assert_eq!(expected, actual);
@@ -1315,7 +1315,7 @@ mod tests {
         }
 
         // Now, run the optimized function that we want to test.
-        let actual_result = evals_list.evaluate(&point);
+        let actual_result = evals_list.evaluate_hypercube(&point);
 
         // Finally, assert that the results are equal.
         assert_eq!(actual_result, expected_sum);

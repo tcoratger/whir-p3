@@ -168,7 +168,7 @@ impl<F: Field> EqStatement<F> {
     #[must_use]
     pub fn verify(&self, poly: &EvaluationsList<F>) -> bool {
         self.iter()
-            .all(|(point, &expected_eval)| poly.evaluate(point) == expected_eval)
+            .all(|(point, &expected_eval)| poly.evaluate_hypercube(point) == expected_eval)
     }
 
     /// Concatenates another statement's constraints into this one.
@@ -193,7 +193,7 @@ impl<F: Field> EqStatement<F> {
         F: ExtensionField<BF>,
     {
         assert_eq!(point.num_variables(), self.num_variables());
-        let eval = poly.evaluate(&point);
+        let eval = poly.evaluate_hypercube(&point);
         self.points.push(point);
         self.evaluations.push(eval);
     }
@@ -595,7 +595,7 @@ mod tests {
         let mut statement2 = EqStatement::<F>::initialize(1);
 
         // Add same constraint using both methods
-        let eval = poly.evaluate(&point);
+        let eval = poly.evaluate_hypercube(&point);
         statement1.add_evaluated_constraint(point.clone(), eval);
         statement2.add_unevaluated_constraint(point, &poly);
 
@@ -890,8 +890,8 @@ mod tests {
             ]);
 
             // Add constraints: poly(point1) = actual_eval1, poly(point2) = actual_eval2
-            let eval1 = poly.evaluate(&point1);
-            let eval2 = poly.evaluate(&point2);
+            let eval1 = poly.evaluate_hypercube(&point1);
+            let eval2 = poly.evaluate_hypercube(&point2);
             statement.add_evaluated_constraint(point1, eval1);
             statement.add_evaluated_constraint(point2, eval2);
 
@@ -917,7 +917,7 @@ mod tests {
             let wrong_point = MultilinearPoint::new(vec![F::ZERO, F::ZERO, F::ZERO, F::ZERO]);
             // Obviously wrong evaluation
             let wrong_eval = F::from_u32(999);
-            let actual_eval = poly.evaluate(&wrong_point);
+            let actual_eval = poly.evaluate_hypercube(&wrong_point);
             // Only test if actually different
             if wrong_eval != actual_eval {
                 statement.add_evaluated_constraint(wrong_point, wrong_eval);

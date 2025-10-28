@@ -95,7 +95,8 @@ where
             // Generate OOD points from ProverState randomness
             let point =
                 MultilinearPoint::expand_from_univariate(prover_state.sample(), self.num_variables);
-            let eval = info_span!("ood evaluation").in_scope(|| polynomial.evaluate(&point));
+            let eval =
+                info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point));
             prover_state.add_extension_scalar(eval);
             ood_statement.add_evaluated_constraint(point, eval);
         });
@@ -213,7 +214,7 @@ mod tests {
 
         // Check that OOD answers match expected evaluations
         for (i, (ood_point, ood_eval)) in witness.ood_statement.iter().enumerate() {
-            let expected_eval = polynomial.evaluate(ood_point);
+            let expected_eval = polynomial.evaluate_hypercube(ood_point);
             assert_eq!(
                 *ood_eval, expected_eval,
                 "OOD answer at index {i} should match expected evaluation"

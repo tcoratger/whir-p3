@@ -93,7 +93,7 @@ where
         let point = MultilinearPoint::expand_from_univariate(point, num_vars);
 
         // Evaluate the current sumcheck polynomial at the sampled point.
-        let eval = poly.evaluate(&point);
+        let eval = poly.evaluate_hypercube(&point);
 
         // Add the evaluation result to the transcript for Fiat-Shamir soundness.
         prover.add_extension_scalar(eval);
@@ -154,7 +154,7 @@ where
         let point = MultilinearPoint::expand_from_univariate(point, num_vars);
 
         // Evaluate the current sumcheck polynomial at the sampled point.
-        let eval = poly.evaluate(&point);
+        let eval = poly.evaluate_hypercube(&point);
 
         // Add the evaluation result to the transcript for Fiat-Shamir soundness.
         prover.add_extension_scalar(eval);
@@ -340,7 +340,10 @@ fn run_sumcheck_test(
 
     // Final folded value must match f(r)
     let final_folded_value = sumcheck.evals.as_constant().unwrap();
-    assert_eq!(poly.evaluate(&prover_randomness), final_folded_value);
+    assert_eq!(
+        poly.evaluate_hypercube(&prover_randomness),
+        final_folded_value
+    );
     // Commit final result to Fiat-Shamir transcript
     prover.add_extension_scalar(final_folded_value);
 
@@ -618,7 +621,7 @@ where
     let f_mat = poly.clone().into_mat(width);
     let folded_row = interpolate_subgroup::<F, EF, _>(&f_mat, r0);
 
-    EvaluationsList::new(folded_row).evaluate(&rest)
+    EvaluationsList::new(folded_row).evaluate_hypercube(&rest)
 }
 
 #[test]

@@ -242,7 +242,7 @@ where
         (0..round_params.ood_samples).for_each(|_| {
             let point =
                 MultilinearPoint::expand_from_univariate(prover_state.sample(), num_variables);
-            let eval = folded_evaluations.evaluate(&point);
+            let eval = folded_evaluations.evaluate_hypercube(&point);
             prover_state.add_extension_scalar(eval);
             ood_statement.add_evaluated_constraint(point, eval);
         });
@@ -340,7 +340,7 @@ where
                         // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
                         let folded_row = interpolate_subgroup(&mat, r_skip);
                         // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-                        let eval = EvaluationsList::new(folded_row).evaluate(&r_rest);
+                        let eval = EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest);
                         stir_statement.add_constraint(var, eval);
                     } else {
                         // Case 2: Standard Sumcheck Round
@@ -348,7 +348,7 @@ where
                         // The `answer` represents a standard multilinear polynomial.
 
                         // Perform a standard multilinear evaluation at the full challenge point `r`.
-                        let eval = evals.evaluate(&round_state.folding_randomness);
+                        let eval = evals.evaluate_hypercube(&round_state.folding_randomness);
                         stir_statement.add_constraint(var, eval);
                     }
                 }
@@ -379,7 +379,7 @@ where
                     // Wrap the evaluations to represent the polynomial.
                     let evals = EvaluationsList::new(answer.clone());
                     // Perform a standard multilinear evaluation at the full challenge point `r`.
-                    let eval = evals.evaluate(&round_state.folding_randomness);
+                    let eval = evals.evaluate_hypercube(&round_state.folding_randomness);
                     stir_statement.add_constraint(var, eval);
                 }
             }

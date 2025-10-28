@@ -396,7 +396,7 @@ fn test_initialize_round_state_with_initial_statement() {
     // Evaluate f at (32636, 9876, r0) and match it with the sumcheck's recovered evaluation
     let evals_f = &sumcheck.evals;
     assert_eq!(
-        evals_f.evaluate(&MultilinearPoint::new(vec![
+        evals_f.evaluate_hypercube(&MultilinearPoint::new(vec![
             EF4::from_u64(32636),
             EF4::from_u64(9876)
         ])),

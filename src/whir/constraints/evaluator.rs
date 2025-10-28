@@ -318,7 +318,7 @@ mod tests {
                 let mut eval = EF::ZERO;
                 constraint.combine(&mut combined, &mut eval);
                 num_vars_at_round -= folding_factor.at_round(i);
-                combined.evaluate(&point)
+                combined.evaluate_hypercube(&point)
             })
             .sum::<EF>();
 
@@ -449,7 +449,7 @@ mod tests {
                     let mut eval = EF::ZERO;
                     constraint.combine(&mut combined, &mut eval);
                     num_vars_at_round -= folding_factors_vec[round_idx];
-                    combined.evaluate(&point)
+                    combined.evaluate_hypercube(&point)
                 })
                 .sum::<EF>();
 
@@ -567,7 +567,7 @@ mod tests {
         let folded_row = interpolate_subgroup(&w0_mat, r_skip);
 
         // d) Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-        let w0_eval = EvaluationsList::new(folded_row).evaluate(&r_rest);
+        let w0_eval = EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest);
         expected_result += w0_eval;
 
         expected_result += constraints
@@ -578,7 +578,7 @@ mod tests {
                 let mut eval = EF::ZERO;
                 constraint.combine(&mut combined, &mut eval);
                 let point = r_rest.get_subpoint_over_range(0..constraint.num_variables());
-                combined.evaluate(&point)
+                combined.evaluate_hypercube(&point)
             })
             .sum::<EF>();
 
@@ -715,7 +715,7 @@ mod tests {
             let folded_row = interpolate_subgroup(&w0_mat, r_skip);
 
             // d) Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-            let w0_eval = EvaluationsList::new(folded_row).evaluate(&r_rest);
+            let w0_eval = EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest);
             expected_result += w0_eval;
 
             expected_result += constraints
@@ -726,7 +726,7 @@ mod tests {
                     let mut eval = EF::ZERO;
                     constraint.combine(&mut combined, &mut eval);
                     let point = r_rest.get_subpoint_over_range(0..constraint.num_variables());
-                    combined.evaluate(&point)
+                    combined.evaluate_hypercube(&point)
                 })
                 .sum::<EF>();
 

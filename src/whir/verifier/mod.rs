@@ -203,7 +203,7 @@ where
         .eval_constraints_poly(&constraints, &folding_randomness);
 
         // Check the final sumcheck evaluation
-        let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
+        let final_value = final_evaluations.evaluate_hypercube(&final_sumcheck_randomness);
         if claimed_eval != evaluation_of_weights * final_value {
             return Err(VerifierError::SumcheckFailed {
                 round: self.final_sumcheck_rounds,
@@ -333,9 +333,9 @@ where
                     // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
                     let folded_row = interpolate_subgroup(&mat, r_skip);
                     // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-                    EvaluationsList::new(folded_row).evaluate(&r_rest)
+                    EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest)
                 } else {
-                    EvaluationsList::new(answer).evaluate(folding_randomness)
+                    EvaluationsList::new(answer).evaluate_hypercube(folding_randomness)
                 }
             })
             .collect();
