@@ -167,7 +167,7 @@ where
         let folded_row = interpolate_subgroup(&mat, r_skip);
 
         // Evaluate the new, smaller polynomial at the remaining challenges `r_rest`.
-        EvaluationsList::new(folded_row).evaluate(&r_rest)
+        EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest)
     }
 }
 
@@ -567,7 +567,7 @@ mod tests {
         let final_poly = EvaluationsList::new(folded_row);
 
         // Evaluate this final polynomial at the remaining challenge, r_rest.
-        let expected = final_poly.evaluate(&r_rest);
+        let expected = final_poly.evaluate_hypercube(&r_rest);
 
         assert_eq!(
             result, expected,
@@ -634,7 +634,7 @@ mod tests {
         let final_poly = EvaluationsList::new(folded_row);
 
         // Evaluate this constant polynomial. The point `r_rest` is empty.
-        let expected = final_poly.evaluate(&r_rest);
+        let expected = final_poly.evaluate_hypercube(&r_rest);
 
         // The result of interpolation should be a single scalar.
         assert_eq!(
