@@ -27,7 +27,7 @@ pub struct EqStatement<F> {
 }
 
 impl<F: Field> EqStatement<F> {
-    /// Creates an empty `Statement<F>` for polynomials with `num_variables` variables.
+    /// Creates an empty `EqStatement<F>` for polynomials with `num_variables` variables.
     #[must_use]
     pub const fn initialize(num_variables: usize) -> Self {
         Self {
@@ -37,16 +37,101 @@ impl<F: Field> EqStatement<F> {
         }
     }
 
-    /// Creates a filled `Statement<F>` for polynomials with `num_variables` variables.
+    /// Creates a filled `EqStatement<F>` for polynomials with `num_variables` variables.
     #[must_use]
     pub fn new(
         num_variables: usize,
         points: Vec<MultilinearPoint<F>>,
         evaluations: Vec<F>,
     ) -> Self {
+        // Validate that we have one evaluation per point.
+        debug_assert_eq!(
+            points.len(),
+            evaluations.len(),
+            "Number of points ({}) must match number of evaluations ({})",
+            points.len(),
+            evaluations.len()
+        );
+
+        // Validate that each point has the correct number of variables.
         for point in &points {
             assert_eq!(point.num_variables(), num_variables);
         }
+
+        Self {
+            num_variables,
+            points,
+            evaluations,
+        }
+    }
+
+    /// Creates a filled `EqStatement<F>` for polynomials with `num_variables` variables
+    /// using the univariate skip optimization.
+    ///
+    /// # Purpose
+    ///
+    /// This constructor validates constraint points that are structured for univariate skip..
+    ///
+    /// # Univariate Skip Structure
+    ///
+    /// When using univariate skip with `k_skip` variables:
+    ///
+    /// - The first `k_skip` variables are mapped to a multiplicative subgroup D
+    /// - The remaining `j = num_variables - k_skip` variables live on the Boolean hypercube H^j
+    /// - Each constraint point has `j + 1` coordinates structured as:
+    ///   - `point[0]`: Evaluation point for the skipped variables (single coordinate in D)
+    ///   - `point[1..j+1]`: Evaluation points for the hypercube variables (j coordinates)
+    ///
+    /// # Arguments
+    ///
+    /// - `num_variables`: Total number of variables in the original polynomial
+    /// - `k_skip`: Number of variables to skip (must satisfy `0 < k_skip ≤ num_variables`)
+    /// - `points`: Constraint points, each with `(num_variables - k_skip) + 1` coordinates
+    /// - `evaluations`: Expected evaluations at the constraint points
+    #[must_use]
+    pub fn new_with_univariate_skip(
+        num_variables: usize,
+        k_skip: usize,
+        points: Vec<MultilinearPoint<F>>,
+        evaluations: Vec<F>,
+    ) -> Self {
+        // Validate that we have one evaluation per point.
+        debug_assert_eq!(
+            points.len(),
+            evaluations.len(),
+            "Number of points ({}) must match number of evaluations ({})",
+            points.len(),
+            evaluations.len()
+        );
+
+        // Validate k_skip is in valid range.
+        assert!(
+            k_skip > 0,
+            "k_skip must be greater than 0 (got {k_skip}). For k_skip=0, use the standard new() method."
+        );
+        assert!(
+            k_skip <= num_variables,
+            "k_skip ({k_skip}) must not exceed num_variables ({num_variables})"
+        );
+
+        // Calculate expected number of coordinates per point.
+        //
+        // Each point should have (j + 1) coordinates where j = n - k_skip.
+        let expected_point_vars = num_variables - k_skip + 1;
+
+        // Validate all points have the correct structure for univariate skip.
+        for point in &points {
+            assert_eq!(
+                point.num_variables(),
+                expected_point_vars,
+                "Point must have {} coordinates for univariate skip with k_skip={} and num_variables={}, but has {}",
+                expected_point_vars,
+                k_skip,
+                num_variables,
+                point.num_variables()
+            );
+        }
+
         Self {
             num_variables,
             points,
@@ -840,5 +925,103 @@ mod tests {
                 prop_assert!(!statement.verify(&poly));
             }
         }
+    }
+
+    #[test]
+    fn test_new_with_univariate_skip_valid() {
+        // Test with n=5, k_skip=2
+        // Points should have (5-2)+1 = 4 coordinates
+        let points = vec![
+            MultilinearPoint::new(vec![F::from_u64(10), F::ONE, F::ZERO, F::ONE]),
+            MultilinearPoint::new(vec![F::from_u64(20), F::ZERO, F::ONE, F::ZERO]),
+        ];
+        let evaluations = vec![F::from_u64(100), F::from_u64(200)];
+
+        let statement = EqStatement::new_with_univariate_skip(5, 2, points, evaluations);
+
+        assert_eq!(statement.num_variables(), 5);
+        assert_eq!(statement.len(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "k_skip must be greater than 0")]
+    fn test_new_with_univariate_skip_zero_k() {
+        // Should panic when k_skip = 0
+        let points = vec![MultilinearPoint::new(vec![F::ONE, F::ZERO])];
+        let evaluations = vec![F::from_u64(100)];
+
+        let _ = EqStatement::new_with_univariate_skip(2, 0, points, evaluations);
+    }
+
+    #[test]
+    #[should_panic(expected = "must not exceed num_variables")]
+    fn test_new_with_univariate_skip_k_too_large() {
+        // Should panic when k_skip > num_variables
+        let points = vec![MultilinearPoint::new(vec![F::ONE])];
+        let evaluations = vec![F::from_u64(100)];
+
+        let _ = EqStatement::new_with_univariate_skip(2, 3, points, evaluations);
+    }
+
+    #[test]
+    #[should_panic(expected = "Point must have 4 coordinates")]
+    fn test_new_with_univariate_skip_wrong_point_size() {
+        // For n=5, k_skip=2, points need (5-2)+1 = 4 coordinates
+        // This point only has 3 coordinates, should panic
+        let points = vec![MultilinearPoint::new(vec![F::ONE, F::ZERO, F::ONE])];
+        let evaluations = vec![F::from_u64(100)];
+
+        let _ = EqStatement::new_with_univariate_skip(5, 2, points, evaluations);
+    }
+
+    #[test]
+    fn test_new_with_univariate_skip_edge_case_k_equals_n_minus_1() {
+        // Test edge case: k_skip = n-1
+        // For n=5, k_skip=4, points should have (5-4)+1 = 2 coordinates
+        let points = vec![MultilinearPoint::new(vec![F::from_u64(10), F::ONE])];
+        let evaluations = vec![F::from_u64(100)];
+
+        let statement = EqStatement::new_with_univariate_skip(5, 4, points, evaluations);
+
+        assert_eq!(statement.num_variables(), 5);
+        assert_eq!(statement.len(), 1);
+        assert_eq!(statement.points[0].num_variables(), 2);
+    }
+
+    #[test]
+    fn test_new_with_univariate_skip_k_equals_n() {
+        // Test edge case: k_skip = n
+        // For n=3, k_skip=3, points should have (3-3)+1 = 1 coordinate
+        let points = vec![MultilinearPoint::new(vec![F::from_u64(42)])];
+        let evaluations = vec![F::from_u64(100)];
+
+        let statement = EqStatement::new_with_univariate_skip(3, 3, points, evaluations);
+
+        assert_eq!(statement.num_variables(), 3);
+        assert_eq!(statement.len(), 1);
+        assert_eq!(statement.points[0].num_variables(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Number of points (2) must match number of evaluations (1)")]
+    fn test_new_mismatched_lengths() {
+        // Should panic when points.len() != evaluations.len()
+        let points = vec![
+            MultilinearPoint::new(vec![F::ONE]),
+            MultilinearPoint::new(vec![F::ZERO]),
+        ];
+        let evaluations = vec![F::from_u64(100)];
+
+        let _ = EqStatement::new(1, points, evaluations);
+    }
+
+    #[test]
+    #[should_panic(expected = "Number of points (1) must match number of evaluations (2)")]
+    fn test_new_with_univariate_skip_mismatched_lengths() {
+        // Should panic when points.len() != evaluations.len()
+        let points = vec![MultilinearPoint::new(vec![F::from_u64(10), F::ONE])];
+        let evaluations = vec![F::from_u64(100), F::from_u64(200)];
+
+        let _ = EqStatement::new_with_univariate_skip(3, 2, points, evaluations);
     }
 }
