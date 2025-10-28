@@ -1,5 +1,6 @@
 use itertools::Itertools;
-use p3_field::{ExtensionField, Field};
+use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixView};
 use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::eq_batch::{eval_eq_base_batch, eval_eq_batch};
@@ -286,6 +287,143 @@ where
 
         EvaluationsList::new(folded)
     }
+
+    /// Evaluates a polynomial over the mixed domain `D × H^j` at an arbitrary point.
+    ///
+    /// # Purpose
+    ///
+    /// This method supports the **univariate skip** optimization in sumcheck protocol.
+    ///
+    /// Instead of evaluating over the full Boolean hypercube `{0,1}^n`, we use a mixed domain
+    /// where:
+    /// - `k` variables live on a multiplicative subgroup `D`,
+    /// - `j = n - k` variables remain on the Boolean hypercube `H^j`.
+    ///
+    /// # How It Works
+    ///
+    /// The evaluation proceeds in two stages:
+    ///
+    /// **Stage 1: Univariate Interpolation**
+    ///
+    /// The `k` skipped variables correspond to a multiplicative subgroup `D` of size `2^k`.
+    ///
+    /// We treat the evaluation table as a `2^k × 2^j` grid with `2^k` rows and `2^j` columns.
+    ///
+    /// Each column represents evaluations of a univariate polynomial over the subgroup `D`.
+    ///
+    /// We interpolate each column polynomial and evaluate it at the given point `x`.
+    ///
+    /// This collapses all `2^k` rows into a single row of `2^j` values.
+    ///
+    /// **Stage 2: Multilinear Interpolation**
+    ///
+    /// The folded row from Stage 1 represents evaluations of a multilinear polynomial
+    /// in the remaining `j` variables.
+    ///
+    /// We evaluate this polynomial at the remaining coordinates `y` using standard
+    /// multilinear interpolation.
+    ///
+    /// # Input Structure
+    ///
+    /// The evaluation point `point` must have exactly `j + 1` coordinates:
+    ///
+    /// - `point[0]` = `x`: Evaluation point for the `k` skipped variables,
+    /// - `point[1..]` = `y`: Evaluation points for the `j` hypercube variables.
+    ///
+    /// # Memory Layout
+    ///
+    /// The evaluation table is stored as a `2^k × 2^j` grid in row-major order.
+    ///
+    /// - Rows correspond to subgroup elements.
+    /// - Columns correspond to hypercube corners.
+    ///
+    /// This is lexicographical (natural) order, not bit-reversed order.
+    /// TODO: we should check in the future if we need bit reversed order.
+    ///
+    /// # Parameters
+    ///
+    /// - `point`: The evaluation point with `j + 1` coordinates as described above
+    /// - `k_skip`: Number of variables to skip (must satisfy `0 < k_skip ≤ n`)
+    #[must_use]
+    #[inline]
+    pub fn evaluate_with_univariate_skip<EF>(
+        &self,
+        point: &MultilinearPoint<EF>,
+        k_skip: usize,
+    ) -> EF
+    where
+        F: TwoAdicField,
+        EF: TwoAdicField + ExtensionField<F>,
+    {
+        // Get the total number of variables n in the polynomial.
+        let n = self.num_variables();
+
+        // - Validate that k_skip is in the valid range (0, n].
+        // - Using k_skip = 0 is meaningless; use standard evaluate() instead.
+        assert!(
+            k_skip > 0,
+            "k_skip must be greater than 0 (got {k_skip}). For k_skip=0, use the standard evaluate() method."
+        );
+        assert!(
+            k_skip <= n,
+            "k_skip ({k_skip}) must not exceed num_variables ({n})"
+        );
+
+        // Compute j = n - k, the number of remaining hypercube variables.
+        let num_hypercube_vars = n - k_skip;
+
+        // Verify the evaluation point has the correct structure: j + 1 coordinates.
+        // - The first coordinate is for the skipped variables,
+        // - The rest for the hypercube.
+        assert_eq!(
+            point.num_variables(),
+            num_hypercube_vars + 1,
+            "Point must have {} coordinates for univariate skip with k={} and n={}, but has {}",
+            num_hypercube_vars + 1,
+            k_skip,
+            n,
+            point.num_variables()
+        );
+
+        // Split the evaluation point into two parts:
+        //   - x  = point[0]     : evaluation point for the k skipped variables (univariate)
+        //   - y  = point[1..]   : evaluation points for the j hypercube variables (multilinear)
+        let x = point[0];
+        let y_coords = &point.as_slice()[1..];
+        let y_point = MultilinearPoint::new(y_coords.to_vec());
+
+        // STAGE 1: Univariate Interpolation
+        //
+        // We have 2^n evaluations organized as a 2^k × 2^j grid.
+        // - Rows index the subgroup D (size 2^k).
+        // - Columns index the hypercube H^j (size 2^j).
+
+        // Compute the number of columns in the grid: 2^j.
+        let hypercube_size = 1 << num_hypercube_vars;
+
+        // Create a matrix view of the evaluation table.
+        // This interprets the flat array as a 2^k × 2^j matrix in row-major order.
+        let mat = RowMajorMatrixView::new(self.as_slice(), hypercube_size);
+
+        // Interpolate each of the 2^j columns over the subgroup D and evaluate at x.
+        //
+        // Each column is a univariate polynomial of degree < 2^k evaluated at the subgroup.
+        // After interpolation at x, we get a single row of 2^j values.
+        let folded_evals: Vec<EF> = interpolate_subgroup(&mat, x);
+
+        // STAGE 2: Multilinear Interpolation
+        //
+        // The folded row represents evaluations of a j-variate multilinear polynomial
+        // over the Boolean hypercube {0,1}^j.
+        //
+        // We now evaluate this polynomial at the coordinates y.
+
+        // Wrap the folded evaluations as a new list of evaluations.
+        let final_poly = EvaluationsList::new(folded_evals);
+
+        // Perform standard multilinear interpolation at y and return the result.
+        final_poly.evaluate(&y_point)
+    }
 }
 
 impl<'a, F> IntoIterator for &'a EvaluationsList<F> {
@@ -495,7 +633,9 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
-    use p3_field::{PrimeCharacteristicRing, PrimeField64, extension::BinomialExtensionField};
+    use p3_field::{
+        PrimeCharacteristicRing, PrimeField64, TwoAdicField, extension::BinomialExtensionField,
+    };
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -1486,5 +1626,247 @@ mod tests {
             // The results should be identical.
             prop_assert_eq!(result_a_lifted, result_b_ext.as_slice());
         }
+    }
+
+    #[test]
+    fn test_skip_k1_j1_arbitrary_coords() {
+        // SETUP:
+        // - n = 2 total variables.
+        // - k_skip = 1 (folds 1 variable into a subgroup D of size 2).
+        // - j = n - k = 1 (1 remaining hypercube variable).
+        // - The polynomial is defined over the domain D × H^1, where D = {g^0, g^1} and H^1 = {0, 1}.
+
+        let k_skip = 1;
+
+        // The evaluations are laid out in a grid with bit-reversed rows. For k=1, the natural
+        // order {0, 1} is the same as the bit-reversed order {0, 1}.
+        //
+        // Conceptual Grid:
+        //         y=0     y=1
+        //       ┌───────┬───────┐
+        // x=g^0 │  10   │  20   │  (Row 0)
+        //       ├───────┼───────┤
+        // x=g^1 │  30   │  40   │  (Row 1)
+        //       └───────┴───────┘
+        let evals = vec![
+            F::from_u64(10), // f(g^0, 0)
+            F::from_u64(20), // f(g^0, 1)
+            F::from_u64(30), // f(g^1, 0)
+            F::from_u64(40), // f(g^1, 1)
+        ];
+        let evals_list = EvaluationsList::new(evals.clone());
+
+        // Test at an arbitrary point not on the grid: (x, y) = (2, 3).
+        let x = F::from_u64(2);
+        let y = F::from_u64(3);
+        let point = MultilinearPoint::new(vec![x, y]);
+
+        // Evaluate the polynomial at the arbitrary point.
+        let result = evals_list.evaluate_with_univariate_skip(&point, k_skip);
+
+        // STAGE 1: Univariate Interpolation (Collapsing the Rows)
+        //
+        // Manually compute the interpolation for each column at the point `x`.
+        // The subgroup D for k=1 is {g^0, g^1} which is {1, -1}.
+        let x0 = F::ONE;
+        let x1 = -F::ONE;
+
+        // We use the Lagrange basis polynomials for a 2-point domain {x0, x1}:
+        //
+        // - L_0(x) = (x - x1) / (x0 - x1)
+        // - L_1(x) = p(x0) * L_0(x) + p(x1) * L_1(x)
+        let l0_at_x = (x - x1) * (x0 - x1).inverse();
+        let l1_at_x = (x - x0) * (x1 - x0).inverse();
+
+        // Column 0 (y=0): Interpolate polynomial through points (x0, 10) and (x1, 30).
+        let p0_at_x0 = evals[0]; // f(g^0, 0)
+        let p0_at_x1 = evals[2]; // f(g^1, 0)
+        let folded_0 = p0_at_x0 * l0_at_x + p0_at_x1 * l1_at_x;
+
+        // Column 1 (y=1): Interpolate polynomial through points (x0, 20) and (x1, 40).
+        let p1_at_x0 = evals[1]; // f(g^0, 1)
+        let p1_at_x1 = evals[3]; // f(g^1, 1)
+        let folded_1 = p1_at_x0 * l0_at_x + p1_at_x1 * l1_at_x;
+
+        let folded_evals_manual = vec![folded_0, folded_1];
+        assert_eq!(
+            folded_evals_manual,
+            vec![F::from_u64(0), F::from_u64(10)],
+            "Stage 1 manual calculation does not match expected folded values"
+        );
+
+        // STAGE 2: Multilinear Interpolation (Evaluating the Result)
+        //
+        // The `folded_evals` are [p(0), p(1)] for a new 1-variable polynomial p(y).
+        // We now evaluate this at y=3 using the formula: p(y) = p(0)*(1-y) + p(1)*y
+        let p_at_0 = folded_evals_manual[0];
+        let p_at_1 = folded_evals_manual[1];
+        let expected = p_at_0 * (F::ONE - y) + p_at_1 * y;
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_skip_k2_j1_arbitrary_coords_extension_field() {
+        // SETUP:
+        // - n = 3 total variables.
+        // - k_skip = 2 (folds 2 variables into a subgroup D of size 4).
+        // - j = n - k = 1 (1 remaining hypercube variable).
+        // - Point is in an extension field EF4.
+
+        let k_skip = 2;
+
+        // The evaluations are laid out in lexicographical (natural) row-major order.
+        // The underlying interpolation function expects this simple, intuitive layout.
+        //
+        // Conceptual Grid (Lexicographical Order):
+        //         y=0     y=1
+        //       ┌───────┬───────┐
+        // x=g^0 │   1   │   2   │
+        //       ├───────┼───────┤
+        // x=g^1 │   5   │   6   │
+        //       ├───────┼───────┤
+        // x=g^2 │   3   │   4   │
+        //       ├───────┼───────┤
+        // x=g^3 │   7   │   8   │
+        //       └───────┴───────┘
+        let evals = vec![
+            F::from_u64(1),
+            F::from_u64(2), // evals for g^0
+            F::from_u64(5),
+            F::from_u64(6), // evals for g^1
+            F::from_u64(3),
+            F::from_u64(4), // evals for g^2
+            F::from_u64(7),
+            F::from_u64(8), // evals for g^3
+        ];
+        let evals_list = EvaluationsList::new(evals.clone());
+
+        // Test at an arbitrary point (x, y) = (5, 7) in the extension field.
+        let x = EF4::from_u64(5);
+        let y = EF4::from_u64(7);
+        let point = MultilinearPoint::new(vec![x, y]);
+
+        // Evaluate the polynomial.
+        let result = evals_list.evaluate_with_univariate_skip(&point, k_skip);
+
+        // STAGE 1: Univariate Interpolation
+        // The subgroup D for k=2 is {g^0, g^1, g^2, g^3}.
+        let g = F::two_adic_generator(k_skip);
+        let domain = [F::ONE, g, g.square(), g.square() * g]; // {g^0, g^1, g^2, g^3}
+
+        // Lagrange basis polynomials L_i(x) = product_{j!=i} (x - domain[j]) / (domain[i] - domain[j])
+        let mut lagrange_at_x = Vec::with_capacity(4);
+        for i in 0..4 {
+            let mut l_i = EF4::ONE;
+            for j in 0..4 {
+                if i != j {
+                    l_i *= (x - EF4::from(domain[j]))
+                        * (EF4::from(domain[i]) - EF4::from(domain[j])).inverse();
+                }
+            }
+            lagrange_at_x.push(l_i);
+        }
+
+        // Get evaluations for each column from the lexicographically ordered `evals` vector.
+        //
+        // Column 0 (y=0): values are {1, 5, 3, 7} for {g^0, g^1, g^2, g^3}
+        let p0_evals = [evals[0], evals[2], evals[4], evals[6]];
+        // Column 1 (y=1): values are {2, 6, 4, 8} for {g^0, g^1, g^2, g^3}
+        let p1_evals = [evals[1], evals[3], evals[5], evals[7]];
+
+        // Interpolate each column polynomial: p(x) = sum(p(g^i) * L_i(x))
+        let folded_0: EF4 = (0..4)
+            .map(|i| EF4::from(p0_evals[i]) * lagrange_at_x[i])
+            .sum();
+        let folded_1: EF4 = (0..4)
+            .map(|i| EF4::from(p1_evals[i]) * lagrange_at_x[i])
+            .sum();
+
+        // STAGE 2: Multilinear Interpolation
+        //
+        // Manually evaluate the final 1-variable polynomial at y=7.
+        let expected = folded_0 * (EF4::ONE - y) + folded_1 * y;
+
+        assert_eq!(result, expected, "Manual two-stage interpolation failed");
+    }
+
+    #[test]
+    fn test_skip_all_vars_k2_j0() {
+        // SETUP:
+        // - n = 2 total variables.
+        // - k_skip = 2 (all variables are folded).
+        // - j = n - k = 0 (no remaining hypercube variables).
+        // - The polynomial is defined only over the subgroup D of size 4.
+
+        let k_skip = 2;
+
+        // Since j=0, the domain is just the subgroup D. The evaluations are a flat list
+        // in the natural (lexicographical) order of the subgroup elements.
+        //
+        // Evaluation Points: { g^0,   g^1,   g^2,   g^3 }
+        // Values:            {  10,    20,    30,    40 }
+        let evals = vec![
+            F::from_u64(10), // f(g^0)
+            F::from_u64(20), // f(g^1)
+            F::from_u64(30), // f(g^2)
+            F::from_u64(40), // f(g^3)
+        ];
+        let evals_list = EvaluationsList::new(evals.clone());
+
+        // The evaluation point only has one coordinate, `x`, since j=0.
+        let x = F::from_u64(5);
+        let point = MultilinearPoint::new(vec![x]);
+
+        // Evaluate the polynomial.
+        let result = evals_list.evaluate_with_univariate_skip(&point, k_skip);
+
+        // STAGE 1: Univariate Interpolation
+        //
+        // The logic is identical to the k=2 test above, but for a single column.
+        let g = F::two_adic_generator(k_skip);
+        let domain = [F::ONE, g, g.square(), g.square() * g];
+
+        // We compute the Lagrange basis polynomials at the evaluation point `x`.
+        // L_i(x) = product_{m!=i} (x - domain[m]) / (domain[i] - domain[m])
+        let mut lagrange_at_x = Vec::with_capacity(4);
+        for i in 0..4 {
+            let mut l_i = F::ONE;
+            for j in 0..4 {
+                if i != j {
+                    l_i *= (x - domain[j]) * (domain[i] - domain[j]).inverse();
+                }
+            }
+            lagrange_at_x.push(l_i);
+        }
+
+        // The interpolated value is the sum of each evaluation multiplied by its corresponding
+        // Lagrange basis polynomial: p(x) = sum( p(g^i) * L_i(x) )
+        let expected: F = (0..4).map(|i| evals[i] * lagrange_at_x[i]).sum();
+
+        // STAGE 2: Multilinear Interpolation
+        // This stage is trivial because there are no remaining variables (`j=0`).
+        //
+        // The result from Stage 1 is the final answer.
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "k_skip must be greater than 0")]
+    fn test_evaluate_with_univariate_skip_panics_on_k0() {
+        // Verify that k_skip=0 is invalid, as it should use the standard `evaluate` method.
+        let evals_list = EvaluationsList::new(vec![F::ONE, F::ZERO]);
+        let point = MultilinearPoint::new(vec![F::ONE, F::ZERO]);
+        let _ = evals_list.evaluate_with_univariate_skip(&point, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "k_skip")]
+    fn test_evaluate_with_univariate_skip_invalid_k() {
+        // Verify that k_skip > n causes a panic
+        let evals_list = EvaluationsList::new(vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
+        let point = MultilinearPoint::new(vec![F::ONE]);
+        let _ = evals_list.evaluate_with_univariate_skip(&point, 3); // n=2, k=3 is invalid
     }
 }
