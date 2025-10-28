@@ -22,7 +22,7 @@ use crate::{
         EqStatement,
         constraints::{
             evaluator::{Constraint, ConstraintPolyEvaluator},
-            sel_statement::SelectStatement,
+            statement::SelectStatement,
         },
         parameters::WhirConfig,
         verifier::sumcheck::verify_sumcheck_rounds,

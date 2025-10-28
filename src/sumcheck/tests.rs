@@ -18,8 +18,7 @@ use crate::{
     whir::{
         constraints::{
             evaluator::{Constraint, ConstraintPolyEvaluator},
-            sel_statement::SelectStatement,
-            statement::EqStatement,
+            statement::{EqStatement, SelectStatement},
         },
         verifier::sumcheck::verify_sumcheck_rounds,
     },
