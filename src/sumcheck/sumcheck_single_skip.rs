@@ -66,7 +66,7 @@ where
         })
         .collect();
 
-    // Return h(X) as a SumcheckPolynomial
+    // Return h(X) as evaluations of the univariate sumcheck polynomial h(X)
     SumcheckPolynomial::new(result)
 }
 
