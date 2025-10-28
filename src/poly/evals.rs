@@ -343,13 +343,13 @@ where
     /// # Parameters
     ///
     /// - `point`: The evaluation point with `j + 1` coordinates as described above
-    /// - `k_skip`: Number of variables to skip (must satisfy `0 < k_skip ≤ n`)
+    /// - `log_skip_size`: Number of variables to skip (must satisfy `0 < log_skip_size ≤ n`)
     #[must_use]
     #[inline]
     pub fn evaluate_with_univariate_skip<EF>(
         &self,
         point: &MultilinearPoint<EF>,
-        k_skip: usize,
+        log_skip_size: usize,
     ) -> EF
     where
         F: TwoAdicField,
@@ -358,19 +358,19 @@ where
         // Get the total number of variables n in the polynomial.
         let n = self.num_variables();
 
-        // - Validate that k_skip is in the valid range (0, n].
-        // - Using k_skip = 0 is meaningless; use standard evaluate() instead.
+        // - Validate that log_skip_size is in the valid range (0, n].
+        // - Using log_skip_size = 0 is meaningless; use standard evaluate() instead.
         assert!(
-            k_skip > 0,
-            "k_skip must be greater than 0 (got {k_skip}). For k_skip=0, use the standard evaluate() method."
+            log_skip_size > 0,
+            "log_skip_size must be greater than 0 (got {log_skip_size}). For log_skip_size=0, use the standard evaluate() method."
         );
         assert!(
-            k_skip <= n,
-            "k_skip ({k_skip}) must not exceed num_variables ({n})"
+            log_skip_size <= n,
+            "log_skip_size ({log_skip_size}) must not exceed num_variables ({n})"
         );
 
         // Compute j = n - k, the number of remaining hypercube variables.
-        let num_hypercube_vars = n - k_skip;
+        let num_hypercube_vars = n - log_skip_size;
 
         // Verify the evaluation point has the correct structure: j + 1 coordinates.
         // - The first coordinate is for the skipped variables,
@@ -378,9 +378,9 @@ where
         assert_eq!(
             point.num_variables(),
             num_hypercube_vars + 1,
-            "Point must have {} coordinates for univariate skip with k={} and n={}, but has {}",
+            "Point must have {} coordinates for univariate skip with log_skip_size={} and n={}, but has {}",
             num_hypercube_vars + 1,
-            k_skip,
+            log_skip_size,
             n,
             point.num_variables()
         );
@@ -409,6 +409,10 @@ where
         //
         // Each column is a univariate polynomial of degree < 2^k evaluated at the subgroup.
         // After interpolation at x, we get a single row of 2^j values.
+        //
+        // TODO: Depending on what is slower, it may be worth investigating whether it's better
+        // to perform the univariate interpolation first (current approach) or last (after the
+        // hypercube evaluation). The optimal order may depend on the relative sizes of k and j.
         let folded_evals: Vec<EF> = interpolate_subgroup(&mat, x);
 
         // STAGE 2: Multilinear Interpolation
@@ -1638,21 +1642,20 @@ mod tests {
 
         let k_skip = 1;
 
-        // The evaluations are laid out in a grid with bit-reversed rows. For k=1, the natural
-        // order {0, 1} is the same as the bit-reversed order {0, 1}.
+        // The evaluations are laid out in natural (lexicographical) row-major order.
         //
         // Conceptual Grid:
         //         y=0     y=1
         //       ┌───────┬───────┐
-        // x=g^0 │  10   │  20   │  (Row 0)
+        // x=g^0 │   7   │  13   │  (Row 0)
         //       ├───────┼───────┤
-        // x=g^1 │  30   │  40   │  (Row 1)
+        // x=g^1 │  19   │  29   │  (Row 1)
         //       └───────┴───────┘
         let evals = vec![
-            F::from_u64(10), // f(g^0, 0)
-            F::from_u64(20), // f(g^0, 1)
-            F::from_u64(30), // f(g^1, 0)
-            F::from_u64(40), // f(g^1, 1)
+            F::from_u64(7),  // f(g^0, 0)
+            F::from_u64(13), // f(g^0, 1)
+            F::from_u64(19), // f(g^1, 0)
+            F::from_u64(29), // f(g^1, 1)
         ];
         let evals_list = EvaluationsList::new(evals.clone());
 
@@ -1668,30 +1671,20 @@ mod tests {
         //
         // Manually compute the interpolation for each column at the point `x`.
         // The subgroup D for k=1 is {g^0, g^1} which is {1, -1}.
-        let x0 = F::ONE;
-        let x1 = -F::ONE;
-
-        // We use the Lagrange basis polynomials for a 2-point domain {x0, x1}:
         //
-        // - L_0(x) = (x - x1) / (x0 - x1)
-        // - L_1(x) = p(x0) * L_0(x) + p(x1) * L_1(x)
-        let l0_at_x = (x - x1) * (x0 - x1).inverse();
-        let l1_at_x = (x - x0) * (x1 - x0).inverse();
+        // For a linear function through points (1, y0) and (-1, y1), the value at x is:
+        // f(x) = (y0 + y1)/2 + x*(y0 - y1)/2
+        //
+        // Column 0 (y=0): Linear interpolation through (1, 7) and (-1, 19)
+        let folded_0 = (evals[0] + evals[2]).halve() + (evals[0] - evals[2]).halve() * x;
 
-        // Column 0 (y=0): Interpolate polynomial through points (x0, 10) and (x1, 30).
-        let p0_at_x0 = evals[0]; // f(g^0, 0)
-        let p0_at_x1 = evals[2]; // f(g^1, 0)
-        let folded_0 = p0_at_x0 * l0_at_x + p0_at_x1 * l1_at_x;
-
-        // Column 1 (y=1): Interpolate polynomial through points (x0, 20) and (x1, 40).
-        let p1_at_x0 = evals[1]; // f(g^0, 1)
-        let p1_at_x1 = evals[3]; // f(g^1, 1)
-        let folded_1 = p1_at_x0 * l0_at_x + p1_at_x1 * l1_at_x;
+        // Column 1 (y=1): Linear interpolation through (1, 13) and (-1, 29)
+        let folded_1 = (evals[1] + evals[3]).halve() + (evals[1] - evals[3]).halve() * x;
 
         let folded_evals_manual = vec![folded_0, folded_1];
         assert_eq!(
             folded_evals_manual,
-            vec![F::from_u64(0), F::from_u64(10)],
+            vec![F::from_u64(1), F::from_u64(5)],
             "Stage 1 manual calculation does not match expected folded values"
         );
 
@@ -1853,20 +1846,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "k_skip must be greater than 0")]
+    #[should_panic(expected = "log_skip_size must be greater than 0")]
     fn test_evaluate_with_univariate_skip_panics_on_k0() {
-        // Verify that k_skip=0 is invalid, as it should use the standard `evaluate` method.
+        // Verify that log_skip_size=0 is invalid, as it should use the standard `evaluate` method.
         let evals_list = EvaluationsList::new(vec![F::ONE, F::ZERO]);
         let point = MultilinearPoint::new(vec![F::ONE, F::ZERO]);
         let _ = evals_list.evaluate_with_univariate_skip(&point, 0);
     }
 
     #[test]
-    #[should_panic(expected = "k_skip")]
+    #[should_panic(expected = "log_skip_size")]
     fn test_evaluate_with_univariate_skip_invalid_k() {
-        // Verify that k_skip > n causes a panic
+        // Verify that log_skip_size > n causes a panic
         let evals_list = EvaluationsList::new(vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
         let point = MultilinearPoint::new(vec![F::ONE]);
-        let _ = evals_list.evaluate_with_univariate_skip(&point, 3); // n=2, k=3 is invalid
+        let _ = evals_list.evaluate_with_univariate_skip(&point, 3); // n=2, log_skip_size=3 is invalid
     }
 }
