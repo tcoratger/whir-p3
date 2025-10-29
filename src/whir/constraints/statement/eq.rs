@@ -38,8 +38,16 @@ impl<F: Field> EqStatement<F> {
     }
 
     /// Creates a filled `EqStatement<F>` for polynomials with `num_variables` variables.
+    ///
+    /// # Standard Hypercube Domain
+    ///
+    /// This constructor is for the standard case where all constraint points live on the
+    /// Boolean hypercube `{0,1}^num_variables`. Each point has exactly `num_variables` coordinates.
+    ///
+    /// **Note:** For the univariate skip optimization where points have a mixed domain structure
+    /// (subgroup × hypercube), use [`new_with_univariate_skip`](Self::new_with_univariate_skip) instead.
     #[must_use]
-    pub fn new(
+    pub fn new_hypercube(
         num_variables: usize,
         points: Vec<MultilinearPoint<F>>,
         evaluations: Vec<F>,
@@ -533,10 +541,10 @@ mod tests {
 
     #[test]
     fn test_constructors_and_basic_properties() {
-        // Test new constructor
+        // Test new_hypercube constructor
         let point = MultilinearPoint::new(vec![F::ONE]);
         let eval = F::from_u64(42);
-        let statement = EqStatement::new(1, vec![point], vec![eval]);
+        let statement = EqStatement::new_hypercube(1, vec![point], vec![eval]);
 
         assert_eq!(statement.num_variables(), 1);
         assert_eq!(statement.len(), 1);
@@ -1012,7 +1020,7 @@ mod tests {
         ];
         let evaluations = vec![F::from_u64(100)];
 
-        let _ = EqStatement::new(1, points, evaluations);
+        let _ = EqStatement::new_hypercube(1, points, evaluations);
     }
 
     #[test]
