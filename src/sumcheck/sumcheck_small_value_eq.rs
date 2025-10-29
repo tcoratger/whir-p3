@@ -559,8 +559,8 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
     debug_assert!(num_vars_x_r == half_l + (num_vars % 2));
 
     // Loop for the final rounds, from l_0+1 (in our case 4) to the end.
-    // TODO: Once we have the algorithm 2, this loop should start at 5 (l_0 + 2).
-    for i in 4..num_vars + 1 {
+    let current_round = challenges.len() + 1;
+    for i in current_round..num_vars + 1 {
         let mut t = Vec::new();
 
         // We get the number of variables of `poly` in the current round.
