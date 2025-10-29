@@ -288,7 +288,7 @@ mod tests {
 
         let mut t = EvaluationsList::zero(statement.num_variables());
         let mut expected_initial_sum = EF4::ZERO;
-        statement.combine::<F, false>(&mut t, &mut expected_initial_sum, EF4::ONE);
+        statement.combine_hypercube::<F, false>(&mut t, &mut expected_initial_sum, EF4::ONE);
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
 

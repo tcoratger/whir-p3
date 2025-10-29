@@ -52,7 +52,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
 
     pub fn combine(&self, combined: &mut EvaluationsList<EF>, eval: &mut EF) {
         self.eq_statement
-            .combine::<F, true>(combined, eval, self.challenge);
+            .combine_hypercube::<F, true>(combined, eval, self.challenge);
         self.sel_statement
             .combine(combined, eval, self.challenge, self.eq_statement.len());
     }
@@ -61,7 +61,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
         let mut combined = EvaluationsList::zero(self.num_variables());
         let mut eval = EF::ZERO;
         self.eq_statement
-            .combine::<F, false>(&mut combined, &mut eval, self.challenge);
+            .combine_hypercube::<F, false>(&mut combined, &mut eval, self.challenge);
         self.sel_statement.combine(
             &mut combined,
             &mut eval,
@@ -544,7 +544,7 @@ mod tests {
         // Combine the constraints for the first round into a single polynomial, W_0(X).
         let mut w0_combined = EvaluationsList::zero(constraints[0].eq_statement.num_variables());
         let mut sum = EF::ZERO;
-        constraints[0].eq_statement.combine::<F, false>(
+        constraints[0].eq_statement.combine_hypercube::<F, false>(
             &mut w0_combined,
             &mut sum,
             constraints[0].challenge,
@@ -699,7 +699,7 @@ mod tests {
             let mut sum = EF::ZERO;
             constraints[0]
                 .eq_statement
-                .combine::<F, false>(&mut w0_combined, &mut sum, constraints[0].challenge);
+                .combine_hypercube::<F, false>(&mut w0_combined, &mut sum, constraints[0].challenge);
 
 
             let num_remaining = num_vars - K_SKIP_SUMCHECK;
