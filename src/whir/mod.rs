@@ -92,7 +92,7 @@ pub fn make_whir_things(
 
     // Add equality constraints: polynomial(point) = expected_value for each point
     for point in &points {
-        statement.add_unevaluated_constraint(point.clone(), &polynomial);
+        statement.add_unevaluated_constraint_hypercube(point.clone(), &polynomial);
     }
 
     // Setup Fiat-Shamir transcript structure for non-interactive proof generation

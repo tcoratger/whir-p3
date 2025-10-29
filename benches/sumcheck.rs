@@ -43,7 +43,7 @@ where
     let mut statement = EqStatement::initialize(num_vars);
     for _ in 0..num_constraints {
         let point = MultilinearPoint::expand_from_univariate(prover.sample(), num_vars);
-        statement.add_unevaluated_constraint(point, poly);
+        statement.add_unevaluated_constraint_hypercube(point, poly);
     }
     statement
 }

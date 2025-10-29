@@ -39,13 +39,14 @@ impl<F: Field> EqStatement<F> {
 
     /// Creates a filled `EqStatement<F>` for polynomials with `num_variables` variables.
     ///
-    /// # Standard Hypercube Domain
+    /// # Standard Hypercube Representation
     ///
-    /// This constructor is for the standard case where all constraint points live on the
-    /// Boolean hypercube `{0,1}^num_variables`. Each point has exactly `num_variables` coordinates.
+    /// This constructor is for the standard case where the polynomial is represented as evaluations
+    /// over the Boolean hypercube `{0,1}^num_variables`, and will be evaluated at arbitrary constraint
+    /// points using standard multilinear interpolation. Each point has exactly `num_variables` coordinates.
     ///
-    /// **Note:** For the univariate skip optimization where points have a mixed domain structure
-    /// (subgroup × hypercube), use [`new_with_univariate_skip`](Self::new_with_univariate_skip) instead.
+    /// **Note:** For the univariate skip optimization where the polynomial uses a mixed domain
+    /// representation, use [`new_with_univariate_skip`](Self::new_with_univariate_skip) instead.
     #[must_use]
     pub fn new_hypercube(
         num_variables: usize,
@@ -76,19 +77,18 @@ impl<F: Field> EqStatement<F> {
     /// Creates a filled `EqStatement<F>` for polynomials with `num_variables` variables
     /// using the univariate skip optimization.
     ///
-    /// # Purpose
+    /// # Univariate Skip Representation
     ///
-    /// This constructor validates constraint points that are structured for univariate skip..
+    /// When using univariate skip with `k_skip` variables, the polynomial is represented as
+    /// evaluations over a mixed domain: a multiplicative subgroup D of size `2^k_skip` for the
+    /// first `k_skip` variables, crossed with the Boolean hypercube `{0,1}^j` for the remaining
+    /// `j = num_variables - k_skip` variables.
     ///
-    /// # Univariate Skip Structure
+    /// Each constraint point has `j + 1` coordinates:
+    /// - `point[0]`: Arbitrary evaluation point for the univariate (skipped) dimension
+    /// - `point[1..j+1]`: Arbitrary evaluation points for the multilinear (hypercube) dimensions
     ///
-    /// When using univariate skip with `k_skip` variables:
-    ///
-    /// - The first `k_skip` variables are mapped to a multiplicative subgroup D
-    /// - The remaining `j = num_variables - k_skip` variables live on the Boolean hypercube H^j
-    /// - Each constraint point has `j + 1` coordinates structured as:
-    ///   - `point[0]`: Evaluation point for the skipped variables (single coordinate in D)
-    ///   - `point[1..j+1]`: Evaluation points for the hypercube variables (j coordinates)
+    /// The polynomial is evaluated at these arbitrary points using a two-stage interpolation process.
     ///
     /// # Arguments
     ///
@@ -190,9 +190,15 @@ impl<F: Field> EqStatement<F> {
     ///
     /// This method takes the polynomial `p` and uses it to compute the evaluation `s`.
     ///
+    /// # Standard Hypercube Representation
+    ///
+    /// This method is for the standard case where the polynomial is represented as evaluations
+    /// over the Boolean hypercube `{0,1}^num_variables`. The polynomial is evaluated at the
+    /// arbitrary constraint point using standard multilinear interpolation.
+    ///
     /// # Panics
     /// Panics if the number of variables in the `point` does not match the statement.
-    pub fn add_unevaluated_constraint<BF>(
+    pub fn add_unevaluated_constraint_hypercube<BF>(
         &mut self,
         point: MultilinearPoint<F>,
         poly: &EvaluationsList<BF>,
@@ -605,7 +611,7 @@ mod tests {
         // Add same constraint using both methods
         let eval = poly.evaluate_hypercube(&point);
         statement1.add_evaluated_constraint(point.clone(), eval);
-        statement2.add_unevaluated_constraint(point, &poly);
+        statement2.add_unevaluated_constraint_hypercube(point, &poly);
 
         // Both statements should be identical
         assert_eq!(statement1.len(), statement2.len());
