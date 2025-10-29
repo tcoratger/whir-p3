@@ -384,7 +384,7 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     // ROUND 0
     let folding = folding_factors[0];
     let (mut sumcheck, mut prover_randomness) =
-        SumcheckSingle::from_base_evals_svo_2(&poly, &statement, alpha, prover, folding, 0);
+        SumcheckSingle::from_base_evals_svo_3(&poly, &statement, alpha, prover, folding, 0);
 
     // Track how many variables remain to fold
     let mut num_vars_inter = num_vars - folding;

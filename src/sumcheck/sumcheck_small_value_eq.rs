@@ -316,6 +316,7 @@ where
 
     // We compute all the accumulators A_i(v, u).
     let accumulators = compute_accumulators_eq(poly, e_in, e_out);
+    // println!("Accumulators: {:?}", accumulators);
 
     // ------------------   Round 1   ------------------
 
@@ -451,84 +452,65 @@ where
 {
     let l = poly.num_variables();
     let eq = eval_eq_in_hypercube(&w.0);
-    let eq_r = eval_eq_in_hypercube(&challenges);
+    let eq_r = eval_eq_in_hypercube(challenges);
 
-    // l-4 debeeria sdr l - 3, pq tengo solo 3 randoms.?????????????
-    let mut folded_poly: Vec<EF> = Vec::with_capacity(1 << l - 4);
+    let chunk_size = 1 << (l - 4);
+    let step = 1 << (l - 3);
 
-    let eval_zero: EF = (0..1 << l - 4)
+    let mut folded_poly = Vec::with_capacity(chunk_size * 2);
+
+    let eval_zero: EF = (0..chunk_size)
         .map(|x| {
-            let start = x;
-            let step = 1 << l - 3;
-
-            let eq_sum: EF = eq
+            // Compute eq_sum and p_sum in a single pass
+            let (eq_sum, p_sum) = eq
                 .iter()
-                .skip(start)
+                .skip(x)
                 .step_by(step)
+                .zip(poly.iter().skip(x).step_by(step))
                 .zip(eq_r.iter())
-                .map(|(a, b)| *a * *b)
                 .take(8)
-                .sum();
-
-            let p_sum: EF = poly
-                .iter()
-                .skip(start)
-                .step_by(step)
-                .zip(eq_r.iter())
-                .map(|(a, b)| *b * *a)
-                .take(8)
-                .sum();
+                .fold(
+                    (EF::ZERO, EF::ZERO),
+                    |(eq_acc, p_acc), ((eq_val, poly_val), eq_r_val)| {
+                        (eq_acc + *eq_val * *eq_r_val, p_acc + *eq_r_val * *poly_val)
+                    },
+                );
 
             folded_poly.push(p_sum);
-
             eq_sum * p_sum
         })
         .sum();
 
-    let eval_inf: EF = (0..1 << l - 4)
+    let eval_inf: EF = (0..chunk_size)
         .map(|x| {
-            let start = x;
-            let step = 1 << l - 3;
+            let offset = x + chunk_size;
 
-            let eq_inf: Vec<EF> = eq
+            let (eq_sum, p_one) = eq
                 .iter()
-                .skip(start)
+                .skip(x)
                 .step_by(step)
-                .zip(eq.iter().skip(start + (1 << l - 4)).step_by(step))
-                .map(|(eq_zero, eq_one)| *eq_one - *eq_zero)
-                .take(8)
-                .collect();
-
-            let eq_sum: EF = eq_inf
-                .iter()
+                .zip(eq.iter().skip(offset).step_by(step))
+                .zip(poly.iter().skip(offset).step_by(step))
                 .zip(eq_r.iter())
-                .map(|(a, b)| *b * *a)
                 .take(8)
-                .sum();
-
-            let p_one: EF = poly
-                .iter()
-                .skip(start + (1 << l - 4))
-                .step_by(step)
-                .zip(eq_r.iter())
-                .map(|(a, b)| *b * *a)
-                .take(8)
-                .sum();
+                .fold(
+                    (EF::ZERO, EF::ZERO),
+                    |(eq_acc, p_acc), (((eq_0, eq_1), poly_val), eq_r_val)| {
+                        let eq_diff = *eq_1 - *eq_0;
+                        (eq_acc + eq_diff * *eq_r_val, p_acc + *eq_r_val * *poly_val)
+                    },
+                );
 
             folded_poly.push(p_one);
-
-            let p_zero: EF = folded_poly[x];
-
-            let p_sum: EF = p_one - p_zero;
-
-            eq_sum * p_sum
+            let p_diff = p_one - folded_poly[x];
+            eq_sum * p_diff
         })
         .sum();
 
     prover_state.add_extension_scalars(&[eval_zero, eval_inf]);
 
-    // Update the claimed sum: S_4(r_4).
-    let r_4: EF = prover_state.sample();
+    // Update the claimed sum: S_4(r_4)
+    let r_4 = prover_state.sample();
     challenges.push(r_4);
 
     let eval_1 = *sum - eval_zero;
