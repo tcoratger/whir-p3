@@ -128,11 +128,9 @@ impl ConstraintPolyEvaluator {
         constraints: &[Constraint<F, EF>],
         point: &MultilinearPoint<EF>,
     ) -> EF {
-        // Remaining variable count for the round we are evaluating.
-        let mut vars_left = self.num_variables;
-
         let mut acc = EF::ZERO;
         for (round_idx, constraint) in constraints.iter().enumerate() {
+            let num_vars = constraint.num_variables();
             // Construct the point slice appropriate for this round.
             //
             // For round 0 we use the full `point`:
@@ -141,10 +139,9 @@ impl ConstraintPolyEvaluator {
             // For round > 0 we shrink by the previous round's folding factor and
             // take a prefix of length `vars_left`.
             let point_for_round = if round_idx > 0 {
-                vars_left -= self.folding_factor.at_round(round_idx - 1);
-                point.get_subpoint_over_range(0..vars_left)
+                point.get_subpoint_over_range(0..num_vars).reversed()
             } else {
-                point.clone()
+                point.reversed()
             };
 
             // Check if this is the first round and if the univariate skip optimization is active.
@@ -161,11 +158,10 @@ impl ConstraintPolyEvaluator {
                     // evaluation, or a standard evaluation.
                     let val = if is_skip_round {
                         // Skip-aware evaluation over r_rest || r_skip.
-                        debug_assert_eq!(point.num_variables(), self.num_variables);
+                        // TODO use self.univariate_skip.unwrap()
                         point.eq_poly_with_skip(&point_for_round, K_SKIP_SUMCHECK)
                     } else {
                         // Standard multilinear evaluation on the current domain.
-                        debug_assert_eq!(point.num_variables(), vars_left);
                         point.eq_poly(&point_for_round)
                     };
 
@@ -177,31 +173,13 @@ impl ConstraintPolyEvaluator {
             acc += constraint
                 .iter_sels()
                 .map(|(&var, alpha_i)| {
-                    let point = MultilinearPoint::expand_from_univariate(var, vars_left);
+                    let point = MultilinearPoint::expand_from_univariate(var, num_vars);
                     alpha_i * point.select_poly(&point_for_round)
                 })
                 .sum::<EF>();
         }
 
         acc
-    }
-}
-
-impl<EF, F, H, C, Challenger> From<WhirConfig<EF, F, H, C, Challenger>> for ConstraintPolyEvaluator
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    fn from(cfg: WhirConfig<EF, F, H, C, Challenger>) -> Self {
-        Self {
-            num_variables: cfg.num_variables,
-            folding_factor: cfg.folding_factor,
-            univariate_skip: matches!(
-                cfg.sumcheck_optimization,
-                SumcheckOptimization::UnivariateSkip
-            )
-            .then_some(K_SKIP_SUMCHECK),
-        }
     }
 }
 
@@ -219,8 +197,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::evals::EvaluationsList,
+        parameters::FoldingFactor, poly::evals::EvaluationsList,
         whir::constraints::statement::EqStatement,
     };
 
@@ -250,26 +227,6 @@ mod tests {
 
         // Initialize a deterministic random number generator for reproducibility.
         let mut rng = SmallRng::seed_from_u64(0);
-
-        // -- Cryptographic Primitives & Verifier Config --
-        let perm = Perm::new_from_rng_128(&mut rng);
-        let merkle_hash = MyHash::new(perm.clone());
-        let merkle_compress = MyCompress::new(perm);
-        let whir_params = ProtocolParameters {
-            folding_factor,
-            merkle_hash,
-            merkle_compress,
-            sumcheck_optimization: SumcheckOptimization::Classic,
-            initial_statement: true,
-            security_level: 90,
-            pow_bits: 0,
-            soundness_type: SecurityAssumption::UniqueDecoding,
-            starting_log_inv_rate: 1,
-            rs_domain_initial_reduction_factor: 1,
-        };
-        let params =
-            WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_vars, whir_params);
-        let evaluator: ConstraintPolyEvaluator = params.into();
 
         // -- Random Constraints and Challenges --
         // This block generates the inputs that the verifier would receive in a real proof.
@@ -306,24 +263,20 @@ mod tests {
         let final_point = MultilinearPoint::rand(&mut rng, num_vars);
 
         // Calculate W(r) using the function under test
-        //
-        // This is the recursive method we want to validate.
+        let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
         let result_from_eval_poly = evaluator.eval_constraints_poly(&constraints, &final_point);
 
         // Calculate W(r) by materializing and evaluating round-by-round
-
         // This simpler, more direct method serves as our ground truth.
-        let mut num_vars_at_round = num_vars;
         // Loop through each round to calculate its contribution to the final evaluation.
         let expected_result = constraints
             .iter()
-            .enumerate()
-            .map(|(i, constraint)| {
-                let point = final_point.get_subpoint_over_range(0..num_vars_at_round);
-                let mut combined = EvaluationsList::zero(constraint.num_variables());
+            .map(|constraint| {
+                let num_vars = constraint.num_variables();
+                let mut combined = EvaluationsList::zero(num_vars);
                 let mut eval = EF::ZERO;
                 constraint.combine(&mut combined, &mut eval);
-                num_vars_at_round -= folding_factor.at_round(i);
+                let point = final_point.get_subpoint_over_range(0..num_vars).reversed();
                 combined.evaluate_hypercube(&point)
             })
             .sum::<EF>();
@@ -375,31 +328,6 @@ mod tests {
                 .map(|_| rng.random_range(0..=2))
                 .collect();
 
-            // -- Cryptographic Primitives & Verifier Config --
-            // Set up the necessary cryptographic components for the `WhirConfig`.
-            let perm = Perm::new_from_rng_128(&mut rng);
-            let merkle_hash = MyHash::new(perm.clone());
-            let merkle_compress = MyCompress::new(perm);
-
-            // Define the top-level parameters for the protocol.
-            let whir_params = ProtocolParameters {
-                folding_factor,
-                merkle_hash,
-                merkle_compress,
-                // This test is for the standard, non-skip case.
-                sumcheck_optimization: SumcheckOptimization::Classic,
-                initial_statement: true,
-                security_level: 90,
-                pow_bits: 0,
-                soundness_type: SecurityAssumption::UniqueDecoding,
-                starting_log_inv_rate: 1,
-                rs_domain_initial_reduction_factor: 1,
-            };
-            // Create the complete verifier configuration object.
-            let params =
-                WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_vars, whir_params);
-            let evaluator: ConstraintPolyEvaluator = params.into();
-
             // -- Random Constraints and Challenges --
             // This block generates the inputs that the verifier would receive in a real proof.
             let mut num_vars_current = num_vars;
@@ -438,6 +366,7 @@ mod tests {
             // Calculate W(r) using the function under test
             //
             // This is the recursive method we want to validate.
+            let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
             let result_from_eval_poly =
                 evaluator.eval_constraints_poly(&constraints, &final_point);
 
@@ -450,7 +379,7 @@ mod tests {
                 .iter()
                 .enumerate()
                 .map(|(round_idx, constraint)| {
-                    let point = final_point.get_subpoint_over_range(0..num_vars_at_round);
+                    let point = final_point.get_subpoint_over_range(0..num_vars_at_round).reversed();
                     let mut combined = EvaluationsList::zero(constraint.num_variables());
                     let mut eval = EF::ZERO;
                     constraint.combine(&mut combined, &mut eval);
@@ -485,27 +414,6 @@ mod tests {
         // Initialize a deterministic RNG for reproducibility.
         let mut rng = SmallRng::seed_from_u64(0);
 
-        // -- Cryptographic Primitives & Verifier Config --
-        let perm = Perm::new_from_rng_128(&mut rng);
-        let merkle_hash = MyHash::new(perm.clone());
-        let merkle_compress = MyCompress::new(perm);
-        let whir_params = ProtocolParameters {
-            folding_factor,
-            merkle_hash,
-            merkle_compress,
-            // This test is for the skip case.
-            sumcheck_optimization: SumcheckOptimization::UnivariateSkip,
-            initial_statement: true,
-            security_level: 90,
-            pow_bits: 0,
-            soundness_type: SecurityAssumption::UniqueDecoding,
-            starting_log_inv_rate: 1,
-            rs_domain_initial_reduction_factor: 1,
-        };
-        let params =
-            WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_vars, whir_params);
-        let evaluator: ConstraintPolyEvaluator = params.into();
-
         // -- Random Constraints and Challenges --
         let mut num_vars_at_round = num_vars;
         let mut constraints = vec![];
@@ -539,7 +447,8 @@ mod tests {
         let final_point = MultilinearPoint::<EF>::rand(&mut rng, (num_vars - K_SKIP_SUMCHECK) + 1);
 
         // Calculate W(r) using the function under test
-
+        let evaluator =
+            ConstraintPolyEvaluator::new(num_vars, folding_factor, Some(K_SKIP_SUMCHECK));
         let result_from_eval_poly = evaluator.eval_constraints_poly(&constraints, &final_point);
 
         // Manually compute W(r) with explicit recursive evaluation
@@ -636,25 +545,8 @@ mod tests {
                 }).collect();
 
             // -- Cryptographic Primitives & Verifier Config --
-            let perm = Perm::new_from_rng_128(&mut rng);
-            let merkle_hash = MyHash::new(perm.clone());
-            let merkle_compress = MyCompress::new(perm);
-            let whir_params = ProtocolParameters {
-                folding_factor,
-                merkle_hash,
-                merkle_compress,
-                // This test is for the skip case.
-                sumcheck_optimization: SumcheckOptimization::UnivariateSkip,
-                initial_statement: true,
-                security_level: 90,
-                pow_bits: 0,
-                soundness_type: SecurityAssumption::UniqueDecoding,
-                starting_log_inv_rate: 1,
-                rs_domain_initial_reduction_factor: 1,
-            };
-            let params =
-                WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_vars, whir_params);
-            let evaluator: ConstraintPolyEvaluator = params.into();
+            let evaluator =
+                ConstraintPolyEvaluator::new(num_vars, folding_factor, Some(K_SKIP_SUMCHECK));
 
             // -- Random Constraints and Challenges --
             let mut num_vars_current = num_vars;

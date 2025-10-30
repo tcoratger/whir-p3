@@ -404,9 +404,9 @@ fn test_initialize_round_state_with_initial_statement() {
             EF4::from_u64(9876)
         ])),
         f(
+            sumcheck_randomness[0],
             EF4::from_u64(32636),
             EF4::from_u64(9876),
-            sumcheck_randomness[0]
         )
     );
 

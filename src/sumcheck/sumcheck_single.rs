@@ -10,9 +10,7 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::{
-        sumcheck_single_skip::compute_skipping_sumcheck_polynomial, utils::sumcheck_quadratic,
-    },
+    sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
     whir::constraints::{evaluator::Constraint, statement::EqStatement},
 };
 
@@ -146,14 +144,17 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
 ) -> SumcheckPolynomial<EF> {
     assert!(evals.num_variables() >= 1);
 
-    let (c0, c2) = evals
-        .as_slice()
-        .par_chunks_exact(2)
-        .zip(weights.as_slice().par_chunks_exact(2))
-        .map(sumcheck_quadratic::<F, EF>)
-        .par_fold_reduce(
+    let mid = evals.num_evals() / 2;
+    let (plo, phi) = evals.0.split_at(mid);
+    let (elo, ehi) = weights.0.split_at(mid);
+
+    let (c0, c2) = plo
+        .par_iter()
+        .zip(phi.par_iter())
+        .zip(elo.par_iter().zip(ehi.par_iter()))
+        .map(|((&p0, &p1), (&e0, &e1))| (e0 * p0, (e1 - e0) * (p1 - p0)))
+        .reduce(
             || (EF::ZERO, EF::ZERO),
-            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
             |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
         );
 
@@ -297,9 +298,6 @@ where
                 .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
         );
 
-        // Reverse challenges to maintain order from X₀ to Xₙ.
-        res.reverse();
-
         let sumcheck = Self {
             evals,
             weights,
@@ -396,9 +394,6 @@ where
                 .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
         );
 
-        // Reverse challenges to maintain order from X₀ to Xₙ.
-        res.reverse();
-
         let sumcheck = Self {
             evals,
             weights,
@@ -457,7 +452,7 @@ where
         }
         // Standard round-by-round folding
         // Proceed with one-variable-per-round folding for remaining variables.
-        let mut res = (0..folding_factor)
+        let res = (0..folding_factor)
             .map(|_| {
                 round(
                     prover_state,
@@ -468,9 +463,6 @@ where
                 )
             })
             .collect::<Vec<_>>();
-
-        // Reverse challenges to maintain order from X₀ to Xₙ.
-        res.reverse();
 
         // Return the full vector of verifier challenges as a multilinear point.
         MultilinearPoint::new(res)

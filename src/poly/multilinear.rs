@@ -329,6 +329,12 @@ where
         // Evaluate the new, smaller polynomial at the remaining challenges `r_rest`.
         EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest)
     }
+
+    pub fn reversed(&self) -> Self {
+        let mut vars = self.0.clone();
+        vars.reverse();
+        Self(vars)
+    }
 }
 
 impl<F> MultilinearPoint<F>

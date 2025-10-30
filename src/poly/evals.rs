@@ -184,14 +184,18 @@ where
     where
         EF: ExtensionField<F>,
     {
-        let folding_factor = folding_randomness.num_variables();
-        let evals = self
-            .0
-            .par_chunks_exact(1 << folding_factor)
-            .map(|ev| eval_multilinear(ev, folding_randomness))
-            .collect();
-
-        EvaluationsList(evals)
+        assert_ne!(folding_randomness.num_variables(), 0);
+        assert!(folding_randomness.num_variables() <= self.num_variables());
+        println!(
+            "Folding {} variables from a polynomial with {} variables.",
+            folding_randomness.num_variables(),
+            self.num_variables()
+        );
+        let mut poly = self.compress_ext(folding_randomness.as_slice()[0]);
+        for &r in &folding_randomness.as_slice()[1..] {
+            poly.compress(r);
+        }
+        poly
     }
 
     /// Create a matrix representation of the evaluation list.
@@ -230,7 +234,6 @@ where
     /// Compresses a list of evaluations in-place using a random challenge.
     ///
     /// ## Arguments
-    /// * `evals`: A mutable reference to an `EvaluationsList<F>`, which will be modified in-place.
     /// * `r`: A value from the field `F`, used as the random folding challenge.
     ///
     /// ## Mathematical Formula
@@ -240,27 +243,17 @@ where
     /// ```
     #[inline]
     pub fn compress(&mut self, r: F) {
-        // Ensure the polynomial is not a constant (i.e., has variables to fold).
         assert_ne!(self.num_variables(), 0);
+        let mid = self.0.len() / 2;
 
-        // For large inputs, we use a parallel, out-of-place strategy.
-        if self.num_evals() >= PARALLEL_THRESHOLD {
-            // Define the folding operation for a pair of elements.
-            let fold = |slice: &[F]| -> F { r * (slice[1] - slice[0]) + slice[0] };
-            // Execute the fold in parallel and collect into a new vector.
-            let folded = self.0.par_chunks_exact(2).map(fold).collect();
-            // Replace the old evaluations with the new, folded evaluations.
-            self.0 = folded;
-        } else {
-            // For smaller inputs, we use a sequential, in-place strategy.
-            let mid = self.num_evals() / 2;
-            for i in 0..mid {
-                let p0 = self.0[2 * i];
-                let p1 = self.0[2 * i + 1];
-                self.0[i] = r * (p1 - p0) + p0;
-            }
-            self.0.truncate(mid);
-        }
+        // Evaluations at `a_i` and `a_{i + n/2}` slots are folded with `r` into `a_i` slot
+        let (p0, p1) = self.0.split_at_mut(mid);
+        p0.par_iter_mut()
+            .zip(p1.par_iter())
+            .with_min_len(PARALLEL_THRESHOLD)
+            .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
+        // Free higher part of the evaluations
+        self.0.truncate(mid);
     }
 
     /// Compresses the evaluation list by folding the **first** variable ($X_1$) with a challenge.
@@ -369,23 +362,19 @@ where
     /// ```
     #[inline]
     #[instrument(skip_all)]
-    pub fn compress_ext<EF: ExtensionField<F>>(&self, r: EF) -> EvaluationsList<EF> {
+    pub fn compress_ext<Ext: ExtensionField<F>>(&self, r: Ext) -> EvaluationsList<Ext> {
         assert_ne!(self.num_variables(), 0);
-
-        // Fold between base and extension field elements
-        let fold = |slice: &[F]| -> EF { r * (slice[1] - slice[0]) + slice[0] };
-
-        // Threshold below which sequential computation is faster
-        //
-        // This was chosen based on experiments with the `compress` function.
-        // It is possible that the threshold can be tuned further.
-        let folded = if self.num_evals() >= PARALLEL_THRESHOLD {
-            self.0.par_chunks_exact(2).map(fold).collect()
-        } else {
-            self.0.chunks_exact(2).map(fold).collect()
-        };
-
-        EvaluationsList::new(folded)
+        let mid = self.0.len() / 2;
+        // Evaluations at `a_i` and `a_{i + n/2}` slots are folded with `r`
+        let (p0, p1) = self.0.split_at(mid);
+        // Create new EvaluationsList in the extension field
+        EvaluationsList(
+            p0.par_iter()
+                .zip(p1.par_iter())
+                .with_min_len(PARALLEL_THRESHOLD)
+                .map(|(&a0, &a1)| r * (a1 - a0) + a0)
+                .collect::<Vec<_>>(),
+        )
     }
 
     /// Evaluates a polynomial over the mixed domain `D × H^j` at an arbitrary point.
@@ -1226,8 +1215,8 @@ mod tests {
             .map(|i| F::from_u64(35 * i as u64))
             .collect();
 
-        // Try folding at every possible prefix of the randomness vector: k = 0 to n-1
-        for k in 0..num_variables {
+        // Try folding at every possible prefix of the randomness vector: k = 1 to n-1
+        for k in 1..num_variables {
             // Use the first k values as the fold coordinates (we will substitute those)
             let fold_part = randomness[0..k].to_vec();
 
@@ -1239,7 +1228,9 @@ mod tests {
 
             // Reconstruct the full point (x₀, ..., xₙ₋₁) = [eval_part || fold_part]
             // Used to evaluate the original uncompressed polynomial
-            let eval_point = MultilinearPoint::new([eval_part.clone(), fold_part].concat());
+            let eval_point1 =
+                MultilinearPoint::new([fold_part.clone(), eval_part.clone()].concat());
+            let eval_point2 = MultilinearPoint::new([eval_part.clone(), fold_part].concat());
 
             // Fold the evaluation list over the last `k` variables
             let folded_evals = evals_list.fold(&fold_random);
@@ -1247,6 +1238,7 @@ mod tests {
             // Verify that the number of variables has been folded correctly
             assert_eq!(folded_evals.num_variables(), num_variables - k);
 
+            // TODO: uncomment once CoefficientList::fold is reversed
             // Fold the coefficients list over the last `k` variables
             let folded_coeffs = coeffs_list.fold(&fold_random);
 
@@ -1257,13 +1249,13 @@ mod tests {
             // folded(e) == original([e, r]) for all k
             assert_eq!(
                 folded_evals.evaluate_hypercube(&MultilinearPoint::new(eval_part.clone())),
-                evals_list.evaluate_hypercube(&eval_point)
+                evals_list.evaluate_hypercube(&eval_point1)
             );
 
             // Compare with the coefficient list equivalent
             assert_eq!(
                 folded_coeffs.evaluate(&MultilinearPoint::new(eval_part)),
-                evals_list.evaluate_hypercube(&eval_point)
+                evals_list.evaluate_hypercube(&eval_point2)
             );
         }
     }
@@ -1295,7 +1287,7 @@ mod tests {
             let x0 = EF4::from_u64(x0_f);
 
             // Construct the full point (x₀, X₁ = 5)
-            let full_point = MultilinearPoint::new(vec![x0, r1]);
+            let full_point = MultilinearPoint::new(vec![r1, x0]);
 
             // Construct folded point (x₀)
             let folded_point = MultilinearPoint::new(vec![x0]);
@@ -1645,7 +1637,10 @@ mod tests {
 
     #[test]
     fn test_compress() {
-        let initial_evals: Vec<F> = (1..=8).map(F::from_u64).collect();
+        let initial_evals: Vec<F> = [1u64, 3, 5, 7, 2, 4, 6, 8]
+            .into_iter()
+            .map(F::from_u64)
+            .collect();
         let mut evals_list = EvaluationsList::new(initial_evals);
         let r = F::from_u64(10);
 
@@ -1911,7 +1906,10 @@ mod tests {
     #[test]
     fn test_compress_ext() {
         // This test verifies the out-of-place compression into an extension field.
-        let initial_evals: Vec<F> = (1..=8).map(F::from_u64).collect();
+        let initial_evals: Vec<F> = [1u64, 3, 5, 7, 2, 4, 6, 8]
+            .into_iter()
+            .map(F::from_u64)
+            .collect();
         let evals_list = EvaluationsList::new(initial_evals);
         let r_ext = EF4::from_u64(10);
 

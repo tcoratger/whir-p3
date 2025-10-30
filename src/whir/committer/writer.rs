@@ -5,7 +5,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
-use p3_matrix::{Matrix, dense::RowMajorMatrix};
+use p3_matrix::{Matrix, dense::RowMajorMatrixView};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
@@ -69,12 +69,21 @@ where
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
-        // Pad with zeros
-        let n = polynomial.num_evals();
-        let padded = info_span!("pad evals").in_scope(|| {
-            let mut padded = F::zero_vec(n * (1 << self.starting_log_inv_rate));
-            padded[..n].copy_from_slice(polynomial.as_slice());
-            RowMajorMatrix::new(padded, 1 << self.folding_factor.at_round(0))
+        // Transpose for reverse variable order
+        // And then pad with zeros
+
+        let padded = info_span!("transpose & pad").in_scope(|| {
+            let num_vars = polynomial.num_variables();
+            let mut mat = RowMajorMatrixView::new(
+                polynomial.as_slice(),
+                1 << (num_vars - self.folding_factor.at_round(0)),
+            )
+            .transpose();
+            mat.pad_to_height(
+                1 << (num_vars + self.starting_log_inv_rate - self.folding_factor.at_round(0)),
+                F::ZERO,
+            );
+            mat
         });
 
         // Perform DFT on the padded evaluations matrix

@@ -367,8 +367,7 @@ mod tests {
         assert_eq!(randomness.num_variables(), folding_factor);
 
         // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
-        let expected_randomness =
-            MultilinearPoint::new(expected.iter().map(|&(_, r)| r).rev().collect());
+        let expected_randomness = MultilinearPoint::new(expected.iter().map(|&(_, r)| r).collect());
         assert_eq!(
             randomness, expected_randomness,
             "Mismatch in full MultilinearPoint folding randomness"
