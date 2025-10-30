@@ -134,10 +134,6 @@ where
         randomness.push(rand);
     }
 
-    // We should reverse the order of the randomness points:
-    // This is because the randomness points are originally reverted at the end of the sumcheck rounds.
-    randomness.reverse();
-
     Ok(MultilinearPoint::new(randomness))
 }
 #[cfg(test)]
@@ -332,8 +328,7 @@ mod tests {
         assert_eq!(randomness.num_variables(), folding_factor);
 
         // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
-        let expected_randomness =
-            MultilinearPoint::new(expected.iter().map(|&(_, r)| r).rev().collect());
+        let expected_randomness = MultilinearPoint::new(expected.iter().map(|&(_, r)| r).collect());
         assert_eq!(
             randomness, expected_randomness,
             "Mismatch in full MultilinearPoint folding randomness"

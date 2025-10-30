@@ -190,7 +190,6 @@ where
         let folding_randomness = MultilinearPoint::new(
             round_folding_randomness
                 .into_iter()
-                .rev()
                 .flat_map(IntoIterator::into_iter)
                 .collect(),
         );
@@ -200,7 +199,7 @@ where
             self.folding_factor,
             self.univariate_skip.then_some(K_SKIP_SUMCHECK),
         )
-        .eval_constraints_poly(&constraints, &folding_randomness);
+        .eval_constraints_poly(&constraints, &folding_randomness.reversed());
 
         // Check the final sumcheck evaluation
         let final_value = final_evaluations.evaluate_hypercube(&final_sumcheck_randomness);
