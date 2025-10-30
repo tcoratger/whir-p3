@@ -75,8 +75,9 @@ fn transpose_poly_for_svo<F: Field>(
     transposed_poly
 }
 
+// OLD VERSION:
 // Procedure 9. Page 37.
-fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
+fn compute_accumulators_eq_old<F: Field, EF: ExtensionField<F>>(
     poly: &EvaluationsList<F>,
     e_in: Vec<EF>,
     e_out: [Vec<EF>; NUM_OF_ROUNDS],
@@ -260,6 +261,122 @@ fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
         )
 }
 
+// Procedure 9. Page 37.
+fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
+    poly: &EvaluationsList<F>,
+    e_in: Vec<EF>,
+    e_out: [Vec<EF>; NUM_OF_ROUNDS],
+) -> Accumulators<EF> {
+    let l = poly.num_variables();
+    let half_l = l / 2;
+
+    let x_out_num_vars = half_l - NUM_OF_ROUNDS + (l % 2);
+    let x_num_vars = l - NUM_OF_ROUNDS;
+    debug_assert_eq!(half_l + x_out_num_vars, x_num_vars);
+
+    let poly_evals = poly.as_slice();
+
+    (0..1 << x_out_num_vars)
+        .into_par_iter()
+        .map(|x_out| {
+            // Each thread will compute its own set of local accumulators.
+            // This avoids mutable state sharing and the need for locks.
+            let mut local_accumulators = Accumulators::<EF>::new_empty();
+
+            let mut temp_accumulators = [EF::ZERO; 8];
+
+            let num_x_in = 1 << half_l;
+
+            for x_in in 0..num_x_in {
+                let e_in_value = e_in[x_in];
+
+                // For each beta in {0,1}^3, we update tA(beta) += e_in[x_in] * p(beta, x_in, x_out)
+                for i in 0..8 {
+                    let beta = i << x_num_vars;
+                    let index = beta | (x_in << x_out_num_vars) | x_out; // beta | x_in | x_out
+                    temp_accumulators[i] += e_in_value * poly_evals[index]; // += e_in[x_in] * p(beta, x_in, x_out)
+                }
+            }
+
+            // Hardcoded accumulator distribution
+            // This populates the `local_accumulators` for this specific `x_out`.
+            let temp_acc = &temp_accumulators;
+
+            // Pre-fetch e_out values to avoid repeated indexing and allocations.
+
+            // e_out for round i = 0: y in {0,1}^2.
+            let e0_0 = e_out[0][x_out]; // e_out_0(0,0, x_out)
+            let e0_1 = e_out[0][(1 << x_out_num_vars) | x_out]; // e_out_0(0,1, x_out)
+            let e0_2 = e_out[0][(2 << x_out_num_vars) | x_out]; // e_out_0(1,0, x_out)
+            let e0_3 = e_out[0][(3 << x_out_num_vars) | x_out]; // e_out_0(1,1, x_out)
+            // e_out for round i = 1: y in {0,1}.
+            let e1_0 = e_out[1][x_out]; // e_out_1(0, x_out)
+            let e1_1 = e_out[1][(1 << x_out_num_vars) | x_out]; // e_out_1(1, x_out)
+            // e_out for round i = 2: there is no y.
+            let e2 = e_out[2][x_out]; // e_out_2(x_out)
+
+            // Now we do not use the idx4 function since we are directly computing the indices.
+            // We go through each beta = (v, u, y) in {0, 1}^3. We don't compute the cases where the digits are
+            // infinity because we won't need them.
+            // Recall that in `v || u` determines the accumulator's index, `y` determines the e_out facor, and the
+            // whole beta determines de temp_acc.
+
+            // beta = (0,0,0)
+            local_accumulators.accumulate(0, 0, e0_0 * temp_acc[0]); // u = 0, y = 00
+            local_accumulators.accumulate(1, 0, e1_0 * temp_acc[0]); // v = 0, u = 0, y = 0, 
+            local_accumulators.accumulate(2, 0, e2 * temp_acc[0]); // v = 00, u = 0
+
+            // beta = (0,0,1)
+            local_accumulators.accumulate(0, 0, e0_1 * temp_acc[1]); // u = 0, y = 01
+            local_accumulators.accumulate(1, 0, e1_1 * temp_acc[1]); //  v = 0, u = 0, y = 1
+            local_accumulators.accumulate(2, 1, e2 * temp_acc[1]); // v = 00, u = 1
+
+            // beta = (0,1,0)
+            local_accumulators.accumulate(0, 0, e0_2 * temp_acc[2]); // u = 0, y = 10
+            local_accumulators.accumulate(1, 1, e1_0 * temp_acc[2]); // v = 0, u = 1, y = 0
+            local_accumulators.accumulate(2, 2, e2 * temp_acc[2]); // v = 01, u = 0
+
+            // beta = (0,1,1)
+            local_accumulators.accumulate(0, 0, e0_3 * temp_acc[3]); // u = 0, y = 11
+            local_accumulators.accumulate(1, 1, e1_1 * temp_acc[3]); // v = 0, u = 1, y = 1
+            local_accumulators.accumulate(2, 3, e2 * temp_acc[3]); // v = 01, u = 1
+
+            // beta = (1,0,0)
+            local_accumulators.accumulate(0, 1, e0_0 * temp_acc[4]); // u = 1, y = 00
+            local_accumulators.accumulate(1, 2, e1_0 * temp_acc[4]); // v = 1, u = 0, y = 0
+            local_accumulators.accumulate(2, 4, e2 * temp_acc[4]); // v = 10, u = 0
+
+            // beta = (1,0,1)
+            local_accumulators.accumulate(0, 1, e0_1 * temp_acc[5]); // u = 1, y = 01
+            local_accumulators.accumulate(1, 2, e1_1 * temp_acc[5]); // v = 1, u = 0, y = 1
+            local_accumulators.accumulate(2, 5, e2 * temp_acc[5]); // v = 10, u = 1
+
+            // beta = (1,1,0)
+            local_accumulators.accumulate(0, 1, e0_2 * temp_acc[6]); // u = 1, y = 10
+            local_accumulators.accumulate(1, 3, e1_0 * temp_acc[6]); // v = 1, u = 1, y = 0
+            local_accumulators.accumulate(2, 6, e2 * temp_acc[6]); // v = 11, u = 0
+
+            // beta = (1,1,1)
+            local_accumulators.accumulate(0, 1, e0_3 * temp_acc[7]); // u = 1, y = 11
+            local_accumulators.accumulate(1, 3, e1_1 * temp_acc[7]); // v = 1, u = 1, y = 1
+            local_accumulators.accumulate(2, 7, e2 * temp_acc[7]); // v = 11, u = 1
+
+            local_accumulators
+        })
+        // Reduce the results from all threads into a single Accumulators struct.
+        .reduce(
+            || Accumulators::<EF>::new_empty(),
+            |mut a, b| {
+                for (round_a, round_b) in a.accumulators.iter_mut().zip(b.accumulators.iter()) {
+                    for (acc_a, acc_b) in round_a.iter_mut().zip(round_b.iter()) {
+                        *acc_a += *acc_b;
+                    }
+                }
+                a
+            },
+        )
+}
+
 // Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
 pub fn eval_eq_in_hypercube<F: Field>(point: &Vec<F>) -> Vec<F> {
     let n = point.len();
@@ -358,11 +475,18 @@ where
 
     let mut t_2_evals = [EF::ZERO; 2];
 
+    // // OLD VERSION:
+    // t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
+    // t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[3];
+
+    // t_2_evals[1] += lagrange_evals_r_1[0] * accumulators_round_2[1];
+    // t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[4];
+
     t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
-    t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[3];
+    t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[2];
 
     t_2_evals[1] += lagrange_evals_r_1[0] * accumulators_round_2[1];
-    t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[4];
+    t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[3];
 
     // We compute l_2(0) and l_12inf)
     let linear_2_evals = compute_linear_function(&w.0[..2], &[r_1]);
@@ -408,15 +532,26 @@ where
 
     let mut t_3_evals = [EF::ZERO; 2];
 
-    t_3_evals[0] += lagrange_evals_r_2[0] * accumulators_round_3[0]; // (0,0,u=0)
-    t_3_evals[0] += lagrange_evals_r_2[1] * accumulators_round_3[3]; // (1,0,u=0)
-    t_3_evals[0] += lagrange_evals_r_2[2] * accumulators_round_3[9]; // (0,1,u=0)
-    t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[12]; // (1,1,u=0)
+    // // OLD VERSION:
+    // t_3_evals[0] += lagrange_evals_r_2[0] * accumulators_round_3[0]; // (0,0,u=0)
+    // t_3_evals[0] += lagrange_evals_r_2[1] * accumulators_round_3[3]; // (1,0,u=0)
+    // t_3_evals[0] += lagrange_evals_r_2[2] * accumulators_round_3[9]; // (0,1,u=0)
+    // t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[12]; // (1,1,u=0)
 
-    t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (0,0,u=1)
-    t_3_evals[1] += lagrange_evals_r_2[1] * accumulators_round_3[4]; // (1,0,u=1)
-    t_3_evals[1] += lagrange_evals_r_2[2] * accumulators_round_3[10]; // (0,1,u=1)
-    t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[13]; // (1,1,u=1)
+    // t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (0,0,u=1)
+    // t_3_evals[1] += lagrange_evals_r_2[1] * accumulators_round_3[4]; // (1,0,u=1)
+    // t_3_evals[1] += lagrange_evals_r_2[2] * accumulators_round_3[10]; // (0,1,u=1)
+    // t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[13]; // (1,1,u=1)
+
+    t_3_evals[0] += lagrange_evals_r_2[0] * accumulators_round_3[0]; // (v=00 u=0)
+    t_3_evals[0] += lagrange_evals_r_2[1] * accumulators_round_3[2]; // (10 0)
+    t_3_evals[0] += lagrange_evals_r_2[2] * accumulators_round_3[4]; // (01 0)
+    t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[6]; // (11 0)
+
+    t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (00 1)
+    t_3_evals[1] += lagrange_evals_r_2[1] * accumulators_round_3[3]; // (01 1)
+    t_3_evals[1] += lagrange_evals_r_2[2] * accumulators_round_3[5]; // (10 1)
+    t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[7]; // (11 1)
 
     // 2. For u in {0, 1, inf} compute S_3(u) = t_3(u) * l_3(u).
 

@@ -29,6 +29,7 @@ impl EvaluationPoint {
 }
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Accumulators<F: Field> {
+    // One accumulator vector per round (l_0 = 3).
     pub accumulators: [Vec<F>; 3],
 }
 
@@ -38,7 +39,11 @@ where
 {
     pub fn new_empty() -> Self {
         Accumulators {
-            accumulators: [vec![F::ZERO; 3], vec![F::ZERO; 9], vec![F::ZERO; 27]],
+            // In round 0, we have 2 accumulators: A_0(u) with u in {0, 1}.
+            // In round 1, we have 4 accumulators: A_1(v, u) with v in {0, 1} and u in {0, 1}.
+            // In round 2, we have 8 accumulators: A_2(v, u) with v in {0, 1}^2 and u in {0, 1}.
+            // We won't need accumulators with any digit as infinity.
+            accumulators: [vec![F::ZERO; 2], vec![F::ZERO; 4], vec![F::ZERO; 8]],
         }
     }
 
