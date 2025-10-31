@@ -305,7 +305,6 @@ where
     let round_poly_evals = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
 
     // 3. Send S_2(u) to the verifier.
-    // TODO: En realidad no hace falta mandar S_2(1) porque se deduce usando S_2(0).
     prover_state.add_extension_scalars(&round_poly_evals);
 
     // 4. Receive the challenge r_2 from the verifier.
@@ -341,7 +340,6 @@ where
     let accumulators_round_3 = accumulators.get_accumulators_for_round(2);
 
     let mut t_3_evals = [EF::ZERO; 2];
-
 
     t_3_evals[0] += lagrange_evals_r_2[0] * accumulators_round_3[0]; // (v=00 u=0)
     t_3_evals[0] += lagrange_evals_r_2[1] * accumulators_round_3[2]; // (10 0)
