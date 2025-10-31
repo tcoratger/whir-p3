@@ -138,7 +138,6 @@ where
     Ok(MultilinearPoint::new(randomness))
 }
 
-// ESta funcion anda para svo_2
 pub(crate) fn verify_sumcheck_rounds_svo<EF, F, Challenger>(
     verifier_state: &mut VerifierState<F, EF, Challenger>,
     claimed_sum: &mut EF,

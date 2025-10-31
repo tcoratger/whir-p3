@@ -86,7 +86,7 @@ where
 
         let (_, mut sum) = statement.combine::<F>(combination_randomness);
 
-        // We assume the the statemas has only one constraint.
+        // We assume the the statement has only one constraint.
         let w = statement.constraints[0].point.0.clone();
 
         let (r_1, r_2, r_3) =
@@ -94,6 +94,7 @@ where
         challenges.push(r_1);
         challenges.push(r_2);
         challenges.push(r_3);
+        // TODO: Check if we need to add pow_grinding somewhere else
         prover_state.pow_grinding(pow_bits);
 
 

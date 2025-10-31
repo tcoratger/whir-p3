@@ -63,8 +63,6 @@ pub struct RoundAccumlators<F: Field> {
     pub accumulators: Vec<F>,
 }
 
-
-
 // Precomputation needed for Procedure 9 (compute_accumulators).
 // Compute the evaluations eq(w_{l0 + 1}, ..., w_{l0 + l/2} ; x) for all x in {0,1}^l/2
 fn precompute_e_in<F: Field>(w: &MultilinearPoint<F>) -> Vec<F> {
@@ -89,7 +87,9 @@ fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_OF_ROUNDS
 }
 
 // Procedure 9. Page 37.
-fn compute_accumulators_eq<F: Field, EF: ExtensionField<F>>(
+// We compute only the accumulators that we'll use, that is,
+// A_i(v, u) for i in {0, 1, 2}, 
+fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
     poly: &EvaluationsList<F>,
     e_in: Vec<EF>,
     e_out: [Vec<EF>; NUM_OF_ROUNDS],
@@ -198,7 +198,7 @@ pub fn eval_eq_in_hypercube<F: Field>(point: &Vec<F>) -> Vec<F> {
     evals
 }
 
-
+// Given two multilinear points p and q, it evaluates eq(p, q).
 pub fn eval_eq_in_point<F: Field>(p: &[F], q: &[F]) -> F {
     let mut acc = F::ONE;
     for (&l, &r) in p.into_iter().zip(q) {
@@ -207,6 +207,9 @@ pub fn eval_eq_in_point<F: Field>(p: &[F], q: &[F]) -> F {
     acc
 }
 
+// Given the points w and r, we compute the linear function 
+// l(x) = eq( w_1,...w_{i-1} ; r_1,...r_{i-1} ) * eq(w_i, x)
+// Section 5.1, page 17.
 pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
     let round = w.len();
     debug_assert!(r.len() == round - 1);
@@ -221,6 +224,8 @@ pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
     [const_eq * (F::ONE - *w_i), const_eq * *w_i]
 }
 
+// Given the linear functions l and t, we compute S(0) and S(inf).
+// See Procedure 8, Page 35.
 fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
     [
         t[0] * l[0],                   // S(0)
@@ -244,7 +249,7 @@ where
     let e_out = precompute_e_out(w);
 
     // We compute all the accumulators A_i(v, u).
-    let accumulators = compute_accumulators_eq(poly, e_in, e_out);
+    let accumulators = compute_accumulators(poly, e_in, e_out);
 
     // ------------------   Round 1   ------------------
 
@@ -370,8 +375,9 @@ where
 }
 
 /// This function takes a list of evaluations and "folds" or "compresses" them according
-/// to the provided challenges `r_1, ..., r_{k}`. The result is a new evaluation table
-/// representing p(r_1, ..., r_{k}, x').
+/// to the provided challenges `r_1, ..., r_{k}`. The result is a new evaluation list
+/// representing p(r_1, ..., r_{k}, x) for all x in {0,1}^k.
+/// This implementation is based on Algorithm 2 (page 13), optimized for our case of use.
 pub fn fold_evals_with_challenges<F, EF>(
     evals: &EvaluationsList<F>,
     challenges: &[EF],
@@ -405,6 +411,7 @@ where
 }
 
 // Algorithm 5. Page 18.
+// Compute the remaining sumcheck rounds, from round l0 + 1 to round l.
 pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &mut EvaluationsList<EF>,
