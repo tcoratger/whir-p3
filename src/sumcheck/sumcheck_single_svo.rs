@@ -7,7 +7,10 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
         sumcheck_single::{SumcheckSingle, compute_sumcheck_polynomial},
-        sumcheck_small_value_eq::{algorithm_2, algorithm_5, small_value_sumcheck_three_rounds_eq},
+        sumcheck_small_value_eq::{
+            NUM_OF_ROUNDS, algorithm_5, fold_evals_with_challenges,
+            small_value_sumcheck_three_rounds_eq,
+        },
     },
     whir::statement::Statement,
 };
@@ -77,38 +80,42 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         assert_ne!(folding_factor, 0);
-        let mut res = Vec::with_capacity(folding_factor);
+        // Add this assert?
+        // assert!(folding_factor > NUM_SVO_ROUNDS);
 
-        let (mut weights, mut sum) = statement.combine::<F>(combination_randomness);
+        let mut challenges = Vec::with_capacity(folding_factor);
 
-        // We assume the the statemas has only one constraint.
+        let (weights_init, mut sum) = statement.combine::<F>(combination_randomness);
+
+        // We assume the statement has only one constraint.
         let w = statement.constraints[0].point.0.clone();
 
+        // First three rounds of sumcheck.
         let (r_1, r_2, r_3) =
             small_value_sumcheck_three_rounds_eq(prover_state, evals, &w, &mut sum);
-        res.push(r_1);
-        res.push(r_2);
-        res.push(r_3);
+        challenges.push(r_1);
+        challenges.push(r_2);
+        challenges.push(r_3);
 
-        let mut evals = join(|| weights.compress_svo(r_1), || evals.compress_ext_svo(r_1)).1;
+        let mut folded_evals = fold_evals_with_challenges(evals, &challenges);
+        let mut folded_weights = fold_evals_with_challenges(&weights_init, &challenges);
 
-        // Compress polynomials and update the sum.
-        join(|| evals.compress_svo(r_2), || weights.compress_svo(r_2));
+        // Final Rounds: l_0 + 2 to l
+        for _ in NUM_OF_ROUNDS..folding_factor {
+            let r_final = round(
+                prover_state,
+                &mut folded_evals,
+                &mut folded_weights,
+                &mut sum,
+                pow_bits,
+            );
+            challenges.push(r_final);
+        }
 
-        // Compress polynomials and update the sum.
-        join(|| evals.compress_svo(r_3), || weights.compress_svo(r_3));
+        challenges[NUM_OF_ROUNDS..].reverse();
 
-        let mut res_remaining: Vec<EF> = (3..folding_factor)
-            .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits))
-            .collect();
-
-        res_remaining.reverse();
-
-        res.extend(res_remaining);
-
-        let sumcheck = Self::new(evals, weights, sum);
-
-        (sumcheck, MultilinearPoint::new(res))
+        let sumcheck_instance = SumcheckSingle::<F, EF>::new(folded_evals, folded_weights, sum);
+        (sumcheck_instance, MultilinearPoint::new(challenges))
     }
 
     // - SVO for the first three rounds.
@@ -127,54 +134,9 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         assert_ne!(folding_factor, 0);
-        let mut res = Vec::with_capacity(folding_factor);
-
-        let (mut weights, mut sum) = statement.combine::<F>(combination_randomness);
-
-        // We assume the the statemas has only one constraint.
-        let w = statement.constraints[0].point.0.clone();
-
-        let (r_1, r_2, r_3) =
-            small_value_sumcheck_three_rounds_eq(prover_state, evals, &w, &mut sum);
-        res.push(r_1);
-        res.push(r_2);
-        res.push(r_3);
-
-        let mut evals = join(|| weights.compress_svo(r_1), || evals.compress_ext_svo(r_1)).1;
-
-        // Compress polynomials and update the sum.
-        join(|| evals.compress_svo(r_2), || weights.compress_svo(r_2));
-
-        // Compress polynomials and update the sum.
-        join(|| evals.compress_svo(r_3), || weights.compress_svo(r_3));
-
-        algorithm_5(prover_state, &mut evals, &w, &mut res, &mut sum);
-
-        // Final weight: eq(w, r).
-        weights = EvaluationsList::new(vec![w.eq_poly(&MultilinearPoint::new(res.clone()))]);
-
-        let sumcheck = Self::new(evals, weights, sum);
-
-        (sumcheck, MultilinearPoint::new(res))
-    }
-
-    pub fn from_base_evals_svo_3<Challenger>(
-        evals: &EvaluationsList<F>,
-        statement: &Statement<EF>,
-        combination_randomness: EF,
-        prover_state: &mut ProverState<F, EF, Challenger>,
-        folding_factor: usize,
-        pow_bits: usize,
-    ) -> (Self, MultilinearPoint<EF>)
-    where
-        F: TwoAdicField,
-        EF: TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    {
-        assert_ne!(folding_factor, 0);
         let mut challenges = Vec::with_capacity(folding_factor);
 
-        let (mut weights, mut sum) = statement.combine::<F>(combination_randomness);
+        let (_, mut sum) = statement.combine::<F>(combination_randomness);
 
         // We assume the the statemas has only one constraint.
         let w = statement.constraints[0].point.0.clone();
@@ -185,19 +147,21 @@ where
         challenges.push(r_2);
         challenges.push(r_3);
 
-        let folded_poly = algorithm_2(prover_state, &evals, &w, &mut sum, &mut challenges);
+        let mut folded_evals = fold_evals_with_challenges(evals, &challenges);
 
-        let mut evals: EvaluationsList<EF> = EvaluationsList::new(folded_poly);
-
-        // Fix the fourth variable at r_4.
-        evals.compress_svo(challenges[3]);
-
-        algorithm_5(prover_state, &mut evals, &w, &mut challenges, &mut sum);
+        algorithm_5(
+            prover_state,
+            &mut folded_evals,
+            &w,
+            &mut challenges,
+            &mut sum,
+        );
 
         // Final weight: eq(w, r).
-        weights = EvaluationsList::new(vec![w.eq_poly(&MultilinearPoint::new(challenges.clone()))]);
+        let weights =
+            EvaluationsList::new(vec![w.eq_poly(&MultilinearPoint::new(challenges.clone()))]);
 
-        let sumcheck = Self::new(evals, weights, sum);
+        let sumcheck = Self::new(folded_evals, weights, sum);
 
         (sumcheck, MultilinearPoint::new(challenges))
     }

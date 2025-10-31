@@ -11,6 +11,7 @@ use crate::{
     },
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
+    sumcheck::sumcheck_small_value_eq::NUM_OF_ROUNDS,
 };
 
 /// The full vector of folding randomness values, in reverse round order.
@@ -137,7 +138,70 @@ where
     Ok(MultilinearPoint::new(randomness))
 }
 
+// Este verifier sirve para svo
 pub(crate) fn verify_sumcheck_rounds_svo<EF, F, Challenger>(
+    verifier_state: &mut VerifierState<F, EF, Challenger>,
+    claimed_sum: &mut EF,
+    rounds: usize,
+    pow_bits: usize,
+) -> ProofResult<SumcheckRandomness<EF>>
+where
+    F: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+{
+    // Preallocate vector to hold the randomness values
+    let mut randomness = Vec::with_capacity(rounds);
+
+    let mut randomness_final: Vec<EF> = Vec::new();
+
+    for i in 0..rounds {
+        // Extract the first and third evaluations of the sumcheck polynomial
+        // and derive the second evaluation from the latest sum
+        // For SVO rounds, we only receive S(0) and S(inf), and deduce S(1) = sum - S(0)
+        let c0 = verifier_state.next_extension_scalar()?;
+        let c1 = *claimed_sum - c0; // S(1) = sum - S(0)
+        let c2 = verifier_state.next_extension_scalar()?;
+
+        // Optional PoW interaction (grinding resistance)
+        verifier_state.check_pow_grinding(pow_bits)?;
+
+        // Sample the next verifier folding randomness rᵢ
+        let rand: EF = verifier_state.sample();
+
+        // Update claimed sum using folding randomness
+        // For the first 3 SVO rounds (i=0,1,2), we use the special formula that matches
+        // the prover's computation in small_value_sumcheck_three_rounds
+        // For rounds after that (transition and final rounds), we use the standard
+        // SumcheckPolynomial evaluation formula.
+        if i < NUM_OF_ROUNDS {
+            // SVO rounds: use special formula matching the prover
+            *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
+        } else {
+            // Transition and final rounds: use standard polynomial evaluation
+            *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
+                .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
+        }
+
+        // Store randomness: first 3 SVO rounds from left to right, rest from right to left
+        if i < NUM_OF_ROUNDS {
+            randomness.push(rand);
+        } else {
+            randomness_final.push(rand);
+        }
+    }
+
+    // We reverse the order of the remaining challenges so that they are stored from right to left.
+    // This is because the original sumcheck fixes the polynomial variables from right to left.
+    randomness_final.reverse();
+
+    randomness.extend(randomness_final);
+
+    Ok(MultilinearPoint::new(randomness))
+}
+
+// ESta funcion anda para svo_2
+pub(crate) fn verify_sumcheck_rounds_svo_2<EF, F, Challenger>(
     verifier_state: &mut VerifierState<F, EF, Challenger>,
     claimed_sum: &mut EF,
     rounds: usize,

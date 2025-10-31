@@ -17,7 +17,9 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         statement::{Statement, constraint::Constraint, point::ConstraintPoint},
-        verifier::sumcheck::{verify_sumcheck_rounds, verify_sumcheck_rounds_svo},
+        verifier::sumcheck::{
+            verify_sumcheck_rounds, verify_sumcheck_rounds_svo, verify_sumcheck_rounds_svo_2,
+        },
     },
 };
 
@@ -384,7 +386,7 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     // ROUND 0
     let folding = folding_factors[0];
     let (mut sumcheck, mut prover_randomness) =
-        SumcheckSingle::from_base_evals_svo_3(&poly, &statement, alpha, prover, folding, 0);
+        SumcheckSingle::from_base_evals_svo_2(&poly, &statement, alpha, prover, folding, 0);
 
     // Track how many variables remain to fold
     let mut num_vars_inter = num_vars - folding;
@@ -458,7 +460,7 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
         // Extend r with verifier's folding challenges
         verifier_randomness = extend_point(
             &verifier_randomness,
-            &verify_sumcheck_rounds_svo(verifier, &mut sum, folding, 0).unwrap(),
+            &verify_sumcheck_rounds_svo_2(verifier, &mut sum, folding, 0).unwrap(),
         );
 
         num_vars_inter -= folding;
@@ -478,7 +480,7 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     let final_rounds = *folding_factors.last().unwrap();
     verifier_randomness = extend_point(
         &verifier_randomness,
-        &verify_sumcheck_rounds_svo(verifier, &mut sum, final_rounds, 0).unwrap(),
+        &verify_sumcheck_rounds_svo_2(verifier, &mut sum, final_rounds, 0).unwrap(),
     );
 
     // Check that the randomness vectors are the same
