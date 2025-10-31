@@ -8,7 +8,7 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use proptest::prelude::*;
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 
-use super::{sumcheck_single::SumcheckSingle, sumcheck_small_value_eq::eval_eq_in_point};
+use super::{sumcheck_single::SumcheckSingle};
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{
@@ -18,7 +18,7 @@ use crate::{
     whir::{
         statement::{Statement, constraint::Constraint, point::ConstraintPoint},
         verifier::sumcheck::{
-            verify_sumcheck_rounds, verify_sumcheck_rounds_svo, verify_sumcheck_rounds_svo_2,
+            verify_sumcheck_rounds, verify_sumcheck_rounds_svo,
         },
     },
 };
@@ -386,7 +386,7 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     // ROUND 0
     let folding = folding_factors[0];
     let (mut sumcheck, mut prover_randomness) =
-        SumcheckSingle::from_base_evals_svo_2(&poly, &statement, alpha, prover, folding, 0);
+        SumcheckSingle::from_base_evals_svo(&poly, &statement, alpha, prover, folding, 0);
 
     // Track how many variables remain to fold
     let mut num_vars_inter = num_vars - folding;
@@ -460,7 +460,7 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
         // Extend r with verifier's folding challenges
         verifier_randomness = extend_point(
             &verifier_randomness,
-            &verify_sumcheck_rounds_svo_2(verifier, &mut sum, folding, 0).unwrap(),
+            &verify_sumcheck_rounds_svo(verifier, &mut sum, folding, 0).unwrap(),
         );
 
         num_vars_inter -= folding;
@@ -480,7 +480,7 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     let final_rounds = *folding_factors.last().unwrap();
     verifier_randomness = extend_point(
         &verifier_randomness,
-        &verify_sumcheck_rounds_svo_2(verifier, &mut sum, final_rounds, 0).unwrap(),
+        &verify_sumcheck_rounds_svo(verifier, &mut sum, final_rounds, 0).unwrap(),
     );
 
     // Check that the randomness vectors are the same
@@ -507,24 +507,6 @@ fn run_sumcheck_test_svo(folding_factors: &[usize], num_points: &[usize]) {
     assert_eq!(sum, final_folded_value_transcript * eq_eval);
 }
 
-#[test]
-fn test_sumcheck_svo() {
-    // It doesn't work with folding factor smaller than 6:
-    // run_sumcheck_test_svo(&[5, 0], &[1]);
-
-    run_sumcheck_test_svo(&[6, 0], &[1]);
-    run_sumcheck_test_svo(&[7, 0], &[1]);
-    run_sumcheck_test_svo(&[8, 0], &[1]);
-    run_sumcheck_test_svo(&[16, 0], &[1]);
-
-    // It doesn't work with more than one folding factor (that is, more than one iteration of sumcheck:
-    //run_sumcheck_test_svo(&[6, 6], &[1]);
-    //run_sumcheck_test_svo(&[6, 1], &[1]);
-    //run_sumcheck_test_svo(&[7, 7, 7], &[1, 1]);
-
-    // It doesn't work with num_points > 1:
-    //run_sumcheck_test_svo(&[6, 0], &[5]);
-}
 
 fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     // The number of folding stages must match the number of point constraints plus final round.
@@ -909,6 +891,26 @@ fn test_sumcheck_prover() {
     run_sumcheck_test_skips(&[8, 2], &[3]);
     run_sumcheck_test_skips(&[6, 2, 2], &[3, 3]);
 }
+
+#[test]
+fn test_sumcheck_prover_svo() {
+    // It doesn't work with folding factor smaller than 6:
+    // run_sumcheck_test_svo(&[5, 0], &[1]);
+
+    run_sumcheck_test_svo(&[6, 0], &[1]);
+    run_sumcheck_test_svo(&[7, 0], &[1]);
+    run_sumcheck_test_svo(&[8, 0], &[1]);
+    run_sumcheck_test_svo(&[16, 0], &[1]);
+
+    // It doesn't work with more than one folding factor (that is, more than one iteration of sumcheck:
+    //run_sumcheck_test_svo(&[6, 6], &[1]);
+    //run_sumcheck_test_svo(&[6, 1], &[1]);
+    //run_sumcheck_test_svo(&[7, 7, 7], &[1, 1]);
+
+    // It doesn't work with num_points > 1:
+    //run_sumcheck_test_svo(&[6, 0], &[5]);
+}
+
 
 proptest! {
     #[test]

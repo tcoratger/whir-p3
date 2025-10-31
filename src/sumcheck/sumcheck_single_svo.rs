@@ -7,7 +7,7 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
         sumcheck_single::{SumcheckSingle, compute_sumcheck_polynomial},
-        sumcheck_small_value_eq::{
+        sumcheck_small_value::{
             NUM_OF_ROUNDS, algorithm_5, fold_evals_with_challenges,
             small_value_sumcheck_three_rounds_eq,
         },
@@ -66,61 +66,9 @@ where
     F: Field + Ord,
     EF: ExtensionField<F>,
 {
-    pub fn from_base_evals_svo<Challenger>(
-        evals: &EvaluationsList<F>,
-        statement: &Statement<EF>,
-        combination_randomness: EF,
-        prover_state: &mut ProverState<F, EF, Challenger>,
-        folding_factor: usize,
-        pow_bits: usize,
-    ) -> (Self, MultilinearPoint<EF>)
-    where
-        F: TwoAdicField,
-        EF: TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    {
-        assert_ne!(folding_factor, 0);
-        // Add this assert?
-        // assert!(folding_factor > NUM_SVO_ROUNDS);
-
-        let mut challenges = Vec::with_capacity(folding_factor);
-
-        let (weights_init, mut sum) = statement.combine::<F>(combination_randomness);
-
-        // We assume the statement has only one constraint.
-        let w = statement.constraints[0].point.0.clone();
-
-        // First three rounds of sumcheck.
-        let (r_1, r_2, r_3) =
-            small_value_sumcheck_three_rounds_eq(prover_state, evals, &w, &mut sum);
-        challenges.push(r_1);
-        challenges.push(r_2);
-        challenges.push(r_3);
-
-        let mut folded_evals = fold_evals_with_challenges(evals, &challenges);
-        let mut folded_weights = fold_evals_with_challenges(&weights_init, &challenges);
-
-        // Final Rounds: l_0 + 2 to l
-        for _ in NUM_OF_ROUNDS..folding_factor {
-            let r_final = round(
-                prover_state,
-                &mut folded_evals,
-                &mut folded_weights,
-                &mut sum,
-                pow_bits,
-            );
-            challenges.push(r_final);
-        }
-
-        challenges[NUM_OF_ROUNDS..].reverse();
-
-        let sumcheck_instance = SumcheckSingle::<F, EF>::new(folded_evals, folded_weights, sum);
-        (sumcheck_instance, MultilinearPoint::new(challenges))
-    }
-
     // - SVO for the first three rounds.
     // - Algorithm 5 for the remaining rounds.
-    pub fn from_base_evals_svo_2<Challenger>(
+    pub fn from_base_evals_svo<Challenger>(
         evals: &EvaluationsList<F>,
         statement: &Statement<EF>,
         combination_randomness: EF,
@@ -146,6 +94,9 @@ where
         challenges.push(r_1);
         challenges.push(r_2);
         challenges.push(r_3);
+        prover_state.pow_grinding(pow_bits);
+
+
 
         let mut folded_evals = fold_evals_with_challenges(evals, &challenges);
 

@@ -95,26 +95,6 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
                 });
             },
         );
-
-        group.bench_with_input(
-            BenchmarkId::new("SVO + Alg 5", num_vars),
-            &num_vars,
-            |b, &_num_vars| {
-                b.iter(|| {
-                    let mut prover = setup_prover();
-                    let combination_randomness: EF = prover.sample();
-                    let result = SumcheckSingle::from_base_evals_svo_2(
-                        &poly,
-                        &statement,
-                        combination_randomness,
-                        &mut prover,
-                        FOLDING_FACTOR,
-                        POW_BITS,
-                    );
-                    black_box(result);
-                });
-            },
-        );
     }
 
     group.finish();
