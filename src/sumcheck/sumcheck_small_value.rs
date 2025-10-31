@@ -88,7 +88,7 @@ fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_OF_ROUNDS
 
 // Procedure 9. Page 37.
 // We compute only the accumulators that we'll use, that is,
-// A_i(v, u) for i in {0, 1, 2}, 
+// A_i(v, u) for i in {0, 1, 2}, v in {0, 1}^{i}, and u in {0, 1}.
 fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
     poly: &EvaluationsList<F>,
     e_in: Vec<EF>,
@@ -139,10 +139,10 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
             // e_out for round i = 2: there is no y.
             let e2 = e_out[2][x_out]; // e_out_2(x_out)
 
-            // Now we do not use the idx4 function since we are directly computing the indices.
-            // We go through each beta = (v, u, y) in {0, 1}^3. We don't compute the cases where the digits are
+            // We do not use the idx4 function since we are directly computing the indices for efficiency.
+            // We go through each beta = (v, u, y) in {0, 1}^3; we don't compute the cases where the digits are
             // infinity because we won't need them.
-            // Recall that in `v || u` determines the accumulator's index, `y` determines the e_out facor, and the
+            // Recall that in `v || u` determines the accumulator's index, `y` determines the e_out factor, and the
             // whole beta determines de temp_acc.
 
             // beta = (0,0,0)
@@ -235,8 +235,8 @@ fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
 
 // Algorithm 6. Page 19.
 // Compute three sumcheck rounds using the small value optimizaition and split-eq accumulators.
-// It Returns the three challenges r_1, r_2, r_3
-pub fn small_value_sumcheck_three_rounds_eq<Challenger, F: Field, EF: ExtensionField<F>>(
+// It returns the three challenges r_1, r_2, r_3.
+pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
     w: &MultilinearPoint<EF>,
