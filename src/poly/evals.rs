@@ -278,27 +278,6 @@ where
 
         EvaluationsList::new(folded)
     }
-
-    #[inline]
-    #[instrument(skip_all)]
-    pub fn compress_ext_svo<EF: ExtensionField<F>>(&self, r: EF) -> EvaluationsList<EF> {
-        assert_ne!(self.num_variables(), 0);
-
-        // Fold between base and extension field elements
-        let fold = |slice: &[F]| -> EF { r * (slice[1] - slice[0]) + slice[0] };
-
-        let mid = self.num_evals() / 2;
-
-        // Fold first half with second half.
-        let folded = (0..mid)
-            .map(|i| {
-                let pair = [self.0[i], self.0[i + mid]];
-                fold(&pair)
-            })
-            .collect();
-
-        EvaluationsList::new(folded)
-    }
 }
 
 impl<'a, F> IntoIterator for &'a EvaluationsList<F> {
@@ -1438,31 +1417,6 @@ mod tests {
             let list_b = EvaluationsList::new(evals);
             let r_ext = EF4::from(r_base);
             let result_b_ext = list_b.compress_ext(r_ext);
-
-            // The results should be identical.
-            prop_assert_eq!(result_a_lifted, result_b_ext.as_slice());
-        }
-
-        #[test]
-        fn prop_compress_and_compress_ext_agree_svo(
-            n in 1..=6,
-            seed in any::<u64>(),
-        ) {
-            let mut rng = StdRng::seed_from_u64(seed);
-            let num_evals = 1 << n;
-            let evals: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
-            let r_base: F = rng.random();
-
-            // Path A: Use the in-place `compress` method.
-            let mut list_a = EvaluationsList::new(evals.clone());
-            list_a.compress_svo(r_base);
-            // Lift the result into the extension field for comparison.
-            let result_a_lifted: Vec<EF4> = list_a.as_slice().iter().map(|&x| EF4::from(x)).collect();
-
-            // Path B: Use the `compress_ext` method with the same challenge, lifted.
-            let list_b = EvaluationsList::new(evals);
-            let r_ext = EF4::from(r_base);
-            let result_b_ext = list_b.compress_ext_svo(r_ext);
 
             // The results should be identical.
             prop_assert_eq!(result_a_lifted, result_b_ext.as_slice());

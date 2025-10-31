@@ -92,7 +92,6 @@ where
 {
     // Compute the quadratic sumcheck polynomial for the current variable.
     let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
-
     prover_state.add_extension_scalar(sumcheck_poly.evaluations()[0]);
     prover_state.add_extension_scalar(sumcheck_poly.evaluations()[2]);
 
@@ -283,7 +282,6 @@ where
         let mut res = Vec::with_capacity(folding_factor);
 
         let (mut weights, mut sum) = statement.combine::<F>(combination_randomness);
-
         // In the first round base field evaluations are folded into extension field elements
         let (r, mut evals) = initial_round(prover_state, evals, &mut weights, &mut sum, pow_bits);
         res.push(r);
