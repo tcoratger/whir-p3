@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
@@ -129,11 +130,13 @@ where
         }
     }
 
-    pub fn commit_statement<HC, C, Challenger, const DIGEST_ELEMS: usize>(
+    pub fn commit_statement<HC, C, Challenger, Dft, const DIGEST_ELEMS: usize>(
         &mut self,
-        params: &WhirConfig<EF, F, HC, C, Challenger>,
+        params: &WhirConfig<EF, F, HC, C, Challenger, Dft>,
     ) where
+        F: TwoAdicField,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Dft: TwoAdicSubgroupDft<F>,
     {
         // TODO: Add params
         self.observe(DIGEST_ELEMS, Observe::MerkleDigest);
@@ -143,13 +146,14 @@ where
         }
     }
 
-    pub fn add_whir_proof<HC, C, Challenger, const DIGEST_ELEMS: usize>(
+    pub fn add_whir_proof<HC, C, Challenger, Dft, const DIGEST_ELEMS: usize>(
         &mut self,
-        params: &WhirConfig<EF, F, HC, C, Challenger>,
+        params: &WhirConfig<EF, F, HC, C, Challenger, Dft>,
     ) where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-        EF: TwoAdicField,
         F: TwoAdicField,
+        EF: TwoAdicField,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Dft: TwoAdicSubgroupDft<F>,
     {
         // TODO: Add statement
         if params.initial_statement {

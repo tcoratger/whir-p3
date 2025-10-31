@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
@@ -146,8 +147,8 @@ where
     ///
     /// Returns the complete `RoundState` ready for the first WHIR folding round.
     #[instrument(skip_all)]
-    pub fn initialize_first_round_state<MyChallenger, C, Challenger>(
-        prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
+    pub fn initialize_first_round_state<MyChallenger, C, Challenger, Dft>(
+        prover: &Prover<'_, EF, F, MyChallenger, C, Challenger, Dft>,
         prover_state: &mut ProverState<F, EF, Challenger>,
         mut statement: EqStatement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
@@ -156,6 +157,7 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
         MyChallenger: Clone,
         C: Clone,
+        Dft: TwoAdicSubgroupDft<F>,
     {
         // Append OOD constraints to statement for Reed-Solomon proximity testing
         statement.concatenate(&witness.ood_statement);

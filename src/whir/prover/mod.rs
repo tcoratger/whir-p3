@@ -3,7 +3,7 @@ use std::ops::Deref;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::{
     Matrix,
@@ -32,31 +32,34 @@ pub type Proof<W, const DIGEST_ELEMS: usize> = Vec<Vec<[W; DIGEST_ELEMS]>>;
 pub type Leafs<F> = Vec<Vec<F>>;
 
 #[derive(Debug)]
-pub struct Prover<'a, EF, F, H, C, Challenger>(
+pub struct Prover<'a, EF, F, H, C, Challenger, Dft>(
     /// Reference to the protocol configuration shared across prover components.
-    pub &'a WhirConfig<EF, F, H, C, Challenger>,
+    pub &'a WhirConfig<EF, F, H, C, Challenger, Dft>,
 )
 where
-    F: Field,
-    EF: ExtensionField<F>;
-
-impl<EF, F, H, C, Challenger> Deref for Prover<'_, EF, F, H, C, Challenger>
-where
-    F: Field,
+    F: TwoAdicField,
     EF: ExtensionField<F>,
+    Dft: TwoAdicSubgroupDft<F>;
+
+impl<EF, F, H, C, Challenger, Dft> Deref for Prover<'_, EF, F, H, C, Challenger, Dft>
+where
+    F: TwoAdicField,
+    EF: ExtensionField<F>,
+    Dft: TwoAdicSubgroupDft<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, Challenger>;
+    type Target = WhirConfig<EF, F, H, C, Challenger, Dft>;
 
     fn deref(&self) -> &Self::Target {
         self.0
     }
 }
 
-impl<EF, F, H, C, Challenger> Prover<'_, EF, F, H, C, Challenger>
+impl<EF, F, H, C, Challenger, Dft> Prover<'_, EF, F, H, C, Challenger, Dft>
 where
     F: TwoAdicField + Ord,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Dft: TwoAdicSubgroupDft<F>,
 {
     /// Validates that the total number of variables expected by the prover configuration
     /// matches the number implied by the folding schedule and the final rounds.
@@ -136,9 +139,8 @@ where
     /// # Errors
     /// Returns an error if the witness or statement are invalid, or if a round fails.
     #[instrument(skip_all)]
-    pub fn prove<Dft: TwoAdicSubgroupDft<F>, const DIGEST_ELEMS: usize>(
+    pub fn prove<const DIGEST_ELEMS: usize>(
         &self,
-        dft: &Dft,
         prover_state: &mut ProverState<F, EF, Challenger>,
         statement: EqStatement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
@@ -166,7 +168,7 @@ where
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
-            self.round(dft, round, prover_state, &mut round_state)?;
+            self.round(round, prover_state, &mut round_state)?;
         }
 
         // Reverse the vector of verifier challenges (used as evaluation point)
@@ -181,9 +183,8 @@ where
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = self.num_variables - self.folding_factor.total_number(round_index)))]
     #[allow(clippy::too_many_lines)]
-    fn round<const DIGEST_ELEMS: usize, Dft: TwoAdicSubgroupDft<F>>(
+    fn round<const DIGEST_ELEMS: usize>(
         &self,
-        dft: &Dft,
         round_index: usize,
         prover_state: &mut ProverState<F, EF, Challenger>,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
@@ -226,7 +227,7 @@ where
 
         // Perform DFT on the padded evaluations matrix
         let folded_matrix = info_span!("dft", height = padded.height(), width = padded.width())
-            .in_scope(|| dft.dft_algebra_batch(padded).to_row_major_matrix());
+            .in_scope(|| self.dft.dft_algebra_batch(padded).to_row_major_matrix());
 
         let mmcs = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
             self.merkle_hash.clone(),

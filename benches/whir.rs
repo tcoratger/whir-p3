@@ -32,8 +32,7 @@ type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 
 #[allow(clippy::type_complexity)]
 fn prepare_inputs() -> (
-    WhirConfig<EF, F, MerkleHash, MerkleCompress, MyChallenger>,
-    Radix2DFTSmallBatch<F>,
+    WhirConfig<EF, F, MerkleHash, MerkleCompress, MyChallenger, Radix2DFTSmallBatch<F>>,
     EvaluationsList<F>,
     EqStatement<EF>,
     MyChallenger,
@@ -80,6 +79,7 @@ fn prepare_inputs() -> (
         folding_factor,
         merkle_hash,
         merkle_compress,
+        dft: Radix2DFTSmallBatch::<F>::default(),
         soundness_type,
         starting_log_inv_rate: starting_rate,
         rs_domain_initial_reduction_factor,
@@ -115,30 +115,25 @@ fn prepare_inputs() -> (
     let mut domainsep = DomainSeparator::new(vec![]);
 
     // Commit protocol parameters and proof type to the domain separator.
-    domainsep.commit_statement::<_, _, _, 32>(&params);
-    domainsep.add_whir_proof::<_, _, _, 32>(&params);
+    domainsep.commit_statement::<_, _, _, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, _, _, 32>(&params);
 
     // Instantiate the Fiat-Shamir challenger from an empty seed and Keccak.
     let challenger = MyChallenger::new(poseidon16);
 
-    // DFT backend setup
-
-    // Construct a Radix-2 FFT backend that supports small batch DFTs over `F`.
-    let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
-
     // Return all preprocessed components needed to run commit/prove/verify benchmarks.
-    (params, dft, polynomial, statement, challenger, domainsep)
+    (params, polynomial, statement, challenger, domainsep)
 }
 
 fn benchmark_commit_and_prove(c: &mut Criterion) {
-    let (params, dft, polynomial, statement, challenger, domainsep) = prepare_inputs();
+    let (params, polynomial, statement, challenger, domainsep) = prepare_inputs();
 
     c.bench_function("commit", |b| {
         b.iter(|| {
             let mut prover_state = domainsep.to_prover_state(challenger.clone());
             let committer = CommitmentWriter::new(&params);
             let _witness = committer
-                .commit(&dft, &mut prover_state, polynomial.clone())
+                .commit(&mut prover_state, polynomial.clone())
                 .unwrap();
         });
     });
@@ -148,12 +143,12 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
             let mut prover_state = domainsep.to_prover_state(challenger.clone());
             let committer = CommitmentWriter::new(&params);
             let witness = committer
-                .commit(&dft, &mut prover_state, polynomial.clone())
+                .commit(&mut prover_state, polynomial.clone())
                 .unwrap();
 
             let prover = Prover(&params);
             prover
-                .prove(&dft, &mut prover_state, statement.clone(), witness)
+                .prove(&mut prover_state, statement.clone(), witness)
                 .unwrap();
         });
     });

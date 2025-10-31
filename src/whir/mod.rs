@@ -66,6 +66,7 @@ pub fn make_whir_things(
         folding_factor,
         merkle_hash,
         merkle_compress,
+        dft: Radix2DFTSmallBatch::<F>::default(),
         soundness_type,
         starting_log_inv_rate: 1,
         univariate_skip: use_univariate_skip,
@@ -73,7 +74,7 @@ pub fn make_whir_things(
 
     // Create unified configuration combining protocol and polynomial parameters
     let params =
-        WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
+        WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger, _>::new(num_variables, whir_params);
 
     // Define test polynomial: all coefficients = 1 for simple verification
     //
@@ -98,9 +99,9 @@ pub fn make_whir_things(
     // Setup Fiat-Shamir transcript structure for non-interactive proof generation
     let mut domainsep = DomainSeparator::new(vec![]);
     // Add statement commitment to transcript
-    domainsep.commit_statement::<_, _, _, 32>(&params);
+    domainsep.commit_statement::<_, _, _, _, 32>(&params);
     // Add proof structure to transcript
-    domainsep.add_whir_proof::<_, _, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, _, _, 32>(&params);
 
     // Create fresh RNG and challenger for transcript randomness
     let mut rng = SmallRng::seed_from_u64(1);
@@ -111,20 +112,16 @@ pub fn make_whir_things(
 
     // Create polynomial commitment using Merkle tree over evaluation domain
     let committer = CommitmentWriter::new(&params);
-    // DFT evaluator for polynomial
-    let dft = Radix2DFTSmallBatch::<F>::default();
 
     // Commit to polynomial evaluations and generate cryptographic witness
-    let witness = committer
-        .commit(&dft, &mut prover_state, polynomial)
-        .unwrap();
+    let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
     // Initialize WHIR prover with the configured parameters
     let prover = Prover(&params);
 
     // Generate WHIR proof
     prover
-        .prove(&dft, &mut prover_state, statement.clone(), witness)
+        .prove(&mut prover_state, statement.clone(), witness)
         .unwrap();
 
     // Sample final challenge to ensure transcript consistency between prover/verifier

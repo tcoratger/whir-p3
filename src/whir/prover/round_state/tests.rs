@@ -43,7 +43,7 @@ fn make_test_config(
     initial_statement: bool,
     folding_factor: usize,
     pow_bits: usize,
-) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger> {
+) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger, Radix2DFTSmallBatch<F>> {
     let mut rng = SmallRng::seed_from_u64(1);
     let perm = Perm::new_from_rng_128(&mut rng);
 
@@ -60,6 +60,7 @@ fn make_test_config(
         folding_factor: FoldingFactor::Constant(folding_factor),
         merkle_hash,
         merkle_compress,
+        dft: Radix2DFTSmallBatch::<F>::default(),
         soundness_type: SecurityAssumption::CapacityBound,
         starting_log_inv_rate: 1,
         univariate_skip: false,
@@ -80,7 +81,7 @@ fn make_test_config(
 /// This is used as a boilerplate step before running the first WHIR round.
 #[allow(clippy::type_complexity)]
 fn setup_domain_and_commitment(
-    params: &WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger>,
+    params: &WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger, Radix2DFTSmallBatch<F>>,
     poly: EvaluationsList<F>,
 ) -> (
     DomainSeparator<EF4, F>,
@@ -91,10 +92,10 @@ fn setup_domain_and_commitment(
     let mut domsep = DomainSeparator::new(vec![]);
 
     // Observe the public statement into the transcript for binding.
-    domsep.commit_statement::<_, _, _, 8>(params);
+    domsep.commit_statement::<_, _, _, _, 8>(params);
 
     // Reserve transcript space for WHIR proof messages.
-    domsep.add_whir_proof::<_, _, _, 8>(params);
+    domsep.add_whir_proof::<_, _, _, _, 8>(params);
 
     let mut rng = SmallRng::seed_from_u64(1);
     let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
@@ -107,13 +108,7 @@ fn setup_domain_and_commitment(
 
     // Perform DFT-based commitment to the polynomial, producing a witness
     // which includes the Merkle tree and polynomial values.
-    let witness = committer
-        .commit(
-            &Radix2DFTSmallBatch::<F>::default(),
-            &mut prover_state,
-            poly,
-        )
-        .unwrap();
+    let witness = committer.commit(&mut prover_state, poly).unwrap();
 
     // Return all initialized components needed for round state setup.
     (domsep, prover_state, witness)
