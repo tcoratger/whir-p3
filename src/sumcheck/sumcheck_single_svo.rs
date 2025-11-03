@@ -11,7 +11,8 @@ use crate::{
             svo_three_rounds,
         },
     },
-    whir::statement::Statement,
+    whir::constraints::{evaluator::Constraint, statement::EqStatement},
+    
 };
 
 impl<F, EF> SumcheckSingle<F, EF>
@@ -24,11 +25,10 @@ where
     // See Algorithm 6 (page 19) in <https://eprint.iacr.org/2025/1117>.
     pub fn from_base_evals_svo<Challenger>(
         evals: &EvaluationsList<F>,
-        statement: &Statement<EF>,
-        combination_randomness: EF,
         prover_state: &mut ProverState<F, EF, Challenger>,
         folding_factor: usize,
         pow_bits: usize,
+        constraint: &Constraint<F, EF>,
     ) -> (Self, MultilinearPoint<EF>)
     where
         F: TwoAdicField,
@@ -38,19 +38,15 @@ where
         assert_ne!(folding_factor, 0);
         let mut challenges = Vec::with_capacity(folding_factor);
 
-        // TODO: Since we are assuming that `statement` has only one constraint we wouldn't need this
-        //`combine` nor the `combination_randomness` argument.
-        let (_, mut sum) = statement.combine::<F>(combination_randomness);
-
         // Here we are assuming the the statemas has only one constraint.
-        let w = &statement.constraints[0].point.0;
+        let mut sum = constraint.eq_statement.evaluations[0];
+        let w = &constraint.eq_statement.points[0];
 
         let (r_1, r_2, r_3) =
             svo_three_rounds(prover_state, evals, &w, &mut sum);
         challenges.extend_from_slice(&[r_1, r_2, r_3]);
 
         prover_state.pow_grinding(pow_bits);
-
 
         // We fold to obtaind p(r1, r2, r3, x).
         let mut folded_evals = fold_evals_with_challenges(evals, &challenges);

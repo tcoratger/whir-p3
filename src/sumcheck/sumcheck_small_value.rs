@@ -4,11 +4,12 @@ use crate::{
 };
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
+use p3_matrix::dense:: RowMajorMatrixView;
 
 use std::ops::Add;
 
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::eq::eval_eq;
+use p3_multilinear_util::eq_batch::eval_eq_batch;
 
 // We apply the small value optimization (SVO) for the first three sumcheck rounds,
 // following this paper <https://eprint.iacr.org/2025/1117>.
@@ -193,9 +194,13 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
 // Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
 pub fn eval_eq_in_hypercube<F: Field>(point: &Vec<F>) -> Vec<F> {
     let n = point.len();
-    let mut evals = F::zero_vec(1 << n);
-    eval_eq::<_, _, false>(point, &mut evals, F::ONE);
-    evals
+    let mut out = F::zero_vec(1 << n); 
+    eval_eq_batch::<F, F, false>(
+        RowMajorMatrixView::new_col(&point),
+        &mut out,
+        &[F::ONE],
+    );
+    out 
 }
 
 // Given two multilinear points p and q, it evaluates eq(p, q).
@@ -272,6 +277,7 @@ where
     let r_1: EF = prover_state.sample();
 
     let eval_1 = *sum - round_poly_evals[0];
+
     *sum = round_poly_evals[1] * r_1.square()
         + (eval_1 - round_poly_evals[0] - round_poly_evals[1]) * r_1
         + round_poly_evals[0];
@@ -282,7 +288,7 @@ where
     // L_inf (x) = (x - 1)x
     let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1];
 
-    // ------------------ Round 2 ------------------
+    // ------------------  Round 2  ------------------ 
 
     // 1. For u in {0, 1} compute t_2(u).
     // First we take the accumulators A_2(v, u).
@@ -331,7 +337,7 @@ where
         + (eval_1 - round_poly_evals[0] - round_poly_evals[1]) * r_2
         + round_poly_evals[0];
 
-    // Round 3
+    // ------------------  Round 3  ------------------ 
 
     // 1. For u in {0, 1} compute t_3(u).
 
@@ -591,17 +597,17 @@ mod tests {
     type EF = BinomialExtensionField<BabyBear, 4>;
 
     #[test]
-    fn test_evals_serial_three_vars_matches_new_from_point() {
+    fn test_evals_eq_in_hypercube_three_vars_matches_new_from_point() {
         let p = vec![F::from_u64(2), F::from_u64(3), F::from_u64(5)];
         let point = MultilinearPoint::new(p.to_vec());
         let value = F::from_u64(1);
 
-        let via_method = EvaluationsList::new_from_point(&point, value)
+        let expected = EvaluationsList::new_from_point(&point, value)
             .into_iter()
             .collect::<Vec<_>>();
-        let via_serial = eval_eq_in_hypercube(&p);
+        let result = eval_eq_in_hypercube(&p);
 
-        assert_eq!(via_serial, via_method);
+        assert_eq!(expected, result);
     }
 
     #[test]
