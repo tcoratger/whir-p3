@@ -13,12 +13,12 @@ use rand::distr::{Distribution, StandardUniform};
 /// Designed for verifier use: avoids parallelism by enforcing sequential Horner evaluation.
 /// The verifier should be run on a cheap device.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub struct WhirDensePolynomial<F: Field> {
+pub struct UnivariatePolynomial<F: Field> {
     /// The coefficient of `x^i` is stored at location `i` in `self.coeffs`.
     pub coeffs: Vec<F>,
 }
 
-impl<F: Field> WhirDensePolynomial<F> {
+impl<F: Field> UnivariatePolynomial<F> {
     /// Constructs a new polynomial from a list of coefficients.
     #[must_use]
     pub fn from_coefficients_slice(coeffs: &[F]) -> Self {
@@ -164,8 +164,8 @@ impl<F: Field> WhirDensePolynomial<F> {
     }
 }
 
-impl<F: Field> Add for &WhirDensePolynomial<F> {
-    type Output = WhirDensePolynomial<F>;
+impl<F: Field> Add for &UnivariatePolynomial<F> {
+    type Output = UnivariatePolynomial<F>;
 
     /// Adds two dense polynomials and returns the resulting polynomial.
     ///
@@ -180,8 +180,8 @@ impl<F: Field> Add for &WhirDensePolynomial<F> {
     ///
     /// # Returns
     ///
-    /// A new `WhirDensePolynomial<F>` representing the sum of the two input polynomials.
-    fn add(self, other: Self) -> WhirDensePolynomial<F> {
+    /// A new `UnivariatePolynomial<F>` representing the sum of the two input polynomials.
+    fn add(self, other: Self) -> UnivariatePolynomial<F> {
         let (big, small) = if self.coeffs.len() >= other.coeffs.len() {
             (self, other)
         } else {
@@ -191,18 +191,18 @@ impl<F: Field> Add for &WhirDensePolynomial<F> {
         for (i, coeff) in small.coeffs.iter().enumerate() {
             sum[i] += *coeff;
         }
-        WhirDensePolynomial::from_coefficients_vec(sum)
+        UnivariatePolynomial::from_coefficients_vec(sum)
     }
 }
 
-impl<F: Field> AddAssign<&Self> for WhirDensePolynomial<F> {
+impl<F: Field> AddAssign<&Self> for UnivariatePolynomial<F> {
     fn add_assign(&mut self, other: &Self) {
         *self = &*self + other;
     }
 }
 
-impl<F: Field> Mul for &WhirDensePolynomial<F> {
-    type Output = WhirDensePolynomial<F>;
+impl<F: Field> Mul for &UnivariatePolynomial<F> {
+    type Output = UnivariatePolynomial<F>;
 
     /// Multiplies two dense polynomials and returns the resulting polynomial.
     ///
@@ -218,10 +218,10 @@ impl<F: Field> Mul for &WhirDensePolynomial<F> {
     ///
     /// # Returns
     ///
-    /// A new `WhirDensePolynomial<F>` representing the product of the two input polynomials.
-    fn mul(self, other: Self) -> WhirDensePolynomial<F> {
+    /// A new `UnivariatePolynomial<F>` representing the product of the two input polynomials.
+    fn mul(self, other: Self) -> UnivariatePolynomial<F> {
         if self.is_zero() || other.is_zero() {
-            return WhirDensePolynomial::default();
+            return UnivariatePolynomial::default();
         }
         let mut prod = vec![F::ZERO; self.coeffs.len() + other.coeffs.len() - 1];
         for i in 0..self.coeffs.len() {
@@ -229,11 +229,11 @@ impl<F: Field> Mul for &WhirDensePolynomial<F> {
                 prod[i + j] += self.coeffs[i] * other.coeffs[j];
             }
         }
-        WhirDensePolynomial::from_coefficients_vec(prod)
+        UnivariatePolynomial::from_coefficients_vec(prod)
     }
 }
 
-impl<F: Field> MulAssign<&Self> for WhirDensePolynomial<F> {
+impl<F: Field> MulAssign<&Self> for UnivariatePolynomial<F> {
     fn mul_assign(&mut self, other: &Self) {
         *self = &*self * other;
     }
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn test_zero_polynomial() {
         // A zero polynomial has no coefficients
-        let poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![]);
+        let poly = UnivariatePolynomial::<F>::from_coefficients_vec(vec![]);
         assert!(poly.is_zero());
         assert_eq!(poly.evaluate(F::from_u64(42)), F::ZERO);
     }
@@ -263,7 +263,7 @@ mod tests {
     fn test_constant_polynomial() {
         // Polynomial: f(x) = 7
         let c0 = F::from_u64(7);
-        let poly = WhirDensePolynomial::from_coefficients_vec(vec![c0]);
+        let poly = UnivariatePolynomial::from_coefficients_vec(vec![c0]);
 
         // f(0)
         assert_eq!(poly.evaluate(F::ZERO), c0);
@@ -278,7 +278,7 @@ mod tests {
         // Polynomial: f(x) = 3 + 4x
         let c0 = F::from_u64(3);
         let c1 = F::from_u64(4);
-        let poly = WhirDensePolynomial::from_coefficients_vec(vec![c0, c1]);
+        let poly = UnivariatePolynomial::from_coefficients_vec(vec![c0, c1]);
 
         // f(0)
         assert_eq!(poly.evaluate(F::ZERO), c0);
@@ -294,7 +294,7 @@ mod tests {
         let c0 = F::from_u64(2);
         let c1 = F::from_u64(0);
         let c2 = F::from_u64(5);
-        let poly = WhirDensePolynomial::from_coefficients_vec(vec![c0, c1, c2]);
+        let poly = UnivariatePolynomial::from_coefficients_vec(vec![c0, c1, c2]);
 
         // f(0)
         assert_eq!(poly.evaluate(F::ZERO), c0);
@@ -311,7 +311,7 @@ mod tests {
         let c1 = F::from_u64(2);
         let c2 = F::from_u64(3);
         let c3 = F::from_u64(4);
-        let poly = WhirDensePolynomial::from_coefficients_vec(vec![c0, c1, c2, c3]);
+        let poly = UnivariatePolynomial::from_coefficients_vec(vec![c0, c1, c2, c3]);
 
         // f(0)
         assert_eq!(poly.evaluate(F::ZERO), c0);
@@ -327,29 +327,30 @@ mod tests {
 
     #[test]
     fn test_is_zero_various_cases() {
-        let zero_poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![]);
+        let zero_poly = UnivariatePolynomial::<F>::from_coefficients_vec(vec![]);
         assert!(zero_poly.is_zero());
 
-        let zero_poly_all_zeros = WhirDensePolynomial::<F>::from_coefficients_vec(vec![F::ZERO; 5]);
+        let zero_poly_all_zeros =
+            UnivariatePolynomial::<F>::from_coefficients_vec(vec![F::ZERO; 5]);
         assert!(zero_poly_all_zeros.is_zero());
 
-        let non_zero_poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![F::ONE]);
+        let non_zero_poly = UnivariatePolynomial::<F>::from_coefficients_vec(vec![F::ONE]);
         assert!(!non_zero_poly.is_zero());
     }
 
     #[test]
     fn test_mul() {
         let rng = &mut StdRng::seed_from_u64(0);
-        let pol1 = WhirDensePolynomial::<F>::random(rng, 5);
-        let pol2 = WhirDensePolynomial::<F>::random(rng, 7);
+        let pol1 = UnivariatePolynomial::<F>::random(rng, 5);
+        let pol2 = UnivariatePolynomial::<F>::random(rng, 7);
         let point: EF4 = rng.random();
         assert_eq!(
             (&pol1 * &pol2).evaluate(point),
             pol1.evaluate(point) * pol2.evaluate(point)
         );
 
-        let zero_poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![]);
-        let non_zero_poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![F::ONE, F::ZERO]);
+        let zero_poly = UnivariatePolynomial::<F>::from_coefficients_vec(vec![]);
+        let non_zero_poly = UnivariatePolynomial::<F>::from_coefficients_vec(vec![F::ONE, F::ZERO]);
         assert!(zero_poly.is_zero());
         assert_eq!(&non_zero_poly * &zero_poly, zero_poly.clone());
         assert_eq!(&zero_poly * &non_zero_poly, zero_poly);
@@ -359,16 +360,16 @@ mod tests {
     #[test]
     fn test_add() {
         let rng = &mut StdRng::seed_from_u64(0);
-        let pol1 = WhirDensePolynomial::<F>::random(rng, 5);
-        let pol2 = WhirDensePolynomial::<F>::random(rng, 7);
+        let pol1 = UnivariatePolynomial::<F>::random(rng, 5);
+        let pol2 = UnivariatePolynomial::<F>::random(rng, 7);
         let point: EF4 = rng.random();
         assert_eq!(
             (&pol1 + &pol2).evaluate(point),
             pol1.evaluate(point) + pol2.evaluate(point)
         );
 
-        let zero_poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![]);
-        let non_zero_poly = WhirDensePolynomial::<F>::from_coefficients_vec(vec![F::ONE, F::ZERO]);
+        let zero_poly = UnivariatePolynomial::<F>::from_coefficients_vec(vec![]);
+        let non_zero_poly = UnivariatePolynomial::<F>::from_coefficients_vec(vec![F::ONE, F::ZERO]);
         assert!(zero_poly.is_zero());
         assert_eq!(&non_zero_poly + &zero_poly, non_zero_poly);
         assert_eq!(&zero_poly + &non_zero_poly, non_zero_poly);
@@ -379,18 +380,18 @@ mod tests {
     fn test_lagrange_interpolation() {
         let mut rng = StdRng::seed_from_u64(0);
         let degree = 5;
-        let pol = WhirDensePolynomial::random(&mut rng, 5);
+        let pol = UnivariatePolynomial::random(&mut rng, 5);
         let points = (0..=degree)
             .map(|_| {
                 let point = rng.random::<F>();
                 (point, pol.evaluate(point))
             })
             .collect::<Vec<_>>();
-        let interpolated = WhirDensePolynomial::lagrange_interpolation(&points).unwrap();
+        let interpolated = UnivariatePolynomial::lagrange_interpolation(&points).unwrap();
         assert_eq!(pol, interpolated);
 
         assert!(
-            WhirDensePolynomial::<F>::lagrange_interpolation(&[])
+            UnivariatePolynomial::<F>::lagrange_interpolation(&[])
                 .unwrap()
                 .is_zero()
         );
@@ -403,14 +404,14 @@ mod tests {
             (F::from_u64(1), F::from_u64(3)), // Duplicate x, different y
             (F::from_u64(2), F::from_u64(4)),
         ];
-        assert!(WhirDensePolynomial::<F>::lagrange_interpolation(&points).is_none());
+        assert!(UnivariatePolynomial::<F>::lagrange_interpolation(&points).is_none());
 
         let points = vec![
             (F::from_u64(1), F::from_u64(2)),
             (F::from_u64(2), F::from_u64(3)),
             (F::from_u64(2), F::from_u64(3)), // Duplicate x, same y
         ];
-        assert!(WhirDensePolynomial::<F>::lagrange_interpolation(&points).is_none());
+        assert!(UnivariatePolynomial::<F>::lagrange_interpolation(&points).is_none());
     }
 
     proptest! {
@@ -423,7 +424,7 @@ mod tests {
             //
             // This produces random coefficients c₀, c₁, ..., c_degree, forming:
             //     pol(x) = c₀ + c₁·x + c₂·x² + ... + c_degree·x^degree
-            let pol = WhirDensePolynomial::<F>::random(&mut rng, degree);
+            let pol = UnivariatePolynomial::<F>::random(&mut rng, degree);
 
             // STEP 2: Prepare a set of (x, y) pairs such that:
             //     - x values are unique (no duplicates)
@@ -451,7 +452,7 @@ mod tests {
             //
             // This reconstructs a new polynomial `interpolated` that satisfies:
             //     interpolated(x_i) = y_i  for all provided (x_i, y_i).
-            let interpolated = WhirDensePolynomial::lagrange_interpolation(&points).unwrap();
+            let interpolated = UnivariatePolynomial::lagrange_interpolation(&points).unwrap();
 
             // STEP 4: Assert that the interpolated polynomial matches the original.
             //
@@ -478,10 +479,10 @@ mod tests {
     ///
     /// # Returns
     ///
-    /// A `proptest::Strategy` producing `WhirDensePolynomial<F>` instances.
+    /// A `proptest::Strategy` producing `UnivariatePolynomial<F>` instances.
     fn any_polynomial(
         max_deg: std::ops::Range<usize>,
-    ) -> impl Strategy<Value = WhirDensePolynomial<F>> {
+    ) -> impl Strategy<Value = UnivariatePolynomial<F>> {
         max_deg
             // 1. Pick a random degree `deg` in 0..max_deg
             .prop_flat_map(move |deg| {
@@ -491,7 +492,7 @@ mod tests {
             // 3. Convert each `u64` into `F` and build the polynomial
             .prop_map(|coeffs_u64| {
                 let coeffs_f = coeffs_u64.into_iter().map(F::from_u64).collect();
-                WhirDensePolynomial::from_coefficients_vec(coeffs_f)
+                UnivariatePolynomial::from_coefficients_vec(coeffs_f)
             })
     }
 
@@ -524,7 +525,7 @@ mod tests {
         fn prop_add_identity(
             a in any_polynomial(0..5),
         ) {
-            let zero = WhirDensePolynomial::<F>::default();
+            let zero = UnivariatePolynomial::<F>::default();
             prop_assert_eq!(&a + &zero, a.clone());
             prop_assert_eq!(&zero + &a, a);
         }
@@ -557,7 +558,7 @@ mod tests {
             a in any_polynomial(0..5),
         ) {
             // Build the constant-1 polynomial
-            let one = WhirDensePolynomial::from_coefficients_vec(vec![F::ONE]);
+            let one = UnivariatePolynomial::from_coefficients_vec(vec![F::ONE]);
             prop_assert_eq!(&a * &one, a.clone());
             prop_assert_eq!(&one * &a, a);
         }

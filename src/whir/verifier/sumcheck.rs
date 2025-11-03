@@ -4,17 +4,10 @@ use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 
 use crate::{
-    constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{
-        errors::{ProofError, ProofResult},
-        verifier::VerifierState,
-    },
-    poly::multilinear::MultilinearPoint,
-    sumcheck::sumcheck_polynomial::SumcheckPolynomial,
+    constant::K_SKIP_SUMCHECK, fiat_shamir::verifier::VerifierState,
+    poly::multilinear::MultilinearPoint, sumcheck::sumcheck_polynomial::SumcheckPolynomial,
+    whir::verifier::VerifierError,
 };
-
-/// The full vector of folding randomness values, in reverse round order.
-type SumcheckRandomness<F> = MultilinearPoint<F>;
 
 /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
 /// and computes the corresponding `MultilinearPoint` folding randomness in reverse order.
@@ -50,7 +43,7 @@ pub(crate) fn verify_sumcheck_rounds<EF, F, Challenger>(
     rounds: usize,
     pow_bits: usize,
     is_univariate_skip: bool,
-) -> ProofResult<SumcheckRandomness<EF>>
+) -> Result<MultilinearPoint<EF>, VerifierError>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
@@ -59,7 +52,7 @@ where
     // Calculate how many `(poly, rand)` pairs to expect based on skip mode
     //
     // If skipping: we do 1 large round for the skip, and the remaining normally
-    let effective_rounds = if is_univariate_skip && rounds >= K_SKIP_SUMCHECK {
+    let effective_rounds = if is_univariate_skip && (rounds >= K_SKIP_SUMCHECK) {
         1 + (rounds - K_SKIP_SUMCHECK)
     } else {
         rounds
@@ -69,21 +62,25 @@ where
     let mut randomness = Vec::with_capacity(effective_rounds);
 
     // Handle the univariate skip case
-    if is_univariate_skip && rounds >= K_SKIP_SUMCHECK {
+    if is_univariate_skip && (rounds >= K_SKIP_SUMCHECK) {
         // Read `2^{k+1}` evaluations (size of coset domain) for the skipping polynomial
         let evals: [EF; 1 << (K_SKIP_SUMCHECK + 1)] =
             verifier_state.next_extension_scalars_const()?;
 
         // Interpolate into a univariate polynomial (over the coset domain)
-        let poly = SumcheckPolynomial::new(evals.to_vec());
+        let poly = evals.to_vec();
 
         // Verify that the sum over the subgroup H of size 2^k matches the claimed sum.
         //
         // The prover sends evaluations on a coset of H.
         // The even-indexed evaluations correspond to the points in H itself.
-        let actual_sum: EF = poly.evaluations().iter().step_by(2).copied().sum();
+        let actual_sum: EF = poly.iter().step_by(2).copied().sum();
         if actual_sum != *claimed_sum {
-            return Err(ProofError::InvalidProof);
+            return Err(VerifierError::SumcheckFailed {
+                round: 0,
+                expected: claimed_sum.to_string(),
+                actual: actual_sum.to_string(),
+            });
         }
 
         // Optional: apply proof-of-work query
@@ -95,26 +92,33 @@ where
         // Update the claimed sum using the univariate polynomial and randomness.
         //
         // We interpolate the univariate polynomial at the randomness point.
-        *claimed_sum =
-            interpolate_subgroup(&RowMajorMatrix::new_col(poly.evaluations().to_vec()), rand)[0];
+        *claimed_sum = interpolate_subgroup(&RowMajorMatrix::new_col(poly), rand)[0];
 
         // Record this round’s randomness
         randomness.push(rand);
     }
 
-    // Continue with the remaining sumcheck rounds (each using 3 evaluations)
+    // Continue with the remaining sumcheck rounds
     let start_round = if is_univariate_skip && rounds >= K_SKIP_SUMCHECK {
         K_SKIP_SUMCHECK // skip the first k rounds
     } else {
         0
     };
 
-    for _ in start_round..rounds {
+    for i in start_round..rounds {
         // Extract the first and third evaluations of the sumcheck polynomial
         // and derive the second evaluation from the latest sum
         let c0 = verifier_state.next_extension_scalar()?;
-        let c1 = *claimed_sum - c0;
+        let c1 = verifier_state.next_extension_scalar()?;
         let c2 = verifier_state.next_extension_scalar()?;
+
+        if *claimed_sum != c0 + c1 {
+            return Err(VerifierError::SumcheckFailed {
+                round: i,
+                expected: claimed_sum.to_string(),
+                actual: (c0 + c1).to_string(),
+            });
+        }
 
         // Optional PoW interaction (grinding resistance)
         verifier_state.check_pow_grinding(pow_bits)?;
@@ -188,11 +192,11 @@ mod tests {
             pattern::{Observe, Sample},
         },
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::coeffs::CoefficientList,
+        poly::{coeffs::CoefficientList, evals::EvaluationsList},
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
+            constraints::{evaluator::Constraint, statement::EqStatement},
             parameters::WhirConfig,
-            statement::{Statement, point::ConstraintPoint},
         },
     };
 
@@ -266,7 +270,7 @@ mod tests {
         assert_eq!(n_vars, 3);
 
         // Create a constraint system with evaluations of f at various points
-        let mut statement = Statement::new(n_vars);
+        let mut statement = EqStatement::initialize(n_vars);
 
         let x_000 = MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]);
         let x_100 = MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ZERO]);
@@ -280,11 +284,11 @@ mod tests {
         let f_111 = f(EF4::ONE, EF4::ONE, EF4::ONE);
         let f_011 = f(EF4::ZERO, EF4::ONE, EF4::ONE);
 
-        statement.add_constraint(ConstraintPoint::new(x_000), f_000);
-        statement.add_constraint(ConstraintPoint::new(x_100), f_100);
-        statement.add_constraint(ConstraintPoint::new(x_110), f_110);
-        statement.add_constraint(ConstraintPoint::new(x_111), f_111);
-        statement.add_constraint(ConstraintPoint::new(x_011), f_011);
+        statement.add_evaluated_constraint(x_000, f_000);
+        statement.add_evaluated_constraint(x_100, f_100);
+        statement.add_evaluated_constraint(x_110, f_110);
+        statement.add_evaluated_constraint(x_111, f_111);
+        statement.add_evaluated_constraint(x_011, f_011);
 
         let folding_factor = 3;
         let pow_bits = 0;
@@ -304,21 +308,24 @@ mod tests {
         // Convert domain separator into prover state object
         let mut prover_state = domsep.to_prover_state(challenger.clone());
 
+        let constraint = Constraint::new_eq_only(EF4::ONE, statement.clone());
+
         // Instantiate the prover with base field coefficients
         let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals(
             &coeffs.to_evaluations(),
-            &statement,
-            EF4::ONE,
             &mut prover_state,
             folding_factor,
             pow_bits,
+            &constraint,
         );
 
         // Reconstruct verifier state to simulate the rounds
         let mut verifier_state =
             domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger.clone());
 
-        let (_, mut expected_initial_sum) = statement.combine::<F>(EF4::ONE);
+        let mut t = EvaluationsList::zero(statement.num_variables());
+        let mut expected_initial_sum = EF4::ZERO;
+        statement.combine_hypercube::<F, false>(&mut t, &mut expected_initial_sum, EF4::ONE);
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
 
@@ -327,8 +334,10 @@ mod tests {
         for _ in 0..folding_factor {
             // Get the 3 evaluations of sumcheck polynomial h_i(X) at X = 0, 1, 2
             let c0 = verifier_state.next_extension_scalar().unwrap();
-            let c1 = current_sum - c0;
+            let c1 = verifier_state.next_extension_scalar().unwrap();
             let c2 = verifier_state.next_extension_scalar().unwrap();
+
+            assert_eq!(current_sum, c0 + c1);
 
             let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
 
@@ -389,7 +398,7 @@ mod tests {
         // Construct a Statement by evaluating f at several Boolean points
         // These evaluations will serve as equality constraints
         // -------------------------------------------------------------
-        let mut statement = Statement::new(NUM_VARS);
+        let mut statement = EqStatement::initialize(NUM_VARS);
         for i in 0..5 {
             let bool_point: Vec<_> = (0..NUM_VARS)
                 .map(|j| {
@@ -402,7 +411,7 @@ mod tests {
                 .collect();
             let ml_point = MultilinearPoint::new(bool_point.clone());
             let expected_val = coeffs.evaluate(&ml_point);
-            statement.add_constraint(ConstraintPoint::new(ml_point), expected_val);
+            statement.add_evaluated_constraint(ml_point, expected_val);
         }
 
         // -------------------------------------------------------------
@@ -430,19 +439,19 @@ mod tests {
         // Run prover-side folding
         // -------------------------------------------------------------
 
-        let (_, mut expected_sum) = statement.combine::<F>(EF4::ONE);
+        let constraint = Constraint::new_eq_only(EF4::ONE, statement.clone());
+        let (_, mut expected_sum) = constraint.combine_new();
 
         // -------------------------------------------------------------
         // Construct prover with base coefficients
         // -------------------------------------------------------------
         let (_, _) = SumcheckSingle::<F, EF4>::with_skip(
             &coeffs.to_evaluations(),
-            &statement,
-            EF4::ONE,
             &mut prover_state,
             NUM_VARS,
             0,
             K_SKIP,
+            &constraint,
         );
 
         // -------------------------------------------------------------
@@ -464,8 +473,11 @@ mod tests {
         // Remaining quadratic rounds
         for _ in 0..(NUM_VARS - K_SKIP) {
             let c0 = verifier_state.next_extension_scalar().unwrap();
-            let c1 = current_sum - c0;
+            let c1 = verifier_state.next_extension_scalar().unwrap();
             let c2 = verifier_state.next_extension_scalar().unwrap();
+
+            assert_eq!(current_sum, c0 + c1);
+
             let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
             let r: EF4 = verifier_state.sample();
             current_sum = poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));

@@ -1,5 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use p3_challenger::DuplexChallenger;
+use p3_dft::Radix2DFTSmallBatch;
 use p3_field::extension::BinomialExtensionField;
 use p3_goldilocks::Poseidon2Goldilocks;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
@@ -9,15 +10,12 @@ use rand::{
     rngs::{SmallRng, StdRng},
 };
 use whir_p3::{
-    dft::EvalsDft,
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        committer::writer::CommitmentWriter,
-        parameters::WhirConfig,
-        prover::Prover,
-        statement::{Statement, point::ConstraintPoint},
+        committer::writer::CommitmentWriter, constraints::statement::EqStatement,
+        parameters::WhirConfig, prover::Prover,
     },
 };
 
@@ -35,9 +33,9 @@ type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 #[allow(clippy::type_complexity)]
 fn prepare_inputs() -> (
     WhirConfig<EF, F, MerkleHash, MerkleCompress, MyChallenger>,
-    EvalsDft<F>,
+    Radix2DFTSmallBatch<F>,
     EvaluationsList<F>,
-    Statement<EF>,
+    EqStatement<EF>,
     MyChallenger,
     DomainSeparator<EF, F>,
 ) {
@@ -107,15 +105,9 @@ fn prepare_inputs() -> (
     // Sample a random Boolean point in {0,1}^num_variables.
     let point = MultilinearPoint::rand(&mut rng, num_variables);
 
-    // Evaluate the polynomial at that point to get the expected value.
-    let eval = polynomial.evaluate(&point);
-
-    // Construct a constraint: enforces that the polynomial evaluates to `eval` at `point`.
-    let constraint_point = ConstraintPoint::new(point);
-
     // Create a new WHIR `Statement` with one constraint.
-    let mut statement = Statement::<EF>::new(num_variables);
-    statement.add_constraint(constraint_point, eval);
+    let mut statement = EqStatement::<EF>::initialize(num_variables);
+    statement.add_unevaluated_constraint_hypercube(point, &polynomial);
 
     // Fiat-Shamir setup
 
@@ -132,7 +124,7 @@ fn prepare_inputs() -> (
     // DFT backend setup
 
     // Construct a Radix-2 FFT backend that supports small batch DFTs over `F`.
-    let dft = EvalsDft::<F>::new(1 << params.max_fft_size());
+    let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
 
     // Return all preprocessed components needed to run commit/prove/verify benchmarks.
     (params, dft, polynomial, statement, challenger, domainsep)
