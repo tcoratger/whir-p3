@@ -39,8 +39,9 @@ where
         let mut sum = constraint.eq_statement.evaluations[0];
         let w = &constraint.eq_statement.points[0];
 
-        let (r_1, r_2, r_3) = svo_three_rounds(prover_state, evals, &w, &mut sum);
-        challenges.extend_from_slice(&[r_1, r_2, r_3]);
+        let (r_1, r_2, r_3) = svo_three_rounds(prover_state, evals, w, &mut sum);
+        #[allow(clippy::tuple_array_conversions)]
+        challenges.extend([r_1, r_2, r_3]);
 
         prover_state.pow_grinding(pow_bits);
 
@@ -50,7 +51,7 @@ where
         algorithm_5(
             prover_state,
             &mut folded_evals,
-            &w,
+            w,
             &mut challenges,
             &mut sum,
         );

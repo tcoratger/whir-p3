@@ -934,7 +934,6 @@ fn test_sumcheck_prover_without_skip() {
 
 #[test]
 fn test_sumcheck_prover_svo() {
-    // let mut rng = SmallRng::seed_from_u64(0);
     for num_vars in 6..=10 {
         let folding_factor = num_vars;
         let folding_factor = FoldingFactor::Constant(folding_factor);

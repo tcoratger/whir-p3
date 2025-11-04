@@ -28,6 +28,7 @@ impl<F> Accumulators<F>
 where
     F: Field,
 {
+    #[must_use]
     pub fn new_empty() -> Self {
         Self {
             // In round 0, we have 2 accumulators: A_0(u) with u in {0, 1}.
@@ -43,6 +44,7 @@ where
         self.accumulators[round][index] += value;
     }
     /// Gets the slice of accumulators for a given round.
+    #[must_use]
     pub fn get_accumulators_for_round(&self, round: usize) -> &[F] {
         &self.accumulators[round]
     }
@@ -96,8 +98,8 @@ fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_SVO_ROUND
 // A_i(v, u) for i in {0, 1, 2}, v in {0, 1}^{i}, and u in {0, 1}.
 fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
     poly: &EvaluationsList<F>,
-    e_in: Vec<EF>,
-    e_out: [Vec<EF>; NUM_SVO_ROUNDS],
+    e_in: &[EF],
+    e_out: &[Vec<EF>; NUM_SVO_ROUNDS],
 ) -> Accumulators<EF> {
     let l = poly.num_variables();
     let half_l = l / 2;
@@ -119,10 +121,9 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
 
             let num_x_in = 1 << half_l;
 
-            for x_in in 0..num_x_in {
-                let e_in_value = e_in[x_in];
-
+            for (x_in, &e_in_value) in e_in.iter().enumerate().take(num_x_in) {
                 // For each beta in {0,1}^3, we update tA(beta) += e_in[x_in] * p(beta, x_in, x_out)
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..(1 << NUM_SVO_ROUNDS) {
                     let beta = i << x_num_vars;
                     let index = beta | (x_in << x_out_num_vars) | x_out; // beta | x_in | x_out
@@ -160,6 +161,7 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
             local_accumulators.accumulate(1, 3, e1_0 * t6 + e1_1 * t7);
             // Round 2 (i=2)
             // A_2(v, u) = E_out_2() * tA( (v, u), x_out )
+            #[allow(clippy::needless_range_loop)]
             for i in 0..8 {
                 local_accumulators.accumulate(2, i, e2 * temp_accumulators[i]);
             }
@@ -230,7 +232,7 @@ where
     let e_out = precompute_e_out(w);
 
     // We compute all the accumulators A_i(v, u).
-    let accumulators = compute_accumulators(poly, e_in, e_out);
+    let accumulators = compute_accumulators(poly, &e_in, &e_out);
 
     // ------------------   Round 1   ------------------
 
@@ -350,8 +352,9 @@ where
 }
 
 /// This function takes a list of evaluations and "folds" or "compresses" them according
-/// to the provided challenges `r_1, ..., r_{k}`. The result is a new evaluation list
-/// representing p(r_1, ..., r_{k}, x) for all x in {0,1}^k.
+/// to the provided challenges `r_1, ..., r_{k}`.
+///
+/// The result is a new evaluation list representing p(r_1, ..., r_{k}, x) for all x in {0,1}^k.
 /// This implementation is based on Algorithm 2 (page 13), optimized for our case of use.
 pub fn fold_evals_with_challenges<F, EF>(
     evals: &EvaluationsList<F>,
@@ -365,7 +368,7 @@ where
     let remaining_vars = evals.num_variables() - num_challenges;
     let num_remaining_evals = 1 << remaining_vars;
 
-    let eq_evals: Vec<EF> = eval_eq_in_hypercube(&challenges);
+    let eq_evals: Vec<EF> = eval_eq_in_hypercube(challenges);
 
     let folded_evals_flat: Vec<EF> = (0..num_remaining_evals)
         .into_par_iter()
@@ -387,7 +390,7 @@ where
 
 // Algorithm 5. Page 18.
 // Compute the remaining sumcheck rounds, from round l0 + 1 to round l.
-pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
+pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F> + Send + Sync>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &mut EvaluationsList<EF>,
     w: &MultilinearPoint<EF>,
@@ -395,7 +398,6 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
     sum: &mut EF,
 ) where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    EF: Send + Sync,
 {
     let num_vars = w.num_variables();
     let half_l = num_vars / 2;
@@ -413,7 +415,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
 
     // Loop for the final rounds, from l_0+1 (in our case 4) to the end.
     let current_round = challenges.len() + 1;
-    for i in current_round..num_vars + 1 {
+    for i in current_round..=num_vars {
         // We get the number of variables of `poly` in the current round.
         let num_vars_poly_current = poly.num_variables();
         let poly_slice = poly.as_slice();
@@ -492,7 +494,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
 // Compute t_i(u) for the case i <= l/2,
 // where u can be 0 or 1, indicated by the offset parameter: 0 for `u = 0` and `1 << (num_vars - 1)` for `u = 1`.
 #[inline]
-fn compute_t_evals_first_rounds<F: Field>(
+fn compute_t_evals_first_rounds<F: Field + Send + Sync>(
     eq_l: &[F],
     eq_r: &[F],
     poly_slice: &[F],
@@ -500,10 +502,7 @@ fn compute_t_evals_first_rounds<F: Field>(
     num_x_r: usize,
     num_vars_x_r: usize,
     offset: usize,
-) -> F
-where
-    F: Send + Sync,
-{
+) -> F {
     let chunk_size = (num_x_r / rayon::current_num_threads().max(1)).max(64);
 
     (0..num_x_r)
@@ -531,15 +530,12 @@ where
 // Compute t_i(u) for the case i > l/2,
 // where u can be 0 or 1, indicated by the offset parameter: 0 for `u = 0` and `1 << (num_vars - 1)` for `u = 1`.
 #[inline]
-fn compute_t_evals_last_rounds<F: Field>(
+fn compute_t_evals_last_rounds<F: Field + Send + Sync>(
     eq: &[F],
     poly_slice: &[F],
     offset: usize,
     size: usize,
-) -> F
-where
-    F: Send + Sync,
-{
+) -> F {
     (0..size)
         .into_par_iter()
         .map(|x| eq[x] * poly_slice[offset + x])
@@ -563,7 +559,7 @@ mod tests {
     #[test]
     fn test_evals_eq_in_hypercube_three_vars_matches_new_from_point() {
         let p = vec![F::from_u64(2), F::from_u64(3), F::from_u64(5)];
-        let point = MultilinearPoint::new(p.to_vec());
+        let point = MultilinearPoint::new(p.clone());
         let value = F::from_u64(1);
 
         let expected = EvaluationsList::new_from_point(&point, value)
@@ -593,7 +589,7 @@ mod tests {
             p0 * p1 * p2,                                  // 111 v[7]
         ];
 
-        let out = eval_eq_in_hypercube(&vec![p0, p1, p2]);
+        let out = eval_eq_in_hypercube(&[p0, p1, p2]);
         assert_eq!(out, expected);
     }
 
@@ -636,11 +632,12 @@ mod tests {
         assert_eq!(expected_16, e_in[16]);
 
         // e_in[31] should be eq(w_in, 11111)
-        let expected_31: EF = w_in.iter().map(|w_i| *w_i).product();
+        let expected_31: EF = w_in.iter().copied().product();
         assert_eq!(expected_31, e_in[31]);
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn test_precompute_e_out() {
         let mut rng = rand::rng();
 

@@ -525,7 +525,7 @@ mod tests {
         let constraint_point: Vec<_> = (0..NUM_VARS)
             .map(|j| if j % 2 == 0 { EF4::ONE } else { EF4::ZERO })
             .collect();
-        let ml_point = MultilinearPoint::new(constraint_point.clone());
+        let ml_point = MultilinearPoint::new(constraint_point);
         let expected_val = coeffs.evaluate(&ml_point);
         statement.add_evaluated_constraint(ml_point, expected_val);
 
