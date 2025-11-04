@@ -147,7 +147,6 @@ pub(crate) fn verify_sumcheck_rounds_svo<EF, F, Challenger>(
     rounds: usize,
     pow_bits: usize,
 ) -> Result<MultilinearPoint<EF>, VerifierError>
-
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
@@ -507,110 +506,108 @@ mod tests {
             "Mismatch in full MultilinearPoint folding randomness"
         );
     }
-    // #[test]
-    // #[allow(clippy::too_many_lines)]
-    // fn test_read_sumcheck_rounds_svo() {
-    //     // Multilinear polynomial in 6 variables
-    //     // All rounds use SVO formula
-    //     const NUM_VARS: usize = 6;
-    //     let num_points = 1 << NUM_VARS;
 
-    //     let coeffs: Vec<F> = (1..=num_points).map(F::from_u64).collect();
-    //     let coeffs = CoefficientList::new(coeffs);
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn test_read_sumcheck_rounds_svo() {
+        // Multilinear polynomial in 6 variables
+        // All rounds use SVO formula
+        const NUM_VARS: usize = 6;
+        let num_points = 1 << NUM_VARS;
 
-    //     assert_eq!(coeffs.num_variables(), NUM_VARS);
+        let coeffs: Vec<F> = (1..=num_points).map(F::from_u64).collect();
+        let coeffs = CoefficientList::new(coeffs);
 
-    //     // Define the actual polynomial function over EF4
-    //     let f = |point: &MultilinearPoint<EF4>| coeffs.evaluate(point);
+        assert_eq!(coeffs.num_variables(), NUM_VARS);
 
-    //     // Create a constraint system with evaluations of f at a point
-    //     let mut statement = Statement::new(NUM_VARS);
-    //     let constraint_point: Vec<_> = (0..NUM_VARS)
-    //         .map(|j| if j % 2 == 0 { EF4::ONE } else { EF4::ZERO })
-    //         .collect();
-    //     let ml_point = MultilinearPoint::new(constraint_point.clone());
-    //     let expected_val = f(&ml_point);
-    //     statement.add_constraint(ConstraintPoint::new(ml_point), expected_val);
+        // Create a constraint system with evaluations of f at a point
+        let mut statement = EqStatement::initialize(NUM_VARS);
+        let constraint_point: Vec<_> = (0..NUM_VARS)
+            .map(|j| if j % 2 == 0 { EF4::ONE } else { EF4::ZERO })
+            .collect();
+        let ml_point = MultilinearPoint::new(constraint_point.clone());
+        let expected_val = coeffs.evaluate(&ml_point);
+        statement.add_evaluated_constraint(ml_point, expected_val);
 
-    //     let folding_factor = NUM_VARS;
-    //     let pow_bits = 0;
+        let folding_factor = NUM_VARS;
+        let pow_bits = 0;
 
-    //     // Set up domain separator
-    //     // - Add sumcheck
-    //     let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
-    //     domsep.add_sumcheck(&SumcheckParams {
-    //         rounds: folding_factor,
-    //         pow_bits,
-    //         univariate_skip: None,
-    //     });
+        // Set up domain separator
+        // - Add sumcheck
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
+        domsep.add_sumcheck(&SumcheckParams {
+            rounds: folding_factor,
+            pow_bits,
+            univariate_skip: None,
+        });
 
-    //     let mut rng = SmallRng::seed_from_u64(1);
-    //     let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut rng = SmallRng::seed_from_u64(1);
+        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-    //     // Convert domain separator into prover state object
-    //     let mut prover_state = domsep.to_prover_state(challenger.clone());
+        // Convert domain separator into prover state object
+        let mut prover_state = domsep.to_prover_state(challenger.clone());
 
-    //     // Instantiate the prover with base field coefficients
-    //     let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals_svo(
-    //         &coeffs.to_evaluations(),
-    //         &statement,
-    //         EF4::ONE,
-    //         &mut prover_state,
-    //         folding_factor,
-    //         pow_bits,
-    //     );
+        let constraint = Constraint::new_eq_only(EF4::ONE, statement.clone());
 
-    //     // Reconstruct verifier state to simulate the rounds
-    //     let mut verifier_state =
-    //         domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger.clone());
+        // Instantiate the prover with base field coefficients
+        let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals_svo(
+            &coeffs.to_evaluations(),
+            &mut prover_state,
+            folding_factor,
+            pow_bits,
+            &constraint,
+        );
 
-    //     let (_, mut expected_initial_sum) = statement.combine::<F>(EF4::ONE);
-    //     // Start with the claimed sum before folding
-    //     let mut current_sum = expected_initial_sum;
+        // Reconstruct verifier state to simulate the rounds
+        let mut verifier_state =
+            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger.clone());
 
-    //     let mut expected = Vec::with_capacity(folding_factor);
+        let (_, mut expected_initial_sum) = constraint.combine_new();
+        // Start with the claimed sum before folding
+        let mut current_sum = expected_initial_sum;
 
-    //     for _ in 0..folding_factor {
-    //         // Get the 2 evaluations: S(0) and S(inf)
-    //         let c0 = verifier_state.next_extension_scalar().unwrap();
-    //         let c1 = current_sum - c0;
-    //         let c2 = verifier_state.next_extension_scalar().unwrap();
+        let mut expected = Vec::with_capacity(folding_factor);
 
-    //         let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
+        for _ in 0..folding_factor {
+            // Get the 2 evaluations: S(0) and S(inf)
+            let c0 = verifier_state.next_extension_scalar().unwrap();
+            let c1 = current_sum - c0;
+            let c2 = verifier_state.next_extension_scalar().unwrap();
 
-    //         // Sample random challenge r_i ∈ F and evaluate h_i(r_i)
-    //         let r: EF4 = verifier_state.sample();
-    //         // verify_sumcheck_rounds_svo uses SVO formula for all rounds
-    //         current_sum = c2 * r.square() + (c1 - c0 - c2) * r + c0;
+            let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
 
-    //         if pow_bits > 0 {
-    //             // verifier_state.challenge_pow::<Blake3PoW>(pow_bits).unwrap();
-    //         }
+            // Sample random challenge r_i ∈ F and evaluate h_i(r_i)
+            let r: EF4 = verifier_state.sample();
+            // verify_sumcheck_rounds_svo uses SVO formula for all rounds
+            current_sum = c2 * r.square() + (c1 - c0 - c2) * r + c0;
 
-    //         expected.push((poly, r));
-    //     }
+            if pow_bits > 0 {
+                // verifier_state.challenge_pow::<Blake3PoW>(pow_bits).unwrap();
+            }
 
-    //     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    //     let mut verifier_state =
-    //         domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+            expected.push((poly, r));
+        }
 
-    //     let randomness = verify_sumcheck_rounds_svo(
-    //         &mut verifier_state,
-    //         &mut expected_initial_sum,
-    //         folding_factor,
-    //         pow_bits,
-    //     )
-    //     .unwrap();
+        // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
+        let mut verifier_state =
+            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
-    //     // Check that number of parsed rounds is correct
-    //     assert_eq!(randomness.num_variables(), folding_factor);
+        let randomness = verify_sumcheck_rounds_svo(
+            &mut verifier_state,
+            &mut expected_initial_sum,
+            folding_factor,
+            pow_bits,
+        )
+        .unwrap();
 
-    //     // Reconstruct the expected MultilinearPoint from expected randomness
-    //     let expected_randomness = MultilinearPoint::new(expected.iter().map(|&(_, r)| r).collect());
+        // Check that number of parsed rounds is correct
+        assert_eq!(randomness.num_variables(), folding_factor);
 
-    //     assert_eq!(
-    //         randomness, expected_randomness,
-    //         "Mismatch in full MultilinearPoint folding randomness for SVO"
-    //     );
-    // }
+        // Reconstruct the expected MultilinearPoint from expected randomness
+        let expected_randomness = MultilinearPoint::new(expected.iter().map(|&(_, r)| r).collect());
+        assert_eq!(
+            randomness, expected_randomness,
+            "Mismatch in full MultilinearPoint folding randomness for SVO"
+        );
+    }
 }
