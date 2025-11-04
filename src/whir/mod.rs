@@ -1,7 +1,7 @@
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use constraints::statement::Statement;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::DuplexChallenger;
+use p3_challenger::{CanObserve, CanSample, DuplexChallenger};
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::WhirConfig;
@@ -11,10 +11,10 @@ use verifier::Verifier;
 
 use crate::{
     dft::EvalsDft,
-    fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
 };
+use crate::whir::proof::{InitialPhase, WhirProof};
 
 pub mod committer;
 pub mod constraints;
@@ -22,7 +22,7 @@ pub mod parameters;
 pub mod prover;
 pub mod utils;
 pub mod verifier;
-mod proof;
+pub mod proof;
 
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
@@ -74,7 +74,10 @@ pub fn make_whir_things(
 
     // Create unified configuration combining protocol and polynomial parameters
     let params =
-        WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
+        WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params.clone());
+
+    // Initialize the Whir Proof structure
+    let mut proof = WhirProof::from_protocol_parameters(&whir_params, num_variables);
 
     // Define test polynomial: all coefficients = 1 for simple verification
     //
@@ -96,19 +99,23 @@ pub fn make_whir_things(
         statement.add_unevaluated_constraint(point.clone(), &polynomial);
     }
 
-    // Setup Fiat-Shamir transcript structure for non-interactive proof generation
-    let mut domainsep = DomainSeparator::new(vec![]);
-    // Add statement commitment to transcript
-    domainsep.commit_statement::<_, _, _, 32>(&params);
-    // Add proof structure to transcript
-    domainsep.add_whir_proof::<_, _, _, 32>(&params);
 
+    // Set up the Domain separation by observing the current Whir Proof structure
     // Create fresh RNG and challenger for transcript randomness
     let mut rng = SmallRng::seed_from_u64(1);
-    let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-    // Initialize prover's view of the Fiat-Shamir transcript
-    let mut prover_state = domainsep.to_prover_state(challenger.clone());
+    // Observe protocol parameters for domain separation
+    challenger.observe(F::from_u64(proof.rounds.len() as u64));
+    challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+
+    // Observe initial phase variant (0=WithoutStatement, 1=WithStatement, 2=WithStatementSkip)
+    let phase_tag = match &proof.initial_phase {
+        InitialPhase::WithoutStatement { .. } => 0,
+        InitialPhase::WithStatement { .. } => 1,
+        InitialPhase::WithStatementSkip { .. } => 2,
+    };
+    challenger.observe(F::from_u64(phase_tag as u64));
 
     // Create polynomial commitment using Merkle tree over evaluation domain
     let committer = CommitmentWriter::new(&params);
@@ -117,8 +124,8 @@ pub fn make_whir_things(
 
     // Commit to polynomial evaluations and generate cryptographic witness
     let witness = committer
-        .commit(&dft_committer, &mut prover_state, polynomial)
-        .unwrap();
+        .commit(&dft_committer, &mut proof, &mut challenger, polynomial.clone());
+    proof.initial_ood_answers = witness.ood_answers.clone();
 
     // Initialize WHIR prover with the configured parameters
     let prover = Prover(&params);
@@ -126,12 +133,9 @@ pub fn make_whir_things(
     let dft_prover = EvalsDft::<F>::default();
 
     // Generate WHIR proof
-    prover
-        .prove(&dft_prover, &mut prover_state, statement.clone(), witness)
-        .unwrap();
-
+    prover.prove(&dft_prover, &mut proof, &mut challenger, statement.clone(), witness);
     // Sample final challenge to ensure transcript consistency between prover/verifier
-    let checkpoint_prover: EF = prover_state.sample();
+    let checkpoint_prover: EF = challenger.sample();
 
     // Initialize commitment parser for verifier-side operations
     let commitment_reader = CommitmentReader::new(&params);
@@ -139,21 +143,16 @@ pub fn make_whir_things(
     // Create WHIR verifier with identical parameters to prover
     let verifier = Verifier::new(&params);
 
-    // Reconstruct verifier's transcript from proof data and domain separator
-    let mut verifier_state =
-        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
-
     // Parse and validate the polynomial commitment from proof data
     let parsed_commitment = commitment_reader
-        .parse_commitment::<8>(&mut verifier_state)
-        .unwrap();
+        .parse_commitment::<8>(&mut proof, &mut challenger);
 
     // Execute WHIR verification
     verifier
-        .verify(&mut verifier_state, &parsed_commitment, &statement)
+        .verify(&mut proof, &mut challenger, &parsed_commitment, &statement)
         .unwrap();
 
-    let checkpoint_verifier: EF = verifier_state.sample();
+    let checkpoint_verifier: EF = challenger.sample();
     assert_eq!(checkpoint_prover, checkpoint_verifier);
 }
 
