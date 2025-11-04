@@ -23,7 +23,7 @@ pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
     pub rounds: Vec<WhirRoundProof<F, EF, DIGEST_ELEMS>>,
 
     /// Final polynomial evaluations
-    pub final_poly: Some(EvaluationsList<EF>),
+    pub final_poly: Option<EvaluationsList<EF>>,
 
     /// Final round PoW witness
     pub final_pow_witness: F,
@@ -46,7 +46,7 @@ pub enum InitialPhase<EF, F> {
         skip_evaluations: Vec<EF>,
 
         /// PoW witness after skip round
-        skip_pow: F,
+        skip_pow: Option<Vec<F>>,
     },
 
     /// Protocol with statement (standard sumcheck, no skip)
@@ -85,6 +85,18 @@ pub struct WhirRoundProof<F, EF, const DIGEST_ELEMS: usize> {
 
     /// Sumcheck data for this round
     pub sumcheck: SumcheckData<EF, F>,
+}
+
+impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default for WhirRoundProof<F, EF, DIGEST_ELEMS> {
+    fn default() -> Self {
+        Self {
+            commitment: std::array::from_fn(|_| F::default()),
+            ood_answers: Vec::new(),
+            pow_witness: F::default(),
+            queries: Vec::new(),
+            sumcheck: SumcheckData::default(),
+        }
+    }
 }
 
 /// Query opening
@@ -157,8 +169,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
         let initial_phase = match (params.initial_statement, params.univariate_skip) {
             (true, true) => InitialPhase::with_statement_skip(
                 Vec::new(),
-                F::default(),
-                SumcheckData::default(),
+                None,
             ),
             (true, false) => InitialPhase::with_statement(SumcheckData::default()),
             (false, _) => InitialPhase::without_statement(F::default()),
@@ -191,12 +202,38 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
     }
 }
 
+impl<F: Clone, EF, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
+    /// Extract the PoW witness after the commitment at the given round index
+    ///
+    /// * round_index = 0: Returns the PoW witness after the initial commitment
+    /// * round_index > 0: Returns the PoW witness after the commitment in round (round_index - 1)
+    pub fn get_pow_after_commitment(&self, round_index: usize) -> Option<F> {
+        if round_index == 0 {
+            // Initial commitment PoW
+            match &self.initial_phase {
+                InitialPhase::WithStatementSkip { skip_pow, .. } => {
+                    // For WithStatementSkip, return the first PoW witness if available
+                    skip_pow.as_ref()?.first().cloned()
+                }
+                InitialPhase::WithStatement { sumcheck } => {
+                    // For WithStatement, the first PoW might be in sumcheck.pow_witnesses
+                    // or might be None
+                    sumcheck.pow_witnesses.as_ref()?.first().cloned()
+                }
+                InitialPhase::WithoutStatement { pow_witness } => Some(pow_witness.clone()),
+            }
+        } else {
+            // Ordinary round PoW (round_index - 1 because rounds are 0-indexed)
+            self.rounds.get(round_index - 1).map(|round| round.pow_witness.clone())
+        }
+    }
+}
+
 impl<EF, F> InitialPhase<EF, F> {
     /// Create initial phase with statement and skip optimization
     pub fn with_statement_skip(
         skip_evaluations: Vec<EF>,
-        skip_pow: F,
-        remaining_sumcheck: SumcheckData<EF, F>,
+        skip_pow: Option<Vec<F>>,
     ) -> Self {
         Self::WithStatementSkip {
             skip_evaluations,
