@@ -6,13 +6,9 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
         sumcheck_single::SumcheckSingle,
-        sumcheck_small_value::{
-            algorithm_5, fold_evals_with_challenges,
-            svo_three_rounds,
-        },
+        sumcheck_small_value::{algorithm_5, fold_evals_with_challenges, svo_three_rounds},
     },
-    whir::constraints::{evaluator::Constraint, statement::EqStatement},
-    
+    whir::constraints::evaluator::Constraint,
 };
 
 impl<F, EF> SumcheckSingle<F, EF>
@@ -38,12 +34,12 @@ where
         assert_ne!(folding_factor, 0);
         let mut challenges = Vec::with_capacity(folding_factor);
 
-        // Here we are assuming the the statemas has only one constraint.
+        // Here we are assuming the the equality statement has only one constraint.
+        // TODO: Handle multiple constraints for a general WHIR implementation.
         let mut sum = constraint.eq_statement.evaluations[0];
         let w = &constraint.eq_statement.points[0];
 
-        let (r_1, r_2, r_3) =
-            svo_three_rounds(prover_state, evals, &w, &mut sum);
+        let (r_1, r_2, r_3) = svo_three_rounds(prover_state, evals, &w, &mut sum);
         challenges.extend_from_slice(&[r_1, r_2, r_3]);
 
         prover_state.pow_grinding(pow_bits);

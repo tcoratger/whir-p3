@@ -1,15 +1,14 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use std::hint::black_box;
 use whir::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::constraints::{evaluator::Constraint, statement::EqStatement},
 };
-use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
 use whir_p3 as whir;
 
 type F = KoalaBear;
@@ -67,24 +66,12 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("Classic", *num_vars), &poly, |b, poly| {
             b.iter(|| {
-                let (mut sumcheck, _) = SumcheckSingle::from_base_evals(
-                    poly,
-                    &mut prover,
-                    *num_vars,
-                    0,
-                    &constraint,
-                );
+                SumcheckSingle::from_base_evals(poly, &mut prover, *num_vars, 0, &constraint);
             });
         });
         group.bench_with_input(BenchmarkId::new("SVO", *num_vars), &poly, |b, poly| {
             b.iter(|| {
-                let (mut sumcheck, _) = SumcheckSingle::from_base_evals_svo(
-                    poly,
-                    &mut prover,
-                    *num_vars,
-                    0,
-                    &constraint,
-                );
+                SumcheckSingle::from_base_evals_svo(poly, &mut prover, *num_vars, 0, &constraint);
             });
         });
     }

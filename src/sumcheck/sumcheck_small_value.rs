@@ -4,7 +4,7 @@ use crate::{
 };
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
-use p3_matrix::dense:: RowMajorMatrixView;
+use p3_matrix::dense::RowMajorMatrixView;
 
 use std::ops::Add;
 
@@ -13,12 +13,15 @@ use p3_multilinear_util::eq_batch::eval_eq_batch;
 
 // We apply the small value optimization (SVO) for the first three sumcheck rounds,
 // following this paper <https://eprint.iacr.org/2025/1117>.
-pub const NUM_OF_ROUNDS: usize = 3;
+pub const NUM_SVO_ROUNDS: usize = 3;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Accumulators<F: Field> {
-    // One accumulator vector per SVO round (l_0 = 3).
-    pub accumulators: [Vec<F>; 3],
+    /// One accumulator vector per SVO round.
+    ///- `accumulators[0]` has 2^1 = 2 elements for A_0(u)
+    /// - `accumulators[1]` has 2^2 = 4 elements for A_1(v, u)
+    /// - `accumulators[2]` has 2^3 = 8 elements for A_2(v, u)
+    pub accumulators: [Vec<F>; NUM_SVO_ROUNDS],
 }
 
 impl<F> Accumulators<F>
@@ -26,19 +29,20 @@ where
     F: Field,
 {
     pub fn new_empty() -> Self {
-        Accumulators {
+        Self {
             // In round 0, we have 2 accumulators: A_0(u) with u in {0, 1}.
             // In round 1, we have 4 accumulators: A_1(v, u) with v in {0, 1} and u in {0, 1}.
             // In round 2, we have 8 accumulators: A_2(v, u) with v in {0, 1}^2 and u in {0, 1}.
             // We won't need accumulators with any digit as infinity.
-            accumulators: [vec![F::ZERO; 2], vec![F::ZERO; 4], vec![F::ZERO; 8]],
+            accumulators: [F::zero_vec(2), F::zero_vec(4), F::zero_vec(8)],
         }
     }
 
+    /// Adds a value to a specific accumulator.
     pub fn accumulate(&mut self, round: usize, index: usize, value: F) {
         self.accumulators[round][index] += value;
     }
-
+    /// Gets the slice of accumulators for a given round.
     pub fn get_accumulators_for_round(&self, round: usize) -> &[F] {
         &self.accumulators[round]
     }
@@ -48,11 +52,11 @@ impl<F: Field> Add for Accumulators<F> {
     type Output = Self;
 
     fn add(mut self, other: Self) -> Self {
-        for i in 0..NUM_OF_ROUNDS {
-            // NUM_OF_ROUNDS is 3
-            for j in 0..self.accumulators[i].len() {
-                self.accumulators[i][j] += other.accumulators[i][j];
-            }
+        for i in 0..NUM_SVO_ROUNDS {
+            self.accumulators[i]
+                .iter_mut()
+                .zip(other.accumulators[i].iter())
+                .for_each(|(a, b)| *a += *b);
         }
         self
     }
@@ -68,21 +72,21 @@ pub struct RoundAccumlators<F: Field> {
 // Compute the evaluations eq(w_{l0 + 1}, ..., w_{l0 + l/2} ; x) for all x in {0,1}^l/2
 fn precompute_e_in<F: Field>(w: &MultilinearPoint<F>) -> Vec<F> {
     let half_l = w.num_variables() / 2;
-    let w_in = w.0[NUM_OF_ROUNDS..NUM_OF_ROUNDS + half_l].to_vec();
-    eval_eq_in_hypercube(&w_in)
+    let w_in = &w.0[NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + half_l];
+    eval_eq_in_hypercube(w_in)
 }
 
 // Precomputation needed for Procedure 9 (compute_accumulators).
 // Compute three E_out vectors, one per round i in {0, 1, 2}.
-// For each i, E_out = eq(w_{i+1}, ..., l0, w_{l/2 + l0 + 1}, ..., w_l ; x) 
-fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_OF_ROUNDS] {
+// For each i, E_out = eq(w_{i+1}, ..., l0, w_{l/2 + l0 + 1}, ..., w_l ; x)
+fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_SVO_ROUNDS] {
     let half_l = w.num_variables() / 2;
     let w_out_len = w.num_variables() - half_l - 1;
 
     std::array::from_fn(|round| {
         let mut w_out = Vec::with_capacity(w_out_len);
-        w_out.extend_from_slice(&w.0[round + 1..NUM_OF_ROUNDS]);
-        w_out.extend_from_slice(&w.0[half_l + NUM_OF_ROUNDS..]);
+        w_out.extend_from_slice(&w.0[round + 1..NUM_SVO_ROUNDS]);
+        w_out.extend_from_slice(&w.0[half_l + NUM_SVO_ROUNDS..]);
         eval_eq_in_hypercube(&w_out)
     })
 }
@@ -93,13 +97,13 @@ fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_OF_ROUNDS
 fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
     poly: &EvaluationsList<F>,
     e_in: Vec<EF>,
-    e_out: [Vec<EF>; NUM_OF_ROUNDS],
+    e_out: [Vec<EF>; NUM_SVO_ROUNDS],
 ) -> Accumulators<EF> {
     let l = poly.num_variables();
     let half_l = l / 2;
 
-    let x_out_num_vars = half_l - NUM_OF_ROUNDS + (l % 2);
-    let x_num_vars = l - NUM_OF_ROUNDS;
+    let x_out_num_vars = half_l - NUM_SVO_ROUNDS + (l % 2);
+    let x_num_vars = l - NUM_SVO_ROUNDS;
     debug_assert_eq!(half_l + x_out_num_vars, x_num_vars);
 
     let poly_evals = poly.as_slice();
@@ -111,7 +115,7 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
             // This avoids mutable state sharing and the need for locks.
             let mut local_accumulators = Accumulators::<EF>::new_empty();
 
-            let mut temp_accumulators = [EF::ZERO; 8];
+            let mut temp_accumulators = [EF::ZERO; 1 << NUM_SVO_ROUNDS];
 
             let num_x_in = 1 << half_l;
 
@@ -119,7 +123,7 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
                 let e_in_value = e_in[x_in];
 
                 // For each beta in {0,1}^3, we update tA(beta) += e_in[x_in] * p(beta, x_in, x_out)
-                for i in 0..8 {
+                for i in 0..(1 << NUM_SVO_ROUNDS) {
                     let beta = i << x_num_vars;
                     let index = beta | (x_in << x_out_num_vars) | x_out; // beta | x_in | x_out
                     temp_accumulators[i] += e_in_value * poly_evals[index]; // += e_in[x_in] * p(beta, x_in, x_out)
@@ -127,7 +131,6 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
             }
 
             let temp_acc = &temp_accumulators;
-
 
             // e_out for round i = 0: y in {0,1}^2.
             let e0_0 = e_out[0][x_out]; // e_out_0(0,0, x_out)
@@ -188,41 +191,40 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
 
             local_accumulators
         })
-        .reduce(|| Accumulators::<EF>::new_empty(), |a, b| a + b) 
+        .reduce(|| Accumulators::<EF>::new_empty(), |a, b| a + b)
 }
 
 // Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
-pub fn eval_eq_in_hypercube<F: Field>(point: &Vec<F>) -> Vec<F> {
+pub fn eval_eq_in_hypercube<F: Field>(point: &[F]) -> Vec<F> {
     let n = point.len();
-    let mut out = F::zero_vec(1 << n); 
-    eval_eq_batch::<F, F, false>(
-        RowMajorMatrixView::new_col(&point),
-        &mut out,
-        &[F::ONE],
-    );
-    out 
+    if n == 0 {
+        return vec![F::ONE];
+    }
+    let mut out = F::zero_vec(1 << n);
+    eval_eq_batch::<F, F, false>(RowMajorMatrixView::new_col(point), &mut out, &[F::ONE]);
+    out
 }
 
 // Given two multilinear points p and q, it evaluates eq(p, q).
 pub fn eval_eq_in_point<F: Field>(p: &[F], q: &[F]) -> F {
-    let mut acc = F::ONE;
-    for (&l, &r) in p.into_iter().zip(q) {
-        acc *= F::ONE + l * r.double() - l - r;
-    }
-    acc
+    p.iter()
+        .zip(q)
+        .map(|(&l, &r)| F::ONE + l * r.double() - l - r)
+        .product()
 }
 
-// Given the points w and r, we compute the linear function 
+// Given the points w and r, we compute the linear function
 // l(x) = eq( w_1,...w_{i-1} ; r_1,...r_{i-1} ) * eq(w_i, x)
 // Section 5.1, page 17.
 pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
     let round = w.len();
     debug_assert!(r.len() == round - 1);
 
-    let mut const_eq: F = F::ONE;
-    if round != 1 {
-        const_eq = eval_eq_in_point(&w[..round - 1], r);
-    }
+    let const_eq = if round == 1 {
+        F::ONE
+    } else {
+        eval_eq_in_point(&w[..round - 1], r)
+    };
     let w_i = w.last().unwrap();
 
     // Evaluation of eq(w,X) in [eq(w,0),eq(w,1)]
@@ -231,7 +233,7 @@ pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
 
 // Given the linear functions l and t, we compute S(0) and S(inf).
 // See Procedure 8, Page 35.
-fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
+fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F; 2]) -> [F; 2] {
     [
         t[0] * l[0],                   // S(0)
         (t[1] - t[0]) * (l[1] - l[0]), // S(inf) -> l(inf) = l(1) - l(0)
@@ -260,7 +262,10 @@ where
 
     // 1. For u in {0, 1} compute t_1(u)
     // Recall: In round 1, t_1(u) = A_1(u).
-    let t_1_evals = accumulators.get_accumulators_for_round(0);
+    let t_1_evals: [EF; 2] = accumulators
+        .get_accumulators_for_round(0)
+        .try_into()
+        .expect("Round 0 accumulators must have 2 elements");
 
     // 2. For u in {0, 1, inf} compute S_1(u) = t_1(u) * l_1(u).
 
@@ -268,27 +273,23 @@ where
     let linear_1_evals = compute_linear_function(&w.0[..1], &[]);
 
     // We compute S_1(0) and S_1(inf)
-    let round_poly_evals = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals);
+    let [s_0, s_inf] = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals);
 
     // 3. Send S_1(u) to the verifier.
-    prover_state.add_extension_scalars(&round_poly_evals);
+    prover_state.add_extension_scalars(&[s_0, s_inf]);
 
     // 4. Receive the challenge r_1 from the verifier.
     let r_1: EF = prover_state.sample();
 
-    let eval_1 = *sum - round_poly_evals[0];
-
-    *sum = round_poly_evals[1] * r_1.square()
-        + (eval_1 - round_poly_evals[0] - round_poly_evals[1]) * r_1
-        + round_poly_evals[0];
+    let s_1 = *sum - s_0;
+    *sum = s_inf * r_1.square() + (s_1 - s_0 - s_inf) * r_1 + s_0;
 
     // 5. Compte R_2 = [L_0(r_1), L_1(r_1), L_inf(r_1)]
     // L_0 (x) = 1 - x
     // L_1 (x) = x
-    // L_inf (x) = (x - 1)x
     let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1];
 
-    // ------------------  Round 2  ------------------ 
+    // ------------------  Round 2  ------------------
 
     // 1. For u in {0, 1} compute t_2(u).
     // First we take the accumulators A_2(v, u).
@@ -297,7 +298,6 @@ where
 
     let mut t_2_evals = [EF::ZERO; 2];
 
-    
     t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
     t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[2];
 
@@ -308,10 +308,10 @@ where
     let linear_2_evals = compute_linear_function(&w.0[..2], &[r_1]);
 
     // We compute S_2(0) and S_2(inf).
-    let round_poly_evals = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
+    let [s_0, s_1] = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
 
     // 3. Send S_2(u) to the verifier.
-    prover_state.add_extension_scalars(&round_poly_evals);
+    prover_state.add_extension_scalars(&[s_0, s_1]);
 
     // 4. Receive the challenge r_2 from the verifier.
     let r_2: EF = prover_state.sample();
@@ -332,12 +332,9 @@ where
         l_1 * r_2,           // L_1 1
     ];
 
-    let eval_1 = *sum - round_poly_evals[0];
-    *sum = round_poly_evals[1] * r_2.square()
-        + (eval_1 - round_poly_evals[0] - round_poly_evals[1]) * r_2
-        + round_poly_evals[0];
-
-    // ------------------  Round 3  ------------------ 
+    let s_1 = *sum - s_0;
+    *sum = s_inf * r_2.square() + (s_1 - s_0 - s_inf) * r_2 + s_0;
+    // ------------------  Round 3  ------------------
 
     // 1. For u in {0, 1} compute t_3(u).
 
@@ -437,14 +434,12 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
     // The number of variables of x_R is: l/2 if l is even and l/2 + 1 if l is odd.
     debug_assert!(num_vars_x_r == half_l + (num_vars % 2));
 
-    let mut t = Vec::with_capacity(2);
+    let mut t = [EF::ZERO; 2];
     challenges.reserve(num_vars - 3);
 
     // Loop for the final rounds, from l_0+1 (in our case 4) to the end.
     let current_round = challenges.len() + 1;
     for i in current_round..num_vars + 1 {
-        t.clear();
-
         // We get the number of variables of `poly` in the current round.
         let num_vars_poly_current = poly.num_variables();
         let poly_slice = poly.as_slice();
@@ -480,10 +475,8 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
                     )
                 },
             );
-
-            t.push(t_0);
-            t.push(t_1);
-
+            t[0] = t_0;
+            t[1] = t_1;
         // Case i > l/2: Only one part of the eq evaluations remains to be processed.
         } else {
             let eq = eval_eq_in_hypercube(&w.0[i..num_vars].to_vec());
@@ -493,9 +486,8 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
                 || compute_t_evals_last_rounds(&eq, poly_slice, 0, half_size),
                 || compute_t_evals_last_rounds(&eq, poly_slice, half_size, half_size),
             );
-
-            t.push(t_0);
-            t.push(t_1);
+            t[0] = t_0;
+            t[1] = t_1;
         }
 
         // 2. We compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf}:
@@ -583,9 +575,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    };
+    use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
     use p3_baby_bear::BabyBear;
     use p3_field::{
         BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField,
@@ -640,7 +630,7 @@ mod tests {
 
         let e_in = precompute_e_in(&w);
 
-        let w_in = w.0[NUM_OF_ROUNDS..NUM_OF_ROUNDS + 5].to_vec();
+        let w_in = w.0[NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + 5].to_vec();
 
         assert_eq!(
             w_in,
@@ -778,7 +768,6 @@ mod tests {
         assert_eq!(e_out[2][3], w[8] * w[9]);
     }
 
-
     fn get_random_ef() -> EF {
         let mut rng = rand::rng();
 
@@ -829,13 +818,5 @@ mod tests {
         ];
         let result = compute_linear_function(&w, &r);
         assert_eq!(result, expected);
-    }
-
-
-    fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
-        [
-            t[0] * l[0],                   // s(0)
-            (t[1] - t[0]) * (l[1] - l[0]), // s(inf) -> l(inf) = l(1) - l(0)
-        ]
     }
 }

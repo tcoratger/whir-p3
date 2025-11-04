@@ -228,7 +228,7 @@ where
     F: Field + Ord,
     EF: ExtensionField<F>,
 {
-    pub fn new(evals: EvaluationsList<EF>, weights: EvaluationsList<EF>, sum: EF) -> Self {
+    pub const fn new(evals: EvaluationsList<EF>, weights: EvaluationsList<EF>, sum: EF) -> Self {
         Self {
             evals,
             weights,
