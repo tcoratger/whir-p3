@@ -6,12 +6,12 @@ use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
-    fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
         sumcheck_single_skip::compute_skipping_sumcheck_polynomial, utils::sumcheck_quadratic,
     },
     whir::constraints::statement::Statement,
+    whir::proof::{WhirProof, WhirRoundProof, InitialPhase},
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;
@@ -24,7 +24,8 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// and then uses that challenge to compress both the polynomial evaluations and the constraint weights.
 ///
 /// ## Arguments
-/// * `prover_state`: A mutable reference to the `ProverState`, which manages the Fiat-Shamir transcript.
+/// * `proof`: A mutable reference to a structure containing prover data
+/// * `challenger`: A mutable reference to the Challenger, which handles fiat-shamir
 /// * `evals`: A reference to the polynomial's evaluations in the base field `F`.
 /// * `weights`: A mutable reference to the weight evaluations in the extension field `EF`.
 /// * `sum`: A mutable reference to the claimed sum, which is updated with the new value after folding.
@@ -35,8 +36,9 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// * The verifier's challenge `r` as an `EF` element.
 /// * The new, compressed polynomial evaluations as an `EvaluationsList<EF>`.
 #[instrument(skip_all)]
-fn initial_round<Challenger, F: Field, EF: ExtensionField<F>>(
-    prover_state: &mut ProverState<F, EF, Challenger>,
+fn initial_round<Challenger, F: Field, EF: ExtensionField<F>, const DIGEST_ELEMS: usize>(
+    proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+    challenger: &mut Challenger,
     evals: &EvaluationsList<F>,
     weights: &mut EvaluationsList<EF>,
     sum: &mut EF,
@@ -47,14 +49,30 @@ where
 {
     // Compute the quadratic sumcheck polynomial for the current variable.
     let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[0]);
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[1]);
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[2]);
+    let evals_slice = sumcheck_poly.evaluations();
+    let polynomial_evaluation = [evals_slice[0], evals_slice[1], evals_slice[2]];
 
-    prover_state.pow_grinding(pow_bits);
+    // Proof-of-work challenge to delay prover.
+    let witness = if pow_bits != 0 {
+        Some(challenger.grind(pow_bits))
+    } else {
+        None
+    };
+
+    if let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase {
+        sumcheck.polynomial_evaluations.push(polynomial_evaluation);
+
+        if let Some(w) = witness {
+            sumcheck.pow_witnesses
+                .get_or_insert_with(Vec::new)
+                .push(w);
+        }
+    } else {
+        panic!("initial_round called with incorrect InitialPhase variant");
+    }
 
     // Sample verifier challenge.
-    let r: EF = prover_state.sample();
+    let r: EF = challenger.sample_algebra_element();
 
     // Compress polynomials and update the sum.
     let evals = join(|| weights.compress(r), || evals.compress_ext(r)).1;
@@ -68,11 +86,12 @@ where
 ///
 /// This function executes a standard, intermediate round of the sumcheck protocol. Unlike the initial round,
 /// it operates entirely within the extension field `EF`. It computes the sumcheck polynomial from the
-/// current evaluations and weights, adds it to the transcript, gets a new challenge from the verifier,
+/// current evaluations and weights, creates a WhirRoundProof, gets a new challenge from the verifier,
 /// and then compresses both the polynomial and weight evaluations in-place.
 ///
 /// ## Arguments
-/// * `prover_state` - A mutable reference to the `ProverState`, managing the Fiat-Shamir transcript.
+/// * `proof` - A mutable reference to a structure containing prover data
+/// * `challenger` - A mutable reference to the Challenger, which handles fiat-shamir
 /// * `evals` - A mutable reference to the polynomial's evaluations in `EF`, which will be compressed.
 /// * `weights` - A mutable reference to the weight evaluations in `EF`, which will also be compressed.
 /// * `sum` - A mutable reference to the claimed sum, updated after folding.
@@ -81,8 +100,9 @@ where
 /// ## Returns
 /// The verifier's challenge `r` as an `EF` element.
 #[instrument(skip_all)]
-fn round<Challenger, F: Field, EF: ExtensionField<F>>(
-    prover_state: &mut ProverState<F, EF, Challenger>,
+fn sumcheck_round<Challenger, F: Field, EF: ExtensionField<F>, const DIGEST_ELEMS: usize>(
+    proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+    challenger: &mut Challenger,
     evals: &mut EvaluationsList<EF>,
     weights: &mut EvaluationsList<EF>,
     sum: &mut EF,
@@ -93,14 +113,37 @@ where
 {
     // Compute the quadratic sumcheck polynomial for the current variable.
     let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[0]);
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[1]);
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[2]);
 
-    prover_state.pow_grinding(pow_bits);
+    let evals_slice = sumcheck_poly.evaluations();
+    let polynomial_evaluation = [evals_slice[0], evals_slice[1], evals_slice[2]];
+    let witness = if pow_bits != 0 {
+        Some(challenger.grind(pow_bits))
+    } else {
+        None
+    };
+
+    // Create sumcheck data for this round
+    proof
+        .rounds
+        .last_mut()
+        .expect("rounds vector should not be empty - WhirRoundProof must be pushed before calling sumcheck_round")
+        .sumcheck
+        .polynomial_evaluations
+        .push(polynomial_evaluation);
+
+    if let Some(w) = witness {
+        proof
+            .rounds
+            .last_mut()
+            .expect("rounds vector should not be empty - WhirRoundProof must be pushed before calling sumcheck_round")
+            .sumcheck
+            .pow_witnesses
+            .get_or_insert_with(Vec::new)
+            .push(w);
+    }
 
     // Sample verifier challenge.
-    let r: EF = prover_state.sample();
+    let r: EF = challenger.sample_algebra_element();
 
     // Compress polynomials and update the sum.
     join(|| evals.compress(r), || weights.compress(r));
@@ -259,11 +302,12 @@ where
     /// - Initializes internal sumcheck state with weights and expected sum.
     /// - Applies first set of sumcheck rounds
     #[instrument(skip_all)]
-    pub fn from_base_evals<Challenger>(
+    pub fn from_base_evals<Challenger, const DIGEST_ELEMS: usize>(
         evals: &EvaluationsList<F>,
         statement: &Statement<EF>,
         combination_randomness: EF,
-        prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
     ) -> (Self, MultilinearPoint<EF>)
@@ -277,14 +321,17 @@ where
 
         let (mut weights, mut sum) = statement.combine::<F>(combination_randomness);
         // In the first round base field evaluations are folded into extension field elements
-        let (r, mut evals) = initial_round(prover_state, evals, &mut weights, &mut sum, pow_bits);
+        let (r, mut evals) = initial_round(proof, challenger, evals, &mut weights, &mut sum, pow_bits);
         res.push(r);
 
-        // Apply rest of sumcheck rounds
-        res.extend(
-            (1..folding_factor)
-                .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
-        );
+        // Apply rest of sumcheck rounds for the initial statement
+        for _ in 1..folding_factor {
+            // Push empty WhirRoundProof for this sumcheck round
+            proof.rounds.push(WhirRoundProof::default());
+
+            let r = sumcheck_round(proof, challenger, &mut evals, &mut weights, &mut sum, pow_bits);
+            res.push(r);
+        }
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
         res.reverse();
@@ -307,11 +354,12 @@ where
     /// - Initializes internal sumcheck state with weights and expected sum.
     /// - Applies first set of sumcheck rounds with univariate skip optimization.
     #[instrument(skip_all)]
-    pub fn with_skip<Challenger>(
+    pub fn with_skip<Challenger, const DIGEST_ELEMS: usize>(
         evals: &EvaluationsList<F>,
         statement: &Statement<EF>,
         combination_randomness: EF,
-        prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
         k_skip: usize,
@@ -335,19 +383,43 @@ where
         // - `f_mat`, `w_mat`: The original evaluations reshaped into matrices of size 2^k x 2^(n-k).
         let num_remaining_vars = evals.num_variables() - k_skip;
         let width = 1 << num_remaining_vars;
-        let (sumcheck_poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(
+        let (sumcheck_skip_poly, f_mat, w_mat) = compute_skipping_sumcheck_polynomial(
             evals.clone().into_mat(width),
             weights.into_mat(width),
         );
+        let polynomial_skip_evaluation = sumcheck_skip_poly.evaluations();
 
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
-        prover_state.add_extension_scalars(sumcheck_poly.evaluations());
+        // Flatten extension field elements to base field elements for observation
+        let flattened = EF::flatten_to_base(polynomial_skip_evaluation.to_vec());
+        challenger.observe_slice(&flattened);
 
         // Proof-of-work challenge to delay prover.
-        prover_state.pow_grinding(pow_bits);
+        let witness = if pow_bits != 0 {
+            Some(challenger.grind(pow_bits))
+        } else {
+            None
+        };
+
+        // Update the WhirProof structure
+        if let InitialPhase::WithStatementSkip {
+            ref mut skip_evaluations,
+            ref mut skip_pow,
+        } = proof.initial_phase {
+            skip_evaluations
+                .extend_from_slice(polynomial_skip_evaluation);
+
+            if let Some(w) = witness {
+                skip_pow
+                    .get_or_insert_with(Vec::new)
+                    .push(w);
+            }
+        } else {
+            panic!("initial_round called with incorrect InitialPhase variant");
+        }
 
         // Receive the verifier challenge for this entire collapsed round.
-        let r: EF = prover_state.sample();
+        let r: EF = challenger.sample_algebra_element();
         res.push(r);
 
         // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
@@ -367,10 +439,15 @@ where
         let mut weights = EvaluationsList::new(new_w);
 
         // Apply rest of sumcheck rounds
-        res.extend(
-            (k_skip..folding_factor)
-                .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
-        );
+        // Note: When using skip mode, remaining rounds are stored in proof.rounds
+        // rather than in proof.initial_phase, for consistency with the verifier
+        for _ in k_skip..folding_factor {
+            // Push empty WhirRoundProof for this sumcheck round
+            proof.rounds.push(WhirRoundProof::default());
+
+            let r = sumcheck_round(proof, challenger, &mut evals, &mut weights, &mut sum, pow_bits);
+            res.push(r);
+        }
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
         res.reverse();
@@ -513,9 +590,10 @@ where
     /// - If `folding_factor > num_variables()`
     /// - If univariate skip is attempted with evaluations in the extension field.
     #[instrument(skip_all)]
-    pub fn compute_sumcheck_polynomials<Challenger>(
+    pub fn compute_sumcheck_polynomials<Challenger, const DIGEST_ELEMS: usize>(
         &mut self,
-        prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
     ) -> MultilinearPoint<EF>
@@ -526,17 +604,18 @@ where
     {
         // Standard round-by-round folding
         // Proceed with one-variable-per-round folding for remaining variables.
-        let mut res = (0..folding_factor)
-            .map(|_| {
-                round(
-                    prover_state,
-                    &mut self.evals,
-                    &mut self.weights,
-                    &mut self.sum,
-                    pow_bits,
-                )
-            })
-            .collect::<Vec<_>>();
+        let mut res = Vec::with_capacity(folding_factor);
+        for _ in 0..folding_factor {
+            proof.rounds.push(WhirRoundProof::default());
+            res.push(sumcheck_round(
+                proof,
+                challenger,
+                &mut self.evals,
+                &mut self.weights,
+                &mut self.sum,
+                pow_bits,
+            ));
+        }
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
         res.reverse();
