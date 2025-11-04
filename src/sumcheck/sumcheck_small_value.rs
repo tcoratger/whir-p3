@@ -4,7 +4,7 @@ use crate::{
 };
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
-use p3_matrix::dense:: RowMajorMatrixView;
+use p3_matrix::dense::RowMajorMatrixView;
 
 use std::ops::Add;
 
@@ -64,17 +64,17 @@ pub struct RoundAccumlators<F: Field> {
     pub accumulators: Vec<F>,
 }
 
-// Precomputation needed for Procedure 9 (compute_accumulators).
-// Compute the evaluations eq(w_{l0 + 1}, ..., w_{l0 + l/2} ; x) for all x in {0,1}^l/2
+/// Precomputation needed for Procedure 9 (compute_accumulators).
+/// Compute the evaluations eq(w_{l0 + 1}, ..., w_{l0 + l/2} ; x) for all x in {0,1}^l/2
 fn precompute_e_in<F: Field>(w: &MultilinearPoint<F>) -> Vec<F> {
     let half_l = w.num_variables() / 2;
-    let w_in = w.0[NUM_OF_ROUNDS..NUM_OF_ROUNDS + half_l].to_vec();
-    eval_eq_in_hypercube(&w_in)
+    let w_in = &w.0[NUM_OF_ROUNDS..NUM_OF_ROUNDS + half_l];
+    eval_eq_in_hypercube(w_in)
 }
 
-// Precomputation needed for Procedure 9 (compute_accumulators).
-// Compute three E_out vectors, one per round i in {0, 1, 2}.
-// For each i, E_out = eq(w_{i+1}, ..., l0, w_{l/2 + l0 + 1}, ..., w_l ; x) 
+/// Precomputation needed for Procedure 9 (compute_accumulators).
+/// Compute three E_out vectors, one per round i in {0, 1, 2}.
+/// For each i, E_out = eq(w_{i+1}, ..., l0, w_{l/2 + l0 + 1}, ..., w_l ; x)
 fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_OF_ROUNDS] {
     let half_l = w.num_variables() / 2;
     let w_out_len = w.num_variables() - half_l - 1;
@@ -127,7 +127,6 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
             }
 
             let temp_acc = &temp_accumulators;
-
 
             // e_out for round i = 0: y in {0,1}^2.
             let e0_0 = e_out[0][x_out]; // e_out_0(0,0, x_out)
@@ -188,19 +187,18 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
 
             local_accumulators
         })
-        .reduce(|| Accumulators::<EF>::new_empty(), |a, b| a + b) 
+        .reduce(|| Accumulators::<EF>::new_empty(), |a, b| a + b)
 }
 
-// Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
-pub fn eval_eq_in_hypercube<F: Field>(point: &Vec<F>) -> Vec<F> {
+/// Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
+pub fn eval_eq_in_hypercube<F: Field>(point: &[F]) -> Vec<F> {
     let n = point.len();
-    let mut out = F::zero_vec(1 << n); 
-    eval_eq_batch::<F, F, false>(
-        RowMajorMatrixView::new_col(&point),
-        &mut out,
-        &[F::ONE],
-    );
-    out 
+    if n == 0 {
+        return vec![F::ONE];
+    }
+    let mut out = F::zero_vec(1 << n);
+    eval_eq_batch::<F, F, false>(RowMajorMatrixView::new_col(point), &mut out, &[F::ONE]);
+    out
 }
 
 // Given two multilinear points p and q, it evaluates eq(p, q).
@@ -212,7 +210,7 @@ pub fn eval_eq_in_point<F: Field>(p: &[F], q: &[F]) -> F {
     acc
 }
 
-// Given the points w and r, we compute the linear function 
+// Given the points w and r, we compute the linear function
 // l(x) = eq( w_1,...w_{i-1} ; r_1,...r_{i-1} ) * eq(w_i, x)
 // Section 5.1, page 17.
 pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
@@ -238,9 +236,9 @@ fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
     ]
 }
 
-// Algorithm 6. Page 19.
-// Compute three sumcheck rounds using the small value optimizaition and split-eq accumulators.
-// It returns the three challenges r_1, r_2, r_3.
+/// Algorithm 6. Page 19.
+/// Compute three sumcheck rounds using the small value optimizaition and split-eq accumulators.
+/// It returns the three challenges r_1, r_2, r_3.
 pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
@@ -288,7 +286,7 @@ where
     // L_inf (x) = (x - 1)x
     let lagrange_evals_r_1 = [-r_1 + F::ONE, r_1];
 
-    // ------------------  Round 2  ------------------ 
+    // ------------------  Round 2  ------------------
 
     // 1. For u in {0, 1} compute t_2(u).
     // First we take the accumulators A_2(v, u).
@@ -297,7 +295,6 @@ where
 
     let mut t_2_evals = [EF::ZERO; 2];
 
-    
     t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
     t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[2];
 
@@ -337,7 +334,7 @@ where
         + (eval_1 - round_poly_evals[0] - round_poly_evals[1]) * r_2
         + round_poly_evals[0];
 
-    // ------------------  Round 3  ------------------ 
+    // ------------------  Round 3  ------------------
 
     // 1. For u in {0, 1} compute t_3(u).
 
@@ -394,7 +391,7 @@ where
     let remaining_vars = evals.num_variables() - num_challenges;
     let num_remaining_evals = 1 << remaining_vars;
 
-    let eq_evals: Vec<EF> = eval_eq_in_hypercube(&challenges.to_vec());
+    let eq_evals: Vec<EF> = eval_eq_in_hypercube(&challenges);
 
     let folded_evals_flat: Vec<EF> = (0..num_remaining_evals)
         .into_par_iter()
@@ -431,7 +428,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
 
     // We compute eq(w_{l/2 + 1}, ...,  w_l ; x_R) for all x_R in {0, 1}^{l/2}
     // These evaluations don't depend on the round i, so they are computed outside the loop.
-    let eq_r = eval_eq_in_hypercube(&w.0[half_l..].to_vec());
+    let eq_r = eval_eq_in_hypercube(&w.0[half_l..]);
     let num_vars_x_r = eq_r.len().ilog2() as usize;
 
     // The number of variables of x_R is: l/2 if l is even and l/2 + 1 if l is odd.
@@ -452,7 +449,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
         // 1. We compute t_i(u) for u in {0, 1}.
         if i <= half_l {
             // We compute eq(w_{i + 1}, ...,  w_{l/2} ; x_L) for all x_L in {0, 1}^{l/2 - i}
-            let eq_l = eval_eq_in_hypercube(&w.0[i..half_l].to_vec());
+            let eq_l = eval_eq_in_hypercube(&w.0[i..half_l]);
             let eq_l_len = eq_l.len();
             let num_x_r = 1 << num_vars_x_r;
 
@@ -486,7 +483,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
 
         // Case i > l/2: Only one part of the eq evaluations remains to be processed.
         } else {
-            let eq = eval_eq_in_hypercube(&w.0[i..num_vars].to_vec());
+            let eq = eval_eq_in_hypercube(&w.0[i..num_vars]);
             let half_size = 1 << (num_vars_poly_current - 1);
 
             let (t_0, t_1) = rayon::join(
@@ -583,9 +580,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    };
+    use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
     use p3_baby_bear::BabyBear;
     use p3_field::{
         BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField,
@@ -778,7 +773,6 @@ mod tests {
         assert_eq!(e_out[2][3], w[8] * w[9]);
     }
 
-
     fn get_random_ef() -> EF {
         let mut rng = rand::rng();
 
@@ -830,7 +824,6 @@ mod tests {
         let result = compute_linear_function(&w, &r);
         assert_eq!(result, expected);
     }
-
 
     fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F]) -> [F; 2] {
         [
