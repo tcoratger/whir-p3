@@ -126,68 +126,42 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
                 }
             }
 
-            let temp_acc = &temp_accumulators;
-
-            // e_out for round i = 0: y in {0,1}^2.
-            let e0_0 = e_out[0][x_out]; // e_out_0(0,0, x_out)
-            let e0_1 = e_out[0][(1 << x_out_num_vars) | x_out]; // e_out_0(0,1, x_out)
-            let e0_2 = e_out[0][(2 << x_out_num_vars) | x_out]; // e_out_0(1,0, x_out)
-            let e0_3 = e_out[0][(3 << x_out_num_vars) | x_out]; // e_out_0(1,1, x_out)
-            // e_out for round i = 1: y in {0,1}.
-            let e1_0 = e_out[1][x_out]; // e_out_1(0, x_out)
-            let e1_1 = e_out[1][(1 << x_out_num_vars) | x_out]; // e_out_1(1, x_out)
-            // e_out for round i = 2: there is no y.
-            let e2 = e_out[2][x_out]; // e_out_2(x_out)
-
-            // We do not use the idx4 function since we are directly computing the indices for efficiency.
-            // We go through each beta = (v, u, y) in {0, 1}^3; we don't compute the cases where the digits are
-            // infinity because we won't need them.
-            // Recall that in `v || u` determines the accumulator's index, `y` determines the e_out factor, and the
-            // whole beta determines de temp_acc.
-
-            // beta = (0,0,0)
-            local_accumulators.accumulate(0, 0, e0_0 * temp_acc[0]); // u = 0, y = 00
-            local_accumulators.accumulate(1, 0, e1_0 * temp_acc[0]); // v = 0, u = 0, y = 0,
-            local_accumulators.accumulate(2, 0, e2 * temp_acc[0]); // v = 00, u = 0
-
-            // beta = (0,0,1)
-            local_accumulators.accumulate(0, 0, e0_1 * temp_acc[1]); // u = 0, y = 01
-            local_accumulators.accumulate(1, 0, e1_1 * temp_acc[1]); //  v = 0, u = 0, y = 1
-            local_accumulators.accumulate(2, 1, e2 * temp_acc[1]); // v = 00, u = 1
-
-            // beta = (0,1,0)
-            local_accumulators.accumulate(0, 0, e0_2 * temp_acc[2]); // u = 0, y = 10
-            local_accumulators.accumulate(1, 1, e1_0 * temp_acc[2]); // v = 0, u = 1, y = 0
-            local_accumulators.accumulate(2, 2, e2 * temp_acc[2]); // v = 01, u = 0
-
-            // beta = (0,1,1)
-            local_accumulators.accumulate(0, 0, e0_3 * temp_acc[3]); // u = 0, y = 11
-            local_accumulators.accumulate(1, 1, e1_1 * temp_acc[3]); // v = 0, u = 1, y = 1
-            local_accumulators.accumulate(2, 3, e2 * temp_acc[3]); // v = 01, u = 1
-
-            // beta = (1,0,0)
-            local_accumulators.accumulate(0, 1, e0_0 * temp_acc[4]); // u = 1, y = 00
-            local_accumulators.accumulate(1, 2, e1_0 * temp_acc[4]); // v = 1, u = 0, y = 0
-            local_accumulators.accumulate(2, 4, e2 * temp_acc[4]); // v = 10, u = 0
-
-            // beta = (1,0,1)
-            local_accumulators.accumulate(0, 1, e0_1 * temp_acc[5]); // u = 1, y = 01
-            local_accumulators.accumulate(1, 2, e1_1 * temp_acc[5]); // v = 1, u = 0, y = 1
-            local_accumulators.accumulate(2, 5, e2 * temp_acc[5]); // v = 10, u = 1
-
-            // beta = (1,1,0)
-            local_accumulators.accumulate(0, 1, e0_2 * temp_acc[6]); // u = 1, y = 10
-            local_accumulators.accumulate(1, 3, e1_0 * temp_acc[6]); // v = 1, u = 1, y = 0
-            local_accumulators.accumulate(2, 6, e2 * temp_acc[6]); // v = 11, u = 0
-
-            // beta = (1,1,1)
-            local_accumulators.accumulate(0, 1, e0_3 * temp_acc[7]); // u = 1, y = 11
-            local_accumulators.accumulate(1, 3, e1_1 * temp_acc[7]); // v = 1, u = 1, y = 1
-            local_accumulators.accumulate(2, 7, e2 * temp_acc[7]); // v = 11, u = 1
-
+            // Destructure things since we will access them many times later
+            let [t0, t1, t2, t3, t4, t5, t6, t7] = temp_accumulators;
+            // Get E_out(y, x_out) for this x_out
+            // Round 0 (i=0) -> y=(b1,b2) -> 2 bits
+            let e0_0 = e_out[0][x_out]; // y=00
+            let e0_1 = e_out[0][(1 << x_out_num_vars) | x_out]; // y=01
+            let e0_2 = e_out[0][(2 << x_out_num_vars) | x_out]; // y=10
+            let e0_3 = e_out[0][(3 << x_out_num_vars) | x_out]; // y=11
+            // Round 1 (i=1) -> y=(b2) -> 1 bit
+            let e1_0 = e_out[1][x_out]; // y=0
+            let e1_1 = e_out[1][(1 << x_out_num_vars) | x_out]; // y=1
+            // Round 2 (i=2) -> y=() -> 0 bits
+            let e2 = e_out[2][x_out]; // y=()
+            // Round 0 (i=0)
+            // A_0(u=0) = Σ_{y} E_out_0(y) * tA( (u=0, y), x_out )
+            local_accumulators.accumulate(0, 0, e0_0 * t0 + e0_1 * t1 + e0_2 * t2 + e0_3 * t3);
+            // A_0(u=1) = Σ_{y} E_out_0(y) * tA( (u=1, y), x_out )
+            local_accumulators.accumulate(0, 1, e0_0 * t4 + e0_1 * t5 + e0_2 * t6 + e0_3 * t7);
+            // Round 1 (i=1)
+            // A_1(v, u) = Σ_{y} E_out_1(y) * tA( (v, u, y), x_out )
+            // v=0, u=0
+            local_accumulators.accumulate(1, 0, e1_0 * t0 + e1_1 * t1);
+            // v=0, u=1
+            local_accumulators.accumulate(1, 1, e1_0 * t2 + e1_1 * t3);
+            // v=1, u=0
+            local_accumulators.accumulate(1, 2, e1_0 * t4 + e1_1 * t5);
+            // v=1, u=1
+            local_accumulators.accumulate(1, 3, e1_0 * t6 + e1_1 * t7);
+            // Round 2 (i=2)
+            // A_2(v, u) = E_out_2() * tA( (v, u), x_out )
+            for i in 0..8 {
+                local_accumulators.accumulate(2, i, e2 * temp_accumulators[i]);
+            }
             local_accumulators
         })
-        .reduce(|| Accumulators::<EF>::new_empty(), |a, b| a + b)
+        .reduce(Accumulators::<EF>::new_empty, |a, b| a + b)
 }
 
 /// Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
