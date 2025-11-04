@@ -16,13 +16,13 @@ use super::{
 };
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::verifier::VerifierState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         Statement, constraints::evaluator::ConstraintPolyEvaluator, parameters::WhirConfig,
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
+use crate::whir::proof::{InitialPhase, QueryOpening, WhirProof};
 
 pub mod errors;
 pub mod sumcheck;
@@ -54,7 +54,8 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         statement: &Statement<EF>,
     ) -> Result<MultilinearPoint<EF>, VerifierError>
@@ -70,39 +71,56 @@ where
         let mut claimed_sum = EF::ZERO;
         let mut prev_commitment = parsed_commitment.clone();
 
+        // Track cumulative offset into proof.rounds array
+        let mut proof_rounds_offset = 0;
+
         // Optional initial sumcheck round
         if self.initial_statement {
             // Combine OODS constraints and statement constraints to claimed_sum
             let mut new_statement = prev_commitment.oods_constraints();
             new_statement.concatenate(statement);
 
-            let gamma = verifier_state.sample();
+            let gamma = challenger.sample_algebra_element();
             let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
 
             round_constraints.push((combination_randomness, new_statement));
 
             // Initial sumcheck
+            let initial_folding = self.folding_factor.at_round(0);
             let folding_randomness = verify_sumcheck_rounds(
-                verifier_state,
+                proof,
+                challenger,
                 &mut claimed_sum,
-                self.folding_factor.at_round(0),
+                initial_folding,
+                0, // proof_rounds_offset for initial phase
                 self.starting_folding_pow_bits,
                 self.univariate_skip,
             )?;
             round_folding_randomness.push(folding_randomness);
+
+            // Update offset: initial phase consumes (folding - 1) or (folding - K_SKIP) rounds
+            if self.univariate_skip && initial_folding >= K_SKIP_SUMCHECK {
+                proof_rounds_offset += initial_folding - K_SKIP_SUMCHECK;
+            } else {
+                proof_rounds_offset += initial_folding - 1;
+            }
         } else {
             assert!(prev_commitment.ood_points.is_empty());
             assert!(statement.is_empty());
 
             let folding_randomness = MultilinearPoint::new(
                 (0..self.folding_factor.at_round(0))
-                    .map(|_| verifier_state.sample())
+                    .map(|_| challenger.sample_algebra_element())
                     .collect::<Vec<_>>(),
             );
 
             round_folding_randomness.push(folding_randomness);
 
-            verifier_state.check_pow_grinding(self.starting_folding_pow_bits)?;
+            let InitialPhase::WithoutStatement { pow_witness } = &proof.initial_phase else {
+                panic!("Expected WithoutStatement variant");
+            };
+
+            let _ = challenger.check_witness(self.starting_folding_pow_bits, *pow_witness);
         }
 
         for round_index in 0..self.n_rounds() {
@@ -111,14 +129,16 @@ where
 
             // Receive commitment to the folded polynomial (likely encoded at higher expansion)
             let new_commitment = ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
-                verifier_state,
+                proof,
+                challenger,
                 round_params.num_variables,
                 round_params.ood_samples,
-            )?;
+            );
 
             // Verify in-domain challenges on the previous commitment.
             let stir_constraints = self.verify_stir_challenges(
-                verifier_state,
+                proof,
+                challenger,
                 round_params,
                 &prev_commitment,
                 round_folding_randomness.last().unwrap(),
@@ -129,33 +149,44 @@ where
             let mut new_statement = new_commitment.oods_constraints();
             new_statement.concatenate(&stir_constraints);
 
-            let gamma = verifier_state.sample();
+            let gamma = challenger.sample_algebra_element();
             let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
 
             round_constraints.push((combination_randomness.clone(), new_statement));
 
+            let current_folding = self.folding_factor.at_round(round_index + 1);
             let folding_randomness = verify_sumcheck_rounds(
-                verifier_state,
+                proof,
+                challenger,
                 &mut claimed_sum,
-                self.folding_factor.at_round(round_index + 1),
+                current_folding,
+                proof_rounds_offset, // cumulative offset into proof.rounds
                 round_params.folding_pow_bits,
                 false,
             )?;
 
             round_folding_randomness.push(folding_randomness);
 
+            // Update offset: each outer round consumes folding rounds
+            proof_rounds_offset += current_folding;
+
             // Update round parameters
             prev_commitment = new_commitment;
         }
 
         // In the final round we receive the full polynomial instead of a commitment.
-        let n_final_coeffs = 1 << self.n_vars_of_final_polynomial();
-        let final_coefficients = verifier_state.next_extension_scalars_vec(n_final_coeffs)?;
-        let final_evaluations = EvaluationsList::new(final_coefficients);
+        let Some(final_evaluations) = proof.final_poly.clone() else {
+            panic!("Expected final polynomial");
+        };
+
+        // Observe the final polynomial to the challenger (flatten to base field first)
+        let flatten_base_scalar = EF::flatten_to_base(final_evaluations.as_slice().to_vec());
+        challenger.observe_slice(&flatten_base_scalar);
 
         // Verify in-domain challenges on the previous commitment.
         let stir_constraints = self.verify_stir_challenges(
-            verifier_state,
+            proof,
+            challenger,
             &self.final_round_config(),
             &prev_commitment,
             round_folding_randomness.last().unwrap(),
@@ -172,9 +203,11 @@ where
             })?;
 
         let final_sumcheck_randomness = verify_sumcheck_rounds(
-            verifier_state,
+            proof,
+            challenger,
             &mut claimed_sum,
             self.final_sumcheck_rounds,
+            proof_rounds_offset,
             self.final_folding_pow_bits,
             false,
         )?;
@@ -221,7 +254,7 @@ where
     /// ready to be combined into the next round’s sumcheck.
     ///
     /// # Arguments
-    /// - `verifier_state`: The verifier’s Fiat-Shamir state.
+    /// - `proof`: The verifier’s Fiat-Shamir state.
     /// - `params`: Parameters for the current STIR round (domain size, folding factor, etc.).
     /// - `commitment`: The prover’s commitment to the folded polynomial.
     /// - `folding_randomness`: Random point for folding the evaluations.
@@ -236,7 +269,8 @@ where
     /// or the prover’s data does not match the commitment.
     pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         params: &RoundConfig<F>,
         commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
@@ -263,21 +297,24 @@ where
         // By verifying that proof-of-work *now*, we confirm that the prover "locked in" their
         // commitment at a significant computational cost. This gives us confidence that the
         // challenges we generate are unpredictable and unbiased by a cheating prover.
-        verifier_state.check_pow_grinding(params.pow_bits)?;
+        let pow_witness = proof.get_pow_after_commitment(round_index);
+        if let Some(wit) = pow_witness {
+            let _ = challenger.check_witness(params.pow_bits, wit);
+        }
 
-        let stir_challenges_indexes = get_challenge_stir_queries(
+        let stir_challenges_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
             params.domain_size,
             params.folding_factor,
             params.num_queries,
-            verifier_state,
-        )?;
+            challenger,
+        );
 
         let dimensions = vec![Dimensions {
             height: params.domain_size >> params.folding_factor,
             width: 1 << params.folding_factor,
         }];
         let answers = self.verify_merkle_proof(
-            verifier_state,
+            proof,
             &commitment.root,
             &stir_challenges_indexes,
             &dimensions,
@@ -362,11 +399,12 @@ where
     /// - If verification passes, it collects and returns the decoded leaf values.
     ///
     /// # Arguments
-    /// - `verifier_state`: The verifier’s Fiat-Shamir transcript state.
+    /// - `proof`: The structured WHIR proof containing query openings
     /// - `root`: The Merkle root hash the prover’s claims are verified against.
     /// - `indices`: The list of queried leaf indices.
     /// - `dimensions`: The shape of the underlying matrix being committed (for MMCS verification).
     /// - `leafs_base_field`: Indicates whether leafs are in the base field (`F`) or extension field (`EF`).
+    /// - `round_index`: Current folding round
     ///
     /// # Returns
     /// A vector of decoded leaf values, one `Vec<EF>` per queried index.
@@ -375,7 +413,7 @@ where
     /// Returns `VerifierError::MerkleProofInvalid` if any Merkle proof fails verification.
     pub fn verify_merkle_proof<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<F, EF, Challenger>,
+        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
         root: &Hash<F, F, DIGEST_ELEMS>,
         indices: &[usize],
         dimensions: &[Dimensions],
@@ -393,100 +431,99 @@ where
         // Wrap the MMCS in an extension-aware wrapper for EF leaf support.
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
 
-        // Branch depending on whether the committed leafs are base field or extension field.
-        let res = if leafs_base_field {
-            // Merkle leaves
-            let mut answers = vec![];
-            let merkle_leaf_size = 1 << self.folding_factor.at_round(round_index);
-            for _ in 0..indices.len() {
-                answers.push(verifier_state.receive_hint_base_scalars(merkle_leaf_size)?);
-            }
-
-            // Merkle proofs
-            let mut merkle_proofs = Vec::new();
-            for _ in 0..indices.len() {
-                let mut merkle_path = vec![];
-                for _ in 0..self.merkle_tree_height(round_index) {
-                    let digest: [F; DIGEST_ELEMS] = verifier_state
-                        .receive_hint_base_scalars(DIGEST_ELEMS)?
-                        .try_into()
-                        .unwrap();
-                    merkle_path.push(digest);
-                }
-                merkle_proofs.push(merkle_path);
-            }
-
-            // For each queried index:
-            for (i, &index) in indices.iter().enumerate() {
-                // Verify the Merkle opening for the claimed leaf against the Merkle root.
-                mmcs.verify_batch(
-                    root,
-                    dimensions,
-                    index,
-                    BatchOpeningRef {
-                        opened_values: &[answers[i].clone()],
-                        opening_proof: &merkle_proofs[i],
-                    },
-                )
-                .map_err(|_| VerifierError::MerkleProofInvalid {
-                    position: index,
-                    reason: "Base field Merkle proof verification failed".to_string(),
-                })?;
-            }
-
-            // Convert the base field values to EF and collect them into a result vector.
-            answers
-                .into_iter()
-                .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
-                .collect()
+        // Determine which queries to use from the proof structure
+        let queries = if round_index == self.n_rounds() {
+            &proof.final_queries
         } else {
-            // Merkle leaves
-            let mut answers = vec![];
-            let merkle_leaf_size = 1 << self.folding_factor.at_round(round_index);
-            for _ in 0..indices.len() {
-                answers.push(verifier_state.receive_hint_extension_scalars(merkle_leaf_size)?);
-            }
+            &proof.rounds.get(round_index)
+                .ok_or_else(|| VerifierError::MerkleProofInvalid {
+                    position: 0,
+                    reason: format!("Round {} not found in proof", round_index),
+                })?
+                .queries
+        };
 
-            // Merkle proofs
-            let mut merkle_proofs = Vec::new();
-            for _ in 0..indices.len() {
-                let mut merkle_path = vec![];
-                for _ in 0..self.merkle_tree_height(round_index) {
-                    let digest: [F; DIGEST_ELEMS] = verifier_state
-                        .receive_hint_base_scalars(DIGEST_ELEMS)?
-                        .try_into()
-                        .unwrap();
-                    merkle_path.push(digest);
-                }
-                merkle_proofs.push(merkle_path);
-            }
+        // Verify we have the expected number of queries
+        if queries.len() != indices.len() {
+            return Err(VerifierError::MerkleProofInvalid {
+                position: 0,
+                reason: format!(
+                    "Expected {} queries but found {} in proof at round {}",
+                    indices.len(),
+                    queries.len(),
+                    round_index
+                ),
+            });
+        }
 
-            // For each queried index:
-            for (i, &index) in indices.iter().enumerate() {
-                // Verify the Merkle opening against the extension MMCS.
-                extension_mmcs
-                    .verify_batch(
+        let mut answers = Vec::with_capacity(indices.len());
+
+        // Verify each query and collect answers
+        for (query, &index) in queries.iter().zip(indices.iter()) {
+            match (leafs_base_field, query) {
+                // Base field case with base field query (expected)
+                (true, QueryOpening::Base { values, proof: merkle_proof }) => {
+                    mmcs.verify_batch(
                         root,
                         dimensions,
                         index,
                         BatchOpeningRef {
-                            opened_values: &[answers[i].clone()],
-                            opening_proof: &merkle_proofs[i],
+                            opened_values: &[values.clone()],
+                            opening_proof: merkle_proof,
                         },
                     )
-                    .map_err(|_| VerifierError::MerkleProofInvalid {
+                        .map_err(|_| VerifierError::MerkleProofInvalid {
+                            position: index,
+                            reason: format!(
+                                "Base field Merkle proof verification failed at round {}",
+                                round_index
+                            ),
+                        })?;
+
+                    // Convert base field values to EF immediately
+                    answers.push(values.iter().map(|&f_el| f_el.into()).collect());
+                }
+
+                // Extension field case with extension field query (expected)
+                (false, QueryOpening::Extension { values, proof: merkle_proof }) => {
+                    extension_mmcs
+                        .verify_batch(
+                            root,
+                            dimensions,
+                            index,
+                            BatchOpeningRef {
+                                opened_values: &[values.clone()],
+                                opening_proof: merkle_proof,
+                            },
+                        )
+                        .map_err(|_| VerifierError::MerkleProofInvalid {
+                            position: index,
+                            reason: format!(
+                                "Extension field Merkle proof verification failed at round {}",
+                                round_index
+                            ),
+                        })?;
+
+                    answers.push(values.clone());
+                }
+
+                // Any mismatch case
+                _ => {
+                    return Err(VerifierError::MerkleProofInvalid {
                         position: index,
-                        reason: "Extension field Merkle proof verification failed".to_string(),
-                    })?;
+                        reason: format!(
+                            "Query type mismatch at round {}: expected {}, got unexpected query type",
+                            round_index,
+                            if leafs_base_field { "base field" } else { "extension field" }
+                        ),
+                    });
+                }
             }
+        }
 
-            // Return the extension field answers as-is.
-            answers
-        };
-
-        // Return the verified leaf values.
-        Ok(res)
+        Ok(answers)
     }
+
 }
 
 impl<EF, F, H, C, Challenger> Deref for Verifier<'_, EF, F, H, C, Challenger>
