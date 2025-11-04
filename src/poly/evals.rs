@@ -16,7 +16,7 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// The inner vector stores function evaluations at points of the hypercube in lexicographic
 /// order. The number of variables `n` is inferred from the length of this vector, where
 /// `self.len() = 2^n`.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Default, Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[must_use]
 pub struct EvaluationsList<F>(Vec<F>);
 
