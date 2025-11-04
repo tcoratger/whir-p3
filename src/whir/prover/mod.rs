@@ -1,5 +1,5 @@
+use std::mem::take;
 use std::ops::Deref;
-
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -15,7 +15,6 @@ use super::{committer::Witness, constraints::statement::Statement, parameters::W
 use crate::{
     constant::K_SKIP_SUMCHECK,
     dft::EvalsDft,
-    fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     utils::parallel_repeat,
     whir::{
@@ -23,6 +22,7 @@ use crate::{
         utils::{get_challenge_stir_queries, sample_ood_points},
     },
 };
+use crate::whir::proof::{QueryOpening, SumcheckData, WhirProof, WhirRoundProof};
 
 pub mod round_state;
 
@@ -124,7 +124,8 @@ where
     ///
     /// # Parameters
     /// - `dft`: A DFT backend used for evaluations
-    /// - `prover_state`: Mutable prover state used across rounds (transcript, randomness, etc.)
+    /// - `proof`: Mutable prover data structure used across rounds
+    /// - `challenger`: Keep track of fiar-shamir
     /// - `statement`: The public input, consisting of linear or nonlinear constraints
     /// - `witness`: The private witness satisfying the constraints, including committed values
     ///
@@ -138,10 +139,11 @@ where
     pub fn prove<const DIGEST_ELEMS: usize>(
         &self,
         dft: &EvalsDft<F>,
-        prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         statement: Statement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
-    ) -> Result<MultilinearPoint<EF>, FiatShamirError>
+    ) -> MultilinearPoint<EF>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
@@ -161,11 +163,11 @@ where
 
         // Initialize the round state with inputs and initial polynomial data
         let mut round_state =
-            RoundState::initialize_first_round_state(self, prover_state, statement, witness)?;
+            RoundState::initialize_first_round_state(self, proof, challenger, statement, witness);
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
-            self.round(round, dft, prover_state, &mut round_state)?;
+            self.round(round, dft, proof, challenger, &mut round_state);
         }
 
         // Reverse the vector of verifier challenges (used as evaluation point)
@@ -175,7 +177,7 @@ where
         round_state.randomness_vec.reverse();
         let constraint_eval = MultilinearPoint::new(round_state.randomness_vec);
 
-        Ok(constraint_eval)
+        constraint_eval
     }
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = self.num_variables - self.folding_factor.total_number(round_index)))]
@@ -184,9 +186,10 @@ where
         &self,
         round_index: usize,
         dft: &EvalsDft<F>,
-        prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
-    ) -> Result<(), FiatShamirError>
+    )
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
@@ -202,7 +205,7 @@ where
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
-            return self.final_round(round_index, prover_state, round_state);
+            return self.final_round(round_index, proof, challenger, round_state);
         }
 
         let round_params = &self.round_parameters[round_index];
@@ -239,11 +242,12 @@ where
         let (root, prover_data) =
             info_span!("commit matrix").in_scope(|| extension_mmcs.commit_matrix(folded_matrix));
 
-        prover_state.add_base_scalars(root.as_ref());
+        // Observe the round commitment
+        challenger.observe_slice(root.as_ref());
 
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) = sample_ood_points(
-            prover_state,
+            challenger,
             round_params.ood_samples,
             num_variables,
             |point| info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point)),
@@ -262,54 +266,44 @@ where
         // By forcing the prover to perform this expensive proof-of-work *after* committing but
         // *before* receiving the queries, we make it computationally infeasible to "shop" for
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
-        prover_state.pow_grinding(round_params.pow_bits);
+        let pow_witness = challenger.grind(self.final_pow_bits);
 
         // STIR Queries
         let (ood_challenges, stir_challenges, stir_challenges_indexes) = self
             .compute_stir_queries(
                 round_index,
-                prover_state,
+                challenger,
                 round_state,
                 num_variables,
                 round_params,
                 &ood_points,
-            )?;
+            );
+
+        // Initialize vector of queries
+        let mut queries = Vec::with_capacity(stir_challenges_indexes.len());
 
         // Collect Merkle proofs for stir queries
         let stir_evaluations = match &round_state.merkle_prover_data {
             None => {
-                let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
-                let mut merkle_proofs = Vec::with_capacity(stir_challenges_indexes.len());
+                // Evaluate answers in the folding randomness.
+                let mut stir_evaluations = Vec::with_capacity(queries.len());
+
                 for challenge in &stir_challenges_indexes {
                     let commitment =
                         mmcs.open_batch(*challenge, &round_state.commitment_merkle_prover_data);
-                    answers.push(commitment.opened_values[0].clone());
-                    merkle_proofs.push(commitment.opening_proof);
-                }
+                    let answer = commitment.opened_values[0].clone();
+                    queries.push(QueryOpening::Base {
+                        values: answer.clone(),
+                        proof: commitment.opening_proof,
+                    });
 
-                // merkle leaves
-                for answer in &answers {
-                    prover_state.hint_base_scalars(answer);
-                }
+                    // Determine if this is the special first round where the univariate skip is applied.
+                    let is_skip_round = self.initial_statement
+                        && round_index == 0
+                        && self.univariate_skip
+                        && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
-                // merkle authentication proof
-                for merkle_proof in &merkle_proofs {
-                    for digest in merkle_proof {
-                        prover_state.hint_base_scalars(digest);
-                    }
-                }
-
-                // Evaluate answers in the folding randomness.
-                let mut stir_evaluations = Vec::with_capacity(answers.len());
-
-                // Determine if this is the special first round where the univariate skip is applied.
-                let is_skip_round = self.initial_statement
-                    && round_index == 0
-                    && self.univariate_skip
-                    && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
-
-                // Process each set of evaluations retrieved from the Merkle tree openings.
-                for answer in &answers {
+                    // Process each set of evaluations retrieved from the Merkle tree openings.
                     // Fold the polynomial represented by the `answer` evaluations using the verifier's challenge.
                     // The evaluation method depends on whether this is a "skip round" or a "standard round".
                     let eval = if is_skip_round {
@@ -364,29 +358,18 @@ where
                 stir_evaluations
             }
             Some(data) => {
-                let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
-                let mut merkle_proofs = Vec::with_capacity(stir_challenges_indexes.len());
+                // Evaluate answers in the folding randomness.
+                let mut stir_evaluations = Vec::with_capacity(queries.len());
+
                 for challenge in &stir_challenges_indexes {
                     let commitment = extension_mmcs.open_batch(*challenge, data);
-                    answers.push(commitment.opened_values[0].clone());
-                    merkle_proofs.push(commitment.opening_proof);
-                }
+                    let answer = commitment.opened_values[0].clone();
+                    queries.push(QueryOpening::Extension {
+                        values: answer.clone(),
+                        proof: commitment.opening_proof,
+                    });
 
-                // merkle leaves
-                for answer in &answers {
-                    prover_state.hint_extension_scalars(answer);
-                }
-
-                // merkle authentication proof
-                for merkle_proof in &merkle_proofs {
-                    for digest in merkle_proof {
-                        prover_state.hint_base_scalars(digest);
-                    }
-                }
-
-                // Evaluate answers in the folding randomness.
-                let mut stir_evaluations = Vec::with_capacity(answers.len());
-                for answer in &answers {
+                    // Evaluate answers in the folding randomness.
                     stir_evaluations.push(
                         EvaluationsList::new(answer.clone())
                             .evaluate(&round_state.folding_randomness),
@@ -398,7 +381,7 @@ where
         };
 
         // Randomness for combination
-        let combination_randomness_gen: EF = prover_state.sample();
+        let combination_randomness_gen: EF = challenger.sample_algebra_element();
         let ood_combination_randomness: Vec<_> = combination_randomness_gen
             .powers()
             .collect_n(ood_challenges.len());
@@ -419,8 +402,22 @@ where
             &stir_combination_randomness,
         );
 
+        // Inizilaize round proof
+        let round_proof = WhirRoundProof {
+            commitment: *root.as_ref(),
+            ood_answers,
+            pow_witness,
+            queries,
+            sumcheck: SumcheckData::default(),
+        };
+
+        // Add current round proof to WhirProof
+        proof.rounds.push(round_proof);
+
+        // Add sumcheck data to the WhirRoundProof
         let folding_randomness = round_state.sumcheck_prover.compute_sumcheck_polynomials(
-            prover_state,
+            proof,
+            challenger,
             folding_factor_next,
             round_params.folding_pow_bits,
         );
@@ -442,17 +439,16 @@ where
             F::two_adic_generator(new_domain_size.ilog2() as usize - folding_factor_next);
         round_state.folding_randomness = folding_randomness;
         round_state.merkle_prover_data = Some(prover_data);
-
-        Ok(())
     }
 
     #[instrument(skip_all)]
     fn final_round<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
-    ) -> Result<(), FiatShamirError>
+    )
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
@@ -463,7 +459,15 @@ where
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        prover_state.add_extension_scalars(round_state.sumcheck_prover.evals.as_slice());
+        // Take ownership to avoid a clone operation
+        let evals = take(&mut round_state.sumcheck_prover.evals);
+
+        // Flatten to each extension scalar into base scalar
+        let flatten_base_scalar = EF::flatten_to_base(evals.as_slice().to_vec());
+
+        // Directly send coefficients of the polynomial to the verifier.
+        challenger.observe_slice(&flatten_base_scalar);
+        proof.final_poly = Some(evals);
 
         // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
         //
@@ -478,18 +482,18 @@ where
         // By forcing the prover to perform this expensive proof-of-work *after* committing but
         // *before* receiving the queries, we make it computationally infeasible to "shop" for
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
-        prover_state.pow_grinding(self.final_pow_bits);
+        proof.final_pow_witness = challenger.grind(self.final_pow_bits);
 
         // Final verifier queries and answers. The indices are over the folded domain.
-        let final_challenge_indexes = get_challenge_stir_queries(
+        let final_challenge_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
             // The size of the original domain before folding
             round_state.domain_size,
             // The folding factor we used to fold the previous polynomial
             self.folding_factor.at_round(round_index),
             // Number of final verification queries
             self.final_queries,
-            prover_state,
-        )?;
+            challenger,
+        );
 
         // Every query requires opening these many in the previous Merkle tree
         let mmcs = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
@@ -500,48 +504,24 @@ where
 
         match &round_state.merkle_prover_data {
             None => {
-                let mut answers = Vec::with_capacity(final_challenge_indexes.len());
-                let mut merkle_proofs = Vec::with_capacity(final_challenge_indexes.len());
-
                 for challenge in final_challenge_indexes {
                     let commitment =
                         mmcs.open_batch(challenge, &round_state.commitment_merkle_prover_data);
-                    answers.push(commitment.opened_values[0].clone());
-                    merkle_proofs.push(commitment.opening_proof);
-                }
 
-                // merkle leaves
-                for answer in &answers {
-                    prover_state.hint_base_scalars(answer);
-                }
-
-                // merkle authentication proof
-                for merkle_proof in &merkle_proofs {
-                    for digest in merkle_proof {
-                        prover_state.hint_base_scalars(digest);
-                    }
+                    proof.final_queries.push(QueryOpening::Base {
+                        values: commitment.opened_values[0].clone(),
+                        proof: commitment.opening_proof,
+                    });
                 }
             }
 
             Some(data) => {
-                let mut answers = Vec::with_capacity(final_challenge_indexes.len());
-                let mut merkle_proofs = Vec::with_capacity(final_challenge_indexes.len());
                 for challenge in final_challenge_indexes {
                     let commitment = extension_mmcs.open_batch(challenge, data);
-                    answers.push(commitment.opened_values[0].clone());
-                    merkle_proofs.push(commitment.opening_proof);
-                }
-
-                // merkle leaves
-                for answer in &answers {
-                    prover_state.hint_extension_scalars(answer);
-                }
-
-                // merkle authentication proof
-                for merkle_proof in &merkle_proofs {
-                    for digest in merkle_proof {
-                        prover_state.hint_base_scalars(digest);
-                    }
+                    proof.final_queries.push(QueryOpening::Extension {
+                        values: commitment.opened_values[0].clone(),
+                        proof: commitment.opening_proof,
+                    });
                 }
             }
         }
@@ -550,7 +530,8 @@ where
         if self.final_sumcheck_rounds > 0 {
             let final_folding_randomness =
                 round_state.sumcheck_prover.compute_sumcheck_polynomials(
-                    prover_state,
+                    proof,
+                    challenger,
                     self.final_sumcheck_rounds,
                     self.final_folding_pow_bits,
                 );
@@ -565,8 +546,6 @@ where
                 *dst = *src;
             }
         }
-
-        Ok(())
     }
 
     #[instrument(skip_all, level = "debug")]
@@ -574,25 +553,23 @@ where
     fn compute_stir_queries<const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        prover_state: &mut ProverState<F, EF, Challenger>,
+        challenger: &mut Challenger,
         round_state: &RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
         num_variables: usize,
         round_params: &RoundConfig<F>,
         ood_points: &[EF],
-    ) -> Result<
-        (
+    ) -> (
             Vec<MultilinearPoint<EF>>,
             Vec<MultilinearPoint<F>>,
             Vec<usize>,
-        ),
-        FiatShamirError,
-    > {
-        let stir_challenges_indexes = get_challenge_stir_queries(
+        )
+    {
+        let stir_challenges_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
             round_state.domain_size,
             self.folding_factor.at_round(round_index),
             round_params.num_queries,
-            prover_state,
-        )?;
+            challenger,
+        );
 
         // Compute the generator of the folded domain, in the extension field
         let domain_scaled_gen = round_state.next_domain_gen;
@@ -610,6 +587,6 @@ where
             })
             .collect();
 
-        Ok((ood_challenges, stir_challenges, stir_challenges_indexes))
+        (ood_challenges, stir_challenges, stir_challenges_indexes)
     }
 }
