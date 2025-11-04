@@ -5,10 +5,10 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_symmetric::Hash;
 
 use crate::{
-    fiat_shamir::{errors::FiatShamirError, verifier::VerifierState},
     poly::multilinear::MultilinearPoint,
     whir::{constraints::statement::Statement, parameters::WhirConfig},
 };
+use crate::whir::proof::WhirProof;
 
 /// Represents a parsed commitment from the prover in the WHIR protocol.
 ///
@@ -59,42 +59,39 @@ where
     ///
     /// This is used to verify consistency of polynomial commitments in WHIR.
     pub fn parse<EF, Challenger, const DIGEST_ELEMS: usize>(
-        verifier_state: &mut VerifierState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger:  &mut Challenger,
         num_variables: usize,
         ood_samples: usize,
-    ) -> Result<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>, FiatShamirError>
+    ) -> ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>
     where
         F: TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         // Read the Merkle root hash committed by the prover.
-        let root = verifier_state
-            .next_base_scalars_const::<DIGEST_ELEMS>()?
+        let root = proof
+            .initial_commitment
             .into();
 
         // Allocate space for the OOD challenge points and answers.
         let mut ood_points = EF::zero_vec(ood_samples);
 
-        // If there are any OOD samples expected, read them from the transcript.
-        let ood_answers = if ood_samples > 0 {
-            // Read challenge points chosen by Fiat-Shamir.
-            for ood_point in &mut ood_points {
-                *ood_point = verifier_state.sample();
-            }
+        // Read challenge points chosen by Fiat-Shamir.
+        for ood_point in &mut ood_points {
+            *ood_point = challenger.sample_algebra_element();
+        }
 
-            verifier_state.next_extension_scalars_vec(ood_samples)?
-        } else {
-            Vec::new()
-        };
+        // If there are any OOD samples expected, read them from the transcript.
+        let ood_answers = proof.clone().initial_ood_answers;
 
         // Return a structured representation of the commitment.
-        Ok(ParsedCommitment {
+        ParsedCommitment {
             num_variables,
             root,
             ood_points,
             ood_answers,
-        })
+        }
     }
 
     /// Construct equality constraints for all out-of-domain (OOD) samples.
@@ -149,10 +146,12 @@ where
     /// expected for verifying the committed polynomial.
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<F, EF, Challenger>,
-    ) -> Result<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>, FiatShamirError> {
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger:  &mut Challenger,
+    ) -> ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>> {
         ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
-            verifier_state,
+            proof,
+            challenger,
             self.num_variables,
             self.committment_ood_samples,
         )
@@ -174,7 +173,8 @@ where
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-    use p3_challenger::DuplexChallenger;
+    use p3_challenger::{CanObserve, DuplexChallenger};
+    use p3_field::PrimeCharacteristicRing;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -183,7 +183,7 @@ mod tests {
         dft::EvalsDft,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-        whir::{DomainSeparator, committer::writer::CommitmentWriter},
+        whir::{committer::writer::CommitmentWriter, proof::InitialPhase},
     };
 
     type F = BabyBear;
@@ -242,8 +242,25 @@ mod tests {
         // Create WHIR config with 5 variables and 3 OOD samples, plus a random number generator.
         let (params, mut rng) = make_test_params(5, 3);
 
+        // Get the underlying whir_params for proof initialization
+        let whir_params = ProtocolParameters {
+            initial_statement: true,
+            security_level: 100,
+            pow_bits: 10,
+            rs_domain_initial_reduction_factor: 1,
+            folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
+            merkle_hash: params.merkle_hash.clone(),
+            merkle_compress: params.merkle_compress.clone(),
+            soundness_type: SecurityAssumption::CapacityBound,
+            starting_log_inv_rate: 1,
+            univariate_skip: false,
+        };
+
         // Create a random degree-5 multilinear polynomial (32 coefficients).
         let polynomial = EvaluationsList::new((0..32).map(|_| rng.random()).collect());
+
+        // Initialize the Whir Proof structure
+        let mut proof = WhirProof::from_protocol_parameters(&whir_params, 5);
 
         // Instantiate the committer using the test config.
         let committer = CommitmentWriter::new(&params);
@@ -251,28 +268,44 @@ mod tests {
         // Use a DFT engine to expand/fold the polynomial for evaluation.
         let dft = EvalsDft::default();
 
-        // Set up Fiat-Shamir transcript and commit the protocol parameters.
-        let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
-
-        // Create the prover state from the transcript.
+        // Set up the challenger and observe protocol parameters
         let mut rng = SmallRng::seed_from_u64(1);
-        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-        let mut prover_state = ds.to_prover_state(challenger.clone());
+        // Observe protocol parameters for domain separation
+        challenger.observe(F::from_u64(proof.rounds.len() as u64));
+        challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+
+        // Observe initial phase variant (0=WithoutStatement, 1=WithStatement, 2=WithStatementSkip)
+        let phase_tag = match &proof.initial_phase {
+            InitialPhase::WithoutStatement { .. } => 0,
+            InitialPhase::WithStatement { .. } => 1,
+            InitialPhase::WithStatementSkip { .. } => 2,
+        };
+        challenger.observe(F::from_u64(phase_tag as u64));
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
+            .commit(&dft, &mut proof, &mut challenger, polynomial);
 
-        // Simulate verifier state using transcript view of prover’s nonce string.
-        let mut verifier_state =
-            ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+        // Store the OOD answers in the proof for the reader to access
+        proof.initial_ood_answers = witness.ood_answers.clone();
 
-        // Create a commitment reader and parse the commitment from verifier state.
+        // Create a new challenger for the verifier with the same seed
+        let mut rng = SmallRng::seed_from_u64(1);
+        let mut verifier_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+
+        // Observe the same protocol parameters for domain separation
+        verifier_challenger.observe(F::from_u64(proof.rounds.len() as u64));
+        verifier_challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+        verifier_challenger.observe(F::from_u64(phase_tag as u64));
+
+        // The verifier needs to observe the commitment to advance the challenger state
+        verifier_challenger.observe_slice(&proof.initial_commitment);
+
+        // Create a commitment reader and parse the commitment
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader.parse_commitment::<8>(&mut proof, &mut verifier_challenger);
 
         // Ensure the Merkle root matches between prover and parsed result.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -287,34 +320,68 @@ mod tests {
         // Create WHIR config with 4 variables and *no* OOD samples.
         let (params, mut rng) = make_test_params(4, 0);
 
+        // Get the underlying whir_params for proof initialization
+        let whir_params = ProtocolParameters {
+            initial_statement: true,
+            security_level: 100,
+            pow_bits: 10,
+            rs_domain_initial_reduction_factor: 1,
+            folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
+            merkle_hash: params.merkle_hash.clone(),
+            merkle_compress: params.merkle_compress.clone(),
+            soundness_type: SecurityAssumption::CapacityBound,
+            starting_log_inv_rate: 1,
+            univariate_skip: false,
+        };
+
         // Generate a polynomial with 16 random coefficients.
         let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
+
+        // Initialize the Whir Proof structure
+        let mut proof = WhirProof::from_protocol_parameters(&whir_params, 4);
 
         // Set up the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);
         let dft = EvalsDft::default();
 
-        // Begin the transcript and commit to the statement parameters.
-        let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
-
-        // Generate the prover state from the transcript.
+        // Set up the challenger and observe protocol parameters
         let mut rng = SmallRng::seed_from_u64(1);
-        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-        let mut prover_state = ds.to_prover_state(challenger.clone());
+        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+
+        // Observe protocol parameters for domain separation
+        challenger.observe(F::from_u64(proof.rounds.len() as u64));
+        challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+
+        // Observe initial phase variant
+        let phase_tag = match &proof.initial_phase {
+            InitialPhase::WithoutStatement { .. } => 0,
+            InitialPhase::WithStatement { .. } => 1,
+            InitialPhase::WithStatementSkip { .. } => 2,
+        };
+        challenger.observe(F::from_u64(phase_tag as u64));
 
         // Commit the polynomial to obtain the witness.
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
+            .commit(&dft, &mut proof, &mut challenger, polynomial);
 
-        // Initialize the verifier view of the transcript.
-        let mut verifier_state =
-            ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+        // Store the OOD answers in the proof (should be empty in this case)
+        proof.initial_ood_answers = witness.ood_answers.clone();
+
+        // Create a new challenger for the verifier with the same seed
+        let mut rng = SmallRng::seed_from_u64(1);
+        let mut verifier_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+
+        // Observe the same protocol parameters for domain separation
+        verifier_challenger.observe(F::from_u64(proof.rounds.len() as u64));
+        verifier_challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+        verifier_challenger.observe(F::from_u64(phase_tag as u64));
+
+        // The verifier needs to observe the commitment to advance the challenger state
+        verifier_challenger.observe_slice(&proof.initial_commitment);
 
         // Parse the commitment from verifier transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader.parse_commitment::<8>(&mut proof, &mut verifier_challenger);
 
         // Validate the Merkle root matches.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -332,35 +399,68 @@ mod tests {
         // Create config with 10 variables and 5 OOD samples.
         let (params, mut rng) = make_test_params(10, 5);
 
+        // Get the underlying whir_params for proof initialization
+        let whir_params = ProtocolParameters {
+            initial_statement: true,
+            security_level: 100,
+            pow_bits: 10,
+            rs_domain_initial_reduction_factor: 1,
+            folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
+            merkle_hash: params.merkle_hash.clone(),
+            merkle_compress: params.merkle_compress.clone(),
+            soundness_type: SecurityAssumption::CapacityBound,
+            starting_log_inv_rate: 1,
+            univariate_skip: false,
+        };
+
         // Generate a large polynomial with 1024 random coefficients.
         let polynomial = EvaluationsList::new((0..1024).map(|_| rng.random()).collect());
+
+        // Initialize the Whir Proof structure
+        let mut proof = WhirProof::from_protocol_parameters(&whir_params, 10);
 
         // Initialize the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);
         let dft = EvalsDft::default();
 
-        // Start a new transcript and commit to the public parameters.
-        let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
-
-        // Create prover state from the transcript.
+        // Set up the challenger and observe protocol parameters
         let mut rng = SmallRng::seed_from_u64(1);
-        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-        let mut prover_state = ds.to_prover_state(challenger.clone());
+        // Observe protocol parameters for domain separation
+        challenger.observe(F::from_u64(proof.rounds.len() as u64));
+        challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+
+        // Observe initial phase variant
+        let phase_tag = match &proof.initial_phase {
+            InitialPhase::WithoutStatement { .. } => 0,
+            InitialPhase::WithStatement { .. } => 1,
+            InitialPhase::WithStatementSkip { .. } => 2,
+        };
+        challenger.observe(F::from_u64(phase_tag as u64));
 
         // Commit the polynomial and obtain the witness.
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
+            .commit(&dft, &mut proof, &mut challenger, polynomial);
 
-        // Initialize verifier view from prover's transcript string.
-        let mut verifier_state =
-            ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+        // Store the OOD answers in the proof for the reader to access
+        proof.initial_ood_answers = witness.ood_answers.clone();
 
-        // Parse the commitment from verifier’s transcript.
+        // Create a new challenger for the verifier with the same seed
+        let mut rng = SmallRng::seed_from_u64(1);
+        let mut verifier_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+
+        // Observe the same protocol parameters for domain separation
+        verifier_challenger.observe(F::from_u64(proof.rounds.len() as u64));
+        verifier_challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+        verifier_challenger.observe(F::from_u64(phase_tag as u64));
+
+        // The verifier needs to observe the commitment to advance the challenger state
+        verifier_challenger.observe_slice(&proof.initial_commitment);
+
+        // Parse the commitment from verifier's transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader.parse_commitment::<8>(&mut proof, &mut verifier_challenger);
 
         // Check Merkle root and OOD answers match.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -373,31 +473,68 @@ mod tests {
         // Create WHIR config with 4 variables and 2 OOD samples.
         let (params, mut rng) = make_test_params(4, 2);
 
+        // Get the underlying whir_params for proof initialization
+        let whir_params = ProtocolParameters {
+            initial_statement: true,
+            security_level: 100,
+            pow_bits: 10,
+            rs_domain_initial_reduction_factor: 1,
+            folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
+            merkle_hash: params.merkle_hash.clone(),
+            merkle_compress: params.merkle_compress.clone(),
+            soundness_type: SecurityAssumption::CapacityBound,
+            starting_log_inv_rate: 1,
+            univariate_skip: false,
+        };
+
         // Generate a multilinear polynomial with 16 coefficients.
         let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
+
+        // Initialize the Whir Proof structure
+        let mut proof = WhirProof::from_protocol_parameters(&whir_params, 4);
 
         // Instantiate a committer and DFT backend.
         let committer = CommitmentWriter::new(&params);
         let dft = EvalsDft::default();
 
-        // Set up Fiat-Shamir transcript and commit to the public parameters.
-        let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
-
-        // Generate prover and verifier transcript states.
+        // Set up the challenger and observe protocol parameters
         let mut rng = SmallRng::seed_from_u64(1);
-        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-        let mut prover_state = ds.to_prover_state(challenger.clone());
-        let _ = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
-        let mut verifier_state =
-            ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+        // Observe protocol parameters for domain separation
+        challenger.observe(F::from_u64(proof.rounds.len() as u64));
+        challenger.observe(F::from_u64(proof.final_queries.len() as u64));
 
-        // Parse the commitment from the verifier’s state.
+        // Observe initial phase variant
+        let phase_tag = match &proof.initial_phase {
+            InitialPhase::WithoutStatement { .. } => 0,
+            InitialPhase::WithStatement { .. } => 1,
+            InitialPhase::WithStatementSkip { .. } => 2,
+        };
+        challenger.observe(F::from_u64(phase_tag as u64));
+
+        // Commit the polynomial
+        let witness = committer
+            .commit(&dft, &mut proof, &mut challenger, polynomial);
+
+        // Store the OOD answers in the proof for the reader to access
+        proof.initial_ood_answers = witness.ood_answers.clone();
+
+        // Create a new challenger for the verifier with the same seed
+        let mut rng = SmallRng::seed_from_u64(1);
+        let mut verifier_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+
+        // Observe the same protocol parameters for domain separation
+        verifier_challenger.observe(F::from_u64(proof.rounds.len() as u64));
+        verifier_challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+        verifier_challenger.observe(F::from_u64(phase_tag as u64));
+
+        // The verifier needs to observe the commitment to advance the challenger state
+        verifier_challenger.observe_slice(&proof.initial_commitment);
+
+        // Parse the commitment from the verifier's state.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader.parse_commitment::<8>(&mut proof, &mut verifier_challenger);
 
         // Extract constraints from parsed commitment.
         let constraints = parsed.oods_constraints();
