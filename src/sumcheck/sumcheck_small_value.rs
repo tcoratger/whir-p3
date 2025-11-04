@@ -78,8 +78,8 @@ fn precompute_e_in<F: Field>(w: &MultilinearPoint<F>) -> Vec<F> {
 
 /// Precomputation needed for Procedure 9 (compute_accumulators).
 /// Compute three E_out vectors, one per round i in {0, 1, 2}.
-/// For each i, E_out = eq(w_{i+1}, ..., l0, w_{l/2 + l0 + 1}, ..., w_l ; x) 
-fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_OF_ROUNDS] {
+/// For each i, E_out = eq(w_{i+1}, ..., l0, w_{l/2 + l0 + 1}, ..., w_l ; x)
+fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_SVO_ROUNDS] {
     let half_l = w.num_variables() / 2;
     let w_out_len = w.num_variables() - half_l - 1;
 
