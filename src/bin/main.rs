@@ -2,8 +2,8 @@ use std::time::Instant;
 
 use clap::Parser;
 use p3_baby_bear::BabyBear;
-use p3_challenger::DuplexChallenger;
-use p3_field::{PrimeField64, extension::BinomialExtensionField};
+use p3_challenger::{CanObserve, DuplexChallenger};
+use p3_field::{extension::BinomialExtensionField, PrimeCharacteristicRing};
 use p3_goldilocks::Goldilocks;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -15,7 +15,6 @@ use tracing_forest::{ForestLayer, util::LevelFilter};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::{
     dft::EvalsDft,
-    fiat_shamir::domain_separator::DomainSeparator,
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
@@ -24,8 +23,10 @@ use whir_p3::{
         parameters::WhirConfig,
         prover::Prover,
         verifier::Verifier,
+        proof::WhirProof,
     },
 };
+use whir_p3::whir::proof::InitialPhase;
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, 4>;
@@ -124,6 +125,9 @@ fn main() {
         univariate_skip: false,
     };
 
+    // Initialize the Whir Proof structure
+    let mut proof = WhirProof::from_protocol_parameters(&whir_params, num_variables);
+
     let params = WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(
         num_variables,
         whir_params,
@@ -145,21 +149,26 @@ fn main() {
         statement.add_unevaluated_constraint(point.clone(), &polynomial);
     }
 
-    // Define the Fiat-Shamir domain separator pattern for committing and proving
-    let mut domainsep = DomainSeparator::new(vec![]);
-    domainsep.commit_statement::<_, _, _, 32>(&params);
-    domainsep.add_whir_proof::<_, _, _, 32>(&params);
-
     println!("=========================================");
     println!("Whir (PCS) 🌪️");
     if !params.check_pow_bits() {
         println!("WARN: more PoW bits required than what specified.");
     }
 
-    let challenger = MyChallenger::new(poseidon16);
+    let mut challenger = MyChallenger::new(poseidon16);
 
-    // Initialize the Merlin transcript from the IOPattern
-    let mut prover_state = domainsep.to_prover_state(challenger.clone());
+    // Set up the Domain separation by observing the current Whir Proof structure
+    // Observe protocol parameters for domain separation
+    challenger.observe(F::from_u64(proof.rounds.len() as u64));
+    challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+
+    // Observe initial phase variant (0=WithoutStatement, 1=WithStatement, 2=WithStatementSkip)
+    let phase_tag = match &proof.initial_phase {
+        InitialPhase::WithoutStatement { .. } => 0,
+        InitialPhase::WithStatement { .. } => 1,
+        InitialPhase::WithStatementSkip { .. } => 2,
+    };
+    challenger.observe(F::from_u64(phase_tag as u64));
 
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
@@ -168,8 +177,7 @@ fn main() {
 
     let time = Instant::now();
     let witness = committer
-        .commit(&dft, &mut prover_state, polynomial)
-        .unwrap();
+        .commit(&dft, &mut proof, &mut challenger, polynomial);
     let commit_time = time.elapsed();
 
     // Generate a proof using the prover
@@ -178,8 +186,7 @@ fn main() {
     // Generate a proof for the given statement and witness
     let time = Instant::now();
     prover
-        .prove(&dft, &mut prover_state, statement.clone(), witness)
-        .unwrap();
+        .prove(&dft, &mut proof, &mut challenger, statement.clone(), witness);
     let opening_time = time.elapsed();
 
     // Create a commitment reader
@@ -188,18 +195,14 @@ fn main() {
     // Create a verifier with matching parameters
     let verifier = Verifier::new(&params);
 
-    // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    let mut verifier_state =
-        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
-        .parse_commitment::<8>(&mut verifier_state)
-        .unwrap();
+        .parse_commitment::<8>(&mut proof, &mut challenger);
 
     let verif_time = Instant::now();
     verifier
-        .verify(&mut verifier_state, &parsed_commitment, &statement)
+        .verify(&mut proof, &mut challenger, &parsed_commitment, &statement)
         .unwrap();
     let verify_time = verif_time.elapsed();
 
@@ -209,7 +212,8 @@ fn main() {
         commit_time.as_millis(),
         opening_time.as_millis()
     );
-    let proof_size = prover_state.proof_data().len() as f64 * (F::ORDER_U64 as f64).log2() / 8.0;
-    println!("proof size: {:.2} KiB", proof_size / 1024.0);
+    //let proof_size = prover_state.proof_data().len() as f64 * (F::ORDER_U64 as f64).log2() / 8.0;
+    //println!("proof size: {:.2} KiB", proof_size / 1024.0);
+    // todo! write a function that gets the proof size
     println!("Verification time: {} μs", verify_time.as_micros());
 }
