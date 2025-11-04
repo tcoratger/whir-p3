@@ -12,7 +12,6 @@ use tracing::instrument;
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
@@ -21,6 +20,7 @@ use crate::{
         prover::Prover,
     },
 };
+use crate::whir::proof::{InitialPhase, WhirProof};
 
 /// Holds all per-round prover state required during the execution of the WHIR protocol.
 ///
@@ -148,10 +148,11 @@ where
     #[instrument(skip_all)]
     pub fn initialize_first_round_state<MyChallenger, C, Challenger>(
         prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
-        prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         mut statement: Statement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
-    ) -> Result<Self, FiatShamirError>
+    ) -> Self
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
         MyChallenger: Clone,
@@ -171,59 +172,86 @@ where
         statement.add_constraints_in_front(&new_constraint_points, &witness.ood_answers);
 
         // Protocol branching based on initial statement configuration
-        let (sumcheck_prover, folding_randomness) = if prover.initial_statement {
-            // Branch A: Initial statement exists - run sumcheck for constraint batching
-            let combination_randomness_gen: EF = prover_state.sample();
+        let (sumcheck_prover, folding_randomness) = match (
+            prover.initial_statement,
+            prover.univariate_skip && K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0),
+        ) {
+            // Case 1: Initial statement with univariate skip optimization.
+            // InitialPhase of WhirProof is WithStatementSkip
+            (true, true) => {
+                let combination_randomness_gen: EF = challenger.sample_algebra_element();
 
-            // Choose sumcheck strategy: with or without univariate skip optimization
-            let (sumcheck, folding_randomness) =
-                if prover.univariate_skip && K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0) {
-                    // Use univariate skip by skipping k variables
-                    SumcheckSingle::with_skip(
-                        &witness.polynomial,
-                        &statement,
-                        combination_randomness_gen,
-                        prover_state,
-                        prover.folding_factor.at_round(0),
-                        prover.starting_folding_pow_bits,
-                        K_SKIP_SUMCHECK,
-                    )
+                let (sumcheck, folding_randomness) = SumcheckSingle::with_skip(
+                    &witness.polynomial,
+                    &statement,
+                    combination_randomness_gen,
+                    proof,
+                    challenger,
+                    prover.folding_factor.at_round(0),
+                    prover.starting_folding_pow_bits,
+                    K_SKIP_SUMCHECK,
+                );
+
+                (sumcheck, folding_randomness)
+            }
+
+            // Case 2: Initial statement without univariate skip (standard sumcheck).
+            // InitialPhase of WhirProof is WithStatement
+            (true, false) => {
+                let combination_randomness_gen: EF = challenger.sample_algebra_element();
+
+                let (sumcheck, folding_randomness) = SumcheckSingle::from_base_evals(
+                    &witness.polynomial,
+                    &statement,
+                    combination_randomness_gen,
+                    proof,
+                    challenger,
+                    prover.folding_factor.at_round(0),
+                    prover.starting_folding_pow_bits,
+                );
+
+                (sumcheck, folding_randomness)
+            }
+
+            // Case 3: No initial statement - direct polynomial folding path
+            // InitialPhase of WhirProof is WithoutStatement
+            (false, _) => {
+                let folding_randomness = MultilinearPoint::new(
+                    (0..prover.folding_factor.at_round(0))
+                        .map(|_| challenger.sample_algebra_element()) // Sample folding challenges α_1, ..., α_k
+                        .collect::<Vec<_>>(),
+                );
+
+                // Apply folding transformation: f(X_0, ..., X_{n-1}) → f'(X_k, ..., X_{n-1})
+                let poly = witness.polynomial.fold(&folding_randomness);
+                let num_variables = poly.num_variables();
+
+                // Create trivial sumcheck prover (no constraints to batch)
+                let sumcheck = SumcheckSingle::from_extension_evals(
+                    poly,
+                    &Statement::initialize(num_variables),
+                    EF::ONE,
+                );
+
+                // Apply proof-of-work grinding for transcript security
+                let pow_bits = prover.starting_folding_pow_bits;
+
+                let witness = if pow_bits != 0 {
+                    Some(challenger.grind(pow_bits))
                 } else {
-                    // Standard sumcheck protocol without optimization
-                    SumcheckSingle::from_base_evals(
-                        &witness.polynomial,
-                        &statement,
-                        combination_randomness_gen,
-                        prover_state,
-                        prover.folding_factor.at_round(0),
-                        prover.starting_folding_pow_bits,
-                    )
+                    None
                 };
 
-            (sumcheck, folding_randomness)
-        } else {
-            // Branch B: No initial statement - direct polynomial folding path
-            let folding_randomness = MultilinearPoint::new(
-                (0..prover.folding_factor.at_round(0))
-                    .map(|_| prover_state.sample()) // Sample folding challenges α_1, ..., α_k
-                    .collect::<Vec<_>>(),
-            );
+                if let InitialPhase::WithoutStatement { ref mut pow_witness } = proof.initial_phase {
+                    if let Some(w) = witness {
+                        *pow_witness = w;
+                    }
+                } else {
+                    panic!("initial_round called with incorrect InitialPhase variant");
+                }
 
-            // Apply folding transformation: f(X_0, ..., X_{n-1}) → f'(X_k, ..., X_{n-1})
-            let poly = witness.polynomial.fold(&folding_randomness);
-            let num_variables = poly.num_variables();
-
-            // Create trivial sumcheck prover (no constraints to batch)
-            let sumcheck = SumcheckSingle::from_extension_evals(
-                poly,
-                &Statement::initialize(num_variables),
-                EF::ONE,
-            );
-
-            // Apply proof-of-work grinding for transcript security
-            prover_state.pow_grinding(prover.starting_folding_pow_bits);
-
-            (sumcheck, folding_randomness)
+                (sumcheck, folding_randomness)
+            }
         };
 
         // Build global randomness accumulator for multi-round evaluation
@@ -234,7 +262,7 @@ where
         randomness_vec.resize(prover.num_variables, EF::ZERO);
 
         // Initialize complete round state for first WHIR protocol round
-        Ok(Self {
+        Self {
             // Starting domain H_0 with |H_0| = 2^m evaluation points
             domain_size: prover.starting_domain_size(),
             // Compute next domain generator: ω_1 = ω_0^{2^k} for H_1 after folding
@@ -253,6 +281,6 @@ where
             randomness_vec,
             // Constraint set augmented with OOD evaluations
             statement,
-        })
+        }
     }
 }
