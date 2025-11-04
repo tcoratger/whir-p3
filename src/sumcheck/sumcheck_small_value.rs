@@ -68,18 +68,18 @@ pub struct RoundAccumlators<F: Field> {
     pub accumulators: Vec<F>,
 }
 
-// Precomputation needed for Procedure 9 (compute_accumulators).
-// Compute the evaluations eq(w_{l0 + 1}, ..., w_{l0 + l/2} ; x) for all x in {0,1}^l/2
+/// Precomputation needed for Procedure 9 (compute_accumulators).
+/// Compute the evaluations eq(w_{l0 + 1}, ..., w_{l0 + l/2} ; x) for all x in {0,1}^l/2
 fn precompute_e_in<F: Field>(w: &MultilinearPoint<F>) -> Vec<F> {
     let half_l = w.num_variables() / 2;
     let w_in = &w.0[NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + half_l];
     eval_eq_in_hypercube(w_in)
 }
 
-// Precomputation needed for Procedure 9 (compute_accumulators).
-// Compute three E_out vectors, one per round i in {0, 1, 2}.
-// For each i, E_out = eq(w_{i+1}, ..., l0, w_{l/2 + l0 + 1}, ..., w_l ; x)
-fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_SVO_ROUNDS] {
+/// Precomputation needed for Procedure 9 (compute_accumulators).
+/// Compute three E_out vectors, one per round i in {0, 1, 2}.
+/// For each i, E_out = eq(w_{i+1}, ..., l0, w_{l/2 + l0 + 1}, ..., w_l ; x) 
+fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_OF_ROUNDS] {
     let half_l = w.num_variables() / 2;
     let w_out_len = w.num_variables() - half_l - 1;
 
@@ -130,71 +130,45 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
                 }
             }
 
-            let temp_acc = &temp_accumulators;
-
-            // e_out for round i = 0: y in {0,1}^2.
-            let e0_0 = e_out[0][x_out]; // e_out_0(0,0, x_out)
-            let e0_1 = e_out[0][(1 << x_out_num_vars) | x_out]; // e_out_0(0,1, x_out)
-            let e0_2 = e_out[0][(2 << x_out_num_vars) | x_out]; // e_out_0(1,0, x_out)
-            let e0_3 = e_out[0][(3 << x_out_num_vars) | x_out]; // e_out_0(1,1, x_out)
-            // e_out for round i = 1: y in {0,1}.
-            let e1_0 = e_out[1][x_out]; // e_out_1(0, x_out)
-            let e1_1 = e_out[1][(1 << x_out_num_vars) | x_out]; // e_out_1(1, x_out)
-            // e_out for round i = 2: there is no y.
-            let e2 = e_out[2][x_out]; // e_out_2(x_out)
-
-            // We do not use the idx4 function since we are directly computing the indices for efficiency.
-            // We go through each beta = (v, u, y) in {0, 1}^3; we don't compute the cases where the digits are
-            // infinity because we won't need them.
-            // Recall that in `v || u` determines the accumulator's index, `y` determines the e_out factor, and the
-            // whole beta determines de temp_acc.
-
-            // beta = (0,0,0)
-            local_accumulators.accumulate(0, 0, e0_0 * temp_acc[0]); // u = 0, y = 00
-            local_accumulators.accumulate(1, 0, e1_0 * temp_acc[0]); // v = 0, u = 0, y = 0,
-            local_accumulators.accumulate(2, 0, e2 * temp_acc[0]); // v = 00, u = 0
-
-            // beta = (0,0,1)
-            local_accumulators.accumulate(0, 0, e0_1 * temp_acc[1]); // u = 0, y = 01
-            local_accumulators.accumulate(1, 0, e1_1 * temp_acc[1]); //  v = 0, u = 0, y = 1
-            local_accumulators.accumulate(2, 1, e2 * temp_acc[1]); // v = 00, u = 1
-
-            // beta = (0,1,0)
-            local_accumulators.accumulate(0, 0, e0_2 * temp_acc[2]); // u = 0, y = 10
-            local_accumulators.accumulate(1, 1, e1_0 * temp_acc[2]); // v = 0, u = 1, y = 0
-            local_accumulators.accumulate(2, 2, e2 * temp_acc[2]); // v = 01, u = 0
-
-            // beta = (0,1,1)
-            local_accumulators.accumulate(0, 0, e0_3 * temp_acc[3]); // u = 0, y = 11
-            local_accumulators.accumulate(1, 1, e1_1 * temp_acc[3]); // v = 0, u = 1, y = 1
-            local_accumulators.accumulate(2, 3, e2 * temp_acc[3]); // v = 01, u = 1
-
-            // beta = (1,0,0)
-            local_accumulators.accumulate(0, 1, e0_0 * temp_acc[4]); // u = 1, y = 00
-            local_accumulators.accumulate(1, 2, e1_0 * temp_acc[4]); // v = 1, u = 0, y = 0
-            local_accumulators.accumulate(2, 4, e2 * temp_acc[4]); // v = 10, u = 0
-
-            // beta = (1,0,1)
-            local_accumulators.accumulate(0, 1, e0_1 * temp_acc[5]); // u = 1, y = 01
-            local_accumulators.accumulate(1, 2, e1_1 * temp_acc[5]); // v = 1, u = 0, y = 1
-            local_accumulators.accumulate(2, 5, e2 * temp_acc[5]); // v = 10, u = 1
-
-            // beta = (1,1,0)
-            local_accumulators.accumulate(0, 1, e0_2 * temp_acc[6]); // u = 1, y = 10
-            local_accumulators.accumulate(1, 3, e1_0 * temp_acc[6]); // v = 1, u = 1, y = 0
-            local_accumulators.accumulate(2, 6, e2 * temp_acc[6]); // v = 11, u = 0
-
-            // beta = (1,1,1)
-            local_accumulators.accumulate(0, 1, e0_3 * temp_acc[7]); // u = 1, y = 11
-            local_accumulators.accumulate(1, 3, e1_1 * temp_acc[7]); // v = 1, u = 1, y = 1
-            local_accumulators.accumulate(2, 7, e2 * temp_acc[7]); // v = 11, u = 1
-
+            // Destructure things since we will access them many times later
+            let [t0, t1, t2, t3, t4, t5, t6, t7] = temp_accumulators;
+            // Get E_out(y, x_out) for this x_out
+            // Round 0 (i=0) -> y=(b1,b2) -> 2 bits
+            let e0_0 = e_out[0][x_out]; // y=00
+            let e0_1 = e_out[0][(1 << x_out_num_vars) | x_out]; // y=01
+            let e0_2 = e_out[0][(2 << x_out_num_vars) | x_out]; // y=10
+            let e0_3 = e_out[0][(3 << x_out_num_vars) | x_out]; // y=11
+            // Round 1 (i=1) -> y=(b2) -> 1 bit
+            let e1_0 = e_out[1][x_out]; // y=0
+            let e1_1 = e_out[1][(1 << x_out_num_vars) | x_out]; // y=1
+            // Round 2 (i=2) -> y=() -> 0 bits
+            let e2 = e_out[2][x_out]; // y=()
+            // Round 0 (i=0)
+            // A_0(u=0) = Σ_{y} E_out_0(y) * tA( (u=0, y), x_out )
+            local_accumulators.accumulate(0, 0, e0_0 * t0 + e0_1 * t1 + e0_2 * t2 + e0_3 * t3);
+            // A_0(u=1) = Σ_{y} E_out_0(y) * tA( (u=1, y), x_out )
+            local_accumulators.accumulate(0, 1, e0_0 * t4 + e0_1 * t5 + e0_2 * t6 + e0_3 * t7);
+            // Round 1 (i=1)
+            // A_1(v, u) = Σ_{y} E_out_1(y) * tA( (v, u, y), x_out )
+            // v=0, u=0
+            local_accumulators.accumulate(1, 0, e1_0 * t0 + e1_1 * t1);
+            // v=0, u=1
+            local_accumulators.accumulate(1, 1, e1_0 * t2 + e1_1 * t3);
+            // v=1, u=0
+            local_accumulators.accumulate(1, 2, e1_0 * t4 + e1_1 * t5);
+            // v=1, u=1
+            local_accumulators.accumulate(1, 3, e1_0 * t6 + e1_1 * t7);
+            // Round 2 (i=2)
+            // A_2(v, u) = E_out_2() * tA( (v, u), x_out )
+            for i in 0..8 {
+                local_accumulators.accumulate(2, i, e2 * temp_accumulators[i]);
+            }
             local_accumulators
         })
-        .reduce(|| Accumulators::<EF>::new_empty(), |a, b| a + b)
+        .reduce(Accumulators::<EF>::new_empty, |a, b| a + b)
 }
 
-// Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
+/// Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
 pub fn eval_eq_in_hypercube<F: Field>(point: &[F]) -> Vec<F> {
     let n = point.len();
     if n == 0 {
@@ -240,9 +214,9 @@ fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F; 2]) -> [F; 2] {
     ]
 }
 
-// Algorithm 6. Page 19.
-// Compute three sumcheck rounds using the small value optimizaition and split-eq accumulators.
-// It returns the three challenges r_1, r_2, r_3.
+/// Algorithm 6. Page 19.
+/// Compute three sumcheck rounds using the small value optimizaition and split-eq accumulators.
+/// It returns the three challenges r_1, r_2, r_3.
 pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
@@ -391,7 +365,7 @@ where
     let remaining_vars = evals.num_variables() - num_challenges;
     let num_remaining_evals = 1 << remaining_vars;
 
-    let eq_evals: Vec<EF> = eval_eq_in_hypercube(&challenges.to_vec());
+    let eq_evals: Vec<EF> = eval_eq_in_hypercube(&challenges);
 
     let folded_evals_flat: Vec<EF> = (0..num_remaining_evals)
         .into_par_iter()
@@ -428,7 +402,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
 
     // We compute eq(w_{l/2 + 1}, ...,  w_l ; x_R) for all x_R in {0, 1}^{l/2}
     // These evaluations don't depend on the round i, so they are computed outside the loop.
-    let eq_r = eval_eq_in_hypercube(&w.0[half_l..].to_vec());
+    let eq_r = eval_eq_in_hypercube(&w.0[half_l..]);
     let num_vars_x_r = eq_r.len().ilog2() as usize;
 
     // The number of variables of x_R is: l/2 if l is even and l/2 + 1 if l is odd.
@@ -447,7 +421,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
         // 1. We compute t_i(u) for u in {0, 1}.
         if i <= half_l {
             // We compute eq(w_{i + 1}, ...,  w_{l/2} ; x_L) for all x_L in {0, 1}^{l/2 - i}
-            let eq_l = eval_eq_in_hypercube(&w.0[i..half_l].to_vec());
+            let eq_l = eval_eq_in_hypercube(&w.0[i..half_l]);
             let eq_l_len = eq_l.len();
             let num_x_r = 1 << num_vars_x_r;
 
@@ -479,7 +453,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
             t[1] = t_1;
         // Case i > l/2: Only one part of the eq evaluations remains to be processed.
         } else {
-            let eq = eval_eq_in_hypercube(&w.0[i..num_vars].to_vec());
+            let eq = eval_eq_in_hypercube(&w.0[i..num_vars]);
             let half_size = 1 << (num_vars_poly_current - 1);
 
             let (t_0, t_1) = rayon::join(
