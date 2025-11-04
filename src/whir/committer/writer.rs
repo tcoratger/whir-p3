@@ -12,10 +12,13 @@ use tracing::{info_span, instrument};
 use super::Witness;
 use crate::{
     dft::EvalsDft,
-    fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::evals::EvaluationsList,
     utils::parallel_repeat,
-    whir::{committer::DenseMatrix, parameters::WhirConfig, utils::sample_ood_points},
+    whir::{committer::DenseMatrix,
+           parameters::WhirConfig,
+           utils::sample_ood_points,
+           proof::WhirProof,
+    },
 };
 
 /// Responsible for committing polynomials using a Merkle-based scheme.
@@ -57,9 +60,10 @@ where
     pub fn commit<const DIGEST_ELEMS: usize>(
         &self,
         dft: &EvalsDft<F>,
-        prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         polynomial: EvaluationsList<F>,
-    ) -> Result<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>, FiatShamirError>
+    ) -> Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
@@ -88,23 +92,28 @@ where
         let (root, prover_data) =
             info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
 
-        prover_state.add_base_scalars(root.as_ref());
+        // Extend the proof data vector with the initial polynomial commitment
+        proof.initial_commitment = *root.as_ref();
+
+        // Notify the challenger that these scalars have been committed.
+        challenger.observe_slice(root.as_ref());
 
         // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) = sample_ood_points(
-            prover_state,
+            challenger,
             self.committment_ood_samples,
             self.num_variables,
             |point| info_span!("ood evaluation").in_scope(|| polynomial.evaluate(point)),
         );
 
+
         // Return the witness containing the polynomial, Merkle tree, and OOD results.
-        Ok(Witness {
+        Witness {
             polynomial,
             prover_data: Arc::new(prover_data),
             ood_points,
             ood_answers,
-        })
+        }
     }
 }
 
@@ -122,14 +131,16 @@ where
 
 #[cfg(test)]
 mod tests {
+    use p3_field::PrimeCharacteristicRing;
+    use crate::whir::proof::InitialPhase;
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-    use p3_challenger::DuplexChallenger;
+    use p3_challenger::{CanObserve, DuplexChallenger};
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
+    use crate::whir::proof::WhirProof;
 
     use super::*;
     use crate::{
-        fiat_shamir::domain_separator::DomainSeparator,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::multilinear::MultilinearPoint,
     };
@@ -174,28 +185,36 @@ mod tests {
 
         // Define multivariate parameters for the polynomial.
         let params =
-            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
+            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params.clone());
+
+        // Initialize the Whir Proof structure
+        let mut proof = WhirProof::from_protocol_parameters(&whir_params, num_variables);
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
-        domainsep.commit_statement::<_, _, _, 8>(&params);
-        domainsep.add_whir_proof::<_, _, _, 8>(&params);
-
+        // Set up the Domain separation by observing the current Whir Proof structure
         let mut rng = SmallRng::seed_from_u64(1);
-        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-        let mut prover_state = domainsep.to_prover_state(challenger);
+        // Observe protocol parameters for domain separation
+        challenger.observe(F::from_u64(proof.rounds.len() as u64));
+        challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+
+        // Observe initial phase variant (0=WithoutStatement, 1=WithStatement, 2=WithStatementSkip)
+        let phase_tag = match &proof.initial_phase {
+            InitialPhase::WithoutStatement { .. } => 0,
+            InitialPhase::WithStatement { .. } => 1,
+            InitialPhase::WithStatementSkip { .. } => 2,
+        };
+        challenger.observe(F::from_u64(phase_tag as u64));
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(&params);
         let dft_committer = EvalsDft::<F>::default();
         let witness = committer
-            .commit(&dft_committer, &mut prover_state, polynomial.clone())
-            .unwrap();
+            .commit(&dft_committer, &mut proof, &mut challenger, polynomial.clone());
 
         // Ensure OOD (out-of-domain) points are generated.
         assert!(
@@ -255,24 +274,41 @@ mod tests {
         };
 
         let params =
-            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
+            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params.clone());
+
+        // Initialize the Whir Proof structure
+        let mut proof = WhirProof::from_protocol_parameters(&whir_params, num_variables);
 
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
 
-        let mut domainsep = DomainSeparator::new(vec![]);
-        domainsep.commit_statement::<_, _, _, 8>(&params);
-
+        // Set up the challenger
         let mut rng = SmallRng::seed_from_u64(1);
-        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-        let mut prover_state = domainsep.to_prover_state(challenger);
+        // Observe protocol parameters for domain separation
+        challenger.observe(F::from_u64(proof.rounds.len() as u64));
+        challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+
+        // Observe initial phase variant
+        let phase_tag = match &proof.initial_phase {
+            InitialPhase::WithoutStatement { .. } => 0,
+            InitialPhase::WithStatement { .. } => 1,
+            InitialPhase::WithStatementSkip { .. } => 2,
+        };
+        challenger.observe(F::from_u64(phase_tag as u64));
 
         let dft_committer = EvalsDft::<F>::default();
         let committer = CommitmentWriter::new(&params);
-        let _ = committer
-            .commit(&dft_committer, &mut prover_state, polynomial)
-            .unwrap();
+        let witness = committer
+            .commit(&dft_committer, &mut proof, &mut challenger, polynomial);
+
+        // Ensure witness was created successfully
+        assert_eq!(
+            witness.ood_points.len(),
+            params.committment_ood_samples,
+            "OOD points count should match expected samples"
+        );
     }
 
     #[test]
@@ -307,31 +343,42 @@ mod tests {
         };
 
         let mut params =
-            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
+            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params.clone());
 
         // Explicitly set OOD samples to 0
         params.committment_ood_samples = 0;
 
+        // Initialize the Whir Proof structure
+        let mut proof = WhirProof::from_protocol_parameters(&whir_params, num_variables);
+
         let mut rng = rand::rng();
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        let mut domainsep = DomainSeparator::new(vec![]);
-        domainsep.commit_statement::<_, _, _, 8>(&params);
-
+        // Set up the challenger
         let mut rng = SmallRng::seed_from_u64(1);
-        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-        let mut prover_state = domainsep.to_prover_state(challenger);
+        // Observe protocol parameters for domain separation
+        challenger.observe(F::from_u64(proof.rounds.len() as u64));
+        challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+
+        // Observe initial phase variant
+        let phase_tag = match &proof.initial_phase {
+            InitialPhase::WithoutStatement { .. } => 0,
+            InitialPhase::WithStatement { .. } => 1,
+            InitialPhase::WithStatementSkip { .. } => 2,
+        };
+        challenger.observe(F::from_u64(phase_tag as u64));
 
         let dft_committer = EvalsDft::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let witness = committer
-            .commit(&dft_committer, &mut prover_state, polynomial)
-            .unwrap();
+            .commit(&dft_committer, &mut proof, &mut challenger, polynomial);
 
         assert!(
             witness.ood_points.is_empty(),
             "There should be no OOD points when committment_ood_samples is 0"
         );
+        assert_eq!(params.committment_ood_samples, 0);
     }
 }
