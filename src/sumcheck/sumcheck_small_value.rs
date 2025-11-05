@@ -275,13 +275,14 @@ where
     // We computed 4 accumulators for round 2, since only need v in {0, 1} and u in {0, 1}.
     let accumulators_round_2 = accumulators.get_accumulators_for_round(1);
 
-    let mut t_2_evals = [EF::ZERO; 2];
-
-    t_2_evals[0] += lagrange_evals_r_1[0] * accumulators_round_2[0];
-    t_2_evals[0] += lagrange_evals_r_1[1] * accumulators_round_2[2];
-
-    t_2_evals[1] += lagrange_evals_r_1[0] * accumulators_round_2[1];
-    t_2_evals[1] += lagrange_evals_r_1[1] * accumulators_round_2[3];
+    let t_2_evals = [
+        // t_2(u=0) = L_0(r_1) * A(v=0, u=0) + L_1(r_1) * A(v=1, u=0)
+        lagrange_evals_r_1[0] * accumulators_round_2[0]
+            + lagrange_evals_r_1[1] * accumulators_round_2[2],
+        // t_2(u=1) = L_0(r_1) * A(v=0, u=1) + L_1(r_1) * A(v=1, u=1)
+        lagrange_evals_r_1[0] * accumulators_round_2[1]
+            + lagrange_evals_r_1[1] * accumulators_round_2[3],
+    ];
 
     // We compute l_2(0) and l_2(inf)
     let linear_2_evals = compute_linear_function(&w.0[..2], &[r_1]);
@@ -323,17 +324,20 @@ where
     // We computed 4 accumulators at the third round for v in {0, 1}^2 and u in {0, 1}.
     let accumulators_round_3 = accumulators.get_accumulators_for_round(2);
 
-    let mut t_3_evals = [EF::ZERO; 2];
-
-    t_3_evals[0] += lagrange_evals_r_2[0] * accumulators_round_3[0]; // (v=00 u=0)
-    t_3_evals[0] += lagrange_evals_r_2[1] * accumulators_round_3[2]; // (10 0)
-    t_3_evals[0] += lagrange_evals_r_2[2] * accumulators_round_3[4]; // (01 0)
-    t_3_evals[0] += lagrange_evals_r_2[3] * accumulators_round_3[6]; // (11 0)
-
-    t_3_evals[1] += lagrange_evals_r_2[0] * accumulators_round_3[1]; // (00 1)
-    t_3_evals[1] += lagrange_evals_r_2[1] * accumulators_round_3[3]; // (01 1)
-    t_3_evals[1] += lagrange_evals_r_2[2] * accumulators_round_3[5]; // (10 1)
-    t_3_evals[1] += lagrange_evals_r_2[3] * accumulators_round_3[7]; // (11 1)
+    let t_3_evals = [
+        // t_3(u=0) = Σ_{v} L_v(r_1, r_2) * A(v, u=0)
+        lagrange_evals_r_2
+            .iter()
+            .zip(accumulators_round_3.iter().step_by(2))
+            .map(|(l, a)| *l * *a)
+            .sum(),
+        // t_3(u=1) = Σ_{v} L_v(r_1, r_2) * A(v, u=1)
+        lagrange_evals_r_2
+            .iter()
+            .zip(accumulators_round_3.iter().skip(1).step_by(2))
+            .map(|(l, a)| *l * *a)
+            .sum(),
+    ];
 
     // 2. For u in {0, 1, inf} compute S_3(u) = t_3(u) * l_3(u).
 
