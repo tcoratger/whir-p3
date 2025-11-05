@@ -388,9 +388,9 @@ where
     EvaluationsList::new(folded_evals_flat)
 }
 
-// Algorithm 5. Page 18.
-// Compute the remaining sumcheck rounds, from round l0 + 1 to round l.
-pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F> + Send + Sync>(
+/// Algorithm 5. Page 18.
+/// Compute the remaining sumcheck rounds, from round l0 + 1 to round l.
+pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &mut EvaluationsList<EF>,
     w: &MultilinearPoint<EF>,
@@ -402,143 +402,112 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F> + Send + Sync>(
     let num_vars = w.num_variables();
     let half_l = num_vars / 2;
 
-    // We compute eq(w_{l/2 + 1}, ...,  w_l ; x_R) for all x_R in {0, 1}^{l/2}
-    // These evaluations don't depend on the round i, so they are computed outside the loop.
+    // Precompute eq_R = eq(w_{l/2+1..l}, x_R)
     let eq_r = eval_eq_in_hypercube(&w.0[half_l..]);
     let num_vars_x_r = eq_r.len().ilog2() as usize;
 
     // The number of variables of x_R is: l/2 if l is even and l/2 + 1 if l is odd.
-    debug_assert!(num_vars_x_r == half_l + (num_vars % 2));
+    debug_assert_eq!(num_vars_x_r, num_vars - half_l);
 
-    let mut t = [EF::ZERO; 2];
-    challenges.reserve(num_vars - 3);
+    let start_round = challenges.len(); // Should be NUM_SVO_ROUNDS.
+    challenges.reserve(num_vars - start_round);
 
-    // Loop for the final rounds, from l_0+1 (in our case 4) to the end.
-    let current_round = challenges.len() + 1;
-    for i in current_round..=num_vars {
-        // We get the number of variables of `poly` in the current round.
+    // Compute the final rounds, from NUM_SVO_ROUNDS + 1 to the end.
+    for i in start_round..num_vars {
+        // `i` is the 0-indexed variable number, so `round = i + 1`.
+        let round = i + 1;
         let num_vars_poly_current = poly.num_variables();
         let poly_slice = poly.as_slice();
 
-        // 1. We compute t_i(u) for u in {0, 1}.
-        if i <= half_l {
-            // We compute eq(w_{i + 1}, ...,  w_{l/2} ; x_L) for all x_L in {0, 1}^{l/2 - i}
-            let eq_l = eval_eq_in_hypercube(&w.0[i..half_l]);
-            let eq_l_len = eq_l.len();
-            let num_x_r = 1 << num_vars_x_r;
-
+        // Compute t_i(u) for u in {0, 1}.
+        let t_evals: [EF; 2] = if round <= half_l {
+            // Case i+1 <= l/2: Compute eq_L = eq(w_{i+2..l/2}, x_L)
+            let eq_l = eval_eq_in_hypercube(&w.0[round..half_l]);
             let (t_0, t_1) = rayon::join(
+                || compute_t_evals_first_half(&eq_l, &eq_r, poly_slice, num_vars_x_r, 0),
                 || {
-                    compute_t_evals_first_rounds(
+                    compute_t_evals_first_half(
                         &eq_l,
                         &eq_r,
                         poly_slice,
-                        eq_l_len,
-                        num_x_r,
                         num_vars_x_r,
-                        0,
-                    )
-                },
-                || {
-                    compute_t_evals_first_rounds(
-                        &eq_l,
-                        &eq_r,
-                        poly_slice,
-                        eq_l_len,
-                        num_x_r,
-                        num_vars_x_r,
-                        1 << (num_vars_poly_current - 1),
+                        1 << (num_vars_poly_current - 1), // offset for u=1
                     )
                 },
             );
-            t[0] = t_0;
-            t[1] = t_1;
-        // Case i > l/2: Only one part of the eq evaluations remains to be processed.
+            [t_0, t_1]
         } else {
-            let eq = eval_eq_in_hypercube(&w.0[i..num_vars]);
+            // Case i+1 > l/2: Compute eq_tail = eq(w_{i+2..l}, x_tail)
+            let eq_tail = eval_eq_in_hypercube(&w.0[round..]);
             let half_size = 1 << (num_vars_poly_current - 1);
-
             let (t_0, t_1) = rayon::join(
-                || compute_t_evals_last_rounds(&eq, poly_slice, 0, half_size),
-                || compute_t_evals_last_rounds(&eq, poly_slice, half_size, half_size),
+                || compute_t_evals_second_half(&eq_tail, &poly_slice[..half_size]),
+                || compute_t_evals_second_half(&eq_tail, &poly_slice[half_size..]),
             );
-            t[0] = t_0;
-            t[1] = t_1;
-        }
+            [t_0, t_1]
+        };
 
-        // 2. We compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf}:
-        // Compute l_i(0) and l_i(inf).
-        let linear_evals = compute_linear_function(&w.0[..i], challenges);
-        // Compute S_i(u).
-        let round_poly_evals = get_evals_from_l_and_t(&linear_evals, &t);
+        // Compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf}:
+        let linear_evals = compute_linear_function(&w.0[..round], challenges);
+        let [s_0, s_inf] = get_evals_from_l_and_t(&linear_evals, &t_evals);
 
-        // 3. Send S_i(u) to the verifier.
-        prover_state.add_extension_scalars(&round_poly_evals);
+        // Send S_i(u) to the verifier.
+        prover_state.add_extension_scalars(&[s_0, s_inf]);
 
-        // 4. Receive the challenge r_i from the verifier.
+        // Receive the challenge r_i from the verifier.
         let r_i: EF = prover_state.sample();
         challenges.push(r_i);
 
-        // 5. Fold and update the poly.
+        // Fold and update the poly.
         poly.compress_svo(r_i);
 
         // Update claimed sum
-        let eval_1 = *sum - round_poly_evals[0];
-        *sum = round_poly_evals[1] * r_i.square()
-            + (eval_1 - round_poly_evals[0] - round_poly_evals[1]) * r_i
-            + round_poly_evals[0];
+        let eval_1 = *sum - s_0;
+        *sum = s_inf * r_i.square() + (eval_1 - s_0 - s_inf) * r_i + s_0;
     }
 }
 
-// Auxiliary function for Algorithm 5.
-// Compute t_i(u) for the case i <= l/2,
-// where u can be 0 or 1, indicated by the offset parameter: 0 for `u = 0` and `1 << (num_vars - 1)` for `u = 1`.
+/// Auxiliary function for Algorithm 5, case `round <= l/2`.
+/// Computes `t_i(u) = Σ_{x_R} eq_R(x_R) * ( Σ_{x_L} eq_L(x_L) * p(u, x_L, x_R) )`
 #[inline]
-fn compute_t_evals_first_rounds<F: Field + Send + Sync>(
+fn compute_t_evals_first_half<F: Field>(
     eq_l: &[F],
     eq_r: &[F],
     poly_slice: &[F],
-    eq_l_len: usize,
-    num_x_r: usize,
     num_vars_x_r: usize,
     offset: usize,
-) -> F {
-    let chunk_size = (num_x_r / rayon::current_num_threads().max(1)).max(64);
-
-    (0..num_x_r)
+) -> F
+where
+    F: Send + Sync,
+{
+    (0..eq_r.len())
         .into_par_iter()
-        .chunks(chunk_size)
-        .map(|chunk| {
-            chunk
-                .into_iter()
-                .map(|x_r| {
-                    let sum_l: F = (0..eq_l_len)
-                        .map(|x_l| {
-                            // We need the idx for p(r_[<i-1], 0, x_L, x_R) in the case u = 0 and p(r_[<i-1], 1, x_L, x_R) in the case u = 1.
-                            let idx = offset | (x_l << num_vars_x_r) | x_r;
-                            eq_l[x_l] * poly_slice[idx]
-                        })
-                        .sum();
-                    eq_r[x_r] * sum_l
+        .map(|x_r| {
+            let sum_l: F = (0..eq_l.len())
+                .map(|x_l| {
+                    // idx = p(u, x_L, x_R)
+                    let idx = offset | (x_l << num_vars_x_r) | x_r;
+                    eq_l[x_l] * poly_slice[idx]
                 })
-                .sum::<F>()
+                .sum();
+            eq_r[x_r] * sum_l
         })
         .sum()
 }
 
-// Auxiliary function for Algorithm 5.
-// Compute t_i(u) for the case i > l/2,
-// where u can be 0 or 1, indicated by the offset parameter: 0 for `u = 0` and `1 << (num_vars - 1)` for `u = 1`.
+/// Auxiliary function for Algorithm 5, case `round > l/2`.
+/// Computes `t_i(u) = Σ_{x_tail} eq_tail(x_tail) * p(u, x_tail)`
 #[inline]
-fn compute_t_evals_last_rounds<F: Field + Send + Sync>(
-    eq: &[F],
-    poly_slice: &[F],
-    offset: usize,
-    size: usize,
-) -> F {
-    (0..size)
-        .into_par_iter()
-        .map(|x| eq[x] * poly_slice[offset + x])
+fn compute_t_evals_second_half<F: Field>(eq_tail: &[F], poly_sub_slice: &[F]) -> F
+where
+    F: Send + Sync,
+{
+    debug_assert_eq!(eq_tail.len(), poly_sub_slice.len());
+    // Parallel dot product
+    eq_tail
+        .par_iter()
+        .zip(poly_sub_slice.par_iter())
+        .map(|(&e, &p)| e * p)
         .sum()
 }
 
