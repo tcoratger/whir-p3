@@ -1,15 +1,15 @@
+use std::ops::Add;
+
+use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_field::{ExtensionField, Field};
+use p3_matrix::dense::RowMajorMatrixView;
+use p3_maybe_rayon::prelude::*;
+use p3_multilinear_util::eq_batch::eval_eq_batch;
+
 use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
 };
-use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field};
-use p3_matrix::dense::RowMajorMatrixView;
-
-use std::ops::Add;
-
-use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::eq_batch::eval_eq_batch;
 
 // We apply the small value optimization (SVO) for the first three sumcheck rounds,
 // following this paper <https://eprint.iacr.org/2025/1117>.
@@ -513,14 +513,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
     use p3_baby_bear::BabyBear;
     use p3_field::{
         BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField,
         integers::QuotientMap,
     };
     use rand::RngCore;
+
+    use super::*;
+    use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;
