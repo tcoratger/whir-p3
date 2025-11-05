@@ -167,7 +167,9 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
             }
             local_accumulators
         })
-        .reduce(Accumulators::<EF>::new_empty, |a, b| a + b)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .fold(Accumulators::<EF>::new_empty(), |a, b| a + b)
 }
 
 /// Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
@@ -436,7 +438,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
         let t_evals: [EF; 2] = if round <= half_l {
             // Case i+1 <= l/2: Compute eq_L = eq(w_{i+2..l/2}, x_L)
             let eq_l = eval_eq_in_hypercube(&w.0[round..half_l]);
-            let (t_0, t_1) = rayon::join(
+            let (t_0, t_1) = join(
                 || compute_t_evals_first_half(&eq_l, &eq_r, poly_slice, num_vars_x_r, 0),
                 || {
                     compute_t_evals_first_half(
@@ -453,7 +455,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
             // Case i+1 > l/2: Compute eq_tail = eq(w_{i+2..l}, x_tail)
             let eq_tail = eval_eq_in_hypercube(&w.0[round..]);
             let half_size = 1 << (num_vars_poly_current - 1);
-            let (t_0, t_1) = rayon::join(
+            let (t_0, t_1) = join(
                 || compute_t_evals_second_half(&eq_tail, &poly_slice[..half_size]),
                 || compute_t_evals_second_half(&eq_tail, &poly_slice[half_size..]),
             );
