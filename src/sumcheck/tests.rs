@@ -869,12 +869,12 @@ fn test_sumcheck_prover() {
     run_sumcheck_test(&[1, 4, 4], &[9, 9]);
 
     // Test for the sumcheck with univariate skip optimization.
-    //run_sumcheck_test_skips(&[6, 1], &[1]);
-    //run_sumcheck_test_skips(&[6, 1], &[5]);
-    //run_sumcheck_test_skips(&[6, 4], &[3]);
-    //run_sumcheck_test_skips(&[6, 0], &[4]);
-    //run_sumcheck_test_skips(&[8, 2], &[3]);
-    //run_sumcheck_test_skips(&[6, 2, 2], &[3, 3]);
+    run_sumcheck_test_skips(&[6, 1], &[1]);
+    run_sumcheck_test_skips(&[6, 1], &[5]);
+    run_sumcheck_test_skips(&[6, 4], &[3]);
+    run_sumcheck_test_skips(&[6, 0], &[4]);
+    run_sumcheck_test_skips(&[8, 2], &[3]);
+    run_sumcheck_test_skips(&[6, 2, 2], &[3, 3]);
 }
 
 proptest! {
