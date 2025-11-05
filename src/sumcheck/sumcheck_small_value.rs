@@ -224,6 +224,7 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     poly: &EvaluationsList<F>,
     w: &MultilinearPoint<EF>,
     sum: &mut EF,
+    pow_bits: usize,
 ) -> (EF, EF, EF)
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
@@ -253,6 +254,8 @@ where
 
     // 3. Send S_1(u) to the verifier.
     prover_state.add_extension_scalars(&[s_0, s_inf]);
+
+    prover_state.pow_grinding(pow_bits);
 
     // 4. Receive the challenge r_1 from the verifier.
     let r_1: EF = prover_state.sample();
@@ -288,6 +291,8 @@ where
 
     // 3. Send S_2(u) to the verifier.
     prover_state.add_extension_scalars(&[s_0, s_1]);
+
+    prover_state.pow_grinding(pow_bits);
 
     // 4. Receive the challenge r_2 from the verifier.
     let r_2: EF = prover_state.sample();
@@ -341,6 +346,9 @@ where
     // 3. Send S_3(u) to the verifier.
     prover_state.add_extension_scalars(&round_poly_evals);
 
+    prover_state.pow_grinding(pow_bits);
+
+    // 4. Receive the challenge r_3 from the verifier.
     let r_3: EF = prover_state.sample();
 
     let eval_1 = *sum - round_poly_evals[0];
@@ -396,6 +404,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
     w: &MultilinearPoint<EF>,
     challenges: &mut Vec<EF>,
     sum: &mut EF,
+    pow_bits: usize,
 ) where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -453,6 +462,8 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
 
         // Send S_i(u) to the verifier.
         prover_state.add_extension_scalars(&[s_0, s_inf]);
+
+        prover_state.pow_grinding(pow_bits);
 
         // Receive the challenge r_i from the verifier.
         let r_i: EF = prover_state.sample();

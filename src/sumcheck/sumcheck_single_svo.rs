@@ -39,11 +39,9 @@ where
         let mut sum = constraint.eq_statement.evaluations[0];
         let w = &constraint.eq_statement.points[0];
 
-        let (r_1, r_2, r_3) = svo_three_rounds(prover_state, evals, w, &mut sum);
+        let (r_1, r_2, r_3) = svo_three_rounds(prover_state, evals, w, &mut sum, pow_bits);
         #[allow(clippy::tuple_array_conversions)]
         challenges.extend([r_1, r_2, r_3]);
-
-        prover_state.pow_grinding(pow_bits);
 
         // We fold to obtaind p(r1, r2, r3, x).
         let mut folded_evals = fold_evals_with_challenges(evals, &challenges);
@@ -54,6 +52,7 @@ where
             w,
             &mut challenges,
             &mut sum,
+            pow_bits,
         );
 
         let challenge_point = MultilinearPoint::new(challenges);
