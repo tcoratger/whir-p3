@@ -270,6 +270,7 @@ where
                     // Compute the new value and write it back to the left half.
                     *p0_mut = r * (p1 - p0) + p0;
                 });
+            self.0.truncate(mid);
         } else {
             // For smaller inputs, we use a sequential, in-place strategy.
             for i in 0..mid {

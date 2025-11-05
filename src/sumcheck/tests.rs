@@ -20,9 +20,7 @@ use crate::{
             evaluator::{Constraint, ConstraintPolyEvaluator},
             statement::{EqStatement, SelectStatement},
         },
-        verifier::sumcheck::{
-            verify_sumcheck_rounds, verify_sumcheck_rounds_svo,
-        },
+        verifier::sumcheck::{verify_sumcheck_rounds, verify_sumcheck_rounds_svo},
     },
 };
 
@@ -934,12 +932,12 @@ fn test_sumcheck_prover_without_skip() {
 
 #[test]
 fn test_sumcheck_prover_svo() {
-    for num_vars in 6..=10 {
-        let folding_factor = num_vars;
+    for num_vars in &[6, 8, 10, 12, 14, 16, 18, 20, 22, 24] {
+        let folding_factor = *num_vars;
         let folding_factor = FoldingFactor::Constant(folding_factor);
         let num_eq_points = vec![1];
-        let num_sel_points = vec![0]; 
-        run_sumcheck_test_svo(num_vars, folding_factor, &num_eq_points, &num_sel_points);
+        let num_sel_points = vec![0];
+        run_sumcheck_test_svo(*num_vars, folding_factor, &num_eq_points, &num_sel_points);
     }
 }
 
