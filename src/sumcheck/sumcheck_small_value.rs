@@ -444,7 +444,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
                     )
                 },
             );
-            [t_0, t_1]
+            (t_0, t_1).into()
         } else {
             // Case i+1 > l/2: Compute eq_tail = eq(w_{i+2..l}, x_tail)
             let eq_tail = eval_eq_in_hypercube(&w.0[round..]);
@@ -453,7 +453,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
                 || compute_t_evals_second_half(&eq_tail, &poly_slice[..half_size]),
                 || compute_t_evals_second_half(&eq_tail, &poly_slice[half_size..]),
             );
-            [t_0, t_1]
+            (t_0, t_1).into()
         };
 
         // Compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf}:
@@ -481,16 +481,13 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
 /// Auxiliary function for Algorithm 5, case `round <= l/2`.
 /// Computes `t_i(u) = Σ_{x_R} eq_R(x_R) * ( Σ_{x_L} eq_L(x_L) * p(u, x_L, x_R) )`
 #[inline]
-fn compute_t_evals_first_half<F: Field>(
+fn compute_t_evals_first_half<F: Field + Send + Sync>(
     eq_l: &[F],
     eq_r: &[F],
     poly_slice: &[F],
     num_vars_x_r: usize,
     offset: usize,
-) -> F
-where
-    F: Send + Sync,
-{
+) -> F {
     (0..eq_r.len())
         .into_par_iter()
         .map(|x_r| {
@@ -509,10 +506,7 @@ where
 /// Auxiliary function for Algorithm 5, case `round > l/2`.
 /// Computes `t_i(u) = Σ_{x_tail} eq_tail(x_tail) * p(u, x_tail)`
 #[inline]
-fn compute_t_evals_second_half<F: Field>(eq_tail: &[F], poly_sub_slice: &[F]) -> F
-where
-    F: Send + Sync,
-{
+fn compute_t_evals_second_half<F: Field + Send + Sync>(eq_tail: &[F], poly_sub_slice: &[F]) -> F {
     debug_assert_eq!(eq_tail.len(), poly_sub_slice.len());
     // Parallel dot product
     eq_tail
