@@ -1,4 +1,3 @@
-use std::mem::take;
 use std::ops::Deref;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
@@ -458,9 +457,8 @@ where
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
-        // Directly send coefficients of the polynomial to the verifier.
-        // Take ownership to avoid a clone operation
-        let evals = take(&mut round_state.sumcheck_prover.evals);
+        // Clone the actual evaluations data instead of taking ownership
+        let evals = round_state.sumcheck_prover.evals.clone();
 
         // Flatten to each extension scalar into base scalar
         let flatten_base_scalar = EF::flatten_to_base(evals.as_slice().to_vec());
