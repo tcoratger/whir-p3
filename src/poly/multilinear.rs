@@ -145,7 +145,7 @@ where
 
         // Construct the evaluation table for the polynomial eq_z(X).
         // This creates a list of 2^n values, where only the entry at index `z` is ONE.
-        let evals = EvaluationsList::new_from_point(self, F::ONE);
+        let evals = EvaluationsList::new_from_point(self.as_slice(), F::ONE);
 
         // Reshape the flat list of 2^n evaluations into a `2^k_skip x 2^(n-k_skip)` matrix.
         // Rows correspond to the skipped variables (X0, ..., X_{k_skip-1}).

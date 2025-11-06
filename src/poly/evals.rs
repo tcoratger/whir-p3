@@ -50,17 +50,23 @@ where
         Self(F::zero_vec(1 << num_evals))
     }
 
-    /// Given a multilinear point `P`, compute the evaluation vector of the equality function `eq(P, X)`
-    /// for all points `X` in the boolean hypercube.
+    /// Given a point `P` (as a slice), compute the evaluation vector of the equality
+    /// function `eq(P, X)` for all points `X` in the boolean hypercube, scaled by a value.
+    ///
+    /// ## Arguments
+    /// * `point`: A slice of field elements representing the point.
+    /// * `value`: A scalar value to multiply all evaluations by.
+    ///
+    /// ## Returns
+    /// An `EvaluationsList` containing `value * eq(point, X)` for all `X` in `{0,1}^n`.
     #[inline]
-    pub fn new_from_point(point: &MultilinearPoint<F>, value: F) -> Self {
-        let n = point.num_variables();
+    pub fn new_from_point(point: &[F], value: F) -> Self {
+        let n = point.len();
+        if n == 0 {
+            return Self(vec![value]);
+        }
         let mut evals = F::zero_vec(1 << n);
-        eval_eq_batch::<_, _, false>(
-            RowMajorMatrixView::new_col(point.as_slice()),
-            &mut evals,
-            &[value],
-        );
+        eval_eq_batch::<_, _, false>(RowMajorMatrixView::new_col(point), &mut evals, &[value]);
         Self(evals)
     }
 
@@ -1415,9 +1421,9 @@ mod tests {
 
     #[test]
     fn test_new_from_point_zero_vars() {
-        let point = MultilinearPoint::<F>::new(vec![]);
+        let point: &[F] = &[];
         let value = F::from_u64(42);
-        let evals_list = EvaluationsList::new_from_point(&point, value);
+        let evals_list = EvaluationsList::new_from_point(point, value);
 
         // For n=0, the hypercube has one point, and the `eq` polynomial is the constant 1.
         // The result should be a list with a single element: `value`.
@@ -1428,9 +1434,9 @@ mod tests {
     #[test]
     fn test_new_from_point_one_var() {
         let p0 = F::from_u64(7);
-        let point = MultilinearPoint::new(vec![p0]);
+        let point = &[p0];
         let value = F::from_u64(3);
-        let evals_list = EvaluationsList::new_from_point(&point, value);
+        let evals_list = EvaluationsList::new_from_point(point, value);
 
         // For a point `p = [p0]`, the `eq` evaluations over `X={0,1}` are:
         // - eq(p, 0) = 1 - p0
@@ -1446,9 +1452,8 @@ mod tests {
     #[allow(clippy::identity_op)]
     fn test_new_from_point_three_vars() {
         let p = [F::from_u64(2), F::from_u64(3), F::from_u64(5)];
-        let point = MultilinearPoint::new(p.to_vec());
         let value = F::from_u64(10);
-        let evals_list = EvaluationsList::new_from_point(&point, value);
+        let evals_list = EvaluationsList::new_from_point(&p, value);
 
         // Manually compute the expected result for eq(p, b) * value for all 8 points `b`.
         // The implementation's lexicographical order means the index `i` is formed as

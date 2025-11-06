@@ -2,9 +2,7 @@ use std::ops::Add;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
-use p3_matrix::dense::RowMajorMatrixView;
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::eq_batch::eval_eq_batch;
 
 use crate::{
     fiat_shamir::prover::ProverState,
@@ -69,7 +67,7 @@ impl<F: Field> Add for Accumulators<F> {
 fn precompute_e_in<F: Field>(w: &MultilinearPoint<F>) -> Vec<F> {
     let half_l = w.num_variables() / 2;
     let w_in = &w.0[NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + half_l];
-    eval_eq_in_hypercube(w_in)
+    EvaluationsList::new_from_point(w_in, F::ONE).0
 }
 
 /// Precomputation needed for Procedure 9 (compute_accumulators).
@@ -83,7 +81,7 @@ fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_SVO_ROUND
         let mut w_out = Vec::with_capacity(w_out_len);
         w_out.extend_from_slice(&w.0[round + 1..NUM_SVO_ROUNDS]);
         w_out.extend_from_slice(&w.0[half_l + NUM_SVO_ROUNDS..]);
-        eval_eq_in_hypercube(&w_out)
+        EvaluationsList::new_from_point(&w_out, F::ONE).0
     })
 }
 
@@ -166,17 +164,6 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
             |a, b| a + b,
             |a, b| a + b,
         )
-}
-
-/// Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
-pub fn eval_eq_in_hypercube<F: Field>(point: &[F]) -> Vec<F> {
-    let n = point.len();
-    if n == 0 {
-        return vec![F::ONE];
-    }
-    let mut out = F::zero_vec(1 << n);
-    eval_eq_batch::<F, F, false>(RowMajorMatrixView::new_col(point), &mut out, &[F::ONE]);
-    out
 }
 
 /// Given two multilinear points p and q, it evaluates eq(p, q).
@@ -377,7 +364,7 @@ where
     let remaining_vars = evals.num_variables() - num_challenges;
     let num_remaining_evals = 1 << remaining_vars;
 
-    let eq_evals: Vec<EF> = eval_eq_in_hypercube(challenges);
+    let eq_evals: Vec<EF> = EvaluationsList::new_from_point(challenges, EF::ONE).0;
 
     let folded_evals_flat: Vec<EF> = (0..num_remaining_evals)
         .into_par_iter()
@@ -413,7 +400,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
     let half_l = num_vars / 2;
 
     // Precompute eq_R = eq(w_{l/2+1..l}, x_R)
-    let eq_r = eval_eq_in_hypercube(&w.0[half_l..]);
+    let eq_r = EvaluationsList::new_from_point(&w.0[half_l..], EF::ONE).0;
     let num_vars_x_r = eq_r.len().ilog2() as usize;
 
     // The number of variables of x_R is: l/2 if l is even and l/2 + 1 if l is odd.
@@ -432,7 +419,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
         // Compute t_i(u) for u in {0, 1}.
         let t_evals: [EF; 2] = if round <= half_l {
             // Case i+1 <= l/2: Compute eq_L = eq(w_{i+2..l/2}, x_L)
-            let eq_l = eval_eq_in_hypercube(&w.0[round..half_l]);
+            let eq_l = EvaluationsList::new_from_point(&w.0[round..half_l], EF::ONE).0;
             let (t_0, t_1) = join(
                 || compute_t_evals_first_half(&eq_l, &eq_r, poly_slice, num_vars_x_r, 0),
                 || {
@@ -448,7 +435,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
             (t_0, t_1).into()
         } else {
             // Case i+1 > l/2: Compute eq_tail = eq(w_{i+2..l}, x_tail)
-            let eq_tail = eval_eq_in_hypercube(&w.0[round..]);
+            let eq_tail = EvaluationsList::new_from_point(&w.0[round..], EF::ONE).0;
             let half_size = 1 << (num_vars_poly_current - 1);
             let (t_0, t_1) = join(
                 || compute_t_evals_second_half(&eq_tail, &poly_slice[..half_size]),
@@ -535,13 +522,14 @@ mod tests {
     #[test]
     fn test_evals_eq_in_hypercube_three_vars_matches_new_from_point() {
         let p = vec![F::from_u64(2), F::from_u64(3), F::from_u64(5)];
-        let point = MultilinearPoint::new(p.clone());
         let value = F::from_u64(1);
 
-        let expected = EvaluationsList::new_from_point(&point, value)
+        let expected = EvaluationsList::new_from_point(&p, value)
             .into_iter()
             .collect::<Vec<_>>();
-        let result = eval_eq_in_hypercube(&p);
+        let result = EvaluationsList::new_from_point(&p, value)
+            .into_iter()
+            .collect::<Vec<_>>();
 
         assert_eq!(expected, result);
     }
@@ -565,7 +553,7 @@ mod tests {
             p0 * p1 * p2,                                  // 111 v[7]
         ];
 
-        let out = eval_eq_in_hypercube(&[p0, p1, p2]);
+        let out = EvaluationsList::new_from_point(&[p0, p1, p2], F::ONE).0;
         assert_eq!(out, expected);
     }
 
