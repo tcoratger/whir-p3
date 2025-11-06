@@ -166,14 +166,6 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
         )
 }
 
-/// Given two multilinear points p and q, it evaluates eq(p, q).
-pub fn eval_eq_in_point<F: Field>(p: &[F], q: &[F]) -> F {
-    p.iter()
-        .zip(q)
-        .map(|(&l, &r)| F::ONE + l * r.double() - l - r)
-        .product()
-}
-
 /// Given the points w and r, we compute the linear function
 /// l(x) = eq( w_1,...w_{i-1} ; r_1,...r_{i-1} ) * eq(w_i, x)
 /// Section 5.1, page 17.
@@ -184,7 +176,7 @@ pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
     let const_eq = if round == 1 {
         F::ONE
     } else {
-        eval_eq_in_point(&w[..round - 1], r)
+        MultilinearPoint::eval_eq(&w[..round - 1], r)
     };
     let w_i = w.last().unwrap();
 
@@ -748,8 +740,9 @@ mod tests {
         let r: Vec<EF> = (0..3).map(|_| get_random_ef()).collect();
 
         let expected = [
-            eval_eq_in_point(&w[..3], &r) * eval_eq_in_point(&w[3..], &[EF::ZERO]),
-            eval_eq_in_point(&w[..3], &r) * eval_eq_in_point(&w[3..], &[EF::ONE]),
+            MultilinearPoint::eval_eq(&w[..3], &r)
+                * MultilinearPoint::eval_eq(&w[3..], &[EF::ZERO]),
+            MultilinearPoint::eval_eq(&w[..3], &r) * MultilinearPoint::eval_eq(&w[3..], &[EF::ONE]),
         ];
         let result = compute_linear_function(&w, &r);
         assert_eq!(result, expected);
