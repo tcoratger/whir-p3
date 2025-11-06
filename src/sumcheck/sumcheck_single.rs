@@ -13,6 +13,7 @@ use crate::{
     whir::constraints::statement::Statement,
     whir::proof::{WhirProof, WhirRoundProof, InitialPhase},
 };
+use crate::whir::proof::SumcheckData;
 
 const PARALLEL_THRESHOLD: usize = 4096;
 
@@ -101,7 +102,7 @@ where
 /// The verifier's challenge `r` as an `EF` element.
 #[instrument(skip_all)]
 fn sumcheck_round<Challenger, F: Field, EF: ExtensionField<F>, const DIGEST_ELEMS: usize>(
-    proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+    sumcheck_data: &mut SumcheckData<EF, F>,
     challenger: &mut Challenger,
     evals: &mut EvaluationsList<EF>,
     weights: &mut EvaluationsList<EF>,
@@ -123,20 +124,12 @@ where
     };
 
     // Create sumcheck data for this round
-    proof
-        .rounds
-        .last_mut()
-        .expect("rounds vector should not be empty - WhirRoundProof must be pushed before calling sumcheck_round")
-        .sumcheck
+    sumcheck_data
         .polynomial_evaluations
         .push(polynomial_evaluation);
 
     if let Some(w) = witness {
-        proof
-            .rounds
-            .last_mut()
-            .expect("rounds vector should not be empty - WhirRoundProof must be pushed before calling sumcheck_round")
-            .sumcheck
+        sumcheck_data
             .pow_witnesses
             .get_or_insert_with(Vec::new)
             .push(w);
@@ -324,13 +317,17 @@ where
         let (r, mut evals) = initial_round(proof, challenger, evals, &mut weights, &mut sum, pow_bits);
         res.push(r);
 
+        let mut sumcheck_data = SumcheckData::default();
         // Apply rest of sumcheck rounds for the initial statement
         for _ in 1..folding_factor {
-            // Push empty WhirRoundProof for this sumcheck round
-            proof.rounds.push(WhirRoundProof::default());
-
-            let r = sumcheck_round(proof, challenger, &mut evals, &mut weights, &mut sum, pow_bits);
+            let r = sumcheck_round::<Challenger, F, EF, DIGEST_ELEMS>(&mut sumcheck_data, challenger, &mut evals, &mut weights, &mut sum, pow_bits);
             res.push(r);
+        }
+
+        if let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase {
+            *sumcheck = sumcheck_data;
+        } else {
+            panic!("initial_round called with incorrect InitialPhase variant");
         }
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
@@ -441,11 +438,12 @@ where
         // Apply rest of sumcheck rounds
         // Note: When using skip mode, remaining rounds are stored in proof.rounds
         // rather than in proof.initial_phase, for consistency with the verifier
+        let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         for _ in k_skip..folding_factor {
             // Push empty WhirRoundProof for this sumcheck round
             proof.rounds.push(WhirRoundProof::default());
 
-            let r = sumcheck_round(proof, challenger, &mut evals, &mut weights, &mut sum, pow_bits);
+            let r = sumcheck_round::<Challenger, F, EF, DIGEST_ELEMS>(&mut sumcheck_data, challenger, &mut evals, &mut weights, &mut sum, pow_bits);
             res.push(r);
         }
 
@@ -605,10 +603,10 @@ where
         // Standard round-by-round folding
         // Proceed with one-variable-per-round folding for remaining variables.
         let mut res = Vec::with_capacity(folding_factor);
+        let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         for _ in 0..folding_factor {
-            proof.rounds.push(WhirRoundProof::default());
-            res.push(sumcheck_round(
-                proof,
+            res.push(sumcheck_round::<Challenger, F, EF, DIGEST_ELEMS>(
+                &mut sumcheck_data,
                 challenger,
                 &mut self.evals,
                 &mut self.weights,
@@ -616,6 +614,12 @@ where
                 pow_bits,
             ));
         }
+
+        proof
+            .rounds
+            .last_mut()
+            .expect("there should always be at least one round")
+            .sumcheck = sumcheck_data;
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
         res.reverse();
