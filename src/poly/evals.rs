@@ -1421,9 +1421,9 @@ mod tests {
 
     #[test]
     fn test_new_from_point_zero_vars() {
-        let point: &[F] = &[];
+        let point = MultilinearPoint::<F>::new(vec![]);
         let value = F::from_u64(42);
-        let evals_list = EvaluationsList::new_from_point(point, value);
+        let evals_list = EvaluationsList::new_from_point(point.as_slice(), value);
 
         // For n=0, the hypercube has one point, and the `eq` polynomial is the constant 1.
         // The result should be a list with a single element: `value`.
@@ -1434,9 +1434,9 @@ mod tests {
     #[test]
     fn test_new_from_point_one_var() {
         let p0 = F::from_u64(7);
-        let point = &[p0];
+        let point = MultilinearPoint::new(vec![p0]);
         let value = F::from_u64(3);
-        let evals_list = EvaluationsList::new_from_point(point, value);
+        let evals_list = EvaluationsList::new_from_point(point.as_slice(), value);
 
         // For a point `p = [p0]`, the `eq` evaluations over `X={0,1}` are:
         // - eq(p, 0) = 1 - p0
