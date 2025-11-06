@@ -30,7 +30,7 @@ where
     pub security_level: usize,
     pub max_pow_bits: usize,
 
-    pub committment_ood_samples: usize,
+    pub commitment_ood_samples: usize,
     // The WHIR protocol can prove either:
     // 1. The commitment is a valid low degree polynomial. In that case, the initial statement is
     //    set to false.
@@ -108,7 +108,7 @@ where
             .folding_factor
             .compute_number_of_rounds(num_variables);
 
-        let committment_ood_samples = if whir_parameters.initial_statement {
+        let commitment_ood_samples = if whir_parameters.initial_statement {
             whir_parameters.soundness_type.determine_ood_samples(
                 whir_parameters.security_level,
                 num_variables,
@@ -225,7 +225,7 @@ where
             security_level: whir_parameters.security_level,
             max_pow_bits: whir_parameters.pow_bits,
             initial_statement: whir_parameters.initial_statement,
-            committment_ood_samples,
+            commitment_ood_samples,
             num_variables: initial_num_variables,
             soundness_type: whir_parameters.soundness_type,
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,

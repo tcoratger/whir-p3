@@ -138,9 +138,9 @@ where
     {
         // TODO: Add params
         self.observe(DIGEST_ELEMS, Observe::MerkleDigest);
-        if params.committment_ood_samples > 0 {
+        if params.commitment_ood_samples > 0 {
             assert!(params.initial_statement);
-            self.add_ood(params.committment_ood_samples);
+            self.add_ood(params.commitment_ood_samples);
         }
     }
 

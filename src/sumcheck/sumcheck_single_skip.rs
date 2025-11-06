@@ -26,10 +26,7 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 /// - `weights_mat`: Evaluations of the weight polynomial $w$ reshaped to $(2^k \times 2^{n-k})$.
 ///
 /// # Returns
-/// A tuple containing:
-/// - `SumcheckPolynomial<EF>`: The resulting univariate polynomial $h(X)$ evaluated over coset $D$.
-/// - `RowMajorMatrix<F>`: The original evaluations of $f$, reshaped to $(2^k \times 2^{n-k})$.
-/// - `RowMajorMatrix<EF>`: The original evaluations of $w$, reshaped to $(2^k \times 2^{n-k})$.
+/// The resulting univariate polynomial $h(X)$ evaluated over coset $D$.
 ///
 /// # Notes
 /// - This method assumes that `f` is represented using base field values (`F`)
@@ -41,54 +38,41 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 pub(crate) fn compute_skipping_sumcheck_polynomial<F, EF>(
     f_mat: RowMajorMatrix<F>,
     weights_mat: RowMajorMatrix<EF>,
-) -> (
-    SumcheckPolynomial<EF>,
-    RowMajorMatrix<F>,
-    RowMajorMatrix<EF>,
-)
+) -> SumcheckPolynomial<EF>
 where
     F: TwoAdicField + Ord,
     EF: ExtensionField<F>,
 {
-    // Main logic block that computes the univariate sumcheck polynomial h(X)
-    // and returns intermediate matrices of shape (2^k × 2^{n-k}).
-    let (out_vec, f, w) = {
-        // Apply a low-degree extension (LDE) to each column of f_mat and weights_mat.
-        // This gives us access to evaluations of f(X, b) and w(X, b)
-        // for X ∈ D' (coset of size 2^{k+1}).
-        let dft = Radix2DitParallel::<F>::default();
+    // Apply a low-degree extension (LDE) to each column of f_mat and weights_mat.
+    //
+    // This gives us access to evaluations of f(X, b) and w(X, b)
+    // for X ∈ D' (coset of size 2^{k+1}).
+    let dft = Radix2DitParallel::<F>::default();
 
-        let f_on_coset = dft.lde_batch(f_mat.clone(), 1).to_row_major_matrix();
-        let weights_on_coset = dft
-            .lde_algebra_batch(weights_mat.clone(), 1)
-            .to_row_major_matrix();
+    let f_on_coset = dft.lde_batch(f_mat, 1).to_row_major_matrix();
+    let weights_on_coset = dft.lde_algebra_batch(weights_mat, 1).to_row_major_matrix();
 
-        // For each row (i.e., each value X),
-        // compute: \sum_{b \in \{0,1\}^{n-k}} f(X, b) \cdot w(X, b)
-        //
-        // This is done by pointwise multiplying the f and w values in each row,
-        // then summing across the row.
-        let result: Vec<EF> = f_on_coset
-            .par_row_slices()
-            .zip(weights_on_coset.par_row_slices())
-            .map(|(coeffs_row, weights_row)| {
-                coeffs_row
-                    .iter()
-                    .zip(weights_row.iter())
-                    .map(|(&c, &w)| w * c)
-                    .sum()
-            })
-            .collect();
+    // For each row (i.e., each value X), compute:
+    // ```
+    // \sum_{b \in \{0,1\}^{n-k}} f(X, b) \cdot w(X, b)
+    // ```
+    //
+    // This is done by pointwise multiplying the f and w values in each row,
+    // then summing across the row.
+    let result: Vec<EF> = f_on_coset
+        .par_row_slices()
+        .zip(weights_on_coset.par_row_slices())
+        .map(|(coeffs_row, weights_row)| {
+            coeffs_row
+                .iter()
+                .zip(weights_row.iter())
+                .map(|(&c, &w)| w * c)
+                .sum()
+        })
+        .collect();
 
-        // Return:
-        // - result: evaluations of the univariate sumcheck polynomial h(X)
-        // - f_mat: original (2^k × 2^{n−k}) matrix of f(X) before LDE
-        // - weights_mat: original (2^k × 2^{n−k}) matrix of w(X) before LDE
-        (result, f_mat, weights_mat)
-    };
-
-    // Return h(X) as a SumcheckPolynomial, along with the raw pre-LDE matrices
-    (SumcheckPolynomial::new(out_vec), f, w)
+    // Return h(X) as evaluations of the univariate sumcheck polynomial h(X)
+    SumcheckPolynomial::new(result)
 }
 
 #[cfg(test)]
@@ -105,8 +89,8 @@ mod tests {
     use super::*;
     use crate::{
         fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
-        poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
-        whir::constraints::statement::Statement,
+        poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
+        whir::constraints::statement::EqStatement,
     };
 
     type F = BabyBear;
@@ -167,8 +151,11 @@ mod tests {
         // Therefore the product f(X)·w(X) = 0 for all X ∈ {0,1}³
         // So the resulting sumcheck polynomial must be identically zero.
         // ----------------------------------------------------------------
-        let statement = Statement::<EF4>::initialize(3);
-        let (weights, _sum) = statement.combine::<F>(EF4::ONE);
+        let statement = EqStatement::<EF4>::initialize(3);
+
+        let mut weights = EvaluationsList::zero(statement.num_variables());
+        let mut sum = EF4::ZERO;
+        statement.combine_hypercube::<F, false>(&mut weights, &mut sum, EF4::ONE);
 
         // ----------------------------------------------------------------
         // Apply the univariate skip optimization with k = 2:
@@ -182,7 +169,7 @@ mod tests {
         let evals = coeffs.to_evaluations();
         let num_remaining_vars = evals.num_variables() - 2;
         let width = 1 << num_remaining_vars;
-        let (poly, _, _) = compute_skipping_sumcheck_polynomial::<F, EF4>(
+        let poly = compute_skipping_sumcheck_polynomial::<F, EF4>(
             evals.into_mat(width),
             weights.into_mat(width),
         );
@@ -195,6 +182,10 @@ mod tests {
             poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
             EF4::ZERO
         );
+        assert_eq!(
+            poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
+            sum
+        );
     }
 
     #[test]
@@ -205,8 +196,10 @@ mod tests {
         let c1 = F::from_u64(2);
         let coeffs = CoefficientList::new(vec![c0, c1]);
 
-        let statement = Statement::<EF4>::initialize(1);
-        let (weights, _sum) = statement.combine::<F>(EF4::ONE);
+        let statement = EqStatement::<EF4>::initialize(1);
+        let mut weights = EvaluationsList::zero(statement.num_variables());
+        let mut sum = EF4::ZERO;
+        statement.combine_hypercube::<F, false>(&mut weights, &mut sum, EF4::ONE);
 
         // This should panic because:
         // - the polynomial has only 1 variable
@@ -274,7 +267,7 @@ mod tests {
         };
 
         // Constraints
-        let mut statement = Statement::initialize(3);
+        let mut statement = EqStatement::initialize(3);
         statement.add_evaluated_constraint(
             MultilinearPoint::new(vec![EF4::ZERO, EF4::ZERO, EF4::ZERO]),
             f_extension(EF4::ZERO, EF4::ZERO, EF4::ZERO),
@@ -284,7 +277,9 @@ mod tests {
             f_extension(EF4::ONE, EF4::ZERO, EF4::ONE),
         );
 
-        let (weights, expected_sum) = statement.combine::<F>(EF4::ONE);
+        let mut weights = EvaluationsList::zero(statement.num_variables());
+        let mut expected_sum = EF4::ZERO;
+        statement.combine_hypercube::<F, false>(&mut weights, &mut expected_sum, EF4::ONE);
 
         // Get the f evaluations
         let evals_f = coeffs.to_evaluations();
@@ -311,8 +306,13 @@ mod tests {
         // ------------------------------------------------------------
         let num_remaining_vars = evals_f.num_variables() - k;
         let width = 1 << num_remaining_vars;
-        let (poly, f_mat, w_mat) =
-            compute_skipping_sumcheck_polynomial(evals_f.into_mat(width), weights.into_mat(width));
+
+        // Create the matrices before calling the function.
+        let f_mat = evals_f.into_mat(width);
+        let w_mat = weights.into_mat(width);
+
+        // Compute the sumcheck polynomial.
+        let poly = compute_skipping_sumcheck_polynomial(f_mat.clone(), w_mat.clone());
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3

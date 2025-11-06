@@ -21,7 +21,12 @@ use crate::{
     fiat_shamir::verifier::VerifierState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        Statement, constraints::evaluator::ConstraintPolyEvaluator, parameters::WhirConfig,
+        EqStatement,
+        constraints::{
+            evaluator::{Constraint, ConstraintPolyEvaluator},
+            statement::SelectStatement,
+        },
+        parameters::WhirConfig,
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -58,7 +63,7 @@ where
         &self,
         verifier_state: &mut VerifierState<F, EF, Challenger>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
-        statement: &Statement<EF>,
+        mut statement: EqStatement<EF>,
     ) -> Result<MultilinearPoint<EF>, VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
@@ -67,33 +72,36 @@ where
     {
         // During the rounds we collect constraints, combination randomness, folding randomness
         // and we update the claimed sum of constraint evaluation.
-        let mut round_constraints = Vec::new();
+        let mut constraints = Vec::new();
         let mut round_folding_randomness = Vec::new();
-        let mut claimed_sum = EF::ZERO;
+        let mut claimed_eval = EF::ZERO;
         let mut prev_commitment = parsed_commitment.clone();
 
         // Optional initial sumcheck round
         if self.initial_statement {
             // Combine OODS constraints and statement constraints to claimed_sum
-            let mut new_statement = prev_commitment.oods_constraints();
-            new_statement.concatenate(statement);
+            statement.concatenate(&prev_commitment.ood_statement);
 
-            let gamma = verifier_state.sample();
-            let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
-
-            round_constraints.push((combination_randomness, new_statement));
+            let constraint = Constraint::new(
+                verifier_state.sample(),
+                statement,
+                SelectStatement::initialize(self.num_variables),
+            );
+            // Combine claimed evals with combination randomness
+            constraint.combine_evals(&mut claimed_eval);
+            constraints.push(constraint);
 
             // Initial sumcheck
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
-                &mut claimed_sum,
+                &mut claimed_eval,
                 self.folding_factor.at_round(0),
                 self.starting_folding_pow_bits,
                 self.univariate_skip,
             )?;
             round_folding_randomness.push(folding_randomness);
         } else {
-            assert!(prev_commitment.ood_points.is_empty());
+            assert!(prev_commitment.ood_statement.is_empty());
             assert!(statement.is_empty());
 
             let folding_randomness = MultilinearPoint::new(
@@ -119,7 +127,7 @@ where
             )?;
 
             // Verify in-domain challenges on the previous commitment.
-            let stir_constraints = self.verify_stir_challenges(
+            let stir_statement = self.verify_stir_challenges(
                 verifier_state,
                 round_params,
                 &prev_commitment,
@@ -127,23 +135,21 @@ where
                 round_index,
             )?;
 
-            // Add out-of-domain and in-domain constraints to claimed_sum
-            let mut new_statement = new_commitment.oods_constraints();
-            new_statement.concatenate(&stir_constraints);
-
-            let gamma = verifier_state.sample();
-            let combination_randomness = new_statement.combine_evals(&mut claimed_sum, gamma);
-
-            round_constraints.push((combination_randomness.clone(), new_statement));
+            let constraint = Constraint::new(
+                verifier_state.sample(),
+                new_commitment.ood_statement.clone(),
+                stir_statement,
+            );
+            constraint.combine_evals(&mut claimed_eval);
+            constraints.push(constraint);
 
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
-                &mut claimed_sum,
+                &mut claimed_eval,
                 self.folding_factor.at_round(round_index + 1),
                 round_params.folding_pow_bits,
                 false,
             )?;
-
             round_folding_randomness.push(folding_randomness);
 
             // Update round parameters
@@ -156,7 +162,7 @@ where
         let final_evaluations = EvaluationsList::new(final_coefficients);
 
         // Verify in-domain challenges on the previous commitment.
-        let stir_constraints = self.verify_stir_challenges(
+        let stir_statement = self.verify_stir_challenges(
             verifier_state,
             &self.final_round_config(),
             &prev_commitment,
@@ -165,7 +171,7 @@ where
         )?;
 
         // Verify stir constraints directly on final polynomial
-        stir_constraints
+        stir_statement
             .verify(&final_evaluations)
             .then_some(())
             .ok_or_else(|| VerifierError::StirChallengeFailed {
@@ -175,7 +181,7 @@ where
 
         let final_sumcheck_randomness = verify_sumcheck_rounds(
             verifier_state,
-            &mut claimed_sum,
+            &mut claimed_eval,
             self.final_sumcheck_rounds,
             self.final_folding_pow_bits,
             false,
@@ -191,21 +197,20 @@ where
                 .collect(),
         );
 
-        let evaluator = ConstraintPolyEvaluator::new(
+        let evaluation_of_weights = ConstraintPolyEvaluator::new(
             self.num_variables,
             self.folding_factor,
-            self.univariate_skip,
-        );
-        let evaluation_of_weights =
-            evaluator.eval_constraints_poly(&round_constraints, &folding_randomness);
+            self.univariate_skip.then_some(K_SKIP_SUMCHECK),
+        )
+        .eval_constraints_poly(&constraints, &folding_randomness);
 
         // Check the final sumcheck evaluation
-        let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
-        if claimed_sum != evaluation_of_weights * final_value {
+        let final_value = final_evaluations.evaluate_hypercube(&final_sumcheck_randomness);
+        if claimed_eval != evaluation_of_weights * final_value {
             return Err(VerifierError::SumcheckFailed {
                 round: self.final_sumcheck_rounds,
                 expected: (evaluation_of_weights * final_value).to_string(),
-                actual: claimed_sum.to_string(),
+                actual: claimed_eval.to_string(),
             });
         }
 
@@ -243,7 +248,7 @@ where
         commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
-    ) -> Result<Statement<EF>, VerifierError>
+    ) -> Result<SelectStatement<F, EF>, VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
@@ -330,9 +335,9 @@ where
                     // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
                     let folded_row = interpolate_subgroup(&mat, r_skip);
                     // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-                    EvaluationsList::new(folded_row).evaluate(&r_rest)
+                    EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest)
                 } else {
-                    EvaluationsList::new(answer).evaluate(folding_randomness)
+                    EvaluationsList::new(answer).evaluate_hypercube(folding_randomness)
                 }
             })
             .collect();
@@ -340,12 +345,9 @@ where
         let stir_constraints = stir_challenges_indexes
             .iter()
             .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
-            .map(|point| {
-                MultilinearPoint::expand_from_univariate(EF::from(point), params.num_variables)
-            })
             .collect();
 
-        Ok(Statement::new(
+        Ok(SelectStatement::new(
             params.num_variables,
             stir_constraints,
             folds,
