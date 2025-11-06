@@ -20,7 +20,7 @@ use crate::{
             evaluator::{Constraint, ConstraintPolyEvaluator},
             statement::{EqStatement, SelectStatement},
         },
-        verifier::sumcheck::verify_sumcheck_rounds,
+        verifier::sumcheck::{verify_sumcheck_rounds, verify_sumcheck_rounds_svo},
     },
 };
 
@@ -624,6 +624,147 @@ where
     EvaluationsList::new(folded_row).evaluate_hypercube(&rest)
 }
 
+fn run_sumcheck_test_svo(
+    num_vars: usize,
+    folding_factor: FoldingFactor,
+    num_eqs: &[usize],
+    num_sels: &[usize],
+) {
+    let (num_rounds, final_rounds) = folding_factor.compute_number_of_rounds(num_vars);
+    assert_eq!(num_eqs.len(), num_rounds + 1);
+    assert_eq!(num_sels.len(), num_rounds + 1);
+    folding_factor.check_validity(num_vars).unwrap();
+
+    // Initialize a random multilinear polynomial with 2^num_vars evaluations.
+    let mut rng = SmallRng::seed_from_u64(1);
+    let poly = EvaluationsList::new((0..1 << num_vars).map(|_| rng.random()).collect());
+
+    // PROVER
+    let prover = &mut prover();
+
+    // Create the initial constraint statement
+    let constraint = make_constraint(prover, num_vars, num_eqs[0], num_sels[0], &poly);
+
+    // ROUND 0
+    let folding0 = folding_factor.at_round(0);
+    let (mut sumcheck, mut prover_randomness) =
+        SumcheckSingle::from_base_evals_svo(&poly, prover, folding0, 0, &constraint);
+
+    // Track how many variables remain to fold
+    let mut num_vars_inter = num_vars - folding0;
+
+    // INTERMEDIATE ROUNDS
+    for (round, (&num_eq_points, &num_sel_points)) in
+        num_eqs.iter().zip(num_sels.iter()).enumerate().skip(1)
+    {
+        let folding = folding_factor.at_round(round);
+        // Sample new evaluation constraints and combine them into the sumcheck state
+        let constraint = make_constraint_ext(
+            prover,
+            num_vars_inter,
+            num_eq_points,
+            num_sel_points,
+            &sumcheck.evals,
+        );
+
+        // Compute and apply the next folding round
+        prover_randomness = extend_point(
+            &prover_randomness,
+            &sumcheck.compute_sumcheck_polynomials(prover, folding, 0, Some(constraint)),
+        );
+
+        num_vars_inter -= folding;
+
+        // Check that the number of variables and evaluations match the expected values
+        assert_eq!(sumcheck.evals.num_variables(), num_vars_inter);
+        assert_eq!(sumcheck.evals.num_evals(), 1 << num_vars_inter);
+    }
+
+    // Ensure we’ve folded all variables.
+    assert_eq!(num_vars_inter, final_rounds);
+
+    // FINAL ROUND
+    prover_randomness = extend_point(
+        &prover_randomness,
+        &sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0, None),
+    );
+
+    assert_eq!(sumcheck.evals.num_variables(), 0);
+    assert_eq!(sumcheck.evals.num_evals(), 1);
+
+    // Final folded value must match f(r)
+    let final_folded_value = sumcheck.evals.as_constant().unwrap();
+    assert_eq!(
+        poly.evaluate_hypercube(&prover_randomness),
+        final_folded_value
+    );
+    // Commit final result to Fiat-Shamir transcript
+    prover.add_extension_scalar(final_folded_value);
+
+    // Save proof data to pass to verifier
+    let proof = prover.proof_data().to_vec();
+
+    // VERIFIER
+    let verifier = &mut verifier(proof);
+
+    // Running total for the verifier’s sum of constraint combinations
+    let mut sum = EF::ZERO;
+
+    // Point `r` is constructed over rounds using verifier-chosen challenges
+    let mut verifier_randomness = MultilinearPoint::new(vec![]);
+
+    // All constraints used by the verifier across rounds
+    let mut constraints = vec![];
+
+    // Recompute the same variable count as prover had
+    let mut num_vars_inter = num_vars;
+
+    // VERIFY EACH ROUND
+    for (round_idx, (&num_eq_points, &num_sel_points)) in
+        num_eqs.iter().zip(num_sels.iter()).enumerate()
+    {
+        // Reconstruct round constraint from transcript
+        let constraint = read_constraint(verifier, num_vars_inter, num_eq_points, num_sel_points);
+        // Accumulate the weighted sum of constraint values
+        constraint.combine_evals(&mut sum);
+        // Save constraints for later equality check
+        constraints.push(constraint);
+
+        // Extend r with verifier's folding challenges
+        let folding = folding_factor.at_round(round_idx);
+        verifier_randomness = extend_point(
+            &verifier_randomness,
+            &verify_sumcheck_rounds_svo(verifier, &mut sum, folding, 0).unwrap(),
+        );
+
+        num_vars_inter -= folding;
+    }
+
+    // Final round check
+    verifier_randomness = extend_point(
+        &verifier_randomness,
+        &verify_sumcheck_rounds_svo(verifier, &mut sum, final_rounds, 0).unwrap(),
+    );
+
+    // Check that the randomness vectors are the same
+    assert_eq!(prover_randomness, verifier_randomness);
+
+    // Final folded constant from transcript
+    assert_eq!(
+        final_folded_value,
+        verifier.next_extension_scalar().unwrap()
+    );
+
+    // CHECK EQ(z, r) WEIGHT POLY
+    //
+    // No skip optimization, so the first round is treated as a standard sumcheck round.
+    let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
+    let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness);
+
+    // CHECK SUM == f(r) * weights(z, r)
+    assert_eq!(sum, final_folded_value * weights);
+}
+
 #[test]
 fn test_sumcheck_prover_without_skip() {
     let mut rng = SmallRng::seed_from_u64(0);
@@ -642,6 +783,17 @@ fn test_sumcheck_prover_without_skip() {
                 run_sumcheck_test(num_vars, folding_factor, &num_eq_points, &num_sel_points);
             }
         }
+    }
+}
+
+#[test]
+fn test_sumcheck_prover_svo() {
+    for num_vars in &[6, 8, 10, 12, 14, 16, 18, 20, 22, 24] {
+        let folding_factor = *num_vars;
+        let folding_factor = FoldingFactor::Constant(folding_factor);
+        let num_eq_points = vec![1];
+        let num_sel_points = vec![0];
+        run_sumcheck_test_svo(*num_vars, folding_factor, &num_eq_points, &num_sel_points);
     }
 }
 

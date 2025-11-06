@@ -105,5 +105,9 @@ name = "sumcheck"
 harness = false
 
 [[bench]]
+name = "sumcheck_svo"
+harness = false
+
+[[bench]]
 name = "stir_queries"
 harness = false

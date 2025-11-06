@@ -255,6 +255,32 @@ where
         }
     }
 
+    #[inline]
+    pub fn compress_svo(&mut self, r: F) {
+        assert_ne!(self.num_variables(), 0);
+        let mid = self.num_evals() / 2;
+        // For large inputs, we use a parallel, out-of-place strategy.
+        if self.num_evals() >= PARALLEL_THRESHOLD {
+            let (left, right) = self.0.split_at_mut(mid);
+            left.par_iter_mut()
+                .zip(right.par_iter())
+                .for_each(|(p0_mut, &p1)| {
+                    // Read the original p0 value
+                    let p0 = *p0_mut;
+                    // Compute the new value and write it back to the left half.
+                    *p0_mut = r * (p1 - p0) + p0;
+                });
+        } else {
+            // For smaller inputs, we use a sequential, in-place strategy.
+            for i in 0..mid {
+                let p0 = self.0[i];
+                let p1 = self.0[mid + i];
+                self.0[i] = r * (p1 - p0) + p0;
+            }
+        }
+        self.0.truncate(mid);
+    }
+
     /// Folds a list of evaluations from a base field `F` into an extension field `EF`.
     ///
     /// ## Arguments
