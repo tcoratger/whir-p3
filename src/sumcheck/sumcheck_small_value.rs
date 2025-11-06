@@ -11,8 +11,8 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
 };
 
-// We apply the small value optimization (SVO) for the first three sumcheck rounds,
-// following this paper <https://eprint.iacr.org/2025/1117>.
+/// We apply the small value optimization (SVO) for the first three sumcheck rounds,
+/// following this paper <https://eprint.iacr.org/2025/1117>.
 pub const NUM_SVO_ROUNDS: usize = 3;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -63,12 +63,6 @@ impl<F: Field> Add for Accumulators<F> {
         self
     }
 }
-// For round i, RoundAccumulators has all the accumulators of the form A_i(u, v).
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct RoundAccumlators<F: Field> {
-    pub round: usize,
-    pub accumulators: Vec<F>,
-}
 
 /// Precomputation needed for Procedure 9 (compute_accumulators).
 /// Compute the evaluations eq(w_{l0 + 1}, ..., w_{l0 + l/2} ; x) for all x in {0,1}^l/2
@@ -93,9 +87,9 @@ fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_SVO_ROUND
     })
 }
 
-// Procedure 9. Page 37.
-// We compute only the accumulators that we'll use, that is,
-// A_i(v, u) for i in {0, 1, 2}, v in {0, 1}^{i}, and u in {0, 1}.
+/// Procedure 9. Page 37.
+/// We compute only the accumulators that we'll use, that is,
+/// A_i(v, u) for i in {0, 1, 2}, v in {0, 1}^{i}, and u in {0, 1}.
 fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
     poly: &EvaluationsList<F>,
     e_in: &[EF],
@@ -183,7 +177,7 @@ pub fn eval_eq_in_hypercube<F: Field>(point: &[F]) -> Vec<F> {
     out
 }
 
-// Given two multilinear points p and q, it evaluates eq(p, q).
+/// Given two multilinear points p and q, it evaluates eq(p, q).
 pub fn eval_eq_in_point<F: Field>(p: &[F], q: &[F]) -> F {
     p.iter()
         .zip(q)
@@ -191,9 +185,9 @@ pub fn eval_eq_in_point<F: Field>(p: &[F], q: &[F]) -> F {
         .product()
 }
 
-// Given the points w and r, we compute the linear function
-// l(x) = eq( w_1,...w_{i-1} ; r_1,...r_{i-1} ) * eq(w_i, x)
-// Section 5.1, page 17.
+/// Given the points w and r, we compute the linear function
+/// l(x) = eq( w_1,...w_{i-1} ; r_1,...r_{i-1} ) * eq(w_i, x)
+/// Section 5.1, page 17.
 pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
     let round = w.len();
     debug_assert!(r.len() == round - 1);
@@ -209,8 +203,8 @@ pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
     [const_eq * (F::ONE - *w_i), const_eq * *w_i]
 }
 
-// Given the linear functions l and t, we compute S(0) and S(inf).
-// See Procedure 8, Page 35.
+/// Given the linear functions l and t, we compute S(0) and S(inf).
+/// See Procedure 8, Page 35.
 fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F; 2]) -> [F; 2] {
     [
         t[0] * l[0],                   // S(0)

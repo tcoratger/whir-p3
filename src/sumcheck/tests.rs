@@ -627,7 +627,6 @@ where
 fn run_sumcheck_test_svo(
     num_vars: usize,
     folding_factor: FoldingFactor,
-    // Maybe we can remove these two inputs:
     num_eqs: &[usize],
     num_sels: &[usize],
 ) {

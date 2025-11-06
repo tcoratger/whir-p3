@@ -16,9 +16,9 @@ where
     F: Field + Ord,
     EF: ExtensionField<F>,
 {
-    // Compute a Sumcheck using the Small Value Optimization (SVO) for the first three rounds and
-    // Algorithm 5 (page 18) for the remaining rounds.
-    // See Algorithm 6 (page 19) in <https://eprint.iacr.org/2025/1117>.
+    /// Compute a Sumcheck using the Small Value Optimization (SVO) for the first three rounds and
+    /// Algorithm 5 (page 18) for the remaining rounds.
+    /// See Algorithm 6 (page 19) in <https://eprint.iacr.org/2025/1117>.
     pub fn from_base_evals_svo<Challenger>(
         evals: &EvaluationsList<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
