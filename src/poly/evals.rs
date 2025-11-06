@@ -283,11 +283,11 @@ where
     /// ```text
     /// Before:
     /// [ p(0, 0..0), p(0, 0..1), ..., p(0, 1..1) | p(1, 0..0), p(1, 0..1), ..., p(1, 1..1) ]
-    ///  └────────── Left Half (p(0, x')) ───────┘  └────────── Right Half (p(1, x')) ──────┘
+    ///  └────────── Left Half (p(0, x')) ──────┘   └────────── Right Half (p(1, x')) ────┘
     ///
     /// After: (Computed in-place into the left half)
     /// [ p(r, 0..0), p(r, 0..1), ..., p(r, 1..1) ]
-    ///  └────────── Folded result ─────────────┘
+    ///   └───────── Folded result ─────────────┘
     /// ```
     ///
     /// The function computes `result[i] = left[i] + r * (right[i] - left[i])` for
