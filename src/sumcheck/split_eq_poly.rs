@@ -148,21 +148,21 @@ impl<'a, F: Field> SplitEqPolynomial<'a, F> {
     /// Returns the total number of variables.
     #[inline]
     #[must_use]
-    pub fn num_variables(&self) -> usize {
+    pub const fn num_variables(&self) -> usize {
         self.w.num_variables()
     }
 
     /// Returns `true` if all variables have been bound.
     #[inline]
     #[must_use]
-    pub fn is_fully_bound(&self) -> bool {
+    pub const fn is_fully_bound(&self) -> bool {
         self.bound_count == self.w.num_variables()
     }
 
     /// Returns the remaining number of variables to bind.
     #[inline]
     #[must_use]
-    pub fn remaining_variables(&self) -> usize {
+    pub const fn remaining_variables(&self) -> usize {
         self.w.num_variables() - self.bound_count
     }
 }
