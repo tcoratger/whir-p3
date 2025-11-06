@@ -161,9 +161,11 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
             }
             local_accumulators
         })
-        .collect::<Vec<_>>()
-        .into_iter()
-        .fold(Accumulators::<EF>::new_empty(), |a, b| a + b)
+        .par_fold_reduce(
+            || Accumulators::<EF>::new_empty(),
+            |a, b| a + b,
+            |a, b| a + b,
+        )
 }
 
 /// Given a point w = (w_1, ..., w_l), it returns the evaluations of eq(w, x) for all x in {0, 1}^l.
@@ -225,8 +227,7 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    let e_in = precompute_e_in(w);
-    let e_out = precompute_e_out(w);
+    let (e_in, e_out) = join(|| precompute_e_in(w), || precompute_e_out(w));
 
     // We compute all the accumulators A_i(v, u).
     let accumulators = compute_accumulators(poly, &e_in, &e_out);
