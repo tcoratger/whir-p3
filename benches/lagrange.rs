@@ -1,6 +1,7 @@
-use std::{collections::HashSet, hint::black_box};
+use core::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use hashbrown::HashSet;
 use p3_baby_bear::BabyBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use whir_p3::poly::dense::WhirDensePolynomial;

@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrix;
@@ -167,7 +169,7 @@ where
 
     /// Returns an iterator over the evaluations.
     #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_, F> {
+    pub fn iter(&self) -> core::slice::Iter<'_, F> {
         self.0.iter()
     }
 
@@ -256,7 +258,7 @@ where
 
 impl<'a, F> IntoIterator for &'a EvaluationsList<F> {
     type Item = &'a F;
-    type IntoIter = std::slice::Iter<'a, F>;
+    type IntoIter = core::slice::Iter<'a, F>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -266,7 +268,7 @@ impl<'a, F> IntoIterator for &'a EvaluationsList<F> {
 
 impl<F> IntoIterator for EvaluationsList<F> {
     type Item = F;
-    type IntoIter = std::vec::IntoIter<F>;
+    type IntoIter = alloc::vec::IntoIter<F>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -429,7 +431,7 @@ where
                 let (f0_eval, f1_eval) = {
                     // Only spawn parallel tasks if the subproblem is large enough to overcome
                     // the overhead of threading.
-                    let work_size: usize = (1 << 15) / std::mem::size_of::<F>();
+                    let work_size: usize = (1 << 15) / core::mem::size_of::<F>();
                     if evals.len() > work_size {
                         join(
                             || eval_multilinear(f0, &sub_point),
@@ -452,6 +454,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, PrimeField64, extension::BinomialExtensionField};
     use proptest::prelude::*;

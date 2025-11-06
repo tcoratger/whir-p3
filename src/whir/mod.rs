@@ -1,3 +1,5 @@
+use alloc::{vec, vec::Vec};
+
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use constraints::statement::Statement;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};

@@ -1,4 +1,5 @@
-use std::ops::Deref;
+use alloc::vec::Vec;
+use core::ops::Deref;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};

@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use p3_field::{ExtensionField, Field, dot_product};
 use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
@@ -248,6 +250,8 @@ impl<F: Field> Statement<F> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
 

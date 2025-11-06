@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use core::ops::{Index, Range};
 
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -169,7 +170,7 @@ where
 
 impl<'a, F> IntoIterator for &'a MultilinearPoint<F> {
     type Item = &'a F;
-    type IntoIter = std::slice::Iter<'a, F>;
+    type IntoIter = core::slice::Iter<'a, F>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
     }
@@ -177,7 +178,7 @@ impl<'a, F> IntoIterator for &'a MultilinearPoint<F> {
 
 impl<F> IntoIterator for MultilinearPoint<F> {
     type Item = F;
-    type IntoIter = std::vec::IntoIter<F>;
+    type IntoIter = alloc::vec::IntoIter<F>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
@@ -194,6 +195,8 @@ impl<F> Index<usize> for MultilinearPoint<F> {
 #[cfg(test)]
 #[allow(clippy::identity_op, clippy::erasing_op)]
 mod tests {
+    use alloc::vec;
+
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_matrix::dense::RowMajorMatrix;

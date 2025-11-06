@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
 use errors::SecurityAssumption;
 use thiserror::Error;
@@ -172,7 +172,7 @@ pub struct ProtocolParameters<H, C> {
 }
 
 impl<H, C> Display for ProtocolParameters<H, C> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(
             f,
             "Targeting {}-bits of security with {}-bits of PoW - soundness: {:?}",

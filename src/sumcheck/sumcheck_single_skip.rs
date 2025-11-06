@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use p3_dft::{Radix2DitParallel, TwoAdicSubgroupDft};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
@@ -92,6 +94,8 @@ where
 #[cfg(test)]
 #[allow(clippy::erasing_op, clippy::identity_op)]
 mod tests {
+    use alloc::vec;
+
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_dft::NaiveDft;

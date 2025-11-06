@@ -22,7 +22,8 @@ Credits: https://github.com/Plonky3/Plonky3 (radix_2_small_batch.rs)
 (the main difference is in `TwiddleFreeButterfly` and `DitButterfly`)
 */
 
-use std::cell::RefCell;
+use alloc::vec::Vec;
+use core::cell::RefCell;
 
 use itertools::Itertools;
 use p3_dft::Butterfly;
@@ -537,6 +538,8 @@ impl<F: Field> Butterfly<F> for DitEvalsButterfly<F> {
 
 #[cfg(test)]
 mod test {
+    use alloc::vec;
+
     use p3_field::PrimeCharacteristicRing;
     use p3_koala_bear::KoalaBear;
     use p3_matrix::dense::DenseMatrix;

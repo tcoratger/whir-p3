@@ -1,4 +1,5 @@
-use std::{f64::consts::LOG2_10, fmt::Display, str::FromStr};
+use alloc::{format, string::String};
+use core::{f64::consts::LOG2_10, fmt::Display, str::FromStr};
 
 use serde::Serialize;
 
@@ -182,7 +183,7 @@ impl SecurityAssumption {
 }
 
 impl Display for SecurityAssumption {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(match self {
             Self::JohnsonBound => "JohnsonBound",
             Self::CapacityBound => "CapacityBound",
@@ -207,6 +208,8 @@ impl FromStr for SecurityAssumption {
 #[cfg(test)]
 #[allow(clippy::cast_lossless)]
 mod tests {
+    use alloc::string::ToString;
+
     use super::*;
 
     #[test]

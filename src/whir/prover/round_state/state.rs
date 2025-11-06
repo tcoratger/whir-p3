@@ -2,7 +2,7 @@
 //!
 //! This module implements the core round state management for the WHIR protocol.
 
-use std::sync::Arc;
+use alloc::{sync::Arc, vec::Vec};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};

@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use p3_maybe_rayon::prelude::*;
 
 pub fn parallel_clone<A>(src: &[A], dst: &mut [A])
@@ -30,7 +32,7 @@ where
         src.par_iter().enumerate().for_each(|(i, &v)| {
             for j in 0..n {
                 unsafe {
-                    std::ptr::write(res.as_ptr().cast_mut().add(i + j * src.len()), v);
+                    core::ptr::write(res.as_ptr().cast_mut().add(i + j * src.len()), v);
                 }
             }
         });

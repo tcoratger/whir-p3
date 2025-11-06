@@ -1,4 +1,5 @@
-use std::{f64::consts::LOG2_10, marker::PhantomData};
+use alloc::vec::Vec;
+use core::{f64::consts::LOG2_10, marker::PhantomData};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -443,6 +444,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_field::PrimeCharacteristicRing;

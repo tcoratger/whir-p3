@@ -1,3 +1,5 @@
+use alloc::{vec, vec::Vec};
+
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
@@ -219,7 +221,7 @@ pub struct SumcheckSingle<F, EF> {
     /// Accumulated sum incorporating equality constraints.
     pub(crate) sum: EF,
     /// Marker for phantom type parameter `F`.
-    phantom: std::marker::PhantomData<F>,
+    phantom: core::marker::PhantomData<F>,
 }
 
 impl<F, EF> SumcheckSingle<F, EF>
@@ -247,7 +249,7 @@ where
             evals,
             weights,
             sum,
-            phantom: std::marker::PhantomData,
+            phantom: core::marker::PhantomData,
         }
     }
 
@@ -293,7 +295,7 @@ where
             evals,
             weights,
             sum,
-            phantom: std::marker::PhantomData,
+            phantom: core::marker::PhantomData,
         };
 
         (sumcheck, MultilinearPoint::new(res))
@@ -379,7 +381,7 @@ where
             evals,
             weights,
             sum,
-            phantom: std::marker::PhantomData,
+            phantom: core::marker::PhantomData,
         };
 
         (sumcheck, MultilinearPoint::new(res))

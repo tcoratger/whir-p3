@@ -43,7 +43,8 @@
 //! ```
 //! and applies the rounds in the reverse order.
 
-use std::marker::PhantomData;
+use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use p3_field::{BasedVectorSpace, Field, PackedValue};
 use p3_matrix::{
@@ -406,6 +407,8 @@ fn par_inverse_wavelet_kernel<F: Field>(mat: &mut RowMajorMatrix<F>, block_size:
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use p3_baby_bear::BabyBear;
     use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_matrix::dense::RowMajorMatrix;

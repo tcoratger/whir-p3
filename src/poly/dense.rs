@@ -1,8 +1,7 @@
-use std::{
-    collections::HashSet,
-    ops::{Add, AddAssign, Mul, MulAssign},
-};
+use alloc::{vec, vec::Vec};
+use core::ops::{Add, AddAssign, Mul, MulAssign};
 
+use hashbrown::HashSet;
 use p3_field::{ExtensionField, Field};
 use rand::distr::{Distribution, StandardUniform};
 
@@ -431,7 +430,7 @@ mod tests {
             //
             // We will collect `degree + 1` points, enough to fully determine the polynomial.
             let mut points = vec![];
-            let mut used_x = std::collections::HashSet::new();
+            let mut used_x = HashSet::new();
 
             while points.len() <= degree {
                 // Randomly generate an x value.
@@ -480,7 +479,7 @@ mod tests {
     ///
     /// A `proptest::Strategy` producing `WhirDensePolynomial<F>` instances.
     fn any_polynomial(
-        max_deg: std::ops::Range<usize>,
+        max_deg: core::ops::Range<usize>,
     ) -> impl Strategy<Value = WhirDensePolynomial<F>> {
         max_deg
             // 1. Pick a random degree `deg` in 0..max_deg
