@@ -102,7 +102,11 @@ where
     #[must_use]
     #[inline]
     pub fn eval_eq(p: &[F], q: &[F]) -> F {
-        assert_eq!(p.len(), q.len(), "Points must have the same number of variables");
+        assert_eq!(
+            p.len(),
+            q.len(),
+            "Points must have the same number of variables"
+        );
 
         // This uses the algebraic identity:
         // l * r + (1 - l) * (1 - r) = 1 + 2 * l * r - l - r
