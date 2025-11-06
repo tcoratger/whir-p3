@@ -5,6 +5,7 @@ use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
+        split_eq_poly::SplitEqPolynomial,
         sumcheck_single::SumcheckSingle,
         sumcheck_small_value::{algorithm_5, fold_evals_with_challenges, svo_three_rounds},
     },
@@ -39,17 +40,27 @@ where
         let mut sum = constraint.eq_statement.evaluations[0];
         let w = &constraint.eq_statement.points[0];
 
-        let (r_1, r_2, r_3) = svo_three_rounds(prover_state, evals, w, &mut sum, pow_bits);
-        #[allow(clippy::tuple_array_conversions)]
-        challenges.extend([r_1, r_2, r_3]);
+        // Create the incremental equality polynomial evaluator once
+        let mut eq_poly = SplitEqPolynomial::new(w);
 
-        // We fold to obtaind p(r1, r2, r3, x).
+        svo_three_rounds(
+            prover_state,
+            evals,
+            w,
+            &mut eq_poly,
+            &mut challenges,
+            &mut sum,
+            pow_bits,
+        );
+
+        // We fold to obtain p(r1, r2, r3, x).
         let mut folded_evals = fold_evals_with_challenges(evals, &challenges);
 
         algorithm_5(
             prover_state,
             &mut folded_evals,
             w,
+            &mut eq_poly,
             &mut challenges,
             &mut sum,
             pow_bits,

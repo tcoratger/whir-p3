@@ -7,6 +7,7 @@ use p3_maybe_rayon::prelude::*;
 use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    sumcheck::split_eq_poly::SplitEqPolynomial,
 };
 
 /// We apply the small value optimization (SVO) for the first three sumcheck rounds,
@@ -166,24 +167,6 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
         )
 }
 
-/// Given the points w and r, we compute the linear function
-/// l(x) = eq( w_1,...w_{i-1} ; r_1,...r_{i-1} ) * eq(w_i, x)
-/// Section 5.1, page 17.
-pub fn compute_linear_function<F: Field>(w: &[F], r: &[F]) -> [F; 2] {
-    let round = w.len();
-    debug_assert!(r.len() == round - 1);
-
-    let const_eq = if round == 1 {
-        F::ONE
-    } else {
-        MultilinearPoint::eval_eq(&w[..round - 1], r)
-    };
-    let w_i = w.last().unwrap();
-
-    // Evaluation of eq(w,X) in [eq(w,0),eq(w,1)]
-    [const_eq * (F::ONE - *w_i), const_eq * *w_i]
-}
-
 /// Given the linear functions l and t, we compute S(0) and S(inf).
 /// See Procedure 8, Page 35.
 fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F; 2]) -> [F; 2] {
@@ -194,16 +177,16 @@ fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F; 2]) -> [F; 2] {
 }
 
 /// Algorithm 6. Page 19.
-/// Compute three sumcheck rounds using the small value optimizaition and split-eq accumulators.
-/// It returns the three challenges r_1, r_2, r_3.
+/// Compute three sumcheck rounds using the small value optimization and split-eq accumulators.
 pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
     w: &MultilinearPoint<EF>,
+    eq_poly: &mut SplitEqPolynomial<'_, EF>,
+    challenges: &mut Vec<EF>,
     sum: &mut EF,
     pow_bits: usize,
-) -> (EF, EF, EF)
-where
+) where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     let (e_in, e_out) = join(|| precompute_e_in(w), || precompute_e_out(w));
@@ -222,8 +205,8 @@ where
 
     // 2. For u in {0, 1, inf} compute S_1(u) = t_1(u) * l_1(u).
 
-    // We compute l_1(0) and l_1(1)
-    let linear_1_evals = compute_linear_function(&w.0[..1], &[]);
+    // We compute l_1(0) and l_1(1) using the cached state
+    let linear_1_evals = eq_poly.current_evals();
 
     // We compute S_1(0) and S_1(inf)
     let [s_0, s_inf] = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals);
@@ -235,6 +218,8 @@ where
 
     // 4. Receive the challenge r_1 from the verifier.
     let r_1: EF = prover_state.sample();
+    challenges.push(r_1);
+    eq_poly.bind(r_1);
 
     let s_1 = *sum - s_0;
     *sum = s_inf * r_1.square() + (s_1 - s_0 - s_inf) * r_1 + s_0;
@@ -260,19 +245,21 @@ where
             + lagrange_evals_r_1[1] * accumulators_round_2[3],
     ];
 
-    // We compute l_2(0) and l_2(inf)
-    let linear_2_evals = compute_linear_function(&w.0[..2], &[r_1]);
+    // We compute l_2(0) and l_2(inf) using the cached state
+    let linear_2_evals = eq_poly.current_evals();
 
     // We compute S_2(0) and S_2(inf).
-    let [s_0, s_1] = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
+    let [s_0, s_inf] = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
 
     // 3. Send S_2(u) to the verifier.
-    prover_state.add_extension_scalars(&[s_0, s_1]);
+    prover_state.add_extension_scalars(&[s_0, s_inf]);
 
     prover_state.pow_grinding(pow_bits);
 
     // 4. Receive the challenge r_2 from the verifier.
     let r_2: EF = prover_state.sample();
+    challenges.push(r_2);
+    eq_poly.bind(r_2);
 
     // 5. Compute R_3 = [L_00(r_1, r_2), L_01(r_1, r_2), ..., L_{inf inf}(r_1, r_2)]
     // L_00 (x1, x2) = (1 - x1) * (1 - x2)
@@ -317,8 +304,8 @@ where
 
     // 2. For u in {0, 1, inf} compute S_3(u) = t_3(u) * l_3(u).
 
-    // We compute l_3(0) and l_3(inf)
-    let linear_3_evals = compute_linear_function(&w.0[..3], &[r_1, r_2]);
+    // We compute l_3(0) and l_3(inf) using the cached state
+    let linear_3_evals = eq_poly.current_evals();
 
     // We compute S_3(0) and S_3(inf).
     let round_poly_evals = get_evals_from_l_and_t(&linear_3_evals, &t_3_evals);
@@ -330,13 +317,13 @@ where
 
     // 4. Receive the challenge r_3 from the verifier.
     let r_3: EF = prover_state.sample();
+    challenges.push(r_3);
+    eq_poly.bind(r_3);
 
     let eval_1 = *sum - round_poly_evals[0];
     *sum = round_poly_evals[1] * r_3.square()
         + (eval_1 - round_poly_evals[0] - round_poly_evals[1]) * r_3
         + round_poly_evals[0];
-
-    (r_1, r_2, r_3)
 }
 
 /// This function takes a list of evaluations and "folds" or "compresses" them according
@@ -382,6 +369,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &mut EvaluationsList<EF>,
     w: &MultilinearPoint<EF>,
+    eq_poly: &mut SplitEqPolynomial<'_, EF>,
     challenges: &mut Vec<EF>,
     sum: &mut EF,
     pow_bits: usize,
@@ -437,7 +425,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
         };
 
         // Compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf}:
-        let linear_evals = compute_linear_function(&w.0[..round], challenges);
+        let linear_evals = eq_poly.current_evals();
         let [s_0, s_inf] = get_evals_from_l_and_t(&linear_evals, &t_evals);
 
         // Send S_i(u) to the verifier.
@@ -448,6 +436,7 @@ pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
         // Receive the challenge r_i from the verifier.
         let r_i: EF = prover_state.sample();
         challenges.push(r_i);
+        eq_poly.bind(r_i);
 
         // Fold and update the poly.
         poly.compress_svo(r_i);
@@ -710,41 +699,5 @@ mod tests {
             F::from_u32(r4),
         ])
         .unwrap()
-    }
-
-    #[test]
-    fn test_compute_linear_function() {
-        // w = [1]
-        // r = []
-        let w = [EF::from(F::from_int(1))];
-        let r = [];
-        // l(0) = 0
-        // l(1) = 1
-        let expected = [EF::from(F::from_int(0)), EF::from(F::from_int(1))];
-        let result = compute_linear_function(&w, &r);
-        assert_eq!(result, expected);
-
-        // w = [1, 1]
-        // r = [1]
-        let w = [EF::from(F::from_int(1)), EF::from(F::from_int(1))];
-        let r = [EF::from(F::from_int(1))];
-        // l(0) = 0
-        // l(1) = 1
-        let expected = [EF::from(F::from_int(0)), EF::from(F::from_int(1))];
-        let result = compute_linear_function(&w, &r);
-        assert_eq!(result, expected);
-
-        // w = [w0, w1, w2, w3]
-        // r = [r0, r1, r2]
-        let w: Vec<EF> = (0..4).map(|_| get_random_ef()).collect();
-        let r: Vec<EF> = (0..3).map(|_| get_random_ef()).collect();
-
-        let expected = [
-            MultilinearPoint::eval_eq(&w[..3], &r)
-                * MultilinearPoint::eval_eq(&w[3..], &[EF::ZERO]),
-            MultilinearPoint::eval_eq(&w[..3], &r) * MultilinearPoint::eval_eq(&w[3..], &[EF::ONE]),
-        ];
-        let result = compute_linear_function(&w, &r);
-        assert_eq!(result, expected);
     }
 }
