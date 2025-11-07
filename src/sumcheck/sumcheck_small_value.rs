@@ -8,7 +8,7 @@ use p3_maybe_rayon::prelude::*;
 use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::split_eq_poly::SplitEqPolynomial,
+    sumcheck::eq_state::SumcheckEqState,
 };
 
 /// We apply the small value optimization (SVO) for the first three sumcheck rounds,
@@ -179,11 +179,11 @@ fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F; 2]) -> [F; 2] {
 
 /// Algorithm 6. Page 19.
 /// Compute three sumcheck rounds using the small value optimization and split-eq accumulators.
-pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
+pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START_ROUND: usize>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
     w: &MultilinearPoint<EF>,
-    eq_poly: &mut SplitEqPolynomial<'_, EF>,
+    eq_poly: &mut SumcheckEqState<'_, EF, START_ROUND>,
     challenges: &mut Vec<EF>,
     sum: &mut EF,
     pow_bits: usize,
@@ -207,7 +207,7 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     // 2. For u in {0, 1, inf} compute S_1(u) = t_1(u) * l_1(u).
 
     // We compute l_1(0) and l_1(1) using the cached state
-    let linear_1_evals = eq_poly.current_evals();
+    let linear_1_evals = eq_poly.current_linear_evals();
 
     // We compute S_1(0) and S_1(inf)
     let [s_0, s_inf] = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals);
@@ -247,7 +247,7 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     ];
 
     // We compute l_2(0) and l_2(inf) using the cached state
-    let linear_2_evals = eq_poly.current_evals();
+    let linear_2_evals = eq_poly.current_linear_evals();
 
     // We compute S_2(0) and S_2(inf).
     let [s_0, s_inf] = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
@@ -306,7 +306,7 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     // 2. For u in {0, 1, inf} compute S_3(u) = t_3(u) * l_3(u).
 
     // We compute l_3(0) and l_3(inf) using the cached state
-    let linear_3_evals = eq_poly.current_evals();
+    let linear_3_evals = eq_poly.current_linear_evals();
 
     // We compute S_3(0) and S_3(inf).
     let round_poly_evals = get_evals_from_l_and_t(&linear_3_evals, &t_3_evals);
@@ -364,82 +364,110 @@ where
     EvaluationsList::new(folded_evals_flat)
 }
 
+/// Computes the round polynomial evaluations `t_i(u)` for a single standard sumcheck round.
+///
+/// This is a pure function that computes `t_i(0)` and `t_i(1)` using precomputed
+/// equality polynomial tables, without interacting with prover state.
+///
+/// ## Arguments
+///
+/// * `poly_slice`: The current polynomial evaluations
+/// * `eq_l`: Left equality table (or tail table for rounds > l/2)
+/// * `eq_r`: Right equality table (empty for rounds > l/2)
+/// * `num_vars_x_r`: Number of variables in x_R
+/// * `half_l`: l/2, used to determine which algorithm phase we're in
+/// * `round`: Current round number (1-indexed)
+///
+/// ## Returns
+///
+/// `[t_i(0), t_i(1)]` - the evaluations of the round polynomial at 0 and 1.
+pub fn compute_standard_round_poly_evals<EF>(
+    poly_slice: &[EF],
+    eq_l: &[EF],
+    eq_r: &[EF],
+    num_vars_x_r: usize,
+    half_l: usize,
+    round: usize,
+) -> [EF; 2]
+where
+    EF: ExtensionField<EF> + Send + Sync,
+{
+    let num_vars_poly_current = poly_slice.len().ilog2() as usize;
+
+    if round <= half_l {
+        // Case round <= l/2: Use eq_L and eq_R
+        join(
+            || compute_t_evals_first_half(eq_l, eq_r, poly_slice, num_vars_x_r, 0),
+            || {
+                compute_t_evals_first_half(
+                    eq_l,
+                    eq_r,
+                    poly_slice,
+                    num_vars_x_r,
+                    1 << (num_vars_poly_current - 1),
+                )
+            },
+        )
+        .into()
+    } else {
+        // Case round > l/2: Use eq_tail (passed as eq_l)
+        let half_size = 1 << (num_vars_poly_current - 1);
+
+        join(
+            || compute_t_evals_second_half(eq_l, &poly_slice[..half_size]),
+            || compute_t_evals_second_half(eq_l, &poly_slice[half_size..]),
+        )
+        .into()
+    }
+}
+
 /// Algorithm 5. Page 18.
 /// Compute the remaining sumcheck rounds, from round l0 + 1 to round l.
-pub fn algorithm_5<Challenger, F: Field, EF: ExtensionField<F>>(
+pub fn algorithm_5<Challenger, F, EF, const START_ROUND: usize>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &mut EvaluationsList<EF>,
-    w: &MultilinearPoint<EF>,
-    eq_poly: &mut SplitEqPolynomial<'_, EF>,
+    eq_poly: &mut SumcheckEqState<'_, EF, START_ROUND>,
     challenges: &mut Vec<EF>,
     sum: &mut EF,
     pow_bits: usize,
 ) where
+    F: Field,
+    EF: ExtensionField<F> + Send + Sync,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    let num_vars = w.num_variables();
-    let half_l = num_vars / 2;
-
-    // Precompute eq_R = eq(w_{l/2+1..l}, x_R)
-    let eq_r = EvaluationsList::new_from_point(&w.0[half_l..], EF::ONE).0;
-    let num_vars_x_r = eq_r.len().ilog2() as usize;
-
-    // The number of variables of x_R is: l/2 if l is even and l/2 + 1 if l is odd.
-    debug_assert_eq!(num_vars_x_r, num_vars - half_l);
-
-    let start_round = challenges.len(); // Should be NUM_SVO_ROUNDS.
+    let num_vars = eq_poly.num_variables();
+    // Current position in the sumcheck
+    let start_round = eq_poly.bound_count();
     challenges.reserve(num_vars - start_round);
 
-    // Compute the final rounds, from NUM_SVO_ROUNDS + 1 to the end.
+    // Main loop: compute rounds from start_round to num_vars-1
     for i in start_round..num_vars {
-        // `i` is the 0-indexed variable number, so `round = i + 1`.
-        let round = i + 1;
-        let num_vars_poly_current = poly.num_variables();
         let poly_slice = poly.as_slice();
+        let round = i + 1;
 
-        // Compute t_i(u) for u in {0, 1}.
-        let t_evals: [EF; 2] = if round <= half_l {
-            // Case i+1 <= l/2: Compute eq_L = eq(w_{i+2..l/2}, x_L)
-            let eq_l = EvaluationsList::new_from_point(&w.0[round..half_l], EF::ONE).0;
-            let (t_0, t_1) = join(
-                || compute_t_evals_first_half(&eq_l, &eq_r, poly_slice, num_vars_x_r, 0),
-                || {
-                    compute_t_evals_first_half(
-                        &eq_l,
-                        &eq_r,
-                        poly_slice,
-                        num_vars_x_r,
-                        1 << (num_vars_poly_current - 1), // offset for u=1
-                    )
-                },
-            );
-            (t_0, t_1).into()
-        } else {
-            // Case i+1 > l/2: Compute eq_tail = eq(w_{i+2..l}, x_tail)
-            let eq_tail = EvaluationsList::new_from_point(&w.0[round..], EF::ONE).0;
-            let half_size = 1 << (num_vars_poly_current - 1);
-            let (t_0, t_1) = join(
-                || compute_t_evals_second_half(&eq_tail, &poly_slice[..half_size]),
-                || compute_t_evals_second_half(&eq_tail, &poly_slice[half_size..]),
-            );
-            (t_0, t_1).into()
-        };
+        // Get precomputed tables from unified struct
+        let (eq_l, eq_r) = eq_poly.current_t_poly_tables();
+        let num_vars_x_r = eq_poly.num_vars_x_r();
+        let half_l = eq_poly.half_l();
 
-        // Compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf}:
-        let linear_evals = eq_poly.current_evals();
+        // Compute t_i(u) for u in {0, 1}
+        let t_evals =
+            compute_standard_round_poly_evals(poly_slice, eq_l, eq_r, num_vars_x_r, half_l, round);
+
+        // Compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf}
+        let linear_evals = eq_poly.current_linear_evals();
         let [s_0, s_inf] = get_evals_from_l_and_t(&linear_evals, &t_evals);
 
-        // Send S_i(u) to the verifier.
+        // Send S_i(u) to the verifier
         prover_state.add_extension_scalars(&[s_0, s_inf]);
-
         prover_state.pow_grinding(pow_bits);
 
-        // Receive the challenge r_i from the verifier.
+        // Receive the challenge r_i from the verifier
         let r_i: EF = prover_state.sample();
         challenges.push(r_i);
-        eq_poly.bind(r_i);
 
-        // Fold and update the poly.
+        // Update state for next round: binding updates scalar AND pops used table
+        eq_poly.bind(r_i);
         poly.compress_svo(r_i);
 
         // Update claimed sum
