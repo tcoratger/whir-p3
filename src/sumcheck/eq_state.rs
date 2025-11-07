@@ -193,8 +193,10 @@ impl<'a, F: Field, const START_ROUND: usize> SumcheckEqState<'a, F, START_ROUND>
 
         Self {
             w,
-            current_scalar: F::ONE, // eq of an empty prefix is 1
-            bound_count: 0,         // no variables bound yet
+            // eq of an empty prefix is 1
+            current_scalar: F::ONE,
+            // no variables bound yet
+            bound_count: 0,
             eq_r,
             eq_l_stack,
             eq_tail_stack,
