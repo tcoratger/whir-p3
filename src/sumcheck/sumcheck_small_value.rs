@@ -168,15 +168,6 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
         )
 }
 
-/// Given the linear functions l and t, we compute S(0) and S(inf).
-/// See Procedure 8, Page 35.
-fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F; 2]) -> [F; 2] {
-    [
-        t[0] * l[0],                   // S(0)
-        (t[1] - t[0]) * (l[1] - l[0]), // S(inf) -> l(inf) = l(1) - l(0)
-    ]
-}
-
 /// Algorithm 6. Page 19.
 /// Compute three sumcheck rounds using the small value optimization and split-eq accumulators.
 pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START_ROUND: usize>(
@@ -209,8 +200,11 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START
     // We compute l_1(0) and l_1(1) using the cached state
     let linear_1_evals = eq_poly.current_linear_evals();
 
-    // We compute S_1(0) and S_1(inf)
-    let [s_0, s_inf] = get_evals_from_l_and_t(&linear_1_evals, &t_1_evals);
+    // Compute S_1(u) = t_1(u) * l_1(u) for u in {0, inf}
+    // - S_1(0) = t_1(0) * l_1(0)
+    // - S_1(inf) = (t_1(1) - t_1(0)) * (l_1(1) - l_1(0))
+    let s_0 = t_1_evals[0] * linear_1_evals[0];
+    let s_inf = (t_1_evals[1] - t_1_evals[0]) * (linear_1_evals[1] - linear_1_evals[0]);
 
     // 3. Send S_1(u) to the verifier.
     prover_state.add_extension_scalars(&[s_0, s_inf]);
@@ -249,8 +243,11 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START
     // We compute l_2(0) and l_2(inf) using the cached state
     let linear_2_evals = eq_poly.current_linear_evals();
 
-    // We compute S_2(0) and S_2(inf).
-    let [s_0, s_inf] = get_evals_from_l_and_t(&linear_2_evals, &t_2_evals);
+    // Compute S_2(u) = t_2(u) * l_2(u) for u in {0, inf}
+    // - S_2(0) = t_2(0) * l_2(0)
+    // - S_2(inf) = (t_2(1) - t_2(0)) * (l_2(1) - l_2(0))
+    let s_0 = t_2_evals[0] * linear_2_evals[0];
+    let s_inf = (t_2_evals[1] - t_2_evals[0]) * (linear_2_evals[1] - linear_2_evals[0]);
 
     // 3. Send S_2(u) to the verifier.
     prover_state.add_extension_scalars(&[s_0, s_inf]);
@@ -288,7 +285,7 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START
     // We computed 4 accumulators at the third round for v in {0, 1}^2 and u in {0, 1}.
     let accumulators_round_3 = accumulators.get_accumulators_for_round(2);
 
-    let t_3_evals = [
+    let t_3_evals: [EF; 2] = [
         // t_3(u=0) = Σ_{v} L_v(r_1, r_2) * A(v, u=0)
         lagrange_evals_r_2
             .iter()
@@ -308,8 +305,13 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START
     // We compute l_3(0) and l_3(inf) using the cached state
     let linear_3_evals = eq_poly.current_linear_evals();
 
-    // We compute S_3(0) and S_3(inf).
-    let round_poly_evals = get_evals_from_l_and_t(&linear_3_evals, &t_3_evals);
+    // Compute S_3(u) = t_3(u) * l_3(u) for u in {0, inf}
+    // - S_3(0) = t_3(0) * l_3(0)
+    // - S_3(inf) = (t_3(1) - t_3(0)) * (l_3(1) - l_3(0))
+    let round_poly_evals = [
+        t_3_evals[0] * linear_3_evals[0],
+        (t_3_evals[1] - t_3_evals[0]) * (linear_3_evals[1] - linear_3_evals[0]),
+    ];
 
     // 3. Send S_3(u) to the verifier.
     prover_state.add_extension_scalars(&round_poly_evals);
@@ -455,8 +457,11 @@ pub fn algorithm_5<Challenger, F, EF, const START_ROUND: usize>(
             compute_standard_round_poly_evals(poly_slice, eq_l, eq_r, num_vars_x_r, half_l, round);
 
         // Compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf}
+        // - S_i(0) = t_i(0) * l_i(0)
+        // - S_i(inf) = (t_i(1) - t_i(0)) * (l_i(1) - l_i(0))
         let linear_evals = eq_poly.current_linear_evals();
-        let [s_0, s_inf] = get_evals_from_l_and_t(&linear_evals, &t_evals);
+        let s_0 = t_evals[0] * linear_evals[0];
+        let s_inf = (t_evals[1] - t_evals[0]) * (linear_evals[1] - linear_evals[0]);
 
         // Send S_i(u) to the verifier
         prover_state.add_extension_scalars(&[s_0, s_inf]);
