@@ -121,7 +121,7 @@ fn main() {
         soundness_type,
         starting_log_inv_rate: starting_rate,
         rs_domain_initial_reduction_factor,
-        univariate_skip: false,
+        sumcheck_optimization: whir_p3::whir::parameters::SumcheckOptimization::Classic,
     };
 
     let params = WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(

@@ -137,6 +137,7 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+        whir::parameters::SumcheckOptimization,
     };
 
     type F = BabyBear;
@@ -174,7 +175,7 @@ mod tests {
             merkle_compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
-            univariate_skip: false,
+            sumcheck_optimization: SumcheckOptimization::Classic,
         };
 
         // Define multivariate parameters for the polynomial.
@@ -253,7 +254,7 @@ mod tests {
             merkle_compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
-            univariate_skip: false,
+            sumcheck_optimization: SumcheckOptimization::Classic,
         };
 
         let params =
@@ -305,7 +306,7 @@ mod tests {
             merkle_compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
-            univariate_skip: false,
+            sumcheck_optimization: SumcheckOptimization::Classic,
         };
 
         let mut params =

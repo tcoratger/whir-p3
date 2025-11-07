@@ -26,7 +26,7 @@ use crate::{
             evaluator::{Constraint, ConstraintPolyEvaluator},
             statement::SelectStatement,
         },
-        parameters::WhirConfig,
+        parameters::{SumcheckOptimization, WhirConfig},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -97,7 +97,7 @@ where
                 &mut claimed_eval,
                 self.folding_factor.at_round(0),
                 self.starting_folding_pow_bits,
-                self.univariate_skip,
+                self.sumcheck_optimization,
             )?;
             round_folding_randomness.push(folding_randomness);
         } else {
@@ -148,7 +148,7 @@ where
                 &mut claimed_eval,
                 self.folding_factor.at_round(round_index + 1),
                 round_params.folding_pow_bits,
-                false,
+                SumcheckOptimization::Classic,
             )?;
             round_folding_randomness.push(folding_randomness);
 
@@ -184,7 +184,7 @@ where
             &mut claimed_eval,
             self.final_sumcheck_rounds,
             self.final_folding_pow_bits,
-            false,
+            SumcheckOptimization::Classic,
         )?;
         round_folding_randomness.push(final_sumcheck_randomness.clone());
 
@@ -200,7 +200,11 @@ where
         let evaluation_of_weights = ConstraintPolyEvaluator::new(
             self.num_variables,
             self.folding_factor,
-            self.univariate_skip.then_some(K_SKIP_SUMCHECK),
+            matches!(
+                self.sumcheck_optimization,
+                SumcheckOptimization::UnivariateSkip
+            )
+            .then_some(K_SKIP_SUMCHECK),
         )
         .eval_constraints_poly(&constraints, &folding_randomness);
 
@@ -295,7 +299,10 @@ where
         // Determine if this is the special first round where the univariate skip is applied.
         let is_skip_round = self.initial_statement
             && round_index == 0
-            && self.univariate_skip
+            && matches!(
+                self.sumcheck_optimization,
+                SumcheckOptimization::UnivariateSkip
+            )
             && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
         // Compute STIR Constraints

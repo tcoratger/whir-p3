@@ -3,6 +3,8 @@ use core::fmt::Display;
 use errors::SecurityAssumption;
 use thiserror::Error;
 
+use crate::whir::parameters::SumcheckOptimization;
+
 pub mod errors;
 
 /// Each WHIR steps folds the polymomial, which reduces the number of variables.
@@ -167,8 +169,8 @@ pub struct ProtocolParameters<H, C> {
     pub merkle_hash: H,
     /// Compression method used in the Merkle tree.
     pub merkle_compress: C,
-    /// Whether the univariate skip optimization is enabled for the sumcheck protocol.
-    pub univariate_skip: bool,
+    /// Sumcheck optimization strategy for the protocol.
+    pub sumcheck_optimization: SumcheckOptimization,
 }
 
 impl<H, C> Display for ProtocolParameters<H, C> {

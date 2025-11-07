@@ -11,7 +11,7 @@ use crate::{
         prover::ProverState,
         verifier::VerifierState,
     },
-    whir::parameters::WhirConfig,
+    whir::parameters::{SumcheckOptimization, WhirConfig},
 };
 
 /// Configuration parameters for a sumcheck phase in the protocol.
@@ -158,10 +158,9 @@ where
             self.add_sumcheck(&SumcheckParams {
                 rounds: params.folding_factor.at_round(0),
                 pow_bits: params.starting_folding_pow_bits,
-                univariate_skip: if params.univariate_skip {
-                    Some(K_SKIP_SUMCHECK)
-                } else {
-                    None
+                univariate_skip: match params.sumcheck_optimization {
+                    SumcheckOptimization::UnivariateSkip => Some(K_SKIP_SUMCHECK),
+                    _ => None,
                 },
             });
         } else {

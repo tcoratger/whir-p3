@@ -18,6 +18,7 @@ use crate::{
     whir::{
         committer::{RoundMerkleTree, Witness},
         constraints::{evaluator::Constraint, statement::EqStatement},
+        parameters::SumcheckOptimization,
         prover::Prover,
     },
 };
@@ -165,9 +166,11 @@ where
             // Branch A: Initial statement exists - run sumcheck for constraint batching
             let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
 
-            // Choose sumcheck strategy: with or without univariate skip optimization
-            let (sumcheck, folding_randomness) =
-                if prover.univariate_skip && K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0) {
+            // Choose sumcheck strategy based on configured optimization
+            let (sumcheck, folding_randomness) = match prover.sumcheck_optimization {
+                SumcheckOptimization::UnivariateSkip
+                    if K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0) =>
+                {
                     // Use univariate skip by skipping k variables
                     SumcheckSingle::with_skip(
                         &witness.polynomial,
@@ -177,7 +180,20 @@ where
                         K_SKIP_SUMCHECK,
                         &constraint,
                     )
-                } else {
+                }
+                SumcheckOptimization::Svo => {
+                    // TODO: SVO optimization is not yet fully implemented
+                    //
+                    // Fall back to classic sumcheck
+                    SumcheckSingle::from_base_evals(
+                        &witness.polynomial,
+                        prover_state,
+                        prover.folding_factor.at_round(0),
+                        prover.starting_folding_pow_bits,
+                        &constraint,
+                    )
+                }
+                _ => {
                     // Standard sumcheck protocol without optimization
                     SumcheckSingle::from_base_evals(
                         &witness.polynomial,
@@ -186,7 +202,8 @@ where
                         prover.starting_folding_pow_bits,
                         &constraint,
                     )
-                };
+                }
+            };
 
             (sumcheck, folding_randomness)
         } else {
