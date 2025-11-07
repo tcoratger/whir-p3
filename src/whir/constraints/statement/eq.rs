@@ -486,7 +486,8 @@ impl<F: Field> EqStatement<F> {
             //
             // This result is constant for all `2^k` rows, so we compute it once per constraint.
             let suffix_point = MultilinearPoint::new(z_suffix.to_vec());
-            let suffix_evals = EvaluationsList::<F>::new_from_point(&suffix_point, F::ONE);
+            let suffix_evals =
+                EvaluationsList::<F>::new_from_point(suffix_point.as_slice(), F::ONE);
 
             // Pre-compute the evaluations for the "row" (subgroup) part of the equality check.
             //
@@ -551,7 +552,7 @@ mod tests {
 
         // Expected evals for eq_z(X) where z = (1).
         // For x=0, eq=0. For x=1, eq=1.
-        let expected_combined_evals_vec = EvaluationsList::new_from_point(&point, F::ONE);
+        let expected_combined_evals_vec = EvaluationsList::new_from_point(point.as_slice(), F::ONE);
 
         assert_eq!(combined_evals, expected_combined_evals_vec);
         assert_eq!(combined_sum, expected_eval);
@@ -577,7 +578,8 @@ mod tests {
         statement.combine_hypercube::<_, false>(&mut combined_evals, &mut combined_sum, challenge);
 
         // Expected evals: W(X) = eq_z1(X) + challenge * eq_z2(X)
-        let mut expected_combined_evals_vec = EvaluationsList::new_from_point(&point1, F::ONE);
+        let mut expected_combined_evals_vec =
+            EvaluationsList::new_from_point(point1.as_slice(), F::ONE);
         expected_combined_evals_vec.accumulate_batch(&[point2], &[challenge]);
 
         // Expected sum: S = s1 + challenge * s2

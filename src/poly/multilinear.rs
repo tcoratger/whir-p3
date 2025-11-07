@@ -88,6 +88,36 @@ where
         Self(res)
     }
 
+    /// Computes the equality polynomial `eq(p, q)` for two points given as slices.
+    ///
+    /// The **equality polynomial** for two vectors is:
+    /// ```ignore
+    /// eq(p, q) = ∏ (p_i * q_i + (1 - p_i) * (1 - q_i))
+    /// ```
+    ///
+    /// This is a static method that avoids allocating `MultilinearPoint` wrappers
+    /// when you already have slices.
+    ///
+    /// # Panics
+    /// Panics if `p` and `q` have different lengths.
+    #[must_use]
+    #[inline]
+    pub fn eval_eq(p: &[F], q: &[F]) -> F {
+        assert_eq!(
+            p.len(),
+            q.len(),
+            "Points must have the same number of variables"
+        );
+
+        // This uses the algebraic identity:
+        // l * r + (1 - l) * (1 - r) = 1 + 2 * l * r - l - r
+        // to avoid unnecessary multiplications.
+        p.iter()
+            .zip(q)
+            .map(|(&l, &r)| F::ONE + l * r.double() - l - r)
+            .product()
+    }
+
     /// Computes `eq(c, p)`, where `p` is another `MultilinearPoint`.
     ///
     /// The **equality polynomial** for two vectors is:
@@ -95,16 +125,9 @@ where
     /// eq(s1, s2) = ∏ (s1_i * s2_i + (1 - s1_i) * (1 - s2_i))
     /// ```
     #[must_use]
+    #[inline]
     pub fn eq_poly(&self, point: &Self) -> F {
-        assert_eq!(self.num_variables(), point.num_variables());
-
-        // This uses the algebraic identity:
-        // l * r + (1 - l) * (1 - r) = 1 + 2 * l * r - l - r
-        // to avoid unnecessary multiplications.
-        self.into_iter()
-            .zip(point)
-            .map(|(&l, &r)| F::ONE + l * r.double() - l - r)
-            .product()
+        Self::eval_eq(self.as_slice(), point.as_slice())
     }
 
     /// Computes `select(c, p)`, where `p` is another `MultilinearPoint`.
@@ -146,7 +169,7 @@ where
 
         // Construct the evaluation table for the polynomial eq_z(X).
         // This creates a list of 2^n values, where only the entry at index `z` is ONE.
-        let evals = EvaluationsList::new_from_point(self, F::ONE);
+        let evals = EvaluationsList::new_from_point(self.as_slice(), F::ONE);
 
         // Reshape the flat list of 2^n evaluations into a `2^k_skip x 2^(n-k_skip)` matrix.
         // Rows correspond to the skipped variables (X0, ..., X_{k_skip-1}).
@@ -348,6 +371,28 @@ mod tests {
         let ml_point2 = MultilinearPoint(vec![F::ZERO, F::ONE, F::ZERO, F::ONE]);
 
         assert_eq!(ml_point1.eq_poly(&ml_point2), F::ZERO);
+    }
+
+    #[test]
+    fn test_eval_eq_static_method() {
+        // Test that eval_eq works correctly with slices
+        let p = [F::from_u64(2), F::from_u64(3), F::from_u64(5)];
+        let q = [F::from_u64(7), F::from_u64(11), F::from_u64(13)];
+
+        // Compute using static method
+        let result = MultilinearPoint::eval_eq(&p, &q);
+
+        // Compute manually: eq(p,q) = ∏ (p_i * q_i + (1 - p_i) * (1 - q_i))
+        let expected = (F::ONE + p[0] * q[0].double() - p[0] - q[0])
+            * (F::ONE + p[1] * q[1].double() - p[1] - q[1])
+            * (F::ONE + p[2] * q[2].double() - p[2] - q[2]);
+
+        assert_eq!(result, expected);
+
+        // Test that it matches eq_poly
+        let ml_p = MultilinearPoint::new(p.to_vec());
+        let ml_q = MultilinearPoint::new(q.to_vec());
+        assert_eq!(result, ml_p.eq_poly(&ml_q));
     }
 
     #[test]
