@@ -41,8 +41,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: nightly
-      - name: Install target
-        run: rustup target add ${{ env.target }}
+          targets: ${{ env.target }}
       
       - name: Build no-std
         run: cargo build --verbose --target ${{ env.target }} --no-default-features
