@@ -377,7 +377,7 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use proptest::prelude::*;
-    use rand::{Rng, rng};
+    use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
     use crate::poly::evals::EvaluationsList;
@@ -714,7 +714,7 @@ mod tests {
 
     #[test]
     fn test_eval_multivariate_with_extension_field_points() {
-        let mut rng = rng();
+        let mut rng = SmallRng::seed_from_u64(1);
 
         let c0 = F::from_u64(1);
         let c1 = F::from_u64(2);

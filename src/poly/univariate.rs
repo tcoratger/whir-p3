@@ -243,7 +243,7 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use proptest::prelude::*;
-    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
 
@@ -339,9 +339,9 @@ mod tests {
 
     #[test]
     fn test_mul() {
-        let rng = &mut StdRng::seed_from_u64(0);
-        let pol1 = UnivariatePolynomial::<F>::random(rng, 5);
-        let pol2 = UnivariatePolynomial::<F>::random(rng, 7);
+        let mut rng = SmallRng::seed_from_u64(0);
+        let pol1 = UnivariatePolynomial::<F>::random(&mut rng, 5);
+        let pol2 = UnivariatePolynomial::<F>::random(&mut rng, 7);
         let point: EF4 = rng.random();
         assert_eq!(
             (&pol1 * &pol2).evaluate(point),
@@ -358,9 +358,9 @@ mod tests {
 
     #[test]
     fn test_add() {
-        let rng = &mut StdRng::seed_from_u64(0);
-        let pol1 = UnivariatePolynomial::<F>::random(rng, 5);
-        let pol2 = UnivariatePolynomial::<F>::random(rng, 7);
+        let mut rng = SmallRng::seed_from_u64(0);
+        let pol1 = UnivariatePolynomial::<F>::random(&mut rng, 5);
+        let pol2 = UnivariatePolynomial::<F>::random(&mut rng, 7);
         let point: EF4 = rng.random();
         assert_eq!(
             (&pol1 + &pol2).evaluate(point),
@@ -377,7 +377,7 @@ mod tests {
 
     #[test]
     fn test_lagrange_interpolation() {
-        let mut rng = StdRng::seed_from_u64(0);
+        let mut rng = SmallRng::seed_from_u64(0);
         let degree = 5;
         let pol = UnivariatePolynomial::random(&mut rng, 5);
         let points = (0..=degree)
@@ -417,7 +417,7 @@ mod tests {
         #[test]
         fn proptest_lagrange_interpolation(degree in 1usize..10) {
             // Initialize a deterministic RNG with a fixed seed for reproducibility.
-            let mut rng = StdRng::seed_from_u64(0);
+            let mut rng = SmallRng::seed_from_u64(0);
 
             // STEP 1: Generate a random polynomial `pol` of the selected degree.
             //

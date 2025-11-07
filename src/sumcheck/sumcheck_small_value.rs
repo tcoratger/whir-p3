@@ -488,12 +488,14 @@ fn compute_t_evals_second_half<F: Field + Send + Sync>(eq_tail: &[F], poly_sub_s
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use p3_baby_bear::BabyBear;
     use p3_field::{
         BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField,
         integers::QuotientMap,
     };
-    use rand::RngCore;
+    use rand::{RngCore, SeedableRng, rngs::SmallRng};
 
     use super::*;
     use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
@@ -585,7 +587,7 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_precompute_e_out() {
-        let mut rng = rand::rng();
+        let mut rng = SmallRng::seed_from_u64(1);
 
         let w: Vec<EF> = (0..10)
             .map(|_| {
@@ -686,7 +688,7 @@ mod tests {
     }
 
     fn get_random_ef() -> EF {
-        let mut rng = rand::rng();
+        let mut rng = SmallRng::seed_from_u64(1);
 
         let r1: u32 = rng.next_u32();
         let r2: u32 = rng.next_u32();

@@ -3,7 +3,7 @@ use core::hint::black_box;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use hashbrown::HashSet;
 use p3_baby_bear::BabyBear;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use whir_p3::poly::univariate::UnivariatePolynomial;
 
 // Field type used for the benchmark.
@@ -12,7 +12,7 @@ type F = BabyBear;
 /// Generate random interpolation points for a given polynomial degree.
 ///
 /// Returns `degree + 1` unique (x, y) pairs from a random polynomial.
-fn generate_interpolation_points(rng: &mut StdRng, degree: usize) -> Vec<(F, F)> {
+fn generate_interpolation_points(rng: &mut SmallRng, degree: usize) -> Vec<(F, F)> {
     let poly = UnivariatePolynomial::<F>::random(rng, degree);
     let mut points = Vec::with_capacity(degree + 1);
     let mut used_x = HashSet::with_capacity(degree + 1);
@@ -31,7 +31,7 @@ fn generate_interpolation_points(rng: &mut StdRng, degree: usize) -> Vec<(F, F)>
 /// Benchmark Lagrange interpolation for various input sizes.
 fn lagrange_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Lagrange Interpolation");
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = SmallRng::seed_from_u64(42);
 
     // Test different polynomial degrees.
     for degree in [16, 32, 64, 128, 256, 512] {

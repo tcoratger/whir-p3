@@ -169,6 +169,8 @@ impl<'a, F: Field> SplitEqPolynomial<'a, F> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
 

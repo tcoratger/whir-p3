@@ -182,7 +182,7 @@ mod tests {
             WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
 
         // Generate a random polynomial with 32 coefficients.
-        let mut rng = rand::rng();
+        let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
@@ -259,7 +259,7 @@ mod tests {
         let params =
             WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
 
-        let mut rng = rand::rng();
+        let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
 
         let mut domainsep = DomainSeparator::new(vec![]);
@@ -314,7 +314,7 @@ mod tests {
         // Explicitly set OOD samples to 0
         params.commitment_ood_samples = 0;
 
-        let mut rng = rand::rng();
+        let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         let mut domainsep = DomainSeparator::new(vec![]);

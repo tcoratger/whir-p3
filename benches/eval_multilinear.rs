@@ -1,7 +1,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
 use p3_field::extension::BinomialExtensionField;
-use rand::Rng;
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
 type F = BabyBear;
@@ -20,7 +20,7 @@ fn bench_eval_multilinear(c: &mut Criterion) {
         let bench_id = BenchmarkId::from_parameter(num_vars);
 
         group.bench_with_input(bench_id, &num_vars, |b, &n_vars| {
-            let mut rng = rand::rng();
+            let mut rng = SmallRng::seed_from_u64(1);
 
             // Setup closure: Generate random evaluation data and a random point.
             let setup = || {
