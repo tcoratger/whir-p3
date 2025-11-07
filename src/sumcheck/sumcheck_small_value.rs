@@ -423,9 +423,6 @@ where
 
 /// Algorithm 5. Page 18.
 /// Compute the remaining sumcheck rounds, from round l0 + 1 to round l.
-///
-/// This function uses the unified `SumcheckEqState` which manages both the
-/// incremental scalar and precomputed tables for optimal performance.
 pub fn algorithm_5<Challenger, F, EF, const START_ROUND: usize>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &mut EvaluationsList<EF>,
