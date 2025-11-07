@@ -7,12 +7,15 @@ use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
-        split_eq_poly::SplitEqPolynomial,
+        eq_state::SumcheckEqState,
         sumcheck_single::SumcheckSingle,
         sumcheck_small_value::{algorithm_5, fold_evals_with_challenges, svo_three_rounds},
     },
     whir::constraints::evaluator::Constraint,
 };
+
+/// Number of SVO rounds (first 3 rounds use special optimized algorithm).
+const NUM_SVO_ROUNDS: usize = 3;
 
 impl<F, EF> SumcheckSingle<F, EF>
 where
@@ -42,8 +45,8 @@ where
         let mut sum = constraint.eq_statement.evaluations[0];
         let w = &constraint.eq_statement.points[0];
 
-        // Create the incremental equality polynomial evaluator once
-        let mut eq_poly = SplitEqPolynomial::new(w);
+        // Create the unified equality polynomial evaluator with precomputed tables
+        let mut eq_poly = SumcheckEqState::new(w, NUM_SVO_ROUNDS);
 
         svo_three_rounds(
             prover_state,
@@ -61,7 +64,6 @@ where
         algorithm_5(
             prover_state,
             &mut folded_evals,
-            w,
             &mut eq_poly,
             &mut challenges,
             &mut sum,
