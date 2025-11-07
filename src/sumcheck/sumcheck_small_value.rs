@@ -43,6 +43,7 @@ where
     pub fn accumulate(&mut self, round: usize, index: usize, value: F) {
         self.accumulators[round][index] += value;
     }
+
     /// Gets the slice of accumulators for a given round.
     #[must_use]
     pub fn get_accumulators_for_round(&self, round: usize) -> &[F] {
