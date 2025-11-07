@@ -13,7 +13,7 @@ fn bench_eval_multilinear(c: &mut Criterion) {
     for num_vars in (8..=22).step_by(2) {
         let num_evals = 1 << num_vars;
 
-        let throughput = Throughput::Bytes((num_evals * std::mem::size_of::<F>()) as u64);
+        let throughput = Throughput::Bytes((num_evals * core::mem::size_of::<F>()) as u64);
         group.throughput(throughput);
 
         // Each benchmark is identified by the number of variables.

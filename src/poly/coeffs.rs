@@ -1,4 +1,5 @@
-use std::ops::Deref;
+use alloc::vec::Vec;
+use core::ops::Deref;
 
 use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue};
 use p3_maybe_rayon::prelude::*;
@@ -371,7 +372,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
+    use alloc::vec;
 
     use p3_baby_bear::BabyBear;
     use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};

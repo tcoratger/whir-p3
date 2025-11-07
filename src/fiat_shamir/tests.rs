@@ -1,3 +1,5 @@
+use alloc::{vec, vec::Vec};
+
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
 use p3_field::extension::BinomialExtensionField;

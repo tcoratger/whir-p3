@@ -1,5 +1,7 @@
 //! Verifier error types for WHIR protocol validation.
 
+use alloc::string::String;
+
 use thiserror::Error;
 
 use crate::fiat_shamir::errors::FiatShamirError;

@@ -1,3 +1,5 @@
+use alloc::{vec, vec::Vec};
+
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 

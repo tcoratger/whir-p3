@@ -1,3 +1,5 @@
+use alloc::{vec, vec::Vec};
+
 use p3_field::{ExtensionField, Field, dot_product};
 use p3_maybe_rayon::prelude::*;
 use tracing::instrument;

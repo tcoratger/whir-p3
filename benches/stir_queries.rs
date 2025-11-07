@@ -1,4 +1,4 @@
-use std::hint::black_box;
+use core::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};

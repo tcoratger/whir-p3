@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use p3_field::{ExtensionField, Field, TwoAdicField, dot_product};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_multilinear_util::eq_batch::eval_eq_batch;

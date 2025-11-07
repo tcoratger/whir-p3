@@ -1,4 +1,5 @@
-use std::ops::Add;
+use alloc::vec::Vec;
+use core::ops::Add;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
@@ -78,7 +79,7 @@ fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_SVO_ROUND
     let half_l = w.num_variables() / 2;
     let w_out_len = w.num_variables() - half_l - 1;
 
-    std::array::from_fn(|round| {
+    core::array::from_fn(|round| {
         let mut w_out = Vec::with_capacity(w_out_len);
         w_out.extend_from_slice(&w.0[round + 1..NUM_SVO_ROUNDS]);
         w_out.extend_from_slice(&w.0[half_l + NUM_SVO_ROUNDS..]);
