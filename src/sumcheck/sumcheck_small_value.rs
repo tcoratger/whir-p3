@@ -43,6 +43,7 @@ where
     pub fn accumulate(&mut self, round: usize, index: usize, value: F) {
         self.accumulators[round][index] += value;
     }
+
     /// Gets the slice of accumulators for a given round.
     #[must_use]
     pub fn get_accumulators_for_round(&self, round: usize) -> &[F] {
@@ -117,11 +118,14 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
 
             for (x_in, &e_in_value) in e_in.iter().enumerate().take(num_x_in) {
                 // For each beta in {0,1}^3, we update tA(beta) += e_in[x_in] * p(beta, x_in, x_out)
-                #[allow(clippy::needless_range_loop)]
-                for i in 0..(1 << NUM_SVO_ROUNDS) {
+                for (i, temp_accumulator) in temp_accumulators
+                    .iter_mut()
+                    .enumerate()
+                    .take(1 << NUM_SVO_ROUNDS)
+                {
                     let beta = i << x_num_vars;
                     let index = beta | (x_in << x_out_num_vars) | x_out; // beta | x_in | x_out
-                    temp_accumulators[i] += e_in_value * poly_evals[index]; // += e_in[x_in] * p(beta, x_in, x_out)
+                    *temp_accumulator += e_in_value * poly_evals[index]; // += e_in[x_in] * p(beta, x_in, x_out)
                 }
             }
 
@@ -155,9 +159,8 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
             local_accumulators.accumulate(1, 3, e1_0 * t6 + e1_1 * t7);
             // Round 2 (i=2)
             // A_2(v, u) = E_out_2() * tA( (v, u), x_out )
-            #[allow(clippy::needless_range_loop)]
-            for i in 0..8 {
-                local_accumulators.accumulate(2, i, e2 * temp_accumulators[i]);
+            for (i, &temp_accumulator) in temp_accumulators.iter().enumerate() {
+                local_accumulators.accumulate(2, i, e2 * temp_accumulator);
             }
             local_accumulators
         })
