@@ -28,6 +28,23 @@ jobs:
       - name: Run tests
         run: cargo test --release --verbose ${{ matrix.features }}
 
+  check_embedded:
+    name: Build embedded
+    runs-on: ubuntu-latest
+      
+    env:
+      target: thumbv7em-none-eabi
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nightly toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+      
+      - name: Build no-std
+        run: cargo build --verbose --target ${{ env.target }} --no-default-features
+
   cargo-clippy:
     strategy:
       matrix:
