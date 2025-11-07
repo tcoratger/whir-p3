@@ -16,7 +16,11 @@ use round_state::RoundState;
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
-use super::{committer::Witness, constraints::statement::EqStatement, parameters::WhirConfig};
+use super::{
+    committer::Witness,
+    constraints::statement::EqStatement,
+    parameters::{SumcheckOptimization, WhirConfig},
+};
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
@@ -303,7 +307,10 @@ where
                 // Determine if this is the special first round where the univariate skip is applied.
                 let is_skip_round = self.initial_statement
                     && round_index == 0
-                    && self.univariate_skip
+                    && matches!(
+                        self.sumcheck_optimization,
+                        SumcheckOptimization::UnivariateSkip
+                    )
                     && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
                 // Process each set of evaluations retrieved from the Merkle tree openings.

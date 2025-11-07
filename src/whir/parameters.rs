@@ -6,6 +6,31 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption};
 
+/// Sumcheck optimization strategy for the WHIR protocol.
+///
+/// The first round of WHIR uses a sumcheck protocol which can be optimized using different
+/// strategies. This enum allows the user to choose the preferred optimization.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SumcheckOptimization {
+    /// Classic sumcheck protocol without any optimization.
+    ///
+    /// This is the standard baseline implementation.
+    #[default]
+    Classic,
+
+    /// Small Value Optimization (SVO) from Algorithm 6 of <https://eprint.iacr.org/2025/1117>.
+    ///
+    /// Uses specialized accumulators for the first three rounds to reduce prover work.
+    ///
+    /// TODO: Full SVO implementation is not yet complete in the codebase.
+    Svo,
+
+    /// Univariate skip optimization of <https://eprint.iacr.org/2024/108>
+    ///
+    /// Skips the first k variables in the sumcheck by using a univariate representation.
+    UnivariateSkip,
+}
+
 #[derive(Debug, Clone)]
 pub struct RoundConfig<F> {
     pub pow_bits: usize,
@@ -54,8 +79,8 @@ where
     pub merkle_hash: Hash,
     pub merkle_compress: C,
 
-    // Univariate skip optimization
-    pub univariate_skip: bool,
+    /// Sumcheck optimization strategy
+    pub sumcheck_optimization: SumcheckOptimization,
 
     pub _base_field: PhantomData<F>,
     pub _extension_field: PhantomData<EF>,
@@ -240,7 +265,7 @@ where
             final_log_inv_rate: log_inv_rate,
             merkle_hash: whir_parameters.merkle_hash,
             merkle_compress: whir_parameters.merkle_compress,
-            univariate_skip: whir_parameters.univariate_skip,
+            sumcheck_optimization: whir_parameters.sumcheck_optimization,
             _base_field: PhantomData,
             _extension_field: PhantomData,
             _challenger: PhantomData,
@@ -472,7 +497,7 @@ mod tests {
             merkle_compress: Poseidon2Compression::new(55), // Just a placeholder
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
-            univariate_skip: false,
+            sumcheck_optimization: SumcheckOptimization::Classic,
         }
     }
 

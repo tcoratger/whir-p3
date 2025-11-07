@@ -16,6 +16,7 @@ use crate::{
         WhirConfig,
         committer::{Witness, writer::CommitmentWriter},
         constraints::statement::EqStatement,
+        parameters::SumcheckOptimization,
         prover::{Prover, round_state::RoundState},
     },
 };
@@ -64,7 +65,7 @@ fn make_test_config(
         merkle_compress,
         soundness_type: SecurityAssumption::CapacityBound,
         starting_log_inv_rate: 1,
-        univariate_skip: false,
+        sumcheck_optimization: SumcheckOptimization::Classic,
     };
 
     // Combine the multivariate and protocol parameters into a full WHIR config

@@ -22,6 +22,7 @@ use crate::{
             evaluator::{Constraint, ConstraintPolyEvaluator},
             statement::{EqStatement, SelectStatement},
         },
+        parameters::SumcheckOptimization,
         verifier::sumcheck::{verify_sumcheck_rounds, verify_sumcheck_rounds_svo},
     },
 };
@@ -382,7 +383,14 @@ fn run_sumcheck_test(
         let folding = folding_factor.at_round(round_idx);
         verifier_randomness = extend_point(
             &verifier_randomness,
-            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, false).unwrap(),
+            &verify_sumcheck_rounds(
+                verifier,
+                &mut sum,
+                folding,
+                0,
+                SumcheckOptimization::Classic,
+            )
+            .unwrap(),
         );
 
         num_vars_inter -= folding;
@@ -391,7 +399,14 @@ fn run_sumcheck_test(
     // Final round check
     verifier_randomness = extend_point(
         &verifier_randomness,
-        &verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, false).unwrap(),
+        &verify_sumcheck_rounds(
+            verifier,
+            &mut sum,
+            final_rounds,
+            0,
+            SumcheckOptimization::Classic,
+        )
+        .unwrap(),
     );
 
     // Check that the randomness vectors are the same
@@ -549,11 +564,15 @@ fn run_sumcheck_test_skips(
         // Extend r with verifier's folding randomness
         //
         // The skip optimization is only applied to the first round.
-        let is_skip_round = round_idx == 0;
+        let sumcheck_opt = if round_idx == 0 {
+            SumcheckOptimization::UnivariateSkip
+        } else {
+            SumcheckOptimization::Classic
+        };
         let folding = folding_factor.at_round(round_idx);
         verifier_randomness = extend_point(
             &verifier_randomness,
-            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, is_skip_round).unwrap(),
+            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, sumcheck_opt).unwrap(),
         );
 
         num_vars_inter -= folding;
@@ -562,7 +581,14 @@ fn run_sumcheck_test_skips(
     // FINAL FOLDING
     verifier_randomness = extend_point(
         &verifier_randomness,
-        &verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, false).unwrap(),
+        &verify_sumcheck_rounds(
+            verifier,
+            &mut sum,
+            final_rounds,
+            0,
+            SumcheckOptimization::Classic,
+        )
+        .unwrap(),
     );
 
     // Check that the randomness vectors are the same

@@ -7,7 +7,7 @@ use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
-use parameters::WhirConfig;
+use parameters::{SumcheckOptimization, WhirConfig};
 use prover::Prover;
 use rand::{SeedableRng, rngs::SmallRng};
 use verifier::Verifier;
@@ -42,7 +42,7 @@ pub fn make_whir_things(
     soundness_type: SecurityAssumption,
     pow_bits: usize,
     rs_domain_initial_reduction_factor: usize,
-    use_univariate_skip: bool,
+    sumcheck_optimization: SumcheckOptimization,
     initial_statement: bool,
 ) {
     // Calculate polynomial size: 2^num_variables coefficients for multilinear polynomial
@@ -70,7 +70,7 @@ pub fn make_whir_things(
         merkle_compress,
         soundness_type,
         starting_log_inv_rate: 1,
-        univariate_skip: use_univariate_skip,
+        sumcheck_optimization,
     };
 
     // Create unified configuration combining protocol and polynomial parameters
@@ -198,7 +198,7 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    false,
+                                    SumcheckOptimization::Classic,
                                     true,
                                 );
                             }
@@ -247,7 +247,7 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    true,
+                                    SumcheckOptimization::UnivariateSkip,
                                     true,
                                 );
                             }
@@ -287,7 +287,7 @@ mod tests {
                             soundness_type,
                             pow_bits,
                             rs_reduction_factor,
-                            false,
+                            SumcheckOptimization::Classic,
                             false, // initial_statement: FALSE
                         );
                     }

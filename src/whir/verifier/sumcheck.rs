@@ -6,9 +6,11 @@ use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::RowMajorMatrix;
 
 use crate::{
-    constant::K_SKIP_SUMCHECK, fiat_shamir::verifier::VerifierState,
-    poly::multilinear::MultilinearPoint, sumcheck::sumcheck_polynomial::SumcheckPolynomial,
-    whir::verifier::VerifierError,
+    constant::K_SKIP_SUMCHECK,
+    fiat_shamir::verifier::VerifierState,
+    poly::multilinear::MultilinearPoint,
+    sumcheck::sumcheck_polynomial::SumcheckPolynomial,
+    whir::{parameters::SumcheckOptimization, verifier::VerifierError},
 };
 
 /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
@@ -34,7 +36,7 @@ use crate::{
 /// - `verifier_state`: The verifier's Fiat–Shamir transcript state.
 /// - `rounds`: Total number of variables being folded.
 /// - `pow_bits`: Optional proof-of-work difficulty (0 disables PoW).
-/// - `is_univariate_skip`: If true, apply the univariate skip optimization on the first `K_SKIP_SUMCHECK` variables.
+/// - `sumcheck_optimization`: The optimization strategy to use for the sumcheck protocol.
 ///
 /// # Returns
 ///
@@ -44,16 +46,17 @@ pub(crate) fn verify_sumcheck_rounds<EF, F, Challenger>(
     claimed_sum: &mut EF,
     rounds: usize,
     pow_bits: usize,
-    is_univariate_skip: bool,
+    sumcheck_optimization: SumcheckOptimization,
 ) -> Result<MultilinearPoint<EF>, VerifierError>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    // Calculate how many `(poly, rand)` pairs to expect based on skip mode
+    // Calculate how many `(poly, rand)` pairs to expect based on optimization strategy
     //
-    // If skipping: we do 1 large round for the skip, and the remaining normally
+    // If using univariate skip: we do 1 large round for the skip, and the remaining normally
+    let is_univariate_skip = matches!(sumcheck_optimization, SumcheckOptimization::UnivariateSkip);
     let effective_rounds = if is_univariate_skip && (rounds >= K_SKIP_SUMCHECK) {
         1 + (rounds - K_SKIP_SUMCHECK)
     } else {
@@ -232,7 +235,7 @@ mod tests {
             merkle_compress,
             soundness_type: SecurityAssumption::UniqueDecoding,
             starting_log_inv_rate: 1,
-            univariate_skip: false,
+            sumcheck_optimization: SumcheckOptimization::Classic,
         };
 
         // Combine protocol and polynomial parameters into a single config
@@ -363,7 +366,7 @@ mod tests {
             &mut expected_initial_sum,
             folding_factor,
             pow_bits,
-            false,
+            SumcheckOptimization::Classic,
         )
         .unwrap();
 
@@ -491,9 +494,14 @@ mod tests {
         // -------------------------------------------------------------
         let mut verifier_state =
             domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
-        let randomness =
-            verify_sumcheck_rounds(&mut verifier_state, &mut expected_sum, NUM_VARS, 0, true)
-                .unwrap();
+        let randomness = verify_sumcheck_rounds(
+            &mut verifier_state,
+            &mut expected_sum,
+            NUM_VARS,
+            0,
+            SumcheckOptimization::UnivariateSkip,
+        )
+        .unwrap();
 
         // Check length:
         // - 1 randomness for the first K skipped rounds

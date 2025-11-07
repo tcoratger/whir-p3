@@ -6,7 +6,7 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::statement::{EqStatement, SelectStatement},
-        parameters::WhirConfig,
+        parameters::{SumcheckOptimization, WhirConfig},
     },
 };
 
@@ -196,7 +196,11 @@ where
         Self {
             num_variables: cfg.num_variables,
             folding_factor: cfg.folding_factor,
-            univariate_skip: cfg.univariate_skip.then_some(K_SKIP_SUMCHECK),
+            univariate_skip: matches!(
+                cfg.sumcheck_optimization,
+                SumcheckOptimization::UnivariateSkip
+            )
+            .then_some(K_SKIP_SUMCHECK),
         }
     }
 }
@@ -255,7 +259,7 @@ mod tests {
             folding_factor,
             merkle_hash,
             merkle_compress,
-            univariate_skip: false,
+            sumcheck_optimization: SumcheckOptimization::Classic,
             initial_statement: true,
             security_level: 90,
             pow_bits: 0,
@@ -383,7 +387,7 @@ mod tests {
                 merkle_hash,
                 merkle_compress,
                 // This test is for the standard, non-skip case.
-                univariate_skip: false,
+                sumcheck_optimization: SumcheckOptimization::Classic,
                 initial_statement: true,
                 security_level: 90,
                 pow_bits: 0,
@@ -490,7 +494,7 @@ mod tests {
             merkle_hash,
             merkle_compress,
             // This test is for the skip case.
-            univariate_skip: true,
+            sumcheck_optimization: SumcheckOptimization::UnivariateSkip,
             initial_statement: true,
             security_level: 90,
             pow_bits: 0,
@@ -640,7 +644,7 @@ mod tests {
                 merkle_hash,
                 merkle_compress,
                 // This test is for the skip case.
-                univariate_skip: true,
+                sumcheck_optimization: SumcheckOptimization::UnivariateSkip,
                 initial_statement: true,
                 security_level: 90,
                 pow_bits: 0,

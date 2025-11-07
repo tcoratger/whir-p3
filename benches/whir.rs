@@ -11,8 +11,10 @@ use whir_p3::{
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        committer::writer::CommitmentWriter, constraints::statement::EqStatement,
-        parameters::WhirConfig, prover::Prover,
+        committer::writer::CommitmentWriter,
+        constraints::statement::EqStatement,
+        parameters::{SumcheckOptimization, WhirConfig},
+        prover::Prover,
     },
 };
 
@@ -80,7 +82,7 @@ fn prepare_inputs() -> (
         soundness_type,
         starting_log_inv_rate: starting_rate,
         rs_domain_initial_reduction_factor,
-        univariate_skip: false,
+        sumcheck_optimization: SumcheckOptimization::Classic,
     };
 
     // Combine multivariate and protocol parameters into a unified WHIR config.

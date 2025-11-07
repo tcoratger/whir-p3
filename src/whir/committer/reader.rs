@@ -163,7 +163,9 @@ mod tests {
     use crate::{
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
-        whir::{DomainSeparator, committer::writer::CommitmentWriter},
+        whir::{
+            DomainSeparator, committer::writer::CommitmentWriter, parameters::SumcheckOptimization,
+        },
     };
 
     type F = BabyBear;
@@ -204,7 +206,7 @@ mod tests {
             merkle_compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
-            univariate_skip: false,
+            sumcheck_optimization: SumcheckOptimization::Classic,
         };
 
         // Construct full WHIR configuration with MV polynomial shape and protocol rules.

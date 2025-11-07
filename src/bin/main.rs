@@ -21,7 +21,7 @@ use whir_p3::{
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         constraints::statement::EqStatement,
-        parameters::WhirConfig,
+        parameters::{SumcheckOptimization, WhirConfig},
         prover::Prover,
         verifier::Verifier,
     },
@@ -121,7 +121,7 @@ fn main() {
         soundness_type,
         starting_log_inv_rate: starting_rate,
         rs_domain_initial_reduction_factor,
-        univariate_skip: false,
+        sumcheck_optimization: SumcheckOptimization::Classic,
     };
 
     let params = WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(
