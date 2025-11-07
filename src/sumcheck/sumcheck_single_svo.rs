@@ -46,7 +46,7 @@ where
         let w = &constraint.eq_statement.points[0];
 
         // Create the unified equality polynomial evaluator with precomputed tables
-        let mut eq_poly = SumcheckEqState::new(w, NUM_SVO_ROUNDS);
+        let mut eq_poly = SumcheckEqState::<_, NUM_SVO_ROUNDS>::new(w);
 
         svo_three_rounds(
             prover_state,

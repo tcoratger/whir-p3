@@ -47,7 +47,7 @@ use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 /// The object is parameterized by:
 ///
 /// - A witness point w of length l.
-/// - A starting round index `start_round` that marks when the SVO (Algorithm 5)
+/// - A starting round index `START_ROUND` (const generic) that marks when the SVO (Algorithm 5)
 ///   phase begins.
 ///
 /// It then exposes:
@@ -57,7 +57,7 @@ use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 ///   in the SVO phase.
 /// - The final scalar eq(w, r) once all variables have been bound.
 #[derive(Debug)]
-pub struct SumcheckEqState<'a, F: Field> {
+pub struct SumcheckEqState<'a, F: Field, const START_ROUND: usize> {
     /// Witness point w with l Boolean coordinates.
     ///
     /// This is the point whose equality with the verifier challenges r controls
@@ -126,16 +126,9 @@ pub struct SumcheckEqState<'a, F: Field> {
     ///
     /// This value is derived from the length of `eq_r`.
     num_vars_x_r: usize,
-
-    /// First round index where Algorithm 5 (the SVO phase) starts.
-    ///
-    /// Before this round, only the incremental linear equality polynomial l_i(X)
-    /// is used. From this round on, t_i(X) is evaluated using the precomputed
-    /// equality tables.
-    start_round: usize,
 }
 
-impl<'a, F: Field> SumcheckEqState<'a, F> {
+impl<'a, F: Field, const START_ROUND: usize> SumcheckEqState<'a, F, START_ROUND> {
     /// Constructs a new equality-polynomial state and precomputes all tables.
     ///
     /// The constructor performs the entire setup phase for Algorithm 5:
@@ -144,7 +137,7 @@ impl<'a, F: Field> SumcheckEqState<'a, F> {
     /// - It precomputes:
     ///   - The right-side equality table eq(w_{l/2..l}, x_R).
     ///   - All left-side tables eq(w_{i+1..l/2}, x_L) needed for rounds
-    ///     `start_round` through `l/2 − 1`.
+    ///     `START_ROUND` through `l/2 − 1`.
     ///   - All tail tables eq(w_{i+1..l}, x_tail) needed for rounds `l/2` through `l − 1`.
     ///
     /// Once this is done, the main sumcheck loop does not need to recompute
@@ -154,8 +147,9 @@ impl<'a, F: Field> SumcheckEqState<'a, F> {
     /// Arguments:
     ///
     /// - `w`: the witness point with l Boolean coordinates.
-    /// - `start_round`: the first round index where the SVO phase is active.
-    pub fn new(w: &'a MultilinearPoint<F>, start_round: usize) -> Self {
+    ///
+    /// The starting round index `START_ROUND` is provided as a const generic parameter.
+    pub fn new(w: &'a MultilinearPoint<F>) -> Self {
         let num_vars = w.num_variables();
         let half_l = num_vars / 2;
 
@@ -166,12 +160,12 @@ impl<'a, F: Field> SumcheckEqState<'a, F> {
         // This is a multilinear equality polynomial in the x_R variables,
         // evaluated over the full hypercube of x_R.
         let eq_r = EvaluationsList::new_from_point(&w.0[half_l..], F::ONE);
-        let num_vars_x_r = eq_r.as_slice().len().ilog2() as usize;
+        let num_vars_x_r = eq_r.num_variables();
 
-        // Left-side tables for rounds in [start_round, l/2).
+        // Left-side tables for rounds in [START_ROUND, l/2).
         //
         // For round i in this range, we need eq(w_{i+1..half_l}, x_L).
-        let mut eq_l_stack: Vec<_> = (start_round..half_l)
+        let mut eq_l_stack: Vec<_> = (START_ROUND..half_l)
             .map(|i| {
                 let round = i + 1;
                 EvaluationsList::new_from_point(&w.0[round..half_l], F::ONE)
@@ -206,7 +200,6 @@ impl<'a, F: Field> SumcheckEqState<'a, F> {
             eq_tail_stack,
             half_l,
             num_vars_x_r,
-            start_round,
         }
     }
 
@@ -264,9 +257,9 @@ impl<'a, F: Field> SumcheckEqState<'a, F> {
         // If we are at or past the start of the SVO phase, we have just finished
         // a round that used some precomputed table. That table belongs to the
         // round with index i and must now be discarded.
-        if i >= self.start_round {
+        if i >= START_ROUND {
             if i < self.half_l {
-                // Rounds in [start_round, l/2): tables live in eq_l_stack.
+                // Rounds in [START_ROUND, l/2): tables live in eq_l_stack.
                 let _ = self
                     .eq_l_stack
                     .pop()
@@ -333,11 +326,11 @@ impl<'a, F: Field> SumcheckEqState<'a, F> {
     /// Returns the precomputed tables needed to evaluate t_i(X) in the current round.
     ///
     /// This is only meaningful once the SVO phase has begun, that is,
-    /// when `bound_count >= start_round`.
+    /// when `bound_count >= START_ROUND`.
     ///
     /// The returned pair `(eq_left, eq_right)` depends on the current round i:
     ///
-    /// - For rounds i in `[start_round, l/2)`:
+    /// - For rounds i in `[START_ROUND, l/2)`:
     ///   - `eq_left` is the top of the `eq_l_stack`, corresponding to eq(w_{i+1..l/2}, x_L).
     ///   - `eq_right` is the fixed `eq_r` table, corresponding to eq(w_{l/2..l}, x_R).
     ///
@@ -350,16 +343,16 @@ impl<'a, F: Field> SumcheckEqState<'a, F> {
     ///
     /// Panics:
     ///
-    /// - If called before `start_round`, since no SVO tables are in use yet.
+    /// - If called before `START_ROUND`, since no SVO tables are in use yet.
     /// - If all variables have been bound.
     #[inline]
     #[must_use]
     pub fn current_t_poly_tables(&self) -> (&[F], &[F]) {
         assert!(
-            self.bound_count >= self.start_round,
+            self.bound_count >= START_ROUND,
             "Not in Algorithm 5 (SVO) phase yet: bound_count={}, start_round={}",
             self.bound_count,
-            self.start_round
+            START_ROUND
         );
         assert!(
             !self.is_fully_bound(),
@@ -469,7 +462,7 @@ mod tests {
         // This allows us to test both phases: rounds [3, 4) and [4, 8)
         let w = MultilinearPoint::new(vec![w0, w1, w2, w3, w4, w5, w6, w7]);
 
-        let eq_state = SumcheckEqState::new(&w, START_ROUND);
+        let eq_state = SumcheckEqState::<_, START_ROUND>::new(&w);
 
         // Initial state: no variables bound yet
         assert_eq!(eq_state.bound_count(), 0);
@@ -507,7 +500,7 @@ mod tests {
         let w3 = F::from_u64(7);
         let w = MultilinearPoint::new(vec![w0, w1, w2, w3]);
 
-        let mut eq_state = SumcheckEqState::new(&w, 3);
+        let mut eq_state = SumcheckEqState::<_, 3>::new(&w);
 
         // Challenge values
         let r0 = F::from_u64(11);
@@ -548,7 +541,7 @@ mod tests {
         let w3 = F::from_u64(7);
         let w = MultilinearPoint::new(vec![w0, w1, w2, w3]);
 
-        let mut eq_state = SumcheckEqState::new(&w, 3);
+        let mut eq_state = SumcheckEqState::<_, 3>::new(&w);
 
         // Round 0: scalar = 1 (no variables bound yet)
         // l_0(X) = 1 * eq(w0, X) = eq(w0, X)
@@ -595,7 +588,7 @@ mod tests {
         let w5 = F::from_u64(13);
         let w = MultilinearPoint::new(vec![w0, w1, w2, w3, w4, w5]);
 
-        let mut eq_state = SumcheckEqState::new(&w, START_ROUND);
+        let mut eq_state = SumcheckEqState::<_, START_ROUND>::new(&w);
 
         // Challenge values
         let r0 = F::from_u64(17);
@@ -641,7 +634,7 @@ mod tests {
         let w5 = F::from_u64(13);
         let w = MultilinearPoint::new(vec![w0, w1, w2, w3, w4, w5]);
 
-        let mut eq_state = SumcheckEqState::new(&w, START_ROUND);
+        let mut eq_state = SumcheckEqState::<_, START_ROUND>::new(&w);
 
         // Challenge values
         let r0 = F::from_u64(17);
@@ -684,7 +677,7 @@ mod tests {
         let w3 = F::from_u64(7);
         let w = MultilinearPoint::new(vec![w0, w1, w2, w3]);
 
-        let mut eq_state = SumcheckEqState::new(&w, START_ROUND);
+        let mut eq_state = SumcheckEqState::<_, START_ROUND>::new(&w);
 
         // Challenge values
         let r0 = F::from_u64(11);
@@ -730,7 +723,7 @@ mod tests {
         let w2 = F::from_u64(5);
         let w = MultilinearPoint::new(vec![w0, w1, w2]);
 
-        let mut eq_state = SumcheckEqState::new(&w, 2);
+        let mut eq_state = SumcheckEqState::<_, 2>::new(&w);
 
         // Challenge values
         let r0 = F::from_u64(7);
@@ -769,7 +762,7 @@ mod tests {
         let w5 = F::from_u64(13);
         let w = MultilinearPoint::new(vec![w0, w1, w2, w3, w4, w5]);
 
-        let mut eq_state = SumcheckEqState::new(&w, START_ROUND);
+        let mut eq_state = SumcheckEqState::<_, START_ROUND>::new(&w);
 
         // Challenge values
         let r0 = F::from_u64(17);
@@ -808,7 +801,7 @@ mod tests {
         let w3 = F::from_u64(7);
         let w = MultilinearPoint::new(vec![w0, w1, w2, w3]);
 
-        let mut eq_state = SumcheckEqState::new(&w, START_ROUND);
+        let mut eq_state = SumcheckEqState::<_, START_ROUND>::new(&w);
 
         // Challenge values
         let r0 = F::from_u64(11);
@@ -849,7 +842,7 @@ mod tests {
         let w1 = F::from_u64(3);
         let w = MultilinearPoint::new(vec![w0, w1]);
 
-        let eq_state = SumcheckEqState::new(&w, START_ROUND);
+        let eq_state = SumcheckEqState::<_, START_ROUND>::new(&w);
 
         // With 2 variables and start_round = 0:
         // - half_l = 1
@@ -872,7 +865,7 @@ mod tests {
         let w3 = F::from_u64(7);
         let w = MultilinearPoint::new(vec![w0, w1, w2, w3]);
 
-        let eq_state = SumcheckEqState::new(&w, START_ROUND);
+        let eq_state = SumcheckEqState::<_, START_ROUND>::new(&w);
 
         // No first-half rounds in Algorithm 5 phase
         assert_eq!(eq_state.eq_l_stack.len(), 0);
@@ -894,7 +887,7 @@ mod tests {
         let w3 = F::from_u64(7);
         let w = MultilinearPoint::new(vec![w0, w1, w2, w3]);
 
-        let mut eq_state = SumcheckEqState::new(&w, START_ROUND);
+        let mut eq_state = SumcheckEqState::<_, START_ROUND>::new(&w);
 
         // Challenge values
         let r0 = F::from_u64(11);
@@ -934,7 +927,7 @@ mod tests {
         // Witness point
         let w0 = F::from_u64(2);
         let w = MultilinearPoint::new(vec![w0]);
-        let mut eq_state = SumcheckEqState::new(&w, 0);
+        let mut eq_state = SumcheckEqState::<_, 0>::new(&w);
 
         // Challenge values
         let r0 = F::from_u64(3);
@@ -950,7 +943,7 @@ mod tests {
         // Witness point
         let w0 = F::from_u64(2);
         let w = MultilinearPoint::new(vec![w0]);
-        let mut eq_state = SumcheckEqState::new(&w, 0);
+        let mut eq_state = SumcheckEqState::<_, 0>::new(&w);
 
         // Challenge value
         let r0 = F::from_u64(3);
@@ -974,7 +967,7 @@ mod tests {
         let w3 = F::from_u64(7);
         let w = MultilinearPoint::new(vec![w0, w1, w2, w3]);
 
-        let eq_state = SumcheckEqState::new(&w, START_ROUND);
+        let eq_state = SumcheckEqState::<_, START_ROUND>::new(&w);
 
         // We're at bound_count = 0, which is before start_round = 2
         // Attempting to access tables should panic
@@ -988,7 +981,7 @@ mod tests {
         let w0 = F::from_u64(2);
         let w1 = F::from_u64(3);
         let w = MultilinearPoint::new(vec![w0, w1]);
-        let eq_state = SumcheckEqState::new(&w, 0);
+        let eq_state = SumcheckEqState::<_, 0>::new(&w);
 
         // Trying to get final_scalar before binding all variables should panic
         let _ = eq_state.final_scalar();

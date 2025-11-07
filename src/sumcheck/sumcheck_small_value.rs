@@ -179,11 +179,11 @@ fn get_evals_from_l_and_t<F: Field>(l: &[F; 2], t: &[F; 2]) -> [F; 2] {
 
 /// Algorithm 6. Page 19.
 /// Compute three sumcheck rounds using the small value optimization and split-eq accumulators.
-pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
+pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START_ROUND: usize>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
     w: &MultilinearPoint<EF>,
-    eq_poly: &mut SumcheckEqState<'_, EF>,
+    eq_poly: &mut SumcheckEqState<'_, EF, START_ROUND>,
     challenges: &mut Vec<EF>,
     sum: &mut EF,
     pow_bits: usize,
@@ -426,10 +426,10 @@ where
 ///
 /// This function uses the unified `SumcheckEqState` which manages both the
 /// incremental scalar and precomputed tables for optimal performance.
-pub fn algorithm_5<Challenger, F, EF>(
+pub fn algorithm_5<Challenger, F, EF, const START_ROUND: usize>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &mut EvaluationsList<EF>,
-    eq_poly: &mut SumcheckEqState<'_, EF>,
+    eq_poly: &mut SumcheckEqState<'_, EF, START_ROUND>,
     challenges: &mut Vec<EF>,
     sum: &mut EF,
     pow_bits: usize,
