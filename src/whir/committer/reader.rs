@@ -182,7 +182,7 @@ mod tests {
         ood_samples: usize,
     ) -> (
         WhirConfig<BabyBear, BabyBear, MyHash, MyCompress, MyChallenger>,
-        rand::rngs::ThreadRng,
+        SmallRng,
     ) {
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
@@ -214,7 +214,7 @@ mod tests {
         config.commitment_ood_samples = ood_samples;
 
         // Return the config and a thread-local random number generator.
-        (config, rand::rng())
+        (config, SmallRng::seed_from_u64(1))
     }
 
     #[test]

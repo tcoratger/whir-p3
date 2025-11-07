@@ -743,7 +743,7 @@ mod tests {
         PrimeCharacteristicRing, PrimeField64, TwoAdicField, extension::BinomialExtensionField,
     };
     use proptest::prelude::*;
-    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
     use crate::poly::coeffs::CoefficientList;
@@ -1359,7 +1359,7 @@ mod tests {
         const NUM_VARS: usize = 20;
 
         // Use a seeded random number generator for a reproducible test case.
-        let mut rng = StdRng::seed_from_u64(42);
+        let mut rng = SmallRng::seed_from_u64(42);
 
         // The number of evaluations on the boolean hypercube is 2^n.
         let num_evals = 1 << NUM_VARS;
@@ -1946,7 +1946,7 @@ mod tests {
             n in 1..=6,
             seed in any::<u64>(),
         ) {
-            let mut rng = StdRng::seed_from_u64(seed);
+            let mut rng = SmallRng::seed_from_u64(seed);
             let num_evals = 1 << n;
             let evals: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
             let r_base: F = rng.random();
@@ -1971,7 +1971,7 @@ mod tests {
             n in 1usize..=10,
             seed in any::<u64>(),
         ) {
-            let mut rng = StdRng::seed_from_u64(seed);
+            let mut rng = SmallRng::seed_from_u64(seed);
             let num_evals = 1 << n;
             let evals: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
             let r: F = rng.random();
@@ -1989,7 +1989,7 @@ mod tests {
             n in 2usize..=8,
             seed in any::<u64>(),
         ) {
-            let mut rng = StdRng::seed_from_u64(seed);
+            let mut rng = SmallRng::seed_from_u64(seed);
             let num_evals = 1 << n;
             let evals: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
 
@@ -2015,7 +2015,7 @@ mod tests {
             num_rounds in 1usize..=5,
             seed in any::<u64>(),
         ) {
-            let mut rng = StdRng::seed_from_u64(seed);
+            let mut rng = SmallRng::seed_from_u64(seed);
             let num_evals = 1 << n;
             let evals: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
 

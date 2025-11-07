@@ -67,13 +67,10 @@ mod tests {
     fn test_parallel_clone() {
         let src = (0..(1 << 23) + 7).map(F::from_u64).collect::<Vec<_>>();
         let mut dst_seq = F::zero_vec(src.len());
-        let time = std::time::Instant::now();
         dst_seq.copy_from_slice(&src);
-        println!("Sequential clone took: {:?}", time.elapsed());
+
         let mut dst_parallel = F::zero_vec(src.len());
-        let time = std::time::Instant::now();
         parallel_clone(&src, &mut dst_parallel);
-        println!("Parallel clone took: {:?}", time.elapsed());
         assert_eq!(dst_seq, dst_parallel);
     }
 
@@ -81,12 +78,8 @@ mod tests {
     fn test_parallel_repeat() {
         let src = (0..(1 << 23) + 7).map(F::from_u64).collect::<Vec<_>>();
         let n = 3;
-        let time = std::time::Instant::now();
         let dst_seq = src.repeat(n);
-        println!("Sequential repeat took: {:?}", time.elapsed());
-        let time = std::time::Instant::now();
         let dst_parallel = parallel_repeat(&src, n);
-        println!("Parallel repeat took: {:?}", time.elapsed());
         assert_eq!(dst_seq, dst_parallel);
     }
 }

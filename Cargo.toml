@@ -78,8 +78,7 @@ tracing-subscriber = { version = "0.3.17", default-features = false, features = 
 
 [dev-dependencies]
 criterion = "0.7"
-proptest = "1.0"
-rand = "0.9"
+proptest = { version = "1.0", default-features = true }
 
 [features]
 default = ["parallel"]
