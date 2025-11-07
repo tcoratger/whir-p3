@@ -181,6 +181,7 @@ where
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
+    use p3_dft::Radix2DFTSmallBatch;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{SeedableRng, rngs::SmallRng};
@@ -211,7 +212,7 @@ mod tests {
     /// Constructs a default WHIR configuration for testing
     fn default_whir_config(
         num_variables: usize,
-    ) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger> {
+    ) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger, Radix2DFTSmallBatch<F>> {
         // Create hash and compression functions for the Merkle tree
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
@@ -228,6 +229,7 @@ mod tests {
             folding_factor: FoldingFactor::Constant(2),
             merkle_hash,
             merkle_compress,
+            dft: Radix2DFTSmallBatch::<F>::default(),
             soundness_type: SecurityAssumption::UniqueDecoding,
             starting_log_inv_rate: 1,
             univariate_skip: false,

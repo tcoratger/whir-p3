@@ -144,7 +144,7 @@ impl FoldingFactor {
 
 /// Configuration parameters for WHIR proofs.
 #[derive(Clone, Debug)]
-pub struct ProtocolParameters<H, C> {
+pub struct ProtocolParameters<H, C, Dft> {
     /// Whether the initial statement is included in the proof.
     pub initial_statement: bool,
     /// The logarithmic inverse rate for sampling.
@@ -167,11 +167,13 @@ pub struct ProtocolParameters<H, C> {
     pub merkle_hash: H,
     /// Compression method used in the Merkle tree.
     pub merkle_compress: C,
+    /// DFT implementation for polynomial operations.
+    pub dft: Dft,
     /// Whether the univariate skip optimization is enabled for the sumcheck protocol.
     pub univariate_skip: bool,
 }
 
-impl<H, C> Display for ProtocolParameters<H, C> {
+impl<H, C, Dft> Display for ProtocolParameters<H, C, Dft> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,

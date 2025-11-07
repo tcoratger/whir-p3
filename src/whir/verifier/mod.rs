@@ -3,7 +3,8 @@ use std::{fmt::Debug, ops::Deref};
 use errors::VerifierError;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_dft::TwoAdicSubgroupDft;
+use p3_field::{ExtensionField, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -37,21 +38,23 @@ pub mod sumcheck;
 /// This type provides a lightweight, ergonomic interface to verification methods
 /// by wrapping a reference to the `WhirConfig`.
 #[derive(Debug)]
-pub struct Verifier<'a, EF, F, H, C, Challenger>(
-    /// Reference to the verifier’s configuration containing all round parameters.
-    pub(crate) &'a WhirConfig<EF, F, H, C, Challenger>,
+pub struct Verifier<'a, EF, F, H, C, Challenger, Dft>(
+    /// Reference to the verifier's configuration containing all round parameters.
+    pub(crate) &'a WhirConfig<EF, F, H, C, Challenger, Dft>,
 )
 where
-    F: Field,
-    EF: ExtensionField<F>;
+    F: TwoAdicField,
+    EF: ExtensionField<F>,
+    Dft: TwoAdicSubgroupDft<F>;
 
-impl<'a, EF, F, H, C, Challenger> Verifier<'a, EF, F, H, C, Challenger>
+impl<'a, EF, F, H, C, Challenger, Dft> Verifier<'a, EF, F, H, C, Challenger, Dft>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Dft: TwoAdicSubgroupDft<F>,
 {
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, Challenger>) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, Challenger, Dft>) -> Self {
         Self(params)
     }
 
@@ -491,12 +494,13 @@ where
     }
 }
 
-impl<EF, F, H, C, Challenger> Deref for Verifier<'_, EF, F, H, C, Challenger>
+impl<EF, F, H, C, Challenger, Dft> Deref for Verifier<'_, EF, F, H, C, Challenger, Dft>
 where
-    F: Field,
+    F: TwoAdicField,
     EF: ExtensionField<F>,
+    Dft: TwoAdicSubgroupDft<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, Challenger>;
+    type Target = WhirConfig<EF, F, H, C, Challenger, Dft>;
 
     fn deref(&self) -> &Self::Target {
         self.0

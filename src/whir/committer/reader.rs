@@ -1,6 +1,7 @@
 use std::{fmt::Debug, ops::Deref};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_symmetric::Hash;
 
@@ -97,27 +98,29 @@ where
 /// The `CommitmentReader` wraps the WHIR configuration and provides a convenient
 /// method to extract a `ParsedCommitment` by reading values from the Fiat-Shamir transcript.
 #[derive(Debug)]
-pub struct CommitmentReader<'a, EF, F, H, C, Challenger>(
-    /// Reference to the verifier’s configuration object.
+pub struct CommitmentReader<'a, EF, F, H, C, Challenger, Dft>(
+    /// Reference to the verifier's configuration object.
     ///
     /// This contains all parameters needed to parse the commitment,
     /// including how many out-of-domain samples are expected.
-    &'a WhirConfig<EF, F, H, C, Challenger>,
+    &'a WhirConfig<EF, F, H, C, Challenger, Dft>,
 )
 where
-    F: Field,
-    EF: ExtensionField<F>;
+    F: TwoAdicField,
+    EF: ExtensionField<F>,
+    Dft: TwoAdicSubgroupDft<F>;
 
-impl<'a, EF, F, H, C, Challenger> CommitmentReader<'a, EF, F, H, C, Challenger>
+impl<'a, EF, F, H, C, Challenger, Dft> CommitmentReader<'a, EF, F, H, C, Challenger, Dft>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Dft: TwoAdicSubgroupDft<F>,
 {
     /// Create a new commitment reader from a WHIR configuration.
     ///
     /// This allows the verifier to parse a commitment from the Fiat-Shamir transcript.
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, Challenger>) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, H, C, Challenger, Dft>) -> Self {
         Self(params)
     }
 
@@ -137,12 +140,13 @@ where
     }
 }
 
-impl<EF, F, H, C, Challenger> Deref for CommitmentReader<'_, EF, F, H, C, Challenger>
+impl<EF, F, H, C, Challenger, Dft> Deref for CommitmentReader<'_, EF, F, H, C, Challenger, Dft>
 where
-    F: Field,
+    F: TwoAdicField,
     EF: ExtensionField<F>,
+    Dft: TwoAdicSubgroupDft<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, Challenger>;
+    type Target = WhirConfig<EF, F, H, C, Challenger, Dft>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -179,7 +183,14 @@ mod tests {
         num_variables: usize,
         ood_samples: usize,
     ) -> (
-        WhirConfig<BabyBear, BabyBear, MyHash, MyCompress, MyChallenger>,
+        WhirConfig<
+            BabyBear,
+            BabyBear,
+            MyHash,
+            MyCompress,
+            MyChallenger,
+            Radix2DFTSmallBatch<BabyBear>,
+        >,
         rand::rngs::ThreadRng,
     ) {
         let mut rng = SmallRng::seed_from_u64(1);
@@ -200,6 +211,7 @@ mod tests {
             folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
             merkle_hash,
             merkle_compress,
+            dft: Radix2DFTSmallBatch::<BabyBear>::default(),
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
             univariate_skip: false,
@@ -226,12 +238,9 @@ mod tests {
         // Instantiate the committer using the test config.
         let committer = CommitmentWriter::new(&params);
 
-        // Use a DFT engine to expand/fold the polynomial for evaluation.
-        let dft = Radix2DFTSmallBatch::<F>::default();
-
         // Set up Fiat-Shamir transcript and commit the protocol parameters.
         let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
+        ds.commit_statement::<_, _, _, _, 8>(&params);
 
         // Create the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
@@ -240,9 +249,7 @@ mod tests {
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
-        let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
+        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
         // Simulate verifier state using transcript view of prover’s nonce string.
         let mut verifier_state =
@@ -269,11 +276,10 @@ mod tests {
 
         // Set up the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);
-        let dft = Radix2DFTSmallBatch::<F>::default();
 
         // Begin the transcript and commit to the statement parameters.
         let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
+        ds.commit_statement::<_, _, _, _, 8>(&params);
 
         // Generate the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
@@ -281,9 +287,7 @@ mod tests {
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial to obtain the witness.
-        let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
+        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
         // Initialize the verifier view of the transcript.
         let mut verifier_state =
@@ -310,11 +314,10 @@ mod tests {
 
         // Initialize the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);
-        let dft = Radix2DFTSmallBatch::<F>::default();
 
         // Start a new transcript and commit to the public parameters.
         let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
+        ds.commit_statement::<_, _, _, _, 8>(&params);
 
         // Create prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
@@ -323,9 +326,7 @@ mod tests {
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain the witness.
-        let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
+        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
 
         // Initialize verifier view from prover's transcript string.
         let mut verifier_state =
@@ -350,20 +351,17 @@ mod tests {
 
         // Instantiate a committer and DFT backend.
         let committer = CommitmentWriter::new(&params);
-        let dft = Radix2DFTSmallBatch::<F>::default();
 
         // Set up Fiat-Shamir transcript and commit to the public parameters.
         let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
+        ds.commit_statement::<_, _, _, _, 8>(&params);
 
         // Generate prover and verifier transcript states.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
-        let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
-            .unwrap();
+        let witness = committer.commit(&mut prover_state, polynomial).unwrap();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
