@@ -165,31 +165,30 @@ impl<'a, F: Field, const START_ROUND: usize> SumcheckEqState<'a, F, START_ROUND>
         // Left-side tables for rounds in [START_ROUND, l/2).
         //
         // For round i in this range, we need eq(w_{i+1..half_l}, x_L).
-        let mut eq_l_stack: Vec<_> = (START_ROUND..half_l)
+        //
+        // We generate in reverse order so that the last element (top of stack)
+        // corresponds to the current round and can be popped.
+        let eq_l_stack = (START_ROUND..half_l)
+            .rev()
             .map(|i| {
                 let round = i + 1;
                 EvaluationsList::new_from_point(&w.0[round..half_l], F::ONE)
             })
             .collect();
 
-        // The tables are generated in increasing order of i;
-        //
-        // We reverse the list so that the last element corresponds to the
-        // current round and can be popped.
-        eq_l_stack.reverse();
-
         // Tail tables for rounds in [l/2, l).
         //
         // For round i in this range, we need eq(w_{i+1..l}, x_tail).
-        let mut eq_tail_stack: Vec<_> = (half_l..num_vars)
+        //
+        // We generate in reverse order so that the last element (top of stack)
+        // corresponds to the current round and can be popped.
+        let eq_tail_stack = (half_l..num_vars)
+            .rev()
             .map(|i| {
                 let round = i + 1;
                 EvaluationsList::new_from_point(&w.0[round..], F::ONE)
             })
             .collect();
-
-        // Same idea: reverse so the top of the stack matches the current round.
-        eq_tail_stack.reverse();
 
         Self {
             w,
