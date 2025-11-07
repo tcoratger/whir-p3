@@ -5,10 +5,7 @@ use p3_field::extension::BinomialExtensionField;
 use p3_goldilocks::Poseidon2Goldilocks;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
-use rand::{
-    Rng, SeedableRng,
-    rngs::{SmallRng, StdRng},
-};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use whir_p3::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
@@ -95,7 +92,7 @@ fn prepare_inputs() -> (
     let num_coeffs = 1 << num_variables;
 
     // Use a fixed-seed RNG to ensure deterministic benchmark inputs.
-    let mut rng = StdRng::seed_from_u64(0);
+    let mut rng = SmallRng::seed_from_u64(0);
 
     // Sample a random multilinear polynomial over `F`, represented by its evaluations.
     let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());

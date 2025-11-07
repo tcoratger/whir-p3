@@ -203,7 +203,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec;
+    use alloc::{vec, vec::Vec};
 
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;

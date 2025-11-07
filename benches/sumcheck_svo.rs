@@ -2,7 +2,7 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use whir::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -21,14 +21,14 @@ const FOLDING_FACTOR: usize = 5;
 const POW_BITS: usize = 0;
 
 fn setup_prover() -> ProverState<F, EF, MyChallenger> {
-    let mut rng = StdRng::seed_from_u64(0);
+    let mut rng = SmallRng::seed_from_u64(0);
     let poseidon = Poseidon16::new_from_rng_128(&mut rng);
     let challenger = MyChallenger::new(poseidon);
     DomainSeparator::new(vec![]).to_prover_state(challenger)
 }
 
 fn generate_poly(num_vars: usize) -> EvaluationsList<F> {
-    let mut rng = StdRng::seed_from_u64(1 + num_vars as u64);
+    let mut rng = SmallRng::seed_from_u64(1 + num_vars as u64);
     EvaluationsList::new((0..1 << num_vars).map(|_| rng.random()).collect())
 }
 
