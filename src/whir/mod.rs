@@ -259,6 +259,55 @@ mod tests {
     }
 
     #[test]
+    fn test_whir_end_to_end_with_svo() {
+        let folding_factors = [
+            FoldingFactor::Constant(1),
+            FoldingFactor::Constant(2),
+            FoldingFactor::Constant(3),
+            FoldingFactor::Constant(4),
+            FoldingFactor::ConstantFromSecondRound(2, 1),
+            FoldingFactor::ConstantFromSecondRound(3, 1),
+            FoldingFactor::ConstantFromSecondRound(3, 2),
+            FoldingFactor::ConstantFromSecondRound(5, 2),
+        ];
+        let soundness_type = [
+            SecurityAssumption::JohnsonBound,
+            SecurityAssumption::CapacityBound,
+            SecurityAssumption::UniqueDecoding,
+        ];
+        let num_points = [0, 1, 2];
+        let pow_bits = [0, 5, 10];
+        let rs_domain_initial_reduction_factors = 1..=3;
+
+        for rs_domain_initial_reduction_factor in rs_domain_initial_reduction_factors {
+            for folding_factor in folding_factors {
+                if folding_factor.at_round(0) < rs_domain_initial_reduction_factor {
+                    continue;
+                }
+                let num_variables = folding_factor.at_round(0)..=3 * folding_factor.at_round(0);
+                for num_variable in num_variables {
+                    for num_points in num_points {
+                        for soundness_type in soundness_type {
+                            for pow_bits in pow_bits {
+                                make_whir_things(
+                                    num_variable,
+                                    folding_factor,
+                                    num_points,
+                                    soundness_type,
+                                    pow_bits,
+                                    rs_domain_initial_reduction_factor,
+                                    SumcheckOptimization::Svo,
+                                    true,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_whir_with_initial_statement_false() {
         let folding_factors = [
             FoldingFactor::Constant(2),
