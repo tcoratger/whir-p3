@@ -439,7 +439,8 @@ pub fn algorithm_5<Challenger, F, EF>(
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     let num_vars = eq_poly.num_variables();
-    let start_round = eq_poly.bound_count(); // Current position in the sumcheck
+    // Current position in the sumcheck
+    let start_round = eq_poly.bound_count();
     challenges.reserve(num_vars - start_round);
 
     // Main loop: compute rounds from start_round to num_vars-1
@@ -452,27 +453,27 @@ pub fn algorithm_5<Challenger, F, EF>(
         let num_vars_x_r = eq_poly.num_vars_x_r();
         let half_l = eq_poly.half_l();
 
-        // 1. Compute t_i(u) for u in {0, 1} (pure computation)
+        // Compute t_i(u) for u in {0, 1}
         let t_evals =
             compute_standard_round_poly_evals(poly_slice, eq_l, eq_r, num_vars_x_r, half_l, round);
 
-        // 2. Compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf} (pure computation)
+        // Compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf}
         let linear_evals = eq_poly.current_linear_evals();
         let [s_0, s_inf] = get_evals_from_l_and_t(&linear_evals, &t_evals);
 
-        // 3. Send S_i(u) to the verifier (prover state interaction)
+        // Send S_i(u) to the verifier
         prover_state.add_extension_scalars(&[s_0, s_inf]);
         prover_state.pow_grinding(pow_bits);
 
-        // 4. Receive the challenge r_i from the verifier (prover state interaction)
+        // Receive the challenge r_i from the verifier
         let r_i: EF = prover_state.sample();
         challenges.push(r_i);
 
-        // 5. Update state for next round: bind() updates scalar AND pops used table
+        // Update state for next round: binding updates scalar AND pops used table
         eq_poly.bind(r_i);
         poly.compress_svo(r_i);
 
-        // 6. Update claimed sum (pure computation)
+        // Update claimed sum
         let eval_1 = *sum - s_0;
         *sum = s_inf * r_i.square() + (eval_1 - s_0 - s_inf) * r_i + s_0;
     }
