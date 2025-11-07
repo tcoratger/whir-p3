@@ -89,7 +89,7 @@ impl SecurityAssumption {
         };
 
         // Error is  (num_functions - 1) * error/|F|;
-        let num_functions_1_log = (num_functions as f64 - 1.).log2();
+        let num_functions_1_log = libm::log2(num_functions as f64 - 1.);
         field_size_bits as f64 - (error + num_functions_1_log)
     }
 
@@ -101,16 +101,16 @@ impl SecurityAssumption {
     #[must_use]
     pub fn log_1_delta(&self, log_inv_rate: usize) -> f64 {
         let log_eta = self.log_eta(log_inv_rate);
-        let eta = 2_f64.powf(log_eta);
+        let eta = libm::pow(2., log_eta);
         let rate = 1. / f64::from(1 << log_inv_rate);
 
         let delta = match self {
             Self::UniqueDecoding => 0.5 * (1. - rate),
-            Self::JohnsonBound => 1. - rate.sqrt() - eta,
+            Self::JohnsonBound => 1. - libm::sqrt(rate) - eta,
             Self::CapacityBound => 1. - rate - eta,
         };
 
-        (1. - delta).log2()
+        libm::log2(1. - delta)
     }
 
     /// Compute the number of queries to match the security level
@@ -120,7 +120,7 @@ impl SecurityAssumption {
     pub fn queries(&self, protocol_security_level: usize, log_inv_rate: usize) -> usize {
         let num_queries_f = -(protocol_security_level as f64) / self.log_1_delta(log_inv_rate);
 
-        num_queries_f.ceil() as usize
+        libm::ceil(num_queries_f) as usize
     }
 
     /// Compute the error for the given number of queries
