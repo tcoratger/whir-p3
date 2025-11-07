@@ -1,4 +1,5 @@
-use std::{fmt::Debug, ops::Deref};
+use alloc::{vec, vec::Vec};
+use core::{fmt::Debug, ops::Deref};
 
 use errors::VerifierError;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
@@ -15,6 +16,7 @@ use super::{
     committer::reader::ParsedCommitment, parameters::RoundConfig, utils::get_challenge_stir_queries,
 };
 use crate::{
+    alloc::string::ToString,
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::verifier::VerifierState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},

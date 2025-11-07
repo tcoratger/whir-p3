@@ -203,6 +203,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
@@ -348,7 +350,7 @@ mod tests {
                 // In each round, we fold `folding_factor_val` variables.
                 //
                 // If this would leave fewer than 0 variables, we fold just enough to reach 0.
-                let num_to_fold = std::cmp::min(folding_factor_val, num_vars_current);
+                let num_to_fold = core::cmp::min(folding_factor_val, num_vars_current);
                 // This check avoids an infinite loop if `num_vars_current` gets stuck.
                 if num_to_fold == 0 { break; }
                 // Record the number of variables folded in this round.
@@ -607,7 +609,7 @@ mod tests {
             while num_vars_current > 0 {
                 let num_to_fold = folding_factor.at_round(folding_factors_vec.len());
                 // Ensure we don't overshoot the target of 0 remaining variables.
-                let effective_num_to_fold = std::cmp::min(num_to_fold, num_vars_current);
+                let effective_num_to_fold = core::cmp::min(num_to_fold, num_vars_current);
                 if effective_num_to_fold == 0 { break; }
                 folding_factors_vec.push(effective_num_to_fold);
                 num_vars_current -= effective_num_to_fold;

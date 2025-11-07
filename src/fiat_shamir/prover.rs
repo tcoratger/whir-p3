@@ -1,4 +1,5 @@
-use std::fmt::Debug;
+use alloc::vec::Vec;
+use core::fmt::Debug;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
@@ -26,7 +27,7 @@ where
     proof_data: Vec<F>,
 
     /// Marker to keep track of the extension field type without storing it explicitly.
-    _extension_field: std::marker::PhantomData<EF>,
+    _extension_field: core::marker::PhantomData<EF>,
 }
 
 impl<F, EF, Challenger> ProverState<F, EF, Challenger>
@@ -53,7 +54,7 @@ where
         Self {
             challenger,
             proof_data: Vec::new(),
-            _extension_field: std::marker::PhantomData,
+            _extension_field: core::marker::PhantomData,
         }
     }
 

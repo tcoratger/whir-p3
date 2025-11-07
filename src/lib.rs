@@ -1,3 +1,6 @@
+#![cfg_attr(not(test), no_std)]
+extern crate alloc;
+
 pub mod constant;
 pub mod errors;
 pub mod fiat_shamir;

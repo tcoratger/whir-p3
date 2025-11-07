@@ -1,4 +1,5 @@
-use std::{f64::consts::LOG2_10, marker::PhantomData};
+use alloc::vec::Vec;
+use core::{f64::consts::LOG2_10, marker::PhantomData};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -128,13 +129,13 @@ where
             )
         } else {
             {
-                let prox_gaps_error = whir_parameters.soundness_type.prox_gaps_error(
-                    num_variables,
-                    log_inv_rate,
-                    field_size_bits,
-                    2,
-                ) + (whir_parameters.folding_factor.at_round(0) as f64)
-                    .log2();
+                let prox_gaps_error =
+                    whir_parameters.soundness_type.prox_gaps_error(
+                        num_variables,
+                        log_inv_rate,
+                        field_size_bits,
+                        2,
+                    ) + libm::log2(whir_parameters.folding_factor.at_round(0) as f64);
                 (whir_parameters.security_level as f64 - prox_gaps_error).max(0.0)
             }
         };
@@ -385,7 +386,7 @@ where
     ) -> f64 {
         let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate);
 
-        let log_combination = ((ood_samples + num_queries) as f64).log2();
+        let log_combination = libm::log2((ood_samples + num_queries) as f64);
 
         field_size_bits as f64 - (log_combination + list_size + 1.)
     }
@@ -443,6 +444,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_field::PrimeCharacteristicRing;

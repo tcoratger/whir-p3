@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
 
@@ -24,7 +26,7 @@ where
     index: usize,
 
     /// Marker to track the extension field type without storing it explicitly.
-    _extension_field: std::marker::PhantomData<EF>,
+    _extension_field: core::marker::PhantomData<EF>,
 }
 
 impl<F, EF, Challenger> VerifierState<F, EF, Challenger>
@@ -56,7 +58,7 @@ where
             challenger,
             proof_data,
             index: 0,
-            _extension_field: std::marker::PhantomData,
+            _extension_field: core::marker::PhantomData,
         }
     }
 
