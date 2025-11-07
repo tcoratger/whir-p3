@@ -70,7 +70,7 @@ rand = { version = "0.9", default-features = false, features = ["small_rng"] }
 
 # Bin-only deps pulling std
 clap = { version = "4.5", features = ["derive"], optional = true }
-tracing-forest = { version = "0.2", optional = true }
+tracing-forest = { version = "0.3", optional = true }
 tracing-subscriber = { version = "0.3.17", default-features = false, features = [
     "alloc",
     "env-filter",
