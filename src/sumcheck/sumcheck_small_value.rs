@@ -539,21 +539,4 @@ mod tests {
         let out = EvaluationsList::new_from_point(&[p0, p1, p2], F::ONE).0;
         assert_eq!(out, expected);
     }
-
-    fn get_random_ef() -> EF {
-        let mut rng = SmallRng::seed_from_u64(1);
-
-        let r1: u32 = rng.next_u32();
-        let r2: u32 = rng.next_u32();
-        let r3: u32 = rng.next_u32();
-        let r4: u32 = rng.next_u32();
-
-        EF::from_basis_coefficients_slice(&[
-            F::from_u32(r1),
-            F::from_u32(r2),
-            F::from_u32(r3),
-            F::from_u32(r4),
-        ])
-        .unwrap()
-    }
 }
