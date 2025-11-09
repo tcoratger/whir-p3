@@ -165,7 +165,7 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
 
 /// Algorithm 6. Page 19.
 /// Compute three sumcheck rounds using the small value optimization and split-eq accumulators.
-pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START_ROUND: usize>(
+pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START_ROUND: usize>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
     w: &MultilinearPoint<EF>,

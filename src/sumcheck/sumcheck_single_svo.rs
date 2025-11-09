@@ -9,7 +9,7 @@ use crate::{
     sumcheck::{
         eq_state::SumcheckEqState,
         sumcheck_single::SumcheckSingle,
-        sumcheck_small_value::{algorithm_5, fold_evals_with_challenges, svo_three_rounds},
+        sumcheck_small_value::{algorithm_5, fold_evals_with_challenges, svo_first_rounds},
     },
     whir::constraints::evaluator::Constraint,
 };
@@ -50,7 +50,7 @@ where
         // Create the unified equality polynomial evaluator with precomputed tables
         let mut eq_poly = SumcheckEqState::<_, NUM_SVO_ROUNDS>::new(w);
 
-        svo_three_rounds(
+        svo_first_rounds(
             prover_state,
             evals,
             w,
