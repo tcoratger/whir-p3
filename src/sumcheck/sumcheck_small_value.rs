@@ -55,14 +55,6 @@ impl<F: Field> Add for Accumulators<F> {
 }
 
 /// Precomputation needed for Procedure 9 (compute_accumulators).
-/// Compute the evaluations eq(w_{l0 + 1}, ..., w_{l0 + l/2} ; x) for all x in {0,1}^l/2
-fn precompute_e_in<F: Field>(w: &MultilinearPoint<F>) -> Vec<F> {
-    let half_l = w.num_variables() / 2;
-    let w_in = &w.0[NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + half_l];
-    EvaluationsList::new_from_point(w_in, F::ONE).0
-}
-
-/// Precomputation needed for Procedure 9 (compute_accumulators).
 /// Compute three E_out vectors, one per round i in {0, 1, 2}.
 /// For each i, E_out = eq(w_{i+1}, ..., l0, w_{l/2 + l0 + 1}, ..., w_l ; x)
 fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_SVO_ROUNDS] {
@@ -82,7 +74,7 @@ fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_SVO_ROUND
 /// A_i(v, u) for i in {0, 1, 2}, v in {0, 1}^{i}, and u in {0, 1}.
 fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
     poly: &EvaluationsList<F>,
-    e_in: &[EF],
+    e_in: &EvaluationsList<EF>,
     e_out: &[Vec<EF>; NUM_SVO_ROUNDS],
 ) -> Accumulators<EF> {
     let l = poly.num_variables();
@@ -173,7 +165,10 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
 ) where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    let (e_in, e_out) = join(|| precompute_e_in(w), || precompute_e_out(w));
+    let (e_in, e_out) = join(
+        || w.svo_e_in_table::<NUM_SVO_ROUNDS>(),
+        || precompute_e_out(w),
+    );
 
     // We compute all the accumulators A_i(v, u).
     let accumulators = compute_accumulators(poly, &e_in, &e_out);
@@ -513,10 +508,7 @@ mod tests {
     use alloc::vec;
 
     use p3_baby_bear::BabyBear;
-    use p3_field::{
-        BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField,
-        integers::QuotientMap,
-    };
+    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use rand::{RngCore, SeedableRng, rngs::SmallRng};
 
     use super::*;
@@ -561,49 +553,6 @@ mod tests {
 
         let out = EvaluationsList::new_from_point(&[p0, p1, p2], F::ONE).0;
         assert_eq!(out, expected);
-    }
-
-    #[test]
-    fn test_precompute_e_in() {
-        let w: Vec<EF> = (0..10).map(|i| EF::from(F::from_int(i))).collect();
-        let w = MultilinearPoint::new(w);
-
-        let e_in = precompute_e_in(&w);
-
-        let w_in = w.0[NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + 5].to_vec();
-
-        assert_eq!(
-            w_in,
-            vec![
-                EF::from(F::from_int(3)),
-                EF::from(F::from_int(4)),
-                EF::from(F::from_int(5)),
-                EF::from(F::from_int(6)),
-                EF::from(F::from_int(7)),
-            ]
-        );
-
-        // e_in should have length 2^5 = 32.
-        assert_eq!(e_in.len(), 1 << 5);
-
-        //  e_in[0] should be eq(w_in, 00000)
-        let expected_0: EF = w_in.iter().map(|w_i| EF::ONE - *w_i).product();
-
-        assert_eq!(expected_0, e_in[0]);
-        assert_eq!(EF::from(-F::from_int(720)), e_in[0]);
-
-        // e_in[5] should be  eq(w_in, 00101)
-        let expected_5 =
-            (EF::ONE - w_in[0]) * (EF::ONE - w_in[1]) * w_in[2] * (EF::ONE - w_in[3]) * w_in[4];
-        assert_eq!(expected_5, e_in[5]);
-
-        // e_in[15] should be eq(w_in, 10000)
-        let expected_16: EF = w_in[1..].iter().map(|w_i| EF::ONE - *w_i).product::<EF>() * w_in[0];
-        assert_eq!(expected_16, e_in[16]);
-
-        // e_in[31] should be eq(w_in, 11111)
-        let expected_31: EF = w_in.iter().copied().product();
-        assert_eq!(expected_31, e_in[31]);
     }
 
     #[test]

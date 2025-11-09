@@ -146,6 +146,57 @@ where
             .product()
     }
 
+    /// Computes equality polynomial evaluations over the inner variables for SVO-based sumcheck.
+    ///
+    /// This method is used in the Small Value Optimization (SVO) algorithm described in
+    /// <https://eprint.iacr.org/2025/1117>, specifically in Procedure 9.
+    ///
+    /// Given a point `w = (w_0, ..., w_{n-1})` and parameters:
+    /// - `START_ROUND`: The number of initial SVO rounds (typically 3)
+    /// - `l = n`: The total number of variables
+    /// - `l/2`: Half of the total variables
+    ///
+    /// This computes the equality polynomial `eq(w_{START_ROUND}, ..., w_{START_ROUND + l/2 - 1}; x)`
+    /// evaluated at all points `x ∈ {0,1}^{l/2}`.
+    ///
+    /// ## Mathematical Background
+    ///
+    /// The equality polynomial for a point `w` over `k` variables is:
+    /// ```ignore
+    ///     eq(w; x) = ∏_{i=0}^{k-1} (w_i * x_i + (1 - w_i) * (1 - x_i))
+    /// ```
+    ///
+    /// This method evaluates this polynomial at all `2^{l/2}` hypercube points by extracting
+    /// the **middle** or **inner** segment of variables from the full point:
+    /// - The first `START_ROUND` variables are skipped (used in earlier rounds)
+    /// - The next `l/2` variables form the "inner" segment used for this computation
+    /// - The remaining variables are used separately in the "outer" computation
+    ///
+    /// ## Returns
+    ///
+    /// An `EvaluationsList<F>` containing `2^{l/2}` field elements, where the `i`-th element
+    /// is `eq(w_inner; binary(i))`, with `w_inner` being the extracted inner variables.
+    ///
+    /// ## Example
+    ///
+    /// Given a 10-variable witness:
+    /// - `w` (`l=10`) -> `l/2 = 5`
+    /// - `START_ROUND = 3` (`k=3`):
+    ///
+    /// The variables are partitioned as:
+    ///
+    /// `w = (w_0, w_1, w_2 | w_3, w_4, w_5, w_6, w_7 | w_8, w_9)`
+    ///       \___________/   \______________________/  \_____/
+    ///        Prefix (k=3)        Inner (l/2=5)         Outer
+    ///
+    /// This function will:
+    /// 1.  Extract the **Inner** slice: `w_inner = (w_3, w_4, w_5, w_6, w_7)`.
+    /// 2.  Compute `eq(w_inner, x)` for all `x` in `{0,1}^5`.
+    pub fn svo_e_in_table<const START_ROUND: usize>(&self) -> EvaluationsList<F> {
+        let half_l = self.num_variables() / 2;
+        EvaluationsList::new_from_point(&self.0[START_ROUND..START_ROUND + half_l], F::ONE)
+    }
+
     /// Evaluates the equality polynomial `eq(self, X)` at a folded challenge point.
     ///
     /// This method is used in protocols that "skip" folding rounds by providing a single challenge
@@ -695,5 +746,134 @@ mod tests {
             result, expected,
             "Manual skip evaluation for n=k_skip should match"
         );
+    }
+
+    #[test]
+    fn test_svo_eq_evals_inner_basic() {
+        // SETUP: 10-variable point with START_ROUND = 3
+        // Point: w = (w_0, w_1, ..., w_9)
+        // Half: l/2 = 10/2 = 5
+        // Inner variables: w_3, w_4, w_5, w_6, w_7 (from index 3 to 7 inclusive)
+        const START_ROUND: usize = 3;
+
+        let w: Vec<F> = (0..10).map(F::from_u32).collect();
+        let point = MultilinearPoint::new(w);
+
+        // Compute inner eq evaluations using the method under test
+        let evals = point.svo_e_in_table::<START_ROUND>();
+
+        // VERIFICATION: Should return 2^5 = 32 evaluations
+        assert_eq!(evals.num_evals(), 32);
+
+        // Extract the inner variables manually for comparison
+        let w_inner = &point.as_slice()[START_ROUND..START_ROUND + 5];
+        assert_eq!(
+            w_inner,
+            &[
+                F::from_u32(3),
+                F::from_u32(4),
+                F::from_u32(5),
+                F::from_u32(6),
+                F::from_u32(7)
+            ]
+        );
+
+        // Verify ALL 32 evaluations using naive computation
+        //
+        // For each index i in [0, 31], compute eq(w_inner, binary(i)) naively
+        for i in 0usize..32 {
+            // Extract binary representation of i to get hypercube point x
+            //
+            // eq(w; x) = ∏_{j=0}^{4} (w_j * x_j + (1 - w_j) * (1 - x_j))
+            let expected: F = (0..5)
+                .map(|j| {
+                    // Extract j-th bit of i (from most significant to least significant)
+                    let x_j = F::from_u32(((i >> (4 - j)) & 1) as u32);
+                    let w_j = w_inner[j];
+                    // Compute the j-th term of the product
+                    w_j * x_j + (F::ONE - w_j) * (F::ONE - x_j)
+                })
+                .product();
+
+            assert_eq!(
+                evals.as_slice()[i],
+                expected,
+                "Mismatch at index {i} (binary: {i:05b})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_svo_eq_evals_inner_minimal() {
+        // SETUP: Minimal case with 4 variables and START_ROUND = 1
+        // Point: w = (w_0, w_1, w_2, w_3)
+        // Half: l/2 = 4/2 = 2
+        // Inner variables: w_1, w_2 (from index 1 to 2 inclusive)
+        const START_ROUND: usize = 1;
+
+        let p0 = F::from_u32(7);
+        let p1 = F::from_u32(11);
+        let p2 = F::from_u32(13);
+        let p3 = F::from_u32(17);
+        let point = MultilinearPoint::new(vec![p0, p1, p2, p3]);
+
+        let evals = point.svo_e_in_table::<START_ROUND>();
+
+        // VERIFICATION: Should return 2^2 = 4 evaluations
+        assert_eq!(evals.num_evals(), 4);
+
+        #[allow(clippy::range_plus_one)]
+        let w_inner = &point.as_slice()[START_ROUND..START_ROUND + 2];
+        assert_eq!(w_inner, &[p1, p2]);
+
+        // Verify ALL 4 evaluations using manual naive computation
+        // eq(w; x) = ∏ (w_i * x_i + (1 - w_i) * (1 - x_i))
+        let expected = [
+            // Index 0 (binary 00): x = (0, 0)
+            // eq(w_inner, 00) = (1 - p1) * (1 - p2)
+            (F::ONE - p1) * (F::ONE - p2),
+            // Index 1 (binary 01): x = (0, 1)
+            // eq(w_inner, 01) = (1 - p1) * p2
+            (F::ONE - p1) * p2,
+            // Index 2 (binary 10): x = (1, 0)
+            // eq(w_inner, 10) = p1 * (1 - p2)
+            p1 * (F::ONE - p2),
+            // Index 3 (binary 11): x = (1, 1)
+            // eq(w_inner, 11) = p1 * p2
+            p1 * p2,
+        ];
+
+        assert_eq!(evals.as_slice(), &expected);
+    }
+
+    #[test]
+    fn test_svo_eq_evals_inner_different_start_rounds() {
+        // SETUP: Test that different START_ROUND values extract different slices
+        let point = MultilinearPoint::new(vec![
+            F::from_u32(2),
+            F::from_u32(3),
+            F::from_u32(5),
+            F::from_u32(7),
+            F::from_u32(11),
+            F::from_u32(13),
+            F::from_u32(17),
+            F::from_u32(19),
+        ]);
+
+        // With START_ROUND = 1, inner variables are w_1, w_2, w_3, w_4
+        let evals_1 = point.svo_e_in_table::<1>();
+        assert_eq!(evals_1.num_evals(), 16); // 2^4
+
+        // With START_ROUND = 2, inner variables are w_2, w_3, w_4, w_5
+        let evals_2 = point.svo_e_in_table::<2>();
+        assert_eq!(evals_2.num_evals(), 16); // 2^4
+
+        // They should produce different results since they use different variable slices
+        assert_ne!(evals_1.as_slice(), evals_2.as_slice());
+
+        // Verify the extraction is correct for START_ROUND = 2
+        let w_inner = &point.as_slice()[2..6];
+        let expected = EvaluationsList::new_from_point(w_inner, F::ONE);
+        assert_eq!(evals_2.as_slice(), expected.as_slice());
     }
 }
