@@ -12,9 +12,7 @@ use crate::{
 };
 
 /// One accumulator vector per SVO round.
-/// - `accumulators[0]` has 2^1 = 2 elements for A_0(u)
-/// - `accumulators[1]` has 2^2 = 4 elements for A_1(v, u)
-/// - `accumulators[2]` has 2^3 = 8 elements for A_2(v, u)
+/// - `accumulators[i]` has 2^i accumulators for A_i(v, u)
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Accumulators<F: Field>([Vec<F>; NUM_SVO_ROUNDS]);
 
@@ -22,13 +20,12 @@ impl<F> Accumulators<F>
 where
     F: Field,
 {
-    /// In round 0, we have 2 accumulators: A_0(u) with u in {0, 1}.
-    /// In round 1, we have 4 accumulators: A_1(v, u) with v in {0, 1} and u in {0, 1}.
-    /// In round 2, we have 8 accumulators: A_2(v, u) with v in {0, 1}^2 and u in {0, 1}.
+    /// In round i, we have 2^i accumulators: A_i(v, u) with v in {0, 1}^i and u in {0, 1}.
+    ///
     /// We won't need accumulators with any digit as infinity.
     #[must_use]
     pub fn new_empty() -> Self {
-        Self([F::zero_vec(2), F::zero_vec(4), F::zero_vec(8)])
+        Self(core::array::from_fn(|i| F::zero_vec(1 << (i + 1))))
     }
 
     /// Adds a value to a specific accumulator.
