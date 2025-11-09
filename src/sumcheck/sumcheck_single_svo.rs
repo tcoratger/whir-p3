@@ -15,7 +15,9 @@ use crate::{
 };
 
 /// Number of SVO rounds (first 3 rounds use special optimized algorithm).
-const NUM_SVO_ROUNDS: usize = 3;
+///
+/// This follows <https://eprint.iacr.org/2025/1117>.
+pub(crate) const NUM_SVO_ROUNDS: usize = 3;
 
 impl<F, EF> SumcheckSingle<F, EF>
 where
