@@ -493,11 +493,10 @@ mod tests {
     use alloc::vec;
 
     use p3_baby_bear::BabyBear;
-    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
-    use rand::{RngCore, SeedableRng, rngs::SmallRng};
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 
     use super::*;
-    use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
+    use crate::poly::evals::EvaluationsList;
 
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;
