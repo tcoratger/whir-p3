@@ -152,11 +152,11 @@ where
     /// <https://eprint.iacr.org/2025/1117>, specifically in Procedure 9.
     ///
     /// Given a point `w = (w_0, ..., w_{n-1})` and parameters:
-    /// - `START_ROUND`: The number of initial SVO rounds (typically 3)
+    /// - `NUM_SVO_ROUNDS`: The number of initial SVO rounds (typically 3)
     /// - `l = n`: The total number of variables
     /// - `l/2`: Half of the total variables
     ///
-    /// This computes the equality polynomial `eq(w_{START_ROUND}, ..., w_{START_ROUND + l/2 - 1}; x)`
+    /// This computes the equality polynomial `eq(w_{NUM_SVO_ROUNDS}, ..., w_{NUM_SVO_ROUNDS + l/2 - 1}; x)`
     /// evaluated at all points `x ∈ {0,1}^{l/2}`.
     ///
     /// ## Mathematical Background
@@ -168,7 +168,7 @@ where
     ///
     /// This method evaluates this polynomial at all `2^{l/2}` hypercube points by extracting
     /// the **middle** or **inner** segment of variables from the full point:
-    /// - The first `START_ROUND` variables are skipped (used in earlier rounds)
+    /// - The first `NUM_SVO_ROUNDS` variables are skipped (used in earlier rounds)
     /// - The next `l/2` variables form the "inner" segment used for this computation
     /// - The remaining variables are used separately in the "outer" computation
     ///
@@ -181,7 +181,7 @@ where
     ///
     /// Given a 10-variable witness:
     /// - `w` (`l=10`) -> `l/2 = 5`
-    /// - `START_ROUND = 3` (`k=3`):
+    /// - `NUM_SVO_ROUNDS = 3` (`k=3`):
     ///
     /// The variables are partitioned as:
     ///
@@ -192,9 +192,94 @@ where
     /// This function will:
     /// 1.  Extract the **Inner** slice: `w_inner = (w_3, w_4, w_5, w_6, w_7)`.
     /// 2.  Compute `eq(w_inner, x)` for all `x` in `{0,1}^5`.
-    pub fn svo_e_in_table<const START_ROUND: usize>(&self) -> EvaluationsList<F> {
+    pub fn svo_e_in_table<const NUM_SVO_ROUNDS: usize>(&self) -> EvaluationsList<F> {
         let half_l = self.num_variables() / 2;
-        EvaluationsList::new_from_point(&self.0[START_ROUND..START_ROUND + half_l], F::ONE)
+        EvaluationsList::new_from_point(&self.0[NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + half_l], F::ONE)
+    }
+
+    /// Computes equality polynomial evaluations over the outer variables for each SVO round.
+    ///
+    /// This method is used in the Small Value Optimization (SVO) algorithm described in
+    /// <https://eprint.iacr.org/2025/1117>, specifically in Procedure 9.
+    ///
+    /// For each round `i` in `[0, NUM_SVO_ROUNDS)`, this computes the equality polynomial
+    /// over the **"outer"** variables—those that are neither in the first `i+1` prefix variables
+    /// nor in the middle "inner" segment.
+    ///
+    /// ## Mathematical Background
+    ///
+    /// For round `i`, we compute:
+    /// ```ignore
+    ///     E_out[i](y) = eq(w_{outer_i}; y)
+    /// ```
+    /// where `w_{outer_i}` is formed by concatenating:
+    /// - `w[i+1..NUM_SVO_ROUNDS]`: Prefix variables after round `i` but before inner segment
+    /// - `w[half_l + NUM_SVO_ROUNDS..]`: Variables after the inner segment (outer suffix)
+    ///
+    /// ## Variable Partitioning
+    ///
+    /// Given a witness `w = (w_0, ..., w_{n-1})` with `l = n` variables:
+    ///
+    /// ```ignore
+    /// For round i=0:
+    ///   w = (w_0 | w_1, w_2 | w_3, ..., w_7 | w_8, w_9)
+    ///        \__/  \______/   \___________/  \_______/
+    ///        used   prefix    inner (l/2=5)    outer
+    ///
+    /// For round i=1:
+    ///   w = (w_0, w_1 | w_2 | w_3, ..., w_7 | w_8, w_9)
+    ///        \______/   \_/   \___________/   \______/
+    ///          used    prefix  inner (l/2=5)   outer
+    ///
+    /// For round i=2:
+    ///   w = (w_0, w_1, w_2 | w_3, ..., w_7 | w_8, w_9)
+    ///        \___________/   \___________/  \_______/
+    ///            used        inner (l/2=5)    outer
+    /// ```
+    ///
+    /// The "outer" for round `i` consists of:
+    /// - Variables `w[i+1..NUM_SVO_ROUNDS]` (the remaining prefix)
+    /// - Variables `w[half_l + NUM_SVO_ROUNDS..]` (the suffix after inner)
+    ///
+    /// ## Returns
+    ///
+    /// An array of `NUM_SVO_ROUNDS` evaluation lists, where `E_out[i]` contains
+    /// `2^(# outer variables for round i)` field elements representing
+    /// `eq(w_{outer_i}; x)` for all hypercube points `x`.
+    ///
+    /// ## Example
+    ///
+    /// For a 10-variable point with `NUM_SVO_ROUNDS = 3`:
+    /// - Round 0: outer = (w_1, w_2, w_8, w_9) → 2^4 = 16 evaluations
+    /// - Round 1: outer = (w_2, w_8, w_9) → 2^3 = 8 evaluations
+    /// - Round 2: outer = (w_8, w_9) → 2^2 = 4 evaluations
+    pub fn svo_e_out_tables<const NUM_SVO_ROUNDS: usize>(
+        &self,
+    ) -> [EvaluationsList<F>; NUM_SVO_ROUNDS] {
+        // Compute l/2: the split point between inner and outer suffix
+        let half_l = self.num_variables() / 2;
+
+        // For each round, we'll extract the "outer" variables and compute their eq evaluations
+        // The length of the outer segment: total variables - half_l (inner) - 1 (current round var)
+        let w_out_len = self.num_variables() - half_l - 1;
+
+        core::array::from_fn(|round| {
+            // Build the outer variable slice for this round by concatenating two segments:
+            // - Segment 1: Variables from (round+1) to NUM_SVO_ROUNDS (remaining prefix)
+            // - Segment 2: Variables from (half_l + NUM_SVO_ROUNDS) onwards (outer suffix)
+            let mut w_out = Vec::with_capacity(w_out_len);
+
+            // Extract segment 1: w[round+1..NUM_SVO_ROUNDS]
+            // These are the prefix variables not yet used in earlier rounds
+            w_out.extend_from_slice(&self.0[round + 1..NUM_SVO_ROUNDS]);
+
+            // Extract segment 2: w[half_l + NUM_SVO_ROUNDS..]
+            // These are the variables after the inner segment (the outer suffix)
+            w_out.extend_from_slice(&self.0[half_l + NUM_SVO_ROUNDS..]);
+
+            // Compute eq(w_out; x) for all x in the hypercube
+            EvaluationsList::new_from_point(&w_out, F::ONE)
+        })
     }
 
     /// Evaluates the equality polynomial `eq(self, X)` at a folded challenge point.
@@ -750,23 +835,23 @@ mod tests {
 
     #[test]
     fn test_svo_eq_evals_inner_basic() {
-        // SETUP: 10-variable point with START_ROUND = 3
+        // SETUP: 10-variable point with NUM_SVO_ROUNDS = 3
         // Point: w = (w_0, w_1, ..., w_9)
         // Half: l/2 = 10/2 = 5
         // Inner variables: w_3, w_4, w_5, w_6, w_7 (from index 3 to 7 inclusive)
-        const START_ROUND: usize = 3;
+        const NUM_SVO_ROUNDS: usize = 3;
 
         let w: Vec<F> = (0..10).map(F::from_u32).collect();
         let point = MultilinearPoint::new(w);
 
         // Compute inner eq evaluations using the method under test
-        let evals = point.svo_e_in_table::<START_ROUND>();
+        let evals = point.svo_e_in_table::<NUM_SVO_ROUNDS>();
 
         // VERIFICATION: Should return 2^5 = 32 evaluations
         assert_eq!(evals.num_evals(), 32);
 
         // Extract the inner variables manually for comparison
-        let w_inner = &point.as_slice()[START_ROUND..START_ROUND + 5];
+        let w_inner = &point.as_slice()[NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + 5];
         assert_eq!(
             w_inner,
             &[
@@ -805,11 +890,11 @@ mod tests {
 
     #[test]
     fn test_svo_eq_evals_inner_minimal() {
-        // SETUP: Minimal case with 4 variables and START_ROUND = 1
+        // SETUP: Minimal case with 4 variables and NUM_SVO_ROUNDS = 1
         // Point: w = (w_0, w_1, w_2, w_3)
         // Half: l/2 = 4/2 = 2
         // Inner variables: w_1, w_2 (from index 1 to 2 inclusive)
-        const START_ROUND: usize = 1;
+        const NUM_SVO_ROUNDS: usize = 1;
 
         let p0 = F::from_u32(7);
         let p1 = F::from_u32(11);
@@ -817,13 +902,13 @@ mod tests {
         let p3 = F::from_u32(17);
         let point = MultilinearPoint::new(vec![p0, p1, p2, p3]);
 
-        let evals = point.svo_e_in_table::<START_ROUND>();
+        let evals = point.svo_e_in_table::<NUM_SVO_ROUNDS>();
 
         // VERIFICATION: Should return 2^2 = 4 evaluations
         assert_eq!(evals.num_evals(), 4);
 
         #[allow(clippy::range_plus_one)]
-        let w_inner = &point.as_slice()[START_ROUND..START_ROUND + 2];
+        let w_inner = &point.as_slice()[NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + 2];
         assert_eq!(w_inner, &[p1, p2]);
 
         // Verify ALL 4 evaluations using manual naive computation
@@ -848,7 +933,7 @@ mod tests {
 
     #[test]
     fn test_svo_eq_evals_inner_different_start_rounds() {
-        // SETUP: Test that different START_ROUND values extract different slices
+        // SETUP: Test that different NUM_SVO_ROUNDS values extract different slices
         let point = MultilinearPoint::new(vec![
             F::from_u32(2),
             F::from_u32(3),
@@ -860,20 +945,235 @@ mod tests {
             F::from_u32(19),
         ]);
 
-        // With START_ROUND = 1, inner variables are w_1, w_2, w_3, w_4
+        // With NUM_SVO_ROUNDS = 1, inner variables are w_1, w_2, w_3, w_4
         let evals_1 = point.svo_e_in_table::<1>();
         assert_eq!(evals_1.num_evals(), 16); // 2^4
 
-        // With START_ROUND = 2, inner variables are w_2, w_3, w_4, w_5
+        // With NUM_SVO_ROUNDS = 2, inner variables are w_2, w_3, w_4, w_5
         let evals_2 = point.svo_e_in_table::<2>();
         assert_eq!(evals_2.num_evals(), 16); // 2^4
 
         // They should produce different results since they use different variable slices
         assert_ne!(evals_1.as_slice(), evals_2.as_slice());
 
-        // Verify the extraction is correct for START_ROUND = 2
+        // Verify the extraction is correct for NUM_SVO_ROUNDS = 2
         let w_inner = &point.as_slice()[2..6];
         let expected = EvaluationsList::new_from_point(w_inner, F::ONE);
         assert_eq!(evals_2.as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn test_svo_e_out_tables_sizes() {
+        // SETUP: 10-variable point with NUM_SVO_ROUNDS = 3
+        // Verify that each round produces the correct number of evaluations
+        const NUM_SVO_ROUNDS: usize = 3;
+
+        let w: Vec<F> = (0..10).map(F::from_u32).collect();
+        let point = MultilinearPoint::new(w);
+
+        let e_out = point.svo_e_out_tables::<NUM_SVO_ROUNDS>();
+
+        // Round 0: outer = (w_1, w_2, w_8, w_9) → 4 variables → 2^4 = 16 evaluations
+        assert_eq!(e_out[0].num_evals(), 16);
+
+        // Round 1: outer = (w_2, w_8, w_9) → 3 variables → 2^3 = 8 evaluations
+        assert_eq!(e_out[1].num_evals(), 8);
+
+        // Round 2: outer = (w_8, w_9) → 2 variables → 2^2 = 4 evaluations
+        assert_eq!(e_out[2].num_evals(), 4);
+    }
+
+    #[test]
+    fn test_svo_e_out_tables_minimal() {
+        // SETUP: Minimal 4-variable point with NUM_SVO_ROUNDS = 1
+        // Point: w = (w_0, w_1, w_2, w_3)
+        // half_l = 2
+        // Round 0: outer = (w_3) → 1 variable
+        const NUM_SVO_ROUNDS: usize = 1;
+
+        let p0 = F::from_u32(7);
+        let p1 = F::from_u32(11);
+        let p2 = F::from_u32(13);
+        let p3 = F::from_u32(17);
+        let point = MultilinearPoint::new(vec![p0, p1, p2, p3]);
+
+        let e_out = point.svo_e_out_tables::<NUM_SVO_ROUNDS>();
+
+        // Should have 1 table for 1 round
+        assert_eq!(e_out.len(), 1);
+
+        // Round 0: outer variables should be (w_3)
+        // Extraction:
+        // - w[round+1..NUM_SVO_ROUNDS] = w[1..1] = empty
+        // - w[half_l + NUM_SVO_ROUNDS..] = w[2+1..] = w[3..4] = (w_3)
+        // This gives us 2^1 = 2 evaluations
+        assert_eq!(e_out[0].num_evals(), 2);
+
+        // Verify ALL 2 evaluations using manual computation
+        // eq(w_outer, x) for x in {0, 1}
+        let expected = [
+            // Index 0 (binary 0): eq((p3), (0))
+            F::ONE - p3,
+            // Index 1 (binary 1): eq((p3), (1))
+            p3,
+        ];
+
+        assert_eq!(e_out[0].as_slice(), &expected);
+    }
+
+    #[test]
+    fn test_svo_e_out_tables_comprehensive() {
+        // SETUP: 10-variable point with NUM_SVO_ROUNDS = 3
+        // Verify ALL evaluations for each round using naive manual computation
+        const NUM_SVO_ROUNDS: usize = 3;
+
+        let mut rng = SmallRng::seed_from_u64(123);
+        let w: Vec<F> = (0..10).map(|_| rng.random()).collect();
+        let point = MultilinearPoint::new(w.clone());
+
+        let e_out = point.svo_e_out_tables::<NUM_SVO_ROUNDS>();
+
+        // Check that we have `NUM_SVO_ROUNDS` rounds
+        assert_eq!(e_out.len(), NUM_SVO_ROUNDS);
+
+        // ROUND 0
+        //
+        // For round 0, outer variables are: (w_1, w_2, w_8, w_9)
+        // Partitioning: w = (w_0 | w_1, w_2 | w_3..w_7 | w_8, w_9)
+        //                    used   outer      inner      outer
+        // This gives 4 variables → 2^4 = 16 evaluations
+        assert_eq!(e_out[0].num_evals(), 16);
+
+        // Extract outer variables manually for clarity
+        let outer_0 = [w[1], w[2], w[8], w[9]];
+
+        // Verify ALL 16 evaluations using naive computation
+        for i in 0usize..16 {
+            // For each hypercube point x ∈ {0,1}^4, compute eq(outer_0, x)
+            //
+            // eq(w; x) = ∏_{j=0}^{3} (w_j * x_j + (1 - w_j) * (1 - x_j))
+            let expected: F = (0..4)
+                .map(|j| {
+                    // Extract j-th bit of i to get the j-th component of x
+                    let x_j = F::from_u32(((i >> (3 - j)) & 1) as u32);
+                    let w_j = outer_0[j];
+                    // Compute the equality polynomial term
+                    w_j * x_j + (F::ONE - w_j) * (F::ONE - x_j)
+                })
+                .product();
+
+            assert_eq!(
+                e_out[0].as_slice()[i],
+                expected,
+                "Round 0: Mismatch at index {i} (binary: {i:04b})"
+            );
+        }
+
+        // ROUND 1
+        //
+        // For round 1, outer variables are: (w_2, w_8, w_9)
+        // Partitioning: w = (w_0, w_1 | w_2 | w_3..w_7 | w_8, w_9)
+        //                    used      outer   inner      outer
+        // This gives 3 variables → 2^3 = 8 evaluations
+        assert_eq!(e_out[1].num_evals(), 8);
+
+        let outer_1 = [w[2], w[8], w[9]];
+
+        // Verify ALL 8 evaluations using naive computation
+        for i in 0usize..8 {
+            let expected: F = (0..3)
+                .map(|j| {
+                    let x_j = F::from_u32(((i >> (2 - j)) & 1) as u32);
+                    let w_j = outer_1[j];
+                    w_j * x_j + (F::ONE - w_j) * (F::ONE - x_j)
+                })
+                .product();
+
+            assert_eq!(
+                e_out[1].as_slice()[i],
+                expected,
+                "Round 1: Mismatch at index {i} (binary: {i:03b})"
+            );
+        }
+
+        // ROUND 2
+        //
+        // For round 2, outer variables are: (w_8, w_9)
+        // Partitioning: w = (w_0, w_1, w_2 | w_3..w_7 | w_8, w_9)
+        //                         used        inner      outer
+        // This gives 2 variables → 2^2 = 4 evaluations
+        assert_eq!(e_out[2].num_evals(), 4);
+
+        let outer_2 = [w[8], w[9]];
+
+        // Verify ALL 4 evaluations using naive computation
+        for i in 0usize..4 {
+            let expected: F = (0..2)
+                .map(|j| {
+                    let x_j = F::from_u32(((i >> (1 - j)) & 1) as u32);
+                    let w_j = outer_2[j];
+                    w_j * x_j + (F::ONE - w_j) * (F::ONE - x_j)
+                })
+                .product();
+
+            assert_eq!(
+                e_out[2].as_slice()[i],
+                expected,
+                "Round 2: Mismatch at index {i} (binary: {i:02b})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_svo_e_out_tables_round_0_manual() {
+        // SETUP: 6-variable point with NUM_SVO_ROUNDS = 2
+        // Manually verify round 0 computations
+        const NUM_SVO_ROUNDS: usize = 2;
+
+        let p0 = F::from_u32(2);
+        let p1 = F::from_u32(3);
+        let p2 = F::from_u32(5);
+        let p3 = F::from_u32(7);
+        let p4 = F::from_u32(11);
+        let p5 = F::from_u32(13);
+        let point = MultilinearPoint::new(vec![p0, p1, p2, p3, p4, p5]);
+
+        let e_out = point.svo_e_out_tables::<NUM_SVO_ROUNDS>();
+
+        // Round 0: outer = (w_1, w_5)
+        // half_l = 3, so:
+        // - Prefix segment: w[1..2] = (w_1)
+        // - Outer suffix: w[3+2..6] = w[5..6] = (w_5)
+        // So outer_0 = (w_1, w_5) → 2 variables → 4 evaluations
+
+        assert_eq!(e_out[0].num_evals(), 4);
+
+        // Verify all 4 evaluations manually
+        let expected_0 = [
+            // Index 0 (binary 00): eq((p1, p5), (0, 0))
+            (F::ONE - p1) * (F::ONE - p5),
+            // Index 1 (binary 01): eq((p1, p5), (0, 1))
+            (F::ONE - p1) * p5,
+            // Index 2 (binary 10): eq((p1, p5), (1, 0))
+            p1 * (F::ONE - p5),
+            // Index 3 (binary 11): eq((p1, p5), (1, 1))
+            p1 * p5,
+        ];
+
+        assert_eq!(e_out[0].as_slice(), &expected_0);
+
+        // Round 1: outer = (w_5)
+        // Round 1: w[2..2] = empty
+        //          w[3+2..6] = w[5..6] = (w_5)
+        // So outer_1 = (w_5) → 1 variable → 2 evaluations
+
+        assert_eq!(e_out[1].num_evals(), 2);
+
+        let expected_1 = [
+            F::ONE - p5, // eq((p5), (0))
+            p5,          // eq((p5), (1))
+        ];
+
+        assert_eq!(e_out[1].as_slice(), &expected_1);
     }
 }
