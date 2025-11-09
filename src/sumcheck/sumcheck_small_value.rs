@@ -38,7 +38,7 @@ where
 
     /// Gets the slice of accumulators for a given round.
     #[must_use]
-    pub fn get_accumulators_for_round(&self, round: usize) -> &[F] {
+    pub fn at_round(&self, round: usize) -> &[F] {
         &self.0[round]
     }
 }
@@ -186,7 +186,7 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START
     // 1. For u in {0, 1} compute t_1(u)
     // Recall: In round 1, t_1(u) = A_1(u).
     let t_1_evals: [EF; 2] = accumulators
-        .get_accumulators_for_round(0)
+        .at_round(0)
         .try_into()
         .expect("Round 0 accumulators must have 2 elements");
 
@@ -224,7 +224,7 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START
     // 1. For u in {0, 1} compute t_2(u).
     // First we take the accumulators A_2(v, u).
     // We computed 4 accumulators for round 2, since only need v in {0, 1} and u in {0, 1}.
-    let accumulators_round_2 = accumulators.get_accumulators_for_round(1);
+    let accumulators_round_2 = accumulators.at_round(1);
 
     let t_2_evals = [
         // t_2(u=0) = L_0(r_1) * A(v=0, u=0) + L_1(r_1) * A(v=1, u=0)
@@ -278,7 +278,7 @@ pub fn svo_three_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START
 
     // First we take the accumulators A_3(v, u).
     // We computed 4 accumulators at the third round for v in {0, 1}^2 and u in {0, 1}.
-    let accumulators_round_3 = accumulators.get_accumulators_for_round(2);
+    let accumulators_round_3 = accumulators.at_round(2);
 
     let t_3_evals: [EF; 2] = [
         // t_3(u=0) = Σ_{v} L_v(r_1, r_2) * A(v, u=0)
