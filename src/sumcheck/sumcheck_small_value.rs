@@ -11,39 +11,35 @@ use crate::{
     sumcheck::{eq_state::SumcheckEqState, sumcheck_single_svo::NUM_SVO_ROUNDS},
 };
 
+/// One accumulator vector per SVO round.
+/// - `accumulators[0]` has 2^1 = 2 elements for A_0(u)
+/// - `accumulators[1]` has 2^2 = 4 elements for A_1(v, u)
+/// - `accumulators[2]` has 2^3 = 8 elements for A_2(v, u)
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Accumulators<F: Field> {
-    /// One accumulator vector per SVO round.
-    /// - `accumulators[0]` has 2^1 = 2 elements for A_0(u)
-    /// - `accumulators[1]` has 2^2 = 4 elements for A_1(v, u)
-    /// - `accumulators[2]` has 2^3 = 8 elements for A_2(v, u)
-    pub accumulators: [Vec<F>; NUM_SVO_ROUNDS],
-}
+pub struct Accumulators<F: Field>([Vec<F>; NUM_SVO_ROUNDS]);
 
 impl<F> Accumulators<F>
 where
     F: Field,
 {
+    /// In round 0, we have 2 accumulators: A_0(u) with u in {0, 1}.
+    /// In round 1, we have 4 accumulators: A_1(v, u) with v in {0, 1} and u in {0, 1}.
+    /// In round 2, we have 8 accumulators: A_2(v, u) with v in {0, 1}^2 and u in {0, 1}.
+    /// We won't need accumulators with any digit as infinity.
     #[must_use]
     pub fn new_empty() -> Self {
-        Self {
-            // In round 0, we have 2 accumulators: A_0(u) with u in {0, 1}.
-            // In round 1, we have 4 accumulators: A_1(v, u) with v in {0, 1} and u in {0, 1}.
-            // In round 2, we have 8 accumulators: A_2(v, u) with v in {0, 1}^2 and u in {0, 1}.
-            // We won't need accumulators with any digit as infinity.
-            accumulators: [F::zero_vec(2), F::zero_vec(4), F::zero_vec(8)],
-        }
+        Self([F::zero_vec(2), F::zero_vec(4), F::zero_vec(8)])
     }
 
     /// Adds a value to a specific accumulator.
     pub fn accumulate(&mut self, round: usize, index: usize, value: F) {
-        self.accumulators[round][index] += value;
+        self.0[round][index] += value;
     }
 
     /// Gets the slice of accumulators for a given round.
     #[must_use]
     pub fn get_accumulators_for_round(&self, round: usize) -> &[F] {
-        &self.accumulators[round]
+        &self.0[round]
     }
 }
 
@@ -52,9 +48,9 @@ impl<F: Field> Add for Accumulators<F> {
 
     fn add(mut self, other: Self) -> Self {
         for i in 0..NUM_SVO_ROUNDS {
-            self.accumulators[i]
+            self.0[i]
                 .iter_mut()
-                .zip(other.accumulators[i].iter())
+                .zip(other.0[i].iter())
                 .for_each(|(a, b)| *a += *b);
         }
         self
