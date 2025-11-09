@@ -18,7 +18,7 @@ pub const NUM_SVO_ROUNDS: usize = 3;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Accumulators<F: Field> {
     /// One accumulator vector per SVO round.
-    ///- `accumulators[0]` has 2^1 = 2 elements for A_0(u)
+    /// - `accumulators[0]` has 2^1 = 2 elements for A_0(u)
     /// - `accumulators[1]` has 2^2 = 4 elements for A_1(v, u)
     /// - `accumulators[2]` has 2^3 = 8 elements for A_2(v, u)
     pub accumulators: [Vec<F>; NUM_SVO_ROUNDS],
@@ -349,9 +349,9 @@ where
     let remaining_vars = evals.num_variables() - num_challenges;
     let num_remaining_evals = 1 << remaining_vars;
 
-    let eq_evals: Vec<EF> = EvaluationsList::new_from_point(challenges, EF::ONE).0;
+    let eq_evals = EvaluationsList::new_from_point(challenges, EF::ONE);
 
-    let folded_evals_flat: Vec<EF> = (0..num_remaining_evals)
+    let folded_evals_flat = (0..num_remaining_evals)
         .into_par_iter()
         .map(|i| {
             // Use the multilinear extension formula: p(r, x') = Σ_{b} eq(r, b) * p(b, x')
@@ -387,7 +387,7 @@ where
 ///
 /// `[t_i(0), t_i(1)]` - the evaluations of the round polynomial at 0 and 1.
 pub fn compute_standard_round_poly_evals<EF>(
-    poly_slice: &[EF],
+    poly: &EvaluationsList<EF>,
     eq_l: &[EF],
     eq_r: &[EF],
     num_vars_x_r: usize,
@@ -397,7 +397,8 @@ pub fn compute_standard_round_poly_evals<EF>(
 where
     EF: ExtensionField<EF> + Send + Sync,
 {
-    let num_vars_poly_current = poly_slice.len().ilog2() as usize;
+    let num_vars_poly_current = poly.num_variables();
+    let poly_slice = poly.as_slice();
 
     if round <= half_l {
         // Case round <= l/2: Use eq_L and eq_R
@@ -447,7 +448,6 @@ pub fn algorithm_5<Challenger, F, EF, const START_ROUND: usize>(
 
     // Main loop: compute rounds from start_round to num_vars-1
     for i in start_round..num_vars {
-        let poly_slice = poly.as_slice();
         let round = i + 1;
 
         // Get precomputed tables from unified struct
@@ -457,7 +457,7 @@ pub fn algorithm_5<Challenger, F, EF, const START_ROUND: usize>(
 
         // Compute t_i(u) for u in {0, 1}
         let t_evals =
-            compute_standard_round_poly_evals(poly_slice, eq_l, eq_r, num_vars_x_r, half_l, round);
+            compute_standard_round_poly_evals(poly, eq_l, eq_r, num_vars_x_r, half_l, round);
 
         // Compute S_i(u) = t_i(u) * l_i(u) for u in {0, inf}
         // - S_i(0) = t_i(0) * l_i(0)
