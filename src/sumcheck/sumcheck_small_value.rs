@@ -8,12 +8,8 @@ use p3_maybe_rayon::prelude::*;
 use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::eq_state::SumcheckEqState,
+    sumcheck::{eq_state::SumcheckEqState, sumcheck_single_svo::NUM_SVO_ROUNDS},
 };
-
-/// We apply the small value optimization (SVO) for the first three sumcheck rounds,
-/// following this paper <https://eprint.iacr.org/2025/1117>.
-pub const NUM_SVO_ROUNDS: usize = 3;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Accumulators<F: Field> {
