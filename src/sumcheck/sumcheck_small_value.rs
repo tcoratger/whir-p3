@@ -162,11 +162,11 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
 
 /// Algorithm 6. Page 19.
 /// Compute three sumcheck rounds using the small value optimization and split-eq accumulators.
-pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>, const START_ROUND: usize>(
+pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &EvaluationsList<F>,
     w: &MultilinearPoint<EF>,
-    eq_poly: &mut SumcheckEqState<'_, EF, START_ROUND>,
+    eq_poly: &mut SumcheckEqState<'_, EF, NUM_SVO_ROUNDS>,
     challenges: &mut Vec<EF>,
     sum: &mut EF,
     pow_bits: usize,
@@ -418,10 +418,10 @@ where
 
 /// Algorithm 5. Page 18.
 /// Compute the remaining sumcheck rounds, from round l0 + 1 to round l.
-pub fn algorithm_5<Challenger, F, EF, const START_ROUND: usize>(
+pub fn algorithm_5<Challenger, F, EF>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     poly: &mut EvaluationsList<EF>,
-    eq_poly: &mut SumcheckEqState<'_, EF, START_ROUND>,
+    eq_poly: &mut SumcheckEqState<'_, EF, NUM_SVO_ROUNDS>,
     challenges: &mut Vec<EF>,
     sum: &mut EF,
     pow_bits: usize,
