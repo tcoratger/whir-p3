@@ -54,28 +54,13 @@ impl<F: Field> Add for Accumulators<F> {
     }
 }
 
-/// Precomputation needed for Procedure 9 (compute_accumulators).
-/// Compute three E_out vectors, one per round i in {0, 1, 2}.
-/// For each i, E_out = eq(w_{i+1}, ..., l0, w_{l/2 + l0 + 1}, ..., w_l ; x)
-fn precompute_e_out<F: Field>(w: &MultilinearPoint<F>) -> [Vec<F>; NUM_SVO_ROUNDS] {
-    let half_l = w.num_variables() / 2;
-    let w_out_len = w.num_variables() - half_l - 1;
-
-    core::array::from_fn(|round| {
-        let mut w_out = Vec::with_capacity(w_out_len);
-        w_out.extend_from_slice(&w.0[round + 1..NUM_SVO_ROUNDS]);
-        w_out.extend_from_slice(&w.0[half_l + NUM_SVO_ROUNDS..]);
-        EvaluationsList::new_from_point(&w_out, F::ONE).0
-    })
-}
-
 /// Procedure 9. Page 37.
 /// We compute only the accumulators that we'll use, that is,
 /// A_i(v, u) for i in {0, 1, 2}, v in {0, 1}^{i}, and u in {0, 1}.
 fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
     poly: &EvaluationsList<F>,
     e_in: &EvaluationsList<EF>,
-    e_out: &[Vec<EF>; NUM_SVO_ROUNDS],
+    e_out: &[EvaluationsList<EF>; NUM_SVO_ROUNDS],
 ) -> Accumulators<EF> {
     let l = poly.num_variables();
     let half_l = l / 2;
@@ -114,15 +99,15 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
             let [t0, t1, t2, t3, t4, t5, t6, t7] = temp_accumulators;
             // Get E_out(y, x_out) for this x_out
             // Round 0 (i=0) -> y=(b1,b2) -> 2 bits
-            let e0_0 = e_out[0][x_out]; // y=00
-            let e0_1 = e_out[0][(1 << x_out_num_vars) | x_out]; // y=01
-            let e0_2 = e_out[0][(2 << x_out_num_vars) | x_out]; // y=10
-            let e0_3 = e_out[0][(3 << x_out_num_vars) | x_out]; // y=11
+            let e0_0 = e_out[0].0[x_out]; // y=00
+            let e0_1 = e_out[0].0[(1 << x_out_num_vars) | x_out]; // y=01
+            let e0_2 = e_out[0].0[(2 << x_out_num_vars) | x_out]; // y=10
+            let e0_3 = e_out[0].0[(3 << x_out_num_vars) | x_out]; // y=11
             // Round 1 (i=1) -> y=(b2) -> 1 bit
-            let e1_0 = e_out[1][x_out]; // y=0
-            let e1_1 = e_out[1][(1 << x_out_num_vars) | x_out]; // y=1
+            let e1_0 = e_out[1].0[x_out]; // y=0
+            let e1_1 = e_out[1].0[(1 << x_out_num_vars) | x_out]; // y=1
             // Round 2 (i=2) -> y=() -> 0 bits
-            let e2 = e_out[2][x_out]; // y=()
+            let e2 = e_out[2].0[x_out]; // y=()
             // Round 0 (i=0)
             // A_0(u=0) = Σ_{y} E_out_0(y) * tA( (u=0, y), x_out )
             local_accumulators.accumulate(0, 0, e0_0 * t0 + e0_1 * t1 + e0_2 * t2 + e0_3 * t3);
@@ -167,7 +152,7 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
 {
     let (e_in, e_out) = join(
         || w.svo_e_in_table::<NUM_SVO_ROUNDS>(),
-        || precompute_e_out(w),
+        || w.svo_e_out_tables::<NUM_SVO_ROUNDS>(),
     );
 
     // We compute all the accumulators A_i(v, u).
@@ -578,84 +563,84 @@ mod tests {
             .collect();
 
         let w = MultilinearPoint::new(w);
-        let e_out = precompute_e_out(&w);
+        let e_out = w.svo_e_out_tables::<NUM_SVO_ROUNDS>();
 
         // Round 1:
-        assert_eq!(e_out[0].len(), 16);
+        assert_eq!(e_out[0].num_evals(), 16);
 
         assert_eq!(
-            e_out[0][0],
+            e_out[0].0[0],
             (EF::ONE - w[1]) * (EF::ONE - w[2]) * (EF::ONE - w[8]) * (EF::ONE - w[9])
         );
         assert_eq!(
-            e_out[0][1],
+            e_out[0].0[1],
             (EF::ONE - w[1]) * (EF::ONE - w[2]) * (EF::ONE - w[8]) * w[9]
         );
         assert_eq!(
-            e_out[0][2],
+            e_out[0].0[2],
             (EF::ONE - w[1]) * (EF::ONE - w[2]) * w[8] * (EF::ONE - w[9])
         );
         assert_eq!(
-            e_out[0][3],
+            e_out[0].0[3],
             (EF::ONE - w[1]) * (EF::ONE - w[2]) * w[8] * w[9]
         );
         assert_eq!(
-            e_out[0][4],
+            e_out[0].0[4],
             (EF::ONE - w[1]) * w[2] * (EF::ONE - w[8]) * (EF::ONE - w[9])
         );
         assert_eq!(
-            e_out[0][5],
+            e_out[0].0[5],
             (EF::ONE - w[1]) * w[2] * (EF::ONE - w[8]) * w[9]
         );
         assert_eq!(
-            e_out[0][6],
+            e_out[0].0[6],
             (EF::ONE - w[1]) * w[2] * w[8] * (EF::ONE - w[9])
         );
-        assert_eq!(e_out[0][7], (EF::ONE - w[1]) * w[2] * w[8] * w[9]);
+        assert_eq!(e_out[0].0[7], (EF::ONE - w[1]) * w[2] * w[8] * w[9]);
 
         assert_eq!(
-            e_out[0][8],
+            e_out[0].0[8],
             w[1] * (EF::ONE - w[2]) * (EF::ONE - w[8]) * (EF::ONE - w[9])
         );
         assert_eq!(
-            e_out[0][9],
+            e_out[0].0[9],
             w[1] * (EF::ONE - w[2]) * (EF::ONE - w[8]) * w[9]
         );
         assert_eq!(
-            e_out[0][10],
+            e_out[0].0[10],
             w[1] * (EF::ONE - w[2]) * w[8] * (EF::ONE - w[9])
         );
-        assert_eq!(e_out[0][11], w[1] * (EF::ONE - w[2]) * w[8] * w[9]);
+        assert_eq!(e_out[0].0[11], w[1] * (EF::ONE - w[2]) * w[8] * w[9]);
         assert_eq!(
-            e_out[0][12],
+            e_out[0].0[12],
             w[1] * w[2] * (EF::ONE - w[8]) * (EF::ONE - w[9])
         );
-        assert_eq!(e_out[0][13], w[1] * w[2] * (EF::ONE - w[8]) * w[9]);
-        assert_eq!(e_out[0][14], w[1] * w[2] * w[8] * (EF::ONE - w[9]));
-        assert_eq!(e_out[0][15], w[1] * w[2] * w[8] * w[9]);
+        assert_eq!(e_out[0].0[13], w[1] * w[2] * (EF::ONE - w[8]) * w[9]);
+        assert_eq!(e_out[0].0[14], w[1] * w[2] * w[8] * (EF::ONE - w[9]));
+        assert_eq!(e_out[0].0[15], w[1] * w[2] * w[8] * w[9]);
 
         // Round 2:
-        assert_eq!(e_out[1].len(), 8);
+        assert_eq!(e_out[1].num_evals(), 8);
 
         assert_eq!(
-            e_out[1][0],
+            e_out[1].0[0],
             (EF::ONE - w[2]) * (EF::ONE - w[8]) * (EF::ONE - w[9])
         );
-        assert_eq!(e_out[1][1], (EF::ONE - w[2]) * (EF::ONE - w[8]) * w[9]);
-        assert_eq!(e_out[1][2], (EF::ONE - w[2]) * w[8] * (EF::ONE - w[9]));
-        assert_eq!(e_out[1][3], (EF::ONE - w[2]) * w[8] * w[9]);
-        assert_eq!(e_out[1][4], w[2] * (EF::ONE - w[8]) * (EF::ONE - w[9]));
-        assert_eq!(e_out[1][5], w[2] * (EF::ONE - w[8]) * w[9]);
-        assert_eq!(e_out[1][6], w[2] * w[8] * (EF::ONE - w[9]));
-        assert_eq!(e_out[1][7], w[2] * w[8] * w[9]);
+        assert_eq!(e_out[1].0[1], (EF::ONE - w[2]) * (EF::ONE - w[8]) * w[9]);
+        assert_eq!(e_out[1].0[2], (EF::ONE - w[2]) * w[8] * (EF::ONE - w[9]));
+        assert_eq!(e_out[1].0[3], (EF::ONE - w[2]) * w[8] * w[9]);
+        assert_eq!(e_out[1].0[4], w[2] * (EF::ONE - w[8]) * (EF::ONE - w[9]));
+        assert_eq!(e_out[1].0[5], w[2] * (EF::ONE - w[8]) * w[9]);
+        assert_eq!(e_out[1].0[6], w[2] * w[8] * (EF::ONE - w[9]));
+        assert_eq!(e_out[1].0[7], w[2] * w[8] * w[9]);
 
         // Round 3:
-        assert_eq!(e_out[2].len(), 4);
+        assert_eq!(e_out[2].num_evals(), 4);
 
-        assert_eq!(e_out[2][0], (EF::ONE - w[8]) * (EF::ONE - w[9]));
-        assert_eq!(e_out[2][1], (EF::ONE - w[8]) * w[9]);
-        assert_eq!(e_out[2][2], w[8] * (EF::ONE - w[9]));
-        assert_eq!(e_out[2][3], w[8] * w[9]);
+        assert_eq!(e_out[2].0[0], (EF::ONE - w[8]) * (EF::ONE - w[9]));
+        assert_eq!(e_out[2].0[1], (EF::ONE - w[8]) * w[9]);
+        assert_eq!(e_out[2].0[2], w[8] * (EF::ONE - w[9]));
+        assert_eq!(e_out[2].0[3], w[8] * w[9]);
     }
 
     fn get_random_ef() -> EF {
