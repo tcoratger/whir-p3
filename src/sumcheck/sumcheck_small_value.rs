@@ -182,10 +182,7 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
 
     // 1. For u in {0, 1} compute t_1(u)
     // Recall: In round 1, t_1(u) = A_1(u).
-    let t_1_evals: [EF; 2] = accumulators
-        .at_round(0)
-        .try_into()
-        .expect("Round 0 accumulators must have 2 elements");
+    let t_1_evals = accumulators.at_round(0);
 
     // 2. For u in {0, 1, inf} compute S_1(u) = t_1(u) * l_1(u).
 
