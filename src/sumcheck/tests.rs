@@ -2,10 +2,7 @@ use alloc::{vec, vec::Vec};
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
-use p3_field::{
-    ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
-};
-use p3_interpolation::interpolate_subgroup;
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -524,9 +521,26 @@ fn run_sumcheck_test_skips(
 
     // Final constant should be f(r), where r is the accumulated challenge point
     let final_folded_value = sumcheck.evals.as_constant().unwrap();
-    // Final constant should be f̂(r0, r_{k+1..}) under skip semantics
+
+    // Verify that the final folded value matches the polynomial evaluation under skip semantics.
+    //
+    // After the univariate skip optimization, the prover's randomness has been reversed and
+    // stored in the format: [r_1, r_2, ..., r_j, r_skip], where:
+    //   - r_1, ..., r_j are the j challenges for the non-skipped variables
+    //   - r_skip is the single challenge for the k skipped variables
+    //
+    // However, for the evaluation, we expect the point in the format:
+    // [r_skip, r_1, r_2, ..., r_j], with the skip challenge first.
+    //
+    // We reorder the point by moving r_skip from the end to the beginning.
+    let mut point_for_eval = prover_randomness.as_slice().to_vec();
+    let r_skip = point_for_eval.pop().unwrap();
+    point_for_eval.insert(0, r_skip);
+    let reformatted_point = MultilinearPoint::new(point_for_eval);
+
+    // Verify: f̂(r_skip, r_1, ..., rj) == final_folded_value
     assert_eq!(
-        eval_with_skip::<F, EF>(&poly, K_SKIP_SUMCHECK, &prover_randomness),
+        poly.evaluate_with_univariate_skip(&reformatted_point, K_SKIP_SUMCHECK),
         final_folded_value
     );
     // Commit final result to Fiat-Shamir transcript
@@ -610,46 +624,6 @@ fn run_sumcheck_test_skips(
     //
     // Main equation: sum == f(r) · eq(z, r)
     assert_eq!(sum, final_folded_value * weights);
-}
-
-/// Evaluate f with the same "univariate skip" semantics the prover uses:
-/// - Treat the first k variables as a single univariate slot over the 2^k subgroup,
-/// - interpolate at r_all[0],
-/// - then evaluate the remaining (n - k) variables at r_all[1..].
-fn eval_with_skip<F, EF>(
-    poly: &EvaluationsList<F>,
-    k_skip: usize,
-    r_all: &MultilinearPoint<EF>,
-) -> EF
-where
-    F: TwoAdicField,
-    EF: TwoAdicField + ExtensionField<F>,
-{
-    let n = poly.num_variables();
-    assert!(k_skip > 0 && k_skip <= n);
-
-    // After with_skip() reverses, layout is:
-    // [ r_for_remaining_vars...,  r_skip ]
-    let need = 1 + (n - k_skip);
-    assert!(
-        r_all.num_variables() >= need,
-        "need {} challenges (1 + n - k), got {}",
-        need,
-        r_all.num_variables()
-    );
-
-    // - r0 is the **last** element (skip challenge),
-    // - "rest" are the first n-k challenges for the remaining variables.
-    let r0 = *r_all.last_variable().unwrap();
-    let rest = r_all.get_subpoint_over_range(0..(n - k_skip));
-
-    // Reshape f into 2^k × 2^{n-k}, interpolate along the skipped dimension at r0,
-    // then evaluate the resulting EF-table on the remaining variables.
-    let width = 1 << (n - k_skip);
-    let f_mat = poly.clone().into_mat(width);
-    let folded_row = interpolate_subgroup::<F, EF, _>(&f_mat, r0);
-
-    EvaluationsList::new(folded_row).evaluate_hypercube(&rest)
 }
 
 fn run_sumcheck_test_svo(
