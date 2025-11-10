@@ -105,9 +105,9 @@ pub fn make_whir_things(
     let mut rng = SmallRng::seed_from_u64(1);
     let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-    // Observe protocol parameters for domain separation
-    challenger.observe(F::from_u64(proof.rounds.len() as u64));
-    challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+    // Observe protocol parameters for domain separation (based on static params, not runtime proof)
+    challenger.observe(F::from_u64(params.n_rounds() as u64));
+    challenger.observe(F::from_u64(params.final_queries as u64));
 
     // Observe initial phase variant (0=WithoutStatement, 1=WithStatement, 2=WithStatementSkip)
     let phase_tag = match &proof.initial_phase {
@@ -134,6 +134,7 @@ pub fn make_whir_things(
 
     // Generate WHIR proof
     prover.prove(&dft_prover, &mut proof, &mut challenger, statement.clone(), witness);
+
     // Sample final challenge to ensure transcript consistency between prover/verifier
     let checkpoint_prover: EF = challenger.sample();
 
@@ -143,16 +144,39 @@ pub fn make_whir_things(
     // Create WHIR verifier with identical parameters to prover
     let verifier = Verifier::new(&params);
 
+    // Create a fresh challenger for the verifier (simulating independent verification)
+    let mut rng_verifier = SmallRng::seed_from_u64(1);
+    let mut verifier_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng_verifier));
+
+    // Verifier observes the same protocol parameters as prover for domain separation
+    verifier_challenger.observe(F::from_u64(params.n_rounds() as u64));
+    verifier_challenger.observe(F::from_u64(params.final_queries as u64));
+
+    // Observe initial phase variant
+    let phase_tag = match &proof.initial_phase {
+        InitialPhase::WithoutStatement { .. } => 0,
+        InitialPhase::WithStatement { .. } => 1,
+        InitialPhase::WithStatementSkip { .. } => 2,
+    };
+    verifier_challenger.observe(F::from_u64(phase_tag as u64));
+
+    // Observe the statement (number of constraints and num_variables)
+    verifier_challenger.observe(F::from_u64(statement.len() as u64));
+    verifier_challenger.observe(F::from_u64(statement.num_variables() as u64));
+
+    // Observe the commitment root (must match prover's observation)
+    verifier_challenger.observe_slice(&proof.initial_commitment);
+
     // Parse and validate the polynomial commitment from proof data
     let parsed_commitment = commitment_reader
-        .parse_commitment::<8>(&mut proof, &mut challenger);
+        .parse_commitment::<8>(&mut proof, &mut verifier_challenger);
 
     // Execute WHIR verification
     verifier
-        .verify(&mut proof, &mut challenger, &parsed_commitment, &statement)
+        .verify(&mut proof, &mut verifier_challenger, &parsed_commitment, &statement)
         .unwrap();
 
-    let checkpoint_verifier: EF = challenger.sample();
+    let checkpoint_verifier: EF = verifier_challenger.sample();
     assert_eq!(checkpoint_prover, checkpoint_verifier);
 }
 

@@ -70,9 +70,10 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         // Read the Merkle root hash committed by the prover.
-        let root = proof
-            .initial_commitment
-            .into();
+        let root_array = proof.initial_commitment;
+
+        // Convert to Hash type
+        let root: Hash<F, F, DIGEST_ELEMS> = root_array.into();
 
         // Allocate space for the OOD challenge points and answers.
         let mut ood_points = EF::zero_vec(ood_samples);
