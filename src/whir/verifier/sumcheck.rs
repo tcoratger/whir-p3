@@ -175,42 +175,6 @@ where
     Ok(MultilinearPoint::new(randomness))
 }
 
-pub(crate) fn verify_sumcheck_rounds_svo<EF, F, Challenger>(
-    verifier_state: &mut VerifierState<F, EF, Challenger>,
-    claimed_sum: &mut EF,
-    rounds: usize,
-    pow_bits: usize,
-) -> Result<MultilinearPoint<EF>, VerifierError>
-where
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-{
-    // Preallocate vector to hold the randomness values
-    let mut randomness = Vec::with_capacity(rounds);
-
-    for _ in 0..rounds {
-        // Extract the first and third evaluations of the sumcheck polynomial
-        // and derive the second evaluation from the latest sum
-        let c0 = verifier_state.next_extension_scalar()?;
-
-        let c1 = *claimed_sum - c0;
-
-        let c2 = verifier_state.next_extension_scalar()?;
-
-        // Optional PoW interaction (grinding resistance)
-        verifier_state.check_pow_grinding(pow_bits)?;
-
-        // Sample the next verifier folding randomness rᵢ
-        let rand: EF = verifier_state.sample();
-
-        *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
-
-        randomness.push(rand);
-    }
-
-    Ok(MultilinearPoint::new(randomness))
-}
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
@@ -631,11 +595,12 @@ mod tests {
         let mut verifier_state =
             domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
-        let randomness = verify_sumcheck_rounds_svo(
+        let randomness = verify_sumcheck_rounds(
             &mut verifier_state,
             &mut expected_initial_sum,
             folding_factor,
             pow_bits,
+            SumcheckOptimization::Svo,
         )
         .unwrap();
 
