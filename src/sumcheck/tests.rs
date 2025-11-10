@@ -762,7 +762,8 @@ fn run_sumcheck_test_svo(
         let folding = folding_factor.at_round(round_idx);
         verifier_randomness = extend_point(
             &verifier_randomness,
-            &verify_sumcheck_rounds_svo(verifier, &mut sum, folding, 0).unwrap(),
+            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, SumcheckOptimization::Svo)
+                .unwrap(),
         );
 
         num_vars_inter -= folding;
@@ -771,7 +772,14 @@ fn run_sumcheck_test_svo(
     // Final round check
     verifier_randomness = extend_point(
         &verifier_randomness,
-        &verify_sumcheck_rounds_svo(verifier, &mut sum, final_rounds, 0).unwrap(),
+        &verify_sumcheck_rounds(
+            verifier,
+            &mut sum,
+            final_rounds,
+            0,
+            SumcheckOptimization::Svo,
+        )
+        .unwrap(),
     );
 
     // Check that the randomness vectors are the same
