@@ -111,77 +111,70 @@ where
     };
 
     for i in start_round..rounds {
-        // Extract the first and third evaluations of the sumcheck polynomial
-        // and derive the second evaluation from the latest sum
-        let c0 = verifier_state.next_extension_scalar()?;
-        let c1 = verifier_state.next_extension_scalar()?;
-        let c2 = verifier_state.next_extension_scalar()?;
+        // Extract polynomial evaluations based on optimization mode
+        let (c0, c1, c2) = match sumcheck_optimization {
+            SumcheckOptimization::Svo => {
+                // SVO: Read only c0 and c2, derive c1 from claimed_sum
+                let c0 = verifier_state.next_extension_scalar()?;
+                let c1 = *claimed_sum - c0;
+                let c2 = verifier_state.next_extension_scalar()?;
+                (c0, c1, c2)
+            }
+            SumcheckOptimization::Classic | SumcheckOptimization::UnivariateSkip => {
+                // Classic/UnivariateSkip: Read all three values and verify sum
+                let c0 = verifier_state.next_extension_scalar()?;
+                let c1 = verifier_state.next_extension_scalar()?;
+                let c2 = verifier_state.next_extension_scalar()?;
 
-        if *claimed_sum != c0 + c1 {
-            return Err(VerifierError::SumcheckFailed {
-                round: i,
-                expected: claimed_sum.to_string(),
-                actual: (c0 + c1).to_string(),
-            });
+                // Verify that the sum matches (only for Classic/UnivariateSkip modes)
+                if *claimed_sum != c0 + c1 {
+                    return Err(VerifierError::SumcheckFailed {
+                        round: i,
+                        expected: claimed_sum.to_string(),
+                        actual: (c0 + c1).to_string(),
+                    });
+                }
+                (c0, c1, c2)
+            }
+        };
+
+        // Optional PoW interaction (grinding resistance)
+        verifier_state.check_pow_grinding(pow_bits)?;
+
+        // Sample the next verifier folding randomness rᵢ
+        let rand: EF = verifier_state.sample();
+
+        // Update claimed sum using the appropriate formula
+        match sumcheck_optimization {
+            SumcheckOptimization::Svo => {
+                // SVO formula: c2 * r² + (c1 - c0 - c2) * r + c0
+                *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
+            }
+            SumcheckOptimization::Classic | SumcheckOptimization::UnivariateSkip => {
+                // Classic/UnivariateSkip formula: use SumcheckPolynomial evaluation
+                *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
+                    .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
+            }
         }
 
-        // Optional PoW interaction (grinding resistance)
-        verifier_state.check_pow_grinding(pow_bits)?;
-
-        // Sample the next verifier folding randomness rᵢ
-        let rand: EF = verifier_state.sample();
-
-        // Update claimed sum using folding randomness
-        *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
-            .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
-
-        // Store this round’s randomness
+        // Store this round's randomness
         randomness.push(rand);
     }
 
-    // We should reverse the order of the randomness points:
-    // This is because the randomness points are originally reverted at the end of the sumcheck rounds.
-    randomness.reverse();
-
-    Ok(MultilinearPoint::new(randomness))
-}
-
-pub(crate) fn verify_sumcheck_rounds_svo<EF, F, Challenger>(
-    verifier_state: &mut VerifierState<F, EF, Challenger>,
-    claimed_sum: &mut EF,
-    rounds: usize,
-    pow_bits: usize,
-) -> Result<MultilinearPoint<EF>, VerifierError>
-where
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-{
-    // Preallocate vector to hold the randomness values
-    let mut randomness = Vec::with_capacity(rounds);
-
-    for _ in 0..rounds {
-        // Extract the first and third evaluations of the sumcheck polynomial
-        // and derive the second evaluation from the latest sum
-        let c0 = verifier_state.next_extension_scalar()?;
-
-        let c1 = *claimed_sum - c0;
-
-        let c2 = verifier_state.next_extension_scalar()?;
-
-        // Optional PoW interaction (grinding resistance)
-        verifier_state.check_pow_grinding(pow_bits)?;
-
-        // Sample the next verifier folding randomness rᵢ
-        let rand: EF = verifier_state.sample();
-
-        *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
-
-        randomness.push(rand);
+    // Reverse randomness order only for Classic and UnivariateSkip modes
+    // SVO prover doesn't reverse, so verifier also doesn't reverse
+    match sumcheck_optimization {
+        SumcheckOptimization::Svo => {
+            // SVO doesn't reverse randomness
+        }
+        SumcheckOptimization::Classic | SumcheckOptimization::UnivariateSkip => {
+            randomness.reverse();
+        }
     }
 
     Ok(MultilinearPoint::new(randomness))
 }
+
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
@@ -602,11 +595,12 @@ mod tests {
         let mut verifier_state =
             domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
-        let randomness = verify_sumcheck_rounds_svo(
+        let randomness = verify_sumcheck_rounds(
             &mut verifier_state,
             &mut expected_initial_sum,
             folding_factor,
             pow_bits,
+            SumcheckOptimization::Svo,
         )
         .unwrap();
 
