@@ -23,7 +23,7 @@ use crate::{
             statement::{EqStatement, SelectStatement},
         },
         parameters::SumcheckOptimization,
-        verifier::sumcheck::{verify_sumcheck_rounds, verify_sumcheck_rounds_svo},
+        verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
 

@@ -157,26 +157,15 @@ where
             constraint.combine_evals(&mut claimed_eval);
             constraints.push(constraint);
 
-            let folding_randomness = match self.sumcheck_optimization {
-                // TODO: SVO optimization is not yet fully implemented
-                //
-                // Fall back to classic sumcheck
-                SumcheckOptimization::Svo => verify_sumcheck_rounds(
-                    verifier_state,
-                    &mut claimed_eval,
-                    self.folding_factor.at_round(round_index + 1),
-                    round_params.folding_pow_bits,
-                    SumcheckOptimization::Classic,
-                )?,
-
-                _ => verify_sumcheck_rounds(
-                    verifier_state,
-                    &mut claimed_eval,
-                    self.folding_factor.at_round(round_index + 1),
-                    round_params.folding_pow_bits,
-                    SumcheckOptimization::Classic,
-                )?,
-            };
+            // TODO: SVO optimization is not yet fully implemented
+            // Falls back to classic sumcheck for all optimization modes
+            let folding_randomness = verify_sumcheck_rounds(
+                verifier_state,
+                &mut claimed_eval,
+                self.folding_factor.at_round(round_index + 1),
+                round_params.folding_pow_bits,
+                SumcheckOptimization::Classic,
+            )?;
 
             round_folding_randomness.push(folding_randomness);
 
@@ -207,26 +196,15 @@ where
                 details: "STIR constraint verification failed on final polynomial".to_string(),
             })?;
 
-        let final_sumcheck_randomness = match self.sumcheck_optimization {
-            // TODO: SVO optimization is not yet fully implemented
-            //
-            // Fall back to classic sumcheck
-            SumcheckOptimization::Svo => verify_sumcheck_rounds(
-                verifier_state,
-                &mut claimed_eval,
-                self.final_sumcheck_rounds,
-                self.final_folding_pow_bits,
-                SumcheckOptimization::Classic,
-            )?,
-
-            _ => verify_sumcheck_rounds(
-                verifier_state,
-                &mut claimed_eval,
-                self.final_sumcheck_rounds,
-                self.final_folding_pow_bits,
-                SumcheckOptimization::Classic,
-            )?,
-        };
+        // TODO: SVO optimization is not yet fully implemented
+        // Falls back to classic sumcheck for all optimization modes
+        let final_sumcheck_randomness = verify_sumcheck_rounds(
+            verifier_state,
+            &mut claimed_eval,
+            self.final_sumcheck_rounds,
+            self.final_folding_pow_bits,
+            SumcheckOptimization::Classic,
+        )?;
 
         round_folding_randomness.push(final_sumcheck_randomness.clone());
 
