@@ -113,14 +113,6 @@ where
                 )?,
             };
 
-            // // Initial sumcheck
-            // let folding_randomness = verify_sumcheck_rounds(
-            //     verifier_state,
-            //     &mut claimed_eval,
-            //     self.folding_factor.at_round(0),
-            //     self.starting_folding_pow_bits,
-            //     self.sumcheck_optimization,
-            // )?;
             round_folding_randomness.push(folding_randomness);
         } else {
             assert!(prev_commitment.ood_statement.is_empty());
@@ -186,14 +178,6 @@ where
                 )?,
             };
 
-            // let folding_randomness = verify_sumcheck_rounds(
-            //     verifier_state,
-            //     &mut claimed_eval,
-            //     self.folding_factor.at_round(round_index + 1),
-            //     round_params.folding_pow_bits,
-            //     SumcheckOptimization::Classic,
-            // )?;
-
             round_folding_randomness.push(folding_randomness);
 
             // Update round parameters
@@ -243,14 +227,6 @@ where
                 SumcheckOptimization::Classic,
             )?,
         };
-
-        // let final_sumcheck_randomness = verify_sumcheck_rounds(
-        //     verifier_state,
-        //     &mut claimed_eval,
-        //     self.final_sumcheck_rounds,
-        //     self.final_folding_pow_bits,
-        //     SumcheckOptimization::Classic,
-        // )?;
 
         round_folding_randomness.push(final_sumcheck_randomness.clone());
 
