@@ -15,7 +15,7 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::statement::Statement,
-        verifier::sumcheck::verify_sumcheck_rounds,
+        verifier::sumcheck::{verify_initial_sumcheck_rounds, verify_sumcheck_rounds, verify_final_sumcheck_rounds},
         proof::{WhirProof, InitialPhase},
     },
 };
@@ -485,7 +485,6 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     let mut proof_rounds_consumed: isize = -1;
 
     // VERIFY EACH ROUND
-    // VERIFY EACH ROUND
     for (&folding, &num_points) in folding_factors.iter().zip(num_points.iter()) {
         // Reconstruct statement from transcript
         let (st, new_offset) = read_statement(&mut verifier_challenger, &prover_observations, num_vars_inter, num_points, obs_offset);
@@ -502,31 +501,51 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
         // Save constraints for later equality test
         constraints.push(st.clone());
 
-        // Calculate offset for this call:
-        // - First call (proof_rounds_consumed < 0): offset = 0 (initial phase marker)
-        // - Subsequent calls: offset = proof_rounds_consumed + 1 (to distinguish from initial phase)
-        let offset = if proof_rounds_consumed < 0 {
-            0  // Initial phase call
+        // Verify sumcheck rounds based on which phase we're in
+        let folding_randomness = if proof_rounds_consumed < 0 {
+            // Initial phase - use verify_initial_sumcheck_rounds
+            let randomness = verify_initial_sumcheck_rounds(
+                &whir_proof.initial_phase,
+                &mut verifier_challenger,
+                &mut sum,
+                folding,
+                0,  // pow_bits
+                false,  // is_univariate_skip
+            ).unwrap();
+            proof_rounds_consumed = 0;
+            randomness
         } else {
-            (proof_rounds_consumed + 1) as usize  // Subsequent calls: always > 0
+            // Regular round - use verify_sumcheck_rounds
+            let round_idx = proof_rounds_consumed as usize;
+            let randomness = if round_idx < whir_proof.rounds.len() {
+                verify_sumcheck_rounds(
+                    &whir_proof.rounds[round_idx],
+                    &mut verifier_challenger,
+                    &mut sum,
+                    folding,
+                    0,  // pow_bits
+                ).unwrap()
+            } else {
+                // Final sumcheck if applicable
+                verify_final_sumcheck_rounds(
+                    &whir_proof.final_sumcheck,
+                    &mut verifier_challenger,
+                    &mut sum,
+                    folding,
+                    0,  // pow_bits
+                ).unwrap()
+            };
+            proof_rounds_consumed += 1;
+            randomness
         };
 
         // Extend r with verifier's folding challenges
         verifier_randomness = extend_point(
             &verifier_randomness,
-            &verify_sumcheck_rounds(&mut whir_proof, &mut verifier_challenger, &mut sum, folding, offset, num_points, false).unwrap(),
+            &folding_randomness,
         );
 
         num_vars_inter -= folding;
-
-        // Update the cumulative offset:
-        // For the initial round (when proof_rounds_consumed == -1), set it to the actual consumed rounds
-        // For subsequent rounds, increment by folding
-        if proof_rounds_consumed < 0 {
-            proof_rounds_consumed = (folding - 1) as isize;
-        } else {
-            proof_rounds_consumed += folding as isize;
-        }
     }
 
     // Check reconstructed constraints match original ones
@@ -542,14 +561,43 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     // Final round check
     let final_rounds = *folding_factors.last().unwrap();
     println!("final_rounds: {:?}", final_rounds.clone());
-    let final_offset = if proof_rounds_consumed < 0 {
-        0
+
+    // Verify the final round
+    let final_randomness = if proof_rounds_consumed < 0 {
+        // If we never entered the loop, use initial phase
+        verify_initial_sumcheck_rounds(
+            &whir_proof.initial_phase,
+            &mut verifier_challenger,
+            &mut sum,
+            final_rounds,
+            0,  // pow_bits
+            false,  // is_univariate_skip
+        ).unwrap()
     } else {
-        (proof_rounds_consumed + 1) as usize
+        let round_idx = proof_rounds_consumed as usize;
+        if round_idx < whir_proof.rounds.len() {
+            verify_sumcheck_rounds(
+                &whir_proof.rounds[round_idx],
+                &mut verifier_challenger,
+                &mut sum,
+                final_rounds,
+                0,  // pow_bits
+            ).unwrap()
+        } else {
+            // Final sumcheck
+            verify_final_sumcheck_rounds(
+                &whir_proof.final_sumcheck,
+                &mut verifier_challenger,
+                &mut sum,
+                final_rounds,
+                0,  // pow_bits
+            ).unwrap()
+        }
     };
+
     verifier_randomness = extend_point(
         &verifier_randomness,
-        &verify_sumcheck_rounds(&mut whir_proof, &mut verifier_challenger, &mut sum, final_rounds, final_offset, 0, false).unwrap(),
+        &final_randomness,
     );
     // Check that the randomness vectors are the same
     assert_eq!(prover_randomness, verifier_randomness);
@@ -746,45 +794,94 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
         // Save constraints for later equality check
         constraints.push(statement.clone());
 
-        // Calculate offset for this call
-        let offset = if proof_rounds_consumed < 0 {
-            0
-        } else {
-            (proof_rounds_consumed + 1) as usize
-        };
-
-        // Extend r with verifier's folding randomness
-        //
+        // Verify sumcheck rounds based on which phase we're in
         // The skip optimization is only applied to the first round.
         let is_skip_round = round_idx == 0;
+        let folding_randomness = if proof_rounds_consumed < 0 {
+            // Initial phase - use verify_initial_sumcheck_rounds
+            let randomness = verify_initial_sumcheck_rounds(
+                &whir_proof.initial_phase,
+                &mut verifier_challenger,
+                &mut sum,
+                folding,
+                0,  // pow_bits
+                is_skip_round,  // is_univariate_skip
+            ).unwrap();
+            proof_rounds_consumed = 0;
+            randomness
+        } else {
+            // Regular round - use verify_sumcheck_rounds
+            let round_idx = proof_rounds_consumed as usize;
+            let randomness = if round_idx < whir_proof.rounds.len() {
+                verify_sumcheck_rounds(
+                    &whir_proof.rounds[round_idx],
+                    &mut verifier_challenger,
+                    &mut sum,
+                    folding,
+                    0,  // pow_bits
+                ).unwrap()
+            } else {
+                // Final sumcheck if applicable
+                verify_final_sumcheck_rounds(
+                    &whir_proof.final_sumcheck,
+                    &mut verifier_challenger,
+                    &mut sum,
+                    folding,
+                    0,  // pow_bits
+                ).unwrap()
+            };
+            proof_rounds_consumed += 1;
+            randomness
+        };
+
+        // Extend r with verifier's folding challenges
         verifier_randomness = extend_point(
             &verifier_randomness,
-            &verify_sumcheck_rounds(&mut whir_proof, &mut verifier_challenger, &mut sum, folding, offset, 0, is_skip_round).unwrap(),
+            &folding_randomness,
         );
 
         num_vars_inter -= folding;
-
-        // Update the cumulative offset:
-        // For univariate skip, the first round consumes (folding - K_SKIP_SUMCHECK) rounds
-        // For subsequent rounds, we consume folding rounds
-        if proof_rounds_consumed < 0 {
-            proof_rounds_consumed = (folding - K_SKIP_SUMCHECK) as isize;
-        } else {
-            proof_rounds_consumed += folding as isize;
-        }
     }
 
     // FINAL FOLDING
     let final_rounds = *folding_factors.last().unwrap();
     if final_rounds > 0 {
-        let final_offset = if proof_rounds_consumed < 0 {
-            0
+        // Verify the final round
+        let final_randomness = if proof_rounds_consumed < 0 {
+            // If we never entered the loop, use initial phase
+            verify_initial_sumcheck_rounds(
+                &whir_proof.initial_phase,
+                &mut verifier_challenger,
+                &mut sum,
+                final_rounds,
+                0,  // pow_bits
+                false,  // is_univariate_skip
+            ).unwrap()
         } else {
-            (proof_rounds_consumed + 1) as usize
+            let round_idx = proof_rounds_consumed as usize;
+            if round_idx < whir_proof.rounds.len() {
+                verify_sumcheck_rounds(
+                    &whir_proof.rounds[round_idx],
+                    &mut verifier_challenger,
+                    &mut sum,
+                    final_rounds,
+                    0,  // pow_bits
+                ).unwrap()
+            } else {
+                // Final sumcheck
+                verify_final_sumcheck_rounds(
+                    &whir_proof.final_sumcheck,
+                    &mut verifier_challenger,
+                    &mut sum,
+                    final_rounds,
+                    0,  // pow_bits
+                ).unwrap()
+            }
         };
+
         verifier_randomness = extend_point(
             &verifier_randomness,
-            &verify_sumcheck_rounds(&mut whir_proof, &mut verifier_challenger, &mut sum, final_rounds, final_offset, 0, false).unwrap(),
+            &final_randomness,
         );
     }
     // If final_rounds == 0, polynomial is already collapsed to a constant, no sumcheck needed

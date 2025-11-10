@@ -32,7 +32,7 @@ pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
     pub final_queries: Vec<QueryOpening<F, EF, DIGEST_ELEMS>>,
 
     /// Final sumcheck (if final_sumcheck_rounds > 0)
-    pub final_sumcheck: Option<SumcheckData<F, EF>>,
+    pub final_sumcheck: Option<SumcheckData<EF, F>>,
 }
 
 /// Initial phase of WHIR protocol
@@ -47,6 +47,9 @@ pub enum InitialPhase<EF, F> {
 
         /// PoW witness after skip round
         skip_pow: Option<Vec<F>>,
+
+        /// Remaining sumcheck rounds after the skip (for folding_factor > k_skip)
+        sumcheck: SumcheckData<EF, F>,
     },
 
     /// Protocol with statement (standard sumcheck, no skip)
@@ -170,6 +173,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             (true, true) => InitialPhase::with_statement_skip(
                 Vec::new(),
                 None,
+                SumcheckData::default(),
             ),
             (true, false) => InitialPhase::with_statement(SumcheckData::default()),
             (false, _) => InitialPhase::without_statement(F::default()),
@@ -234,10 +238,12 @@ impl<EF, F> InitialPhase<EF, F> {
     pub fn with_statement_skip(
         skip_evaluations: Vec<EF>,
         skip_pow: Option<Vec<F>>,
+        sumcheck: SumcheckData<EF, F>,
     ) -> Self {
         Self::WithStatementSkip {
             skip_evaluations,
             skip_pow,
+            sumcheck,
         }
     }
 

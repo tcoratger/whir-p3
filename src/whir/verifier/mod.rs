@@ -19,7 +19,7 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         Statement, constraints::evaluator::ConstraintPolyEvaluator, parameters::WhirConfig,
-        verifier::sumcheck::verify_sumcheck_rounds,
+        verifier::sumcheck::{verify_initial_sumcheck_rounds, verify_sumcheck_rounds, verify_final_sumcheck_rounds},
     },
 };
 use crate::whir::proof::{InitialPhase, QueryOpening, WhirProof};
@@ -71,9 +71,6 @@ where
         let mut claimed_sum = EF::ZERO;
         let mut prev_commitment = parsed_commitment.clone();
 
-        // Track cumulative offset into proof.rounds array
-        let mut proof_rounds_offset = 0;
-
         // Optional initial sumcheck round
         if self.initial_statement {
             // Combine OODS constraints and statement constraints to claimed_sum
@@ -87,23 +84,16 @@ where
 
             // Initial sumcheck
             let initial_folding = self.folding_factor.at_round(0);
-            let folding_randomness = verify_sumcheck_rounds(
-                proof,
+            let folding_randomness = verify_initial_sumcheck_rounds(
+                &proof.initial_phase,
                 challenger,
                 &mut claimed_sum,
                 initial_folding,
-                0, // proof_rounds_offset for initial phase
                 self.starting_folding_pow_bits,
                 self.univariate_skip,
             )?;
             round_folding_randomness.push(folding_randomness);
 
-            // Update offset: initial phase consumes (folding - 1) or (folding - K_SKIP) rounds
-            if self.univariate_skip && initial_folding >= K_SKIP_SUMCHECK {
-                proof_rounds_offset += initial_folding - K_SKIP_SUMCHECK;
-            } else {
-                proof_rounds_offset += initial_folding - 1;
-            }
         } else {
             assert!(prev_commitment.ood_points.is_empty());
             assert!(statement.is_empty());
@@ -156,19 +146,14 @@ where
 
             let current_folding = self.folding_factor.at_round(round_index + 1);
             let folding_randomness = verify_sumcheck_rounds(
-                proof,
+                &proof.rounds[round_index],
                 challenger,
                 &mut claimed_sum,
                 current_folding,
-                proof_rounds_offset, // cumulative offset into proof.rounds
                 round_params.folding_pow_bits,
-                false,
             )?;
 
             round_folding_randomness.push(folding_randomness);
-
-            // Update offset: each outer round consumes folding rounds
-            proof_rounds_offset += current_folding;
 
             // Update round parameters
             prev_commitment = new_commitment;
@@ -202,14 +187,12 @@ where
                 details: "STIR constraint verification failed on final polynomial".to_string(),
             })?;
 
-        let final_sumcheck_randomness = verify_sumcheck_rounds(
-            proof,
+        let final_sumcheck_randomness = verify_final_sumcheck_rounds::<F, EF, _>(
+            &proof.final_sumcheck,
             challenger,
             &mut claimed_sum,
             self.final_sumcheck_rounds,
-            proof_rounds_offset,
             self.final_folding_pow_bits,
-            false,
         )?;
         round_folding_randomness.push(final_sumcheck_randomness.clone());
 

@@ -53,16 +53,27 @@ where
     let evals_slice = sumcheck_poly.evaluations();
     let polynomial_evaluation = [evals_slice[0], evals_slice[1], evals_slice[2]];
 
-    // Proof-of-work challenge to delay prover.
+    // Store polynomial evaluations in proof
+    if let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase {
+        sumcheck.polynomial_evaluations.push(polynomial_evaluation);
+    } else {
+        panic!("initial_round called with incorrect InitialPhase variant");
+    }
+
+    // Observe polynomial evaluations for Fiat-Shamir (must match verifier)
+    // This MUST happen before PoW grinding to match the original ProverState behavior
+    let flattened = EF::flatten_to_base(vec![polynomial_evaluation[0], polynomial_evaluation[1], polynomial_evaluation[2]]);
+    challenger.observe_slice(&flattened);
+
+    // Proof-of-work challenge to delay prover (AFTER observing)
     let witness = if pow_bits != 0 {
         Some(challenger.grind(pow_bits))
     } else {
         None
     };
 
+    // Store PoW witness if present
     if let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase {
-        sumcheck.polynomial_evaluations.push(polynomial_evaluation);
-
         if let Some(w) = witness {
             sumcheck.pow_witnesses
                 .get_or_insert_with(Vec::new)
@@ -117,17 +128,25 @@ where
 
     let evals_slice = sumcheck_poly.evaluations();
     let polynomial_evaluation = [evals_slice[0], evals_slice[1], evals_slice[2]];
+
+    // Store polynomial evaluations in sumcheck data
+    sumcheck_data
+        .polynomial_evaluations
+        .push(polynomial_evaluation);
+
+    // Observe polynomial evaluations for Fiat-Shamir (must match verifier)
+    // This MUST happen before PoW grinding to match the original ProverState behavior
+    let flattened = EF::flatten_to_base(vec![polynomial_evaluation[0], polynomial_evaluation[1], polynomial_evaluation[2]]);
+    challenger.observe_slice(&flattened);
+
+    // Proof-of-work challenge to delay prover (AFTER observing)
     let witness = if pow_bits != 0 {
         Some(challenger.grind(pow_bits))
     } else {
         None
     };
 
-    // Create sumcheck data for this round
-    sumcheck_data
-        .polynomial_evaluations
-        .push(polynomial_evaluation);
-
+    // Store PoW witness if present
     if let Some(w) = witness {
         sumcheck_data
             .pow_witnesses
@@ -317,17 +336,15 @@ where
         let (r, mut evals) = initial_round(proof, challenger, evals, &mut weights, &mut sum, pow_bits);
         res.push(r);
 
-        let mut sumcheck_data = SumcheckData::default();
         // Apply rest of sumcheck rounds for the initial statement
-        for _ in 1..folding_factor {
-            let r = sumcheck_round::<Challenger, F, EF, DIGEST_ELEMS>(&mut sumcheck_data, challenger, &mut evals, &mut weights, &mut sum, pow_bits);
-            res.push(r);
-        }
-
+        // We need to get the existing sumcheck data from proof.initial_phase to preserve the initial round's data
         if let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase {
-            *sumcheck = sumcheck_data;
+            for _ in 1..folding_factor {
+                let r = sumcheck_round::<Challenger, F, EF, DIGEST_ELEMS>(sumcheck, challenger, &mut evals, &mut weights, &mut sum, pow_bits);
+                res.push(r);
+            }
         } else {
-            panic!("initial_round called with incorrect InitialPhase variant");
+            panic!("from_base_evals called with incorrect InitialPhase variant");
         }
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
@@ -402,6 +419,7 @@ where
         if let InitialPhase::WithStatementSkip {
             ref mut skip_evaluations,
             ref mut skip_pow,
+            ..
         } = proof.initial_phase {
             skip_evaluations
                 .extend_from_slice(polynomial_skip_evaluation);
@@ -435,16 +453,15 @@ where
         let mut evals = EvaluationsList::new(new_p);
         let mut weights = EvaluationsList::new(new_w);
 
-        // Apply rest of sumcheck rounds
-        // Note: When using skip mode, remaining rounds are stored in proof.rounds
-        // rather than in proof.initial_phase, for consistency with the verifier
-        let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
-        for _ in k_skip..folding_factor {
-            // Push empty WhirRoundProof for this sumcheck round
-            proof.rounds.push(WhirRoundProof::default());
-
-            let r = sumcheck_round::<Challenger, F, EF, DIGEST_ELEMS>(&mut sumcheck_data, challenger, &mut evals, &mut weights, &mut sum, pow_bits);
-            res.push(r);
+        // Apply rest of sumcheck rounds after the skip
+        // These are stored in proof.initial_phase.sumcheck
+        if let InitialPhase::WithStatementSkip { ref mut sumcheck, .. } = proof.initial_phase {
+            for _ in k_skip..folding_factor {
+                let r = sumcheck_round::<Challenger, F, EF, DIGEST_ELEMS>(sumcheck, challenger, &mut evals, &mut weights, &mut sum, pow_bits);
+                res.push(r);
+            }
+        } else {
+            panic!("with_skip called with incorrect InitialPhase variant");
         }
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
@@ -604,6 +621,7 @@ where
         // Proceed with one-variable-per-round folding for remaining variables.
         let mut res = Vec::with_capacity(folding_factor);
         let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
+
         for _ in 0..folding_factor {
             res.push(sumcheck_round::<Challenger, F, EF, DIGEST_ELEMS>(
                 &mut sumcheck_data,
@@ -615,11 +633,10 @@ where
             ));
         }
 
-        proof
-            .rounds
-            .last_mut()
-            .expect("there should always be at least one round")
-            .sumcheck = sumcheck_data;
+        // Create a new round for this set of sumcheck polynomials
+        let mut round_proof = WhirRoundProof::default();
+        round_proof.sumcheck = sumcheck_data;
+        proof.rounds.push(round_proof);
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
         res.reverse();
