@@ -4,10 +4,7 @@ use crate::{
     constant::K_SKIP_SUMCHECK,
     parameters::FoldingFactor,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{
-        constraints::statement::{EqStatement, SelectStatement},
-        parameters::{SumcheckOptimization, WhirConfig},
-    },
+    whir::constraints::statement::{EqStatement, SelectStatement},
 };
 
 #[derive(Clone, Debug)]
