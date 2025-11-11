@@ -562,15 +562,15 @@ mod tests {
         // Round 1: 4 accumulators, all zero
         let round_1 = accumulators.at_round(1);
         assert_eq!(round_1.len(), 4, "Round 1 should have 4 accumulators");
-        for i in 0..4 {
-            assert_eq!(round_1[i], F::ZERO, "Accumulator A_1[{}] should be zero", i);
+        for (i, &r1) in round_1.iter().enumerate().take(4) {
+            assert_eq!(r1, F::ZERO, "Accumulator A_1[{i}] should be zero");
         }
 
         // Round 2: 8 accumulators, all zero
         let round_2 = accumulators.at_round(2);
         assert_eq!(round_2.len(), 8, "Round 2 should have 8 accumulators");
-        for i in 0..8 {
-            assert_eq!(round_2[i], F::ZERO, "Accumulator A_2[{}] should be zero", i);
+        for (i, &r2) in round_2.iter().enumerate().take(8) {
+            assert_eq!(r2, F::ZERO, "Accumulator A_2[{i}] should be zero");
         }
     }
 
@@ -683,8 +683,8 @@ mod tests {
             F::from_u64(100),
             "Round 2: A_2[0] should be 100"
         );
-        for i in 1..7 {
-            assert_eq!(round_2[i], F::ZERO, "Round 2: A_2[{}] should be zero", i);
+        for (i, &r2) in round_2.iter().enumerate().take(7).skip(1) {
+            assert_eq!(r2, F::ZERO, "Round 2: A_2[{i}] should be zero");
         }
         assert_eq!(
             round_2[7],
