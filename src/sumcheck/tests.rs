@@ -2,7 +2,7 @@ use alloc::{vec, vec::Vec};
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField};
+use p3_field::{PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -231,13 +231,6 @@ where
     }
 
     Constraint::new(verifier.sample(), eq_statement, sel_statement)
-}
-
-impl<F: Field> MultilinearPoint<F> {
-    /// Helper to extend a `MultilinearPoint` by creating a new one.
-    pub fn extend(&mut self, other: &MultilinearPoint<F>) {
-        self.0.extend_from_slice(&other.0);
-    }
 }
 
 /// Runs an end-to-end prover-verifier test for the `SumcheckSingle` protocol with nested folding.

@@ -330,10 +330,16 @@ where
         EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest)
     }
 
+    /// Returns a new `MultilinearPoint` with the variables in reversed order.
+    #[must_use]
     pub fn reversed(&self) -> Self {
-        let mut vars = self.0.clone();
-        vars.reverse();
-        Self(vars)
+        Self(self.0.iter().rev().copied().collect())
+    }
+
+    /// Helper to extend a `MultilinearPoint` by creating a new one.
+    #[cfg(test)]
+    pub fn extend(&mut self, other: &Self) {
+        self.0.extend_from_slice(&other.0);
     }
 }
 

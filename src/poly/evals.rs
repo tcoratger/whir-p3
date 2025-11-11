@@ -186,11 +186,6 @@ where
     {
         assert_ne!(folding_randomness.num_variables(), 0);
         assert!(folding_randomness.num_variables() <= self.num_variables());
-        println!(
-            "Folding {} variables from a polynomial with {} variables.",
-            folding_randomness.num_variables(),
-            self.num_variables()
-        );
         let mut poly = self.compress_ext(folding_randomness.as_slice()[0]);
         for &r in &folding_randomness.as_slice()[1..] {
             poly.compress(r);
@@ -244,14 +239,20 @@ where
     #[inline]
     pub fn compress(&mut self, r: F) {
         assert_ne!(self.num_variables(), 0);
-        let mid = self.0.len() / 2;
+        let num_evals = self.num_evals();
+        let mid = num_evals / 2;
 
         // Evaluations at `a_i` and `a_{i + n/2}` slots are folded with `r` into `a_i` slot
         let (p0, p1) = self.0.split_at_mut(mid);
-        p0.par_iter_mut()
-            .zip(p1.par_iter())
-            .with_min_len(PARALLEL_THRESHOLD)
-            .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
+        if num_evals >= PARALLEL_THRESHOLD {
+            p0.par_iter_mut()
+                .zip(p1.par_iter())
+                .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
+        } else {
+            p0.iter_mut()
+                .zip(p1.iter())
+                .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
+        }
         // Free higher part of the evaluations
         self.0.truncate(mid);
     }
@@ -362,19 +363,24 @@ where
     /// ```
     #[inline]
     #[instrument(skip_all)]
-    pub fn compress_ext<Ext: ExtensionField<F>>(&self, r: Ext) -> EvaluationsList<Ext> {
+    pub fn compress_ext<EF: ExtensionField<F>>(&self, r: EF) -> EvaluationsList<EF> {
         assert_ne!(self.num_variables(), 0);
-        let mid = self.0.len() / 2;
+        let num_evals = self.num_evals();
+        let mid = num_evals / 2;
         // Evaluations at `a_i` and `a_{i + n/2}` slots are folded with `r`
         let (p0, p1) = self.0.split_at(mid);
         // Create new EvaluationsList in the extension field
-        EvaluationsList(
+        EvaluationsList(if num_evals >= PARALLEL_THRESHOLD {
             p0.par_iter()
                 .zip(p1.par_iter())
-                .with_min_len(PARALLEL_THRESHOLD)
                 .map(|(&a0, &a1)| r * (a1 - a0) + a0)
-                .collect::<Vec<_>>(),
-        )
+                .collect()
+        } else {
+            p0.iter()
+                .zip(p1.iter())
+                .map(|(&a0, &a1)| r * (a1 - a0) + a0)
+                .collect()
+        })
     }
 
     /// Evaluates a polynomial over the mixed domain `D × H^j` at an arbitrary point.
@@ -1238,7 +1244,6 @@ mod tests {
             // Verify that the number of variables has been folded correctly
             assert_eq!(folded_evals.num_variables(), num_variables - k);
 
-            // TODO: uncomment once CoefficientList::fold is reversed
             // Fold the coefficients list over the last `k` variables
             let folded_coeffs = coeffs_list.fold(&fold_random);
 
