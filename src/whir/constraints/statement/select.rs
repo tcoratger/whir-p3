@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 
 use p3_field::{ExtensionField, Field, dot_product};
-use p3_maybe_rayon::prelude::*;
+use p3_multilinear_util::eq_batch::eval_pow_batch_base;
 use tracing::instrument;
 
 use crate::poly::evals::EvaluationsList;
@@ -116,67 +116,13 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
 
         // Number of constraints (columns).
         let n = self.len();
-        // Number of variables (bits).
-        let k = self.num_variables();
-
-        // v0^(2^0), v0^(2^1), ..., v0^(2^{k-1})
-        // v1^(2^0), v1^(2^1), ..., v1^(2^{k-1})
-        let bin_powers = self
-            .vars
-            .par_iter()
-            .copied()
-            .map(|mut var| {
-                (0..k)
-                    .map(|_| {
-                        let ret = var;
-                        var = var.square();
-                        ret
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-
-        // Equality matrix.
-        let mut acc: Vec<F> = F::zero_vec((1 << k) * n);
-
-        // Initialize row 0 with 1s. We will apply randomness later
-        acc[..n].copy_from_slice(&vec![F::ONE; n]);
-
-        // Expand row 0 into 2^k rows with a simple two-branch split per bit.
-        //   `high  = low * z`
-        // Here z ∈ {0,1} is the i-th coordinate of the constraint point.
-        for i in 0..k {
-            // Split the first 2^i rows into low and high halves in place.
-            let (lo, hi) = acc.split_at_mut((1 << i) * n);
-
-            // Fetch binary powers for the current round
-            let bin_powers = bin_powers.iter().map(|c| c[i]).collect::<Vec<_>>();
-
-            // Work in parallel over row pairs. Each pair has n columns.
-            lo.par_chunks_mut(n)
-                .zip(hi.par_chunks_mut(n))
-                .for_each(|(lo, hi)| {
-                    // For each column j: read its constraint point, update the pair.
-                    bin_powers
-                        .iter()
-                        .zip(lo.iter_mut())
-                        .zip(hi.iter_mut())
-                        .for_each(|((&z, lo), hi)| *hi = *lo * z);
-                });
-        }
 
         // Precompute γ^i for i = 0..n-1 (random linear-combination weights).
         let challenges = challenge.powers().skip(shift).take(n).collect::<Vec<_>>();
 
-        acc.par_chunks(n)
-            .zip(acc_weights.0.par_iter_mut())
-            .for_each(|(row, out)| {
-                *out += row
-                    .iter()
-                    .zip(challenges.iter())
-                    .fold(EF::ZERO, |acc, (&v, &alpha)| acc + alpha * v);
-            });
+        eval_pow_batch_base::<F, EF, true>(&self.vars, &mut acc_weights.0, challenges.as_slice());
 
+        // Combine expected evaluations: S = ∑_i γ^i * s_i
         *acc_sum +=
             dot_product::<EF, _, _>(challenges.into_iter(), self.evaluations.iter().copied());
     }
