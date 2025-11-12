@@ -401,11 +401,21 @@ where
         let dst_randomness =
             &mut round_state.randomness_vec[start_idx..][..folding_randomness.num_variables()];
 
-        for (dst, src) in dst_randomness
-            .iter_mut()
-            .zip(folding_randomness.iter().rev())
-        {
-            *dst = *src;
+        // Store randomness: for skip case, don't reverse to maintain correct order
+        if round_state.used_univariate_skip {
+            for (dst, src) in dst_randomness
+                .iter_mut()
+                .zip(folding_randomness.iter().copied())
+            {
+                *dst = src;
+            }
+        } else {
+            for (dst, src) in dst_randomness
+                .iter_mut()
+                .zip(folding_randomness.iter().rev())
+            {
+                *dst = *src;
+            }
         }
 
         // Update round state
@@ -531,11 +541,21 @@ where
             let rand_dst = &mut round_state.randomness_vec
                 [start_idx..start_idx + final_folding_randomness.num_variables()];
 
-            for (dst, src) in rand_dst
-                .iter_mut()
-                .zip(final_folding_randomness.iter().rev())
-            {
-                *dst = *src;
+            // Store final randomness: for skip case, don't reverse to maintain correct order
+            if round_state.used_univariate_skip {
+                for (dst, src) in rand_dst
+                    .iter_mut()
+                    .zip(final_folding_randomness.iter().copied())
+                {
+                    *dst = src;
+                }
+            } else {
+                for (dst, src) in rand_dst
+                    .iter_mut()
+                    .zip(final_folding_randomness.iter().rev())
+                {
+                    *dst = *src;
+                }
             }
         }
 

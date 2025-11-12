@@ -216,16 +216,25 @@ where
                 .collect(),
         );
 
+        // For skip case, don't reverse the randomness (prover stores it in forward order)
+        // For non-skip case, reverse it to match the prover's storage
+        let is_skip_used = matches!(
+            self.sumcheck_optimization,
+            SumcheckOptimization::UnivariateSkip
+        ) && K_SKIP_SUMCHECK <= self.folding_factor.at_round(0);
+
+        let point_for_eval = if is_skip_used {
+            folding_randomness.clone()
+        } else {
+            folding_randomness.reversed()
+        };
+
         let evaluation_of_weights = ConstraintPolyEvaluator::new(
             self.num_variables,
             self.folding_factor,
-            matches!(
-                self.sumcheck_optimization,
-                SumcheckOptimization::UnivariateSkip
-            )
-            .then_some(K_SKIP_SUMCHECK),
+            is_skip_used.then_some(K_SKIP_SUMCHECK),
         )
-        .eval_constraints_poly(&constraints, &folding_randomness.reversed());
+        .eval_constraints_poly(&constraints, &point_for_eval);
 
         // Check the final sumcheck evaluation
         let final_value = final_evaluations.evaluate_hypercube(&final_sumcheck_randomness);

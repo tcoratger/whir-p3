@@ -1,3 +1,5 @@
+use alloc::vec;
+
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
@@ -125,28 +127,89 @@ impl ConstraintPolyEvaluator {
         constraints: &[Constraint<F, EF>],
         point: &MultilinearPoint<EF>,
     ) -> EF {
+        // Calculate how many prover rounds there are (excluding final sumcheck).
+        //
+        // Each constraint after the initial one corresponds to a prover round.
+        let num_prover_rounds = constraints.len() - 1;
+
+        // Calculate the number of challenges contributed by each prover round.
+        //
+        // For skip case:
+        // - round 0 produces only 1 stored as r_skip
+        // - subsequent rounds produce `folding_factor.at_round(i+1)` challenges each.
+        let mut prover_round_challenges_cumulative = vec![0];
+        if self.univariate_skip.is_some() {
+            // Round 0 skip: produces 1 challenge (r_skip, not in r_rest)
+            // So prover_round_challenges_cumulative[1] = 0 (no prover challenges in r_rest yet)
+            for round_idx in 0..num_prover_rounds {
+                let challenges_this_round = self.folding_factor.at_round(round_idx + 1);
+                prover_round_challenges_cumulative
+                    .push(prover_round_challenges_cumulative[round_idx] + challenges_this_round);
+            }
+        } else {
+            for round_idx in 0..=num_prover_rounds {
+                let challenges_this_round = self.folding_factor.at_round(round_idx);
+                prover_round_challenges_cumulative
+                    .push(prover_round_challenges_cumulative[round_idx] + challenges_this_round);
+            }
+        }
+
+        // For skip case, the point has structure [r_skip, r_accumulated...]
+        // where r_accumulated includes prover-round challenges AND final sumcheck challenges.
+        let (r_rest, rotated_point) = if self.univariate_skip.is_some() {
+            // Rotate: [r_skip, rest...] -> [rest..., r_skip]
+            let mut rotated = point.as_slice()[1..].to_vec();
+            rotated.push(point.as_slice()[0]);
+            let rotated_point = MultilinearPoint::new(rotated);
+
+            // r_rest contains all non-skip challenges (prover + final sumcheck)
+            let num_rest = point.num_variables() - 1;
+            let r_rest = rotated_point.get_subpoint_over_range(0..num_rest);
+            (Some(r_rest), Some(rotated_point))
+        } else {
+            (None, None)
+        };
+
         let mut acc = EF::ZERO;
         for (round_idx, constraint) in constraints.iter().enumerate() {
             let num_vars = constraint.num_variables();
-            // Construct the point slice appropriate for this round.
-            //
-            // For round 0 we use the full `point`:
-            //   - standard case: this is the full n-dimensional r
-            //   - skip case:     this is r_rest || r_skip (special shape)
-            // For round > 0 we shrink by the previous round's folding factor and
-            // take a prefix of length `vars_left`.
-            let point_for_round = if round_idx > 0 {
-                point.get_subpoint_over_range(0..num_vars).reversed()
-            } else {
-                point.reversed()
-            };
-
             // Check if this is the first round and if the univariate skip optimization is active.
             let is_skip_round = round_idx == 0
                 && self.univariate_skip.is_some_and(|skip_step| {
                     constraint.validate_for_skip_case();
                     self.folding_factor.at_round(0) >= skip_step
                 });
+
+            // Construct the point slice appropriate for this round.
+            //
+            // For round 0:
+            //   - skip case:     rotate point to convert [r_skip, r_rest...] to [r_rest..., r_skip]
+            //   - standard case: reverse the full n-dimensional r
+            // For round > 0 with skip: use r_rest (not the full point which includes r_skip)
+            // For round > 0 non-skip: shrink by the previous round's folding factor and
+            // take a prefix of length `num_vars`, then reverse it.
+            let point_for_round = if round_idx > 0 && r_rest.is_some() {
+                // For skip case with round > 0, constraint i is for the polynomial after (i-1) prover rounds.
+                // That polynomial's variables are folded by prover rounds (i-1) onwards + final sumcheck.
+                // So we use challenges from prover_round_challenges_cumulative[i-1] to end of r_rest.
+                let start_idx = if round_idx == 1 {
+                    0 // Constraint 1 (after round 0) uses all challenges
+                } else {
+                    prover_round_challenges_cumulative[round_idx - 1]
+                };
+                let r_rest_ref = r_rest.as_ref().unwrap();
+                let end_idx = r_rest_ref.num_variables();
+                let sliced = r_rest_ref.get_subpoint_over_range(start_idx..end_idx);
+                sliced
+            } else if round_idx > 0 {
+                // Non-skip case for round > 0
+                point.get_subpoint_over_range(0..num_vars).reversed()
+            } else if is_skip_round {
+                // For skip case, use precomputed rotated_point
+                rotated_point.clone().unwrap()
+            } else {
+                point.reversed()
+            };
 
             acc += constraint
                 .iter_eqs()
