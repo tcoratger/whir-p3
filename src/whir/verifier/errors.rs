@@ -1,8 +1,7 @@
 //! Verifier error types for WHIR protocol validation.
 
 use thiserror::Error;
-
-use crate::fiat_shamir::errors::FiatShamirError;
+use crate::whir::grinding::FiatShamirError;
 
 /// Errors for WHIR protocol verification.
 #[derive(Error, Debug)]

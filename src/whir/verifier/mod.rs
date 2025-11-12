@@ -22,6 +22,7 @@ use crate::{
         verifier::sumcheck::{verify_initial_sumcheck_rounds, verify_sumcheck_rounds, verify_final_sumcheck_rounds},
     },
 };
+use crate::whir::grinding::check_pow_grinding;
 use crate::whir::proof::{InitialPhase, QueryOpening, WhirProof};
 
 pub mod errors;
@@ -110,19 +111,22 @@ where
                 panic!("Expected WithoutStatement variant");
             };
 
-            let _ = challenger.check_witness(self.starting_folding_pow_bits, *pow_witness);
+            check_pow_grinding(challenger, *pow_witness, self.starting_folding_pow_bits)?;
         }
 
         for round_index in 0..self.n_rounds() {
             // Fetch round parameters from config
             let round_params = &self.round_parameters[round_index];
 
+            challenger.observe_slice(&proof.rounds[round_index].commitment);
+
             // Receive commitment to the folded polynomial (likely encoded at higher expansion)
-            let new_commitment = ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
+            let new_commitment = ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse_with_round(
                 proof,
                 challenger,
                 round_params.num_variables,
                 round_params.ood_samples,
+                Some(round_index),
             );
 
             // Verify in-domain challenges on the previous commitment.
@@ -144,12 +148,11 @@ where
 
             round_constraints.push((combination_randomness.clone(), new_statement));
 
-            let current_folding = self.folding_factor.at_round(round_index + 1);
             let folding_randomness = verify_sumcheck_rounds(
                 &proof.rounds[round_index],
                 challenger,
                 &mut claimed_sum,
-                current_folding,
+                self.folding_factor.at_round(round_index + 1),
                 round_params.folding_pow_bits,
             )?;
 
@@ -167,6 +170,10 @@ where
         // Observe the final polynomial to the challenger (flatten to base field first)
         let flatten_base_scalar = EF::flatten_to_base(final_evaluations.as_slice().to_vec());
         challenger.observe_slice(&flatten_base_scalar);
+
+        // Check PoW witness for final round (critical for transcript synchronization)
+        let pow_check_result = challenger.check_witness(self.final_pow_bits, proof.final_pow_witness);
+        assert!(pow_check_result, "Final round PoW witness check failed");
 
         // Verify in-domain challenges on the previous commitment.
         let stir_constraints = self.verify_stir_challenges(
@@ -282,9 +289,10 @@ where
         // challenges we generate are unpredictable and unbiased by a cheating prover.
         let pow_witness = proof.get_pow_after_commitment(round_index);
         if let Some(wit) = pow_witness {
-            let _ = challenger.check_witness(params.pow_bits, wit);
+        //    assert!(challenger.check_witness(params.pow_bits, wit), "Witness check failed");
+            check_pow_grinding(challenger, wit, self.starting_folding_pow_bits)?;
         }
-
+        
         let stir_challenges_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
             params.domain_size,
             params.folding_factor,
@@ -427,6 +435,20 @@ where
         };
 
         // Verify we have the expected number of queries
+        eprintln!("\n[VERIFIER] verify_merkle_proof at round {}:", round_index);
+        eprintln!("  Total rounds in proof.rounds: {}", proof.rounds.len());
+        eprintln!("  Expected queries (indices.len()): {}", indices.len());
+        eprintln!("  Actual queries in proof: {}", queries.len());
+        eprintln!("  leafs_base_field: {}", leafs_base_field);
+        eprintln!("  Proof structure:");
+        for (i, round) in proof.rounds.iter().enumerate() {
+            eprintln!("    Round {}: {} queries, {} sumcheck evals",
+                i, round.queries.len(), round.sumcheck.polynomial_evaluations.len());
+        }
+        if proof.final_queries.len() > 0 {
+            eprintln!("  Final queries: {}", proof.final_queries.len());
+        }
+
         if queries.len() != indices.len() {
             return Err(VerifierError::MerkleProofInvalid {
                 position: 0,

@@ -69,8 +69,33 @@ where
         EF: ExtensionField<F> + TwoAdicField,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        // Read the Merkle root hash committed by the prover.
-        let root_array = proof.initial_commitment;
+        Self::parse_with_round(proof, challenger, num_variables, ood_samples, None)
+    }
+
+    pub fn parse_with_round<EF, Challenger, const DIGEST_ELEMS: usize>(
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger:  &mut Challenger,
+        num_variables: usize,
+        ood_samples: usize,
+        round_index: Option<usize>,
+    ) -> ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>
+    where
+        F: TwoAdicField,
+        EF: ExtensionField<F> + TwoAdicField,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
+        // Read the Merkle root and OOD answers from the appropriate source
+        let (root_array, ood_answers) = match round_index {
+            None => {
+                // Initial commitment
+                (proof.initial_commitment, proof.clone().initial_ood_answers)
+            }
+            Some(idx) => {
+                // Round commitment
+                let round_proof = &proof.rounds[idx];
+                (round_proof.commitment, round_proof.ood_answers.clone())
+            }
+        };
 
         // Convert to Hash type
         let root: Hash<F, F, DIGEST_ELEMS> = root_array.into();
@@ -83,8 +108,10 @@ where
             *ood_point = challenger.sample_algebra_element();
         }
 
-        // If there are any OOD samples expected, read them from the transcript.
-        let ood_answers = proof.clone().initial_ood_answers;
+        // Observe OOD answers to the transcript
+        for answer in &ood_answers {
+            challenger.observe_algebra_element(*answer);
+        }
 
         // Return a structured representation of the commitment.
         ParsedCommitment {

@@ -13,6 +13,7 @@ use crate::{
     whir::constraints::statement::Statement,
     whir::proof::{WhirProof, WhirRoundProof, InitialPhase},
 };
+use crate::whir::grinding::pow_grinding;
 use crate::whir::proof::SumcheckData;
 
 const PARALLEL_THRESHOLD: usize = 4096;
@@ -66,11 +67,7 @@ where
     challenger.observe_slice(&flattened);
 
     // Proof-of-work challenge to delay prover (AFTER observing)
-    let witness = if pow_bits != 0 {
-        Some(challenger.grind(pow_bits))
-    } else {
-        None
-    };
+    let witness = pow_grinding(challenger, pow_bits);
 
     // Store PoW witness if present
     if let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase {
@@ -140,11 +137,7 @@ where
     challenger.observe_slice(&flattened);
 
     // Proof-of-work challenge to delay prover (AFTER observing)
-    let witness = if pow_bits != 0 {
-        Some(challenger.grind(pow_bits))
-    } else {
-        None
-    };
+    let witness = pow_grinding(challenger, pow_bits);
 
     // Store PoW witness if present
     if let Some(w) = witness {
@@ -409,11 +402,7 @@ where
         challenger.observe_slice(&flattened);
 
         // Proof-of-work challenge to delay prover.
-        let witness = if pow_bits != 0 {
-            Some(challenger.grind(pow_bits))
-        } else {
-            None
-        };
+        let witness = pow_grinding(challenger, pow_bits);
 
         // Update the WhirProof structure
         if let InitialPhase::WithStatementSkip {
@@ -611,6 +600,7 @@ where
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
+        is_final_round: bool,
     ) -> MultilinearPoint<EF>
     where
         F: TwoAdicField,
@@ -633,10 +623,24 @@ where
             ));
         }
 
-        // Create a new round for this set of sumcheck polynomials
-        let mut round_proof = WhirRoundProof::default();
-        round_proof.sumcheck = sumcheck_data;
-        proof.rounds.push(round_proof);
+        // Store sumcheck data in the appropriate location
+        if is_final_round {
+            // Final round: write sumcheck data to proof.final_sumcheck
+            proof.final_sumcheck = Some(sumcheck_data);
+        } else {
+            // Regular round: update the last round in proof.rounds with sumcheck data
+            // The prover pushes a round with commitment/queries/ood/pow before calling this,
+            // so we just need to fill in the sumcheck field of that last round.
+            // If no round exists (e.g., in standalone tests), push a new one.
+            if let Some(last_round) = proof.rounds.last_mut() {
+                last_round.sumcheck = sumcheck_data;
+            } else {
+                // No rounds exist yet (e.g., in tests), push a new round
+                let mut round_proof = WhirRoundProof::default();
+                round_proof.sumcheck = sumcheck_data;
+                proof.rounds.push(round_proof);
+            }
+        }
 
         // Reverse challenges to maintain order from X₀ to Xₙ.
         res.reverse();

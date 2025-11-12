@@ -16,7 +16,7 @@ use crate::{
     whir::{
         constraints::statement::Statement,
         verifier::sumcheck::{verify_initial_sumcheck_rounds, verify_sumcheck_rounds, verify_final_sumcheck_rounds},
-        proof::{WhirProof, InitialPhase},
+        proof::{WhirProof, InitialPhase, WhirRoundProof},
     },
 };
 
@@ -432,10 +432,13 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
         let (_, _, inter_obs) = make_inter_statement(&mut prover_challenger, num_points, &mut sumcheck);
         prover_observations.extend(inter_obs);
 
+        // Pre-create an empty WhirRoundProof (matching real prover flow)
+        whir_proof.rounds.push(WhirRoundProof::default());
+
         // Compute and apply the next folding round
         prover_randomness = extend_point(
             &prover_randomness,
-            &sumcheck.compute_sumcheck_polynomials(&mut whir_proof, &mut prover_challenger, folding, 0),
+            &sumcheck.compute_sumcheck_polynomials(&mut whir_proof, &mut prover_challenger, folding, 0, false),
         );
 
         num_vars_inter -= folding;
@@ -449,7 +452,7 @@ fn run_sumcheck_test(folding_factors: &[usize], num_points: &[usize]) {
     let final_rounds = *folding_factors.last().unwrap();
     prover_randomness = extend_point(
         &prover_randomness,
-        &sumcheck.compute_sumcheck_polynomials(&mut whir_proof, &mut prover_challenger, final_rounds, 0),
+        &sumcheck.compute_sumcheck_polynomials(&mut whir_proof, &mut prover_challenger, final_rounds, 0, true),
     );
 
     // Ensure we've folded all variables.
@@ -709,10 +712,13 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
         let (_, _, inter_obs) = make_inter_statement(&mut prover_challenger, num_pts, &mut sumcheck);
         prover_observations.extend(inter_obs);
 
+        // Pre-create an empty WhirRoundProof (matching real prover flow)
+        whir_proof.rounds.push(WhirRoundProof::default());
+
         // Fold the sumcheck polynomial again and extend randomness vector
         prover_randomness = extend_point(
             &prover_randomness,
-            &sumcheck.compute_sumcheck_polynomials(&mut whir_proof, &mut prover_challenger, folding, 0),
+            &sumcheck.compute_sumcheck_polynomials(&mut whir_proof, &mut prover_challenger, folding, 0, false),
         );
         num_vars_inter -= folding;
 
@@ -725,7 +731,7 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     let final_rounds = *folding_factors.last().unwrap();
     prover_randomness = extend_point(
         &prover_randomness,
-        &sumcheck.compute_sumcheck_polynomials(&mut whir_proof, &mut prover_challenger, final_rounds, 0),
+        &sumcheck.compute_sumcheck_polynomials(&mut whir_proof, &mut prover_challenger, final_rounds, 0, true),
     );
 
     // After final round, polynomial must collapse to a constant

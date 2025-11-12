@@ -21,6 +21,7 @@ use crate::{
         utils::{get_challenge_stir_queries, sample_ood_points},
     },
 };
+use crate::whir::grinding::pow_grinding;
 use crate::whir::proof::{QueryOpening, SumcheckData, WhirProof, WhirRoundProof};
 
 pub mod round_state;
@@ -124,7 +125,7 @@ where
     /// # Parameters
     /// - `dft`: A DFT backend used for evaluations
     /// - `proof`: Mutable prover data structure used across rounds
-    /// - `challenger`: Keep track of fiar-shamir
+    /// - `challenger`: Keep track of fiar-shamir transcript
     /// - `statement`: The public input, consisting of linear or nonlinear constraints
     /// - `witness`: The private witness satisfying the constraints, including committed values
     ///
@@ -168,8 +169,6 @@ where
         for round in 0..=self.n_rounds() {
             self.round(round, dft, proof, challenger, &mut round_state);
         }
-        println!("Statement 2: {:?}", statement);
-
 
         // Reverse the vector of verifier challenges (used as evaluation point)
         //
@@ -202,6 +201,15 @@ where
     {
         let folded_evaluations = &round_state.sumcheck_prover.evals;
         let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
+
+        eprintln!("\n[PROVER ROUND {}] Variable count check:", round_index);
+        eprintln!("  self.num_variables = {}", self.num_variables);
+        eprintln!("  self.n_rounds() = {}", self.n_rounds());
+        eprintln!("  self.folding_factor.total_number({}) = {}", round_index, self.folding_factor.total_number(round_index));
+        eprintln!("  Expected num_variables = {}", num_variables);
+        eprintln!("  Actual folded_evaluations.num_variables() = {}", folded_evaluations.num_variables());
+        eprintln!("  Is final round? {}", round_index == self.n_rounds());
+
         assert_eq!(num_variables, folded_evaluations.num_variables());
 
         // Base case: final round reached
@@ -254,6 +262,11 @@ where
             |point| info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point)),
         );
 
+        // Observe OOD answers to the transcript
+        for answer in &ood_answers {
+            challenger.observe_algebra_element(*answer);
+        }
+
         // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
         //
         // This is a crucial security step to prevent a malicious prover from influencing the
@@ -267,7 +280,10 @@ where
         // By forcing the prover to perform this expensive proof-of-work *after* committing but
         // *before* receiving the queries, we make it computationally infeasible to "shop" for
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
-        let pow_witness = challenger.grind(self.final_pow_bits);
+        // Skip grinding entirely if difficulty is zero.
+
+        // Perform grinding and obtain a witness element in the base field.
+        let pow_witness = pow_grinding(challenger, self.final_pow_bits).expect("Grinding failure in round");
 
         // STIR Queries
         let (ood_challenges, stir_challenges, stir_challenges_indexes) = self
@@ -421,6 +437,7 @@ where
             challenger,
             folding_factor_next,
             round_params.folding_pow_bits,
+            false, // Regular round, not final
         );
 
         let start_idx = self.folding_factor.total_number(round_index);
@@ -534,6 +551,7 @@ where
                     challenger,
                     self.final_sumcheck_rounds,
                     self.final_folding_pow_bits,
+                    true, // Final round
                 );
             let start_idx = self.folding_factor.total_number(round_index);
             let rand_dst = &mut round_state.randomness_vec

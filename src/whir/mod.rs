@@ -23,6 +23,7 @@ pub mod prover;
 pub mod utils;
 pub mod verifier;
 pub mod proof;
+pub mod grinding;
 
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
@@ -117,6 +118,10 @@ pub fn make_whir_things(
     };
     challenger.observe(F::from_u64(phase_tag as u64));
 
+    // Observe the statement (number of constraints and num_variables)
+    challenger.observe(F::from_u64(statement.len() as u64));
+    challenger.observe(F::from_u64(statement.num_variables() as u64));
+
     // Create polynomial commitment using Merkle tree over evaluation domain
     let committer = CommitmentWriter::new(&params);
     // DFT evaluator for polynomial
@@ -177,6 +182,7 @@ pub fn make_whir_things(
         .unwrap();
 
     let checkpoint_verifier: EF = verifier_challenger.sample();
+
     assert_eq!(checkpoint_prover, checkpoint_verifier);
 }
 
@@ -205,6 +211,10 @@ mod tests {
         let pow_bits = [0, 5, 10];
         let rs_domain_initial_reduction_factors = 1..=3;
 
+        let mut test_count = 0;
+        let mut failed_tests = Vec::new();
+        let mut passed_tests = Vec::new();
+
         for rs_domain_initial_reduction_factor in rs_domain_initial_reduction_factors {
             for folding_factor in folding_factors {
                 if folding_factor.at_round(0) < rs_domain_initial_reduction_factor {
@@ -215,21 +225,59 @@ mod tests {
                     for num_points in num_points {
                         for soundness_type in soundness_type {
                             for pow_bits in pow_bits {
-                                make_whir_things(
-                                    num_variable,
-                                    folding_factor,
-                                    num_points,
-                                    soundness_type,
-                                    pow_bits,
-                                    rs_domain_initial_reduction_factor,
-                                    false,
-                                    true,
+                                test_count += 1;
+                                let result = std::panic::catch_unwind(|| {
+                                    make_whir_things(
+                                        num_variable,
+                                        folding_factor,
+                                        num_points,
+                                        soundness_type,
+                                        pow_bits,
+                                        rs_domain_initial_reduction_factor,
+                                        false,
+                                        true,
+                                    );
+                                });
+
+                                let test_case = format!(
+                                    "num_variable={}, folding_factor={:?}, num_points={}, soundness={:?}, pow_bits={}, rs_reduction={}",
+                                    num_variable, folding_factor, num_points, soundness_type, pow_bits, rs_domain_initial_reduction_factor
                                 );
+
+                                if result.is_err() {
+                                    eprintln!("FAILED: {}", test_case);
+                                    failed_tests.push(test_case);
+                                } else {
+                                    eprintln!("PASSED: {}", test_case);
+                                    passed_tests.push(test_case);
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+
+        eprintln!("\n========================================");
+        eprintln!("TEST SUMMARY");
+        eprintln!("========================================");
+        eprintln!("Total tests run: {}", test_count);
+        eprintln!("Passed tests: {}", passed_tests.len());
+        eprintln!("Failed tests: {}", failed_tests.len());
+
+        if !passed_tests.is_empty() {
+            eprintln!("\nPassed test cases:");
+            for test in &passed_tests {
+                eprintln!("  {}", test);
+            }
+        }
+
+        if !failed_tests.is_empty() {
+            eprintln!("\nFailed test cases:");
+            for test in &failed_tests {
+                eprintln!("  {}", test);
+            }
+            panic!("{} out of {} tests failed", failed_tests.len(), test_count);
         }
     }
 

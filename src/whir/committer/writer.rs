@@ -106,6 +106,11 @@ where
             |point| info_span!("ood evaluation").in_scope(|| polynomial.evaluate(point)),
         );
 
+        // Observe OOD answers to the transcript
+        for answer in &ood_answers {
+            challenger.observe_algebra_element(*answer);
+        }
+
 
         // Return the witness containing the polynomial, Merkle tree, and OOD results.
         Witness {

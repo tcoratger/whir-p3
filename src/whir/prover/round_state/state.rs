@@ -20,6 +20,7 @@ use crate::{
         prover::Prover,
     },
 };
+use crate::whir::grinding::pow_grinding;
 use crate::whir::proof::{InitialPhase, WhirProof};
 
 /// Holds all per-round prover state required during the execution of the WHIR protocol.
@@ -235,12 +236,7 @@ where
 
                 // Apply proof-of-work grinding for transcript security
                 let pow_bits = prover.starting_folding_pow_bits;
-
-                let witness = if pow_bits != 0 {
-                    Some(challenger.grind(pow_bits))
-                } else {
-                    None
-                };
+                let witness = pow_grinding(challenger, pow_bits);
 
                 if let InitialPhase::WithoutStatement { ref mut pow_witness } = proof.initial_phase {
                     if let Some(w) = witness {
