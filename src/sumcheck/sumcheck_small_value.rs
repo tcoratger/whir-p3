@@ -538,4 +538,297 @@ mod tests {
         let out = EvaluationsList::new_from_point(&[p0, p1, p2], F::ONE).0;
         assert_eq!(out, expected);
     }
+
+    #[test]
+    fn test_accumulators_new_empty() {
+        // SETUP:
+        // Create a new empty accumulator structure for the SVO protocol.
+        //
+        // The SVO protocol uses NUM_SVO_ROUNDS rounds, where:
+        // - Round 0 (i=0): 2^(0+1) = 2 accumulators for A_0(u) with u in {0, 1}
+        // - Round 1 (i=1): 2^(1+1) = 4 accumulators for A_1(v, u) with v in {0, 1} and u in {0, 1}
+        // - Round 2 (i=2): 2^(2+1) = 8 accumulators for A_2(v, u) with v in {0, 1}^2 and u in {0, 1}
+
+        let accumulators = Accumulators::<F>::new_empty();
+
+        // VERIFY: Each round has the correct number of zero-initialized accumulators.
+
+        // Round 0: 2 accumulators, all zero
+        let round_0 = accumulators.at_round(0);
+        assert_eq!(round_0.len(), 2, "Round 0 should have 2 accumulators");
+        assert_eq!(round_0[0], F::ZERO, "Accumulator A_0(u=0) should be zero");
+        assert_eq!(round_0[1], F::ZERO, "Accumulator A_0(u=1) should be zero");
+
+        // Round 1: 4 accumulators, all zero
+        let round_1 = accumulators.at_round(1);
+        assert_eq!(round_1.len(), 4, "Round 1 should have 4 accumulators");
+        for (i, &r1) in round_1.iter().enumerate().take(4) {
+            assert_eq!(r1, F::ZERO, "Accumulator A_1[{i}] should be zero");
+        }
+
+        // Round 2: 8 accumulators, all zero
+        let round_2 = accumulators.at_round(2);
+        assert_eq!(round_2.len(), 8, "Round 2 should have 8 accumulators");
+        for (i, &r2) in round_2.iter().enumerate().take(8) {
+            assert_eq!(r2, F::ZERO, "Accumulator A_2[{i}] should be zero");
+        }
+    }
+
+    #[test]
+    fn test_accumulators_accumulate_single_round() {
+        // SETUP:
+        // Test accumulation on a single round to verify that values are correctly added.
+        //
+        // We focus on Round 1, which has 4 accumulators corresponding to:
+        // - Index 0: A_1(v=0, u=0)
+        // - Index 1: A_1(v=0, u=1)
+        // - Index 2: A_1(v=1, u=0)
+        // - Index 3: A_1(v=1, u=1)
+
+        let mut accumulators = Accumulators::<F>::new_empty();
+
+        // Accumulate values at different indices in round 1
+        let value_1 = F::from_u64(10); // Add 10 to A_1(v=0, u=0)
+        let value_2 = F::from_u64(25); // Add 25 to A_1(v=1, u=1)
+        let value_3 = F::from_u64(7); // Add 7 more to A_1(v=0, u=0)
+
+        accumulators.accumulate(1, 0, value_1);
+        accumulators.accumulate(1, 3, value_2);
+        accumulators.accumulate(1, 0, value_3);
+
+        // VERIFY: The accumulators contain the correct accumulated values.
+
+        let round_1 = accumulators.at_round(1);
+
+        // Index 0 should have 10 + 7 = 17
+        assert_eq!(
+            round_1[0],
+            F::from_u64(17),
+            "A_1(v=0, u=0) should accumulate to 17"
+        );
+
+        // Index 1 should remain zero (no accumulation)
+        assert_eq!(round_1[1], F::ZERO, "A_1(v=0, u=1) should remain zero");
+
+        // Index 2 should remain zero (no accumulation)
+        assert_eq!(round_1[2], F::ZERO, "A_1(v=1, u=0) should remain zero");
+
+        // Index 3 should have 25
+        assert_eq!(
+            round_1[3],
+            F::from_u64(25),
+            "A_1(v=1, u=1) should accumulate to 25"
+        );
+    }
+
+    #[test]
+    fn test_accumulators_accumulate_multiple_rounds() {
+        // SETUP:
+        // Test accumulation across multiple rounds to verify that each round maintains
+        // its own independent set of accumulators.
+        //
+        // We accumulate values in all three rounds and verify they don't interfere.
+
+        let mut accumulators = Accumulators::<F>::new_empty();
+
+        // Round 0: Accumulate at both indices
+        // A_0(u=0) += 5, then += 3 → total 8
+        // A_0(u=1) += 12
+        accumulators.accumulate(0, 0, F::from_u64(5));
+        accumulators.accumulate(0, 0, F::from_u64(3));
+        accumulators.accumulate(0, 1, F::from_u64(12));
+
+        // Round 1: Accumulate at specific indices
+        // A_1(v=0, u=1) += 20
+        // A_1(v=1, u=0) += 15
+        accumulators.accumulate(1, 1, F::from_u64(20));
+        accumulators.accumulate(1, 2, F::from_u64(15));
+
+        // Round 2: Accumulate at the first and last indices
+        // A_2[0] += 100
+        // A_2[7] += 200
+        accumulators.accumulate(2, 0, F::from_u64(100));
+        accumulators.accumulate(2, 7, F::from_u64(200));
+
+        // VERIFY: Each round's accumulators contain the expected values.
+
+        // Check Round 0
+        let round_0 = accumulators.at_round(0);
+        assert_eq!(round_0[0], F::from_u64(8), "Round 0: A_0(u=0) should be 8");
+        assert_eq!(
+            round_0[1],
+            F::from_u64(12),
+            "Round 0: A_0(u=1) should be 12"
+        );
+
+        // Check Round 1
+        let round_1 = accumulators.at_round(1);
+        assert_eq!(round_1[0], F::ZERO, "Round 1: A_1(v=0, u=0) should be zero");
+        assert_eq!(
+            round_1[1],
+            F::from_u64(20),
+            "Round 1: A_1(v=0, u=1) should be 20"
+        );
+        assert_eq!(
+            round_1[2],
+            F::from_u64(15),
+            "Round 1: A_1(v=1, u=0) should be 15"
+        );
+        assert_eq!(round_1[3], F::ZERO, "Round 1: A_1(v=1, u=1) should be zero");
+
+        // Check Round 2
+        let round_2 = accumulators.at_round(2);
+        assert_eq!(
+            round_2[0],
+            F::from_u64(100),
+            "Round 2: A_2[0] should be 100"
+        );
+        for (i, &r2) in round_2.iter().enumerate().take(7).skip(1) {
+            assert_eq!(r2, F::ZERO, "Round 2: A_2[{i}] should be zero");
+        }
+        assert_eq!(
+            round_2[7],
+            F::from_u64(200),
+            "Round 2: A_2[7] should be 200"
+        );
+    }
+
+    #[test]
+    fn test_accumulators_add() {
+        // Create the first accumulator with specific values
+        let mut acc_1 = Accumulators::<F>::new_empty();
+
+        // Thread 1 computed these accumulators from its chunk of the polynomial:
+        // Round 0:
+        acc_1.accumulate(0, 0, F::from_u64(10)); // A_0(u=0) = 10
+        acc_1.accumulate(0, 1, F::from_u64(20)); // A_0(u=1) = 20
+
+        // Round 1:
+        acc_1.accumulate(1, 0, F::from_u64(5)); // A_1(v=0, u=0) = 5
+        acc_1.accumulate(1, 1, F::from_u64(15)); // A_1(v=0, u=1) = 15
+        acc_1.accumulate(1, 2, F::from_u64(25)); // A_1(v=1, u=0) = 25
+        acc_1.accumulate(1, 3, F::from_u64(35)); // A_1(v=1, u=1) = 35
+
+        // Round 2:
+        acc_1.accumulate(2, 0, F::from_u64(100)); // A_2[0] = 100
+        acc_1.accumulate(2, 3, F::from_u64(200)); // A_2[3] = 200
+        acc_1.accumulate(2, 7, F::from_u64(300)); // A_2[7] = 300
+
+        // Create the second accumulator with different values
+        let mut acc_2 = Accumulators::<F>::new_empty();
+
+        // Thread 2 computed these accumulators from its chunk of the polynomial:
+        // Round 0:
+        acc_2.accumulate(0, 0, F::from_u64(3)); // A_0(u=0) = 3
+        acc_2.accumulate(0, 1, F::from_u64(7)); // A_0(u=1) = 7
+
+        // Round 1:
+        acc_2.accumulate(1, 0, F::from_u64(2)); // A_1(v=0, u=0) = 2
+        acc_2.accumulate(1, 1, F::from_u64(4)); // A_1(v=0, u=1) = 4
+        acc_2.accumulate(1, 2, F::from_u64(6)); // A_1(v=1, u=0) = 6
+        acc_2.accumulate(1, 3, F::from_u64(8)); // A_1(v=1, u=1) = 8
+
+        // Round 2:
+        acc_2.accumulate(2, 0, F::from_u64(50)); // A_2[0] = 50
+        acc_2.accumulate(2, 1, F::from_u64(60)); // A_2[1] = 60
+        acc_2.accumulate(2, 7, F::from_u64(70)); // A_2[7] = 70
+
+        // COMBINE: Add the two accumulator structures using the `+` operator
+        let result = acc_1 + acc_2;
+
+        // VERIFY: Each element in the result is the sum of corresponding elements.
+
+        // Check Round 0:
+        // - result.A_0(u=0) = 10 + 3 = 13
+        // - result.A_0(u=1) = 20 + 7 = 27
+        let round_0 = result.at_round(0);
+        assert_eq!(
+            round_0[0],
+            F::from_u64(13),
+            "Round 0: A_0(u=0) = 10 + 3 = 13"
+        );
+        assert_eq!(
+            round_0[1],
+            F::from_u64(27),
+            "Round 0: A_0(u=1) = 20 + 7 = 27"
+        );
+
+        // Check Round 1:
+        // - result.A_1(v=0, u=0) = 5 + 2 = 7
+        // - result.A_1(v=0, u=1) = 15 + 4 = 19
+        // - result.A_1(v=1, u=0) = 25 + 6 = 31
+        // - result.A_1(v=1, u=1) = 35 + 8 = 43
+        let round_1 = result.at_round(1);
+        assert_eq!(
+            round_1[0],
+            F::from_u64(7),
+            "Round 1: A_1(v=0, u=0) = 5 + 2 = 7"
+        );
+        assert_eq!(
+            round_1[1],
+            F::from_u64(19),
+            "Round 1: A_1(v=0, u=1) = 15 + 4 = 19"
+        );
+        assert_eq!(
+            round_1[2],
+            F::from_u64(31),
+            "Round 1: A_1(v=1, u=0) = 25 + 6 = 31"
+        );
+        assert_eq!(
+            round_1[3],
+            F::from_u64(43),
+            "Round 1: A_1(v=1, u=1) = 35 + 8 = 43"
+        );
+
+        // Check Round 2:
+        // - result.A_2[0] = 100 + 50 = 150
+        // - result.A_2[1] = 0 + 60 = 60    (acc_1 had zero here)
+        // - result.A_2[2] = 0 + 0 = 0      (both had zero)
+        // - result.A_2[3] = 200 + 0 = 200  (acc_2 had zero here)
+        // - result.A_2[4] = 0 + 0 = 0      (both had zero)
+        // - result.A_2[5] = 0 + 0 = 0      (both had zero)
+        // - result.A_2[6] = 0 + 0 = 0      (both had zero)
+        // - result.A_2[7] = 300 + 70 = 370
+        let round_2 = result.at_round(2);
+        assert_eq!(
+            round_2[0],
+            F::from_u64(150),
+            "Round 2: A_2[0] = 100 + 50 = 150"
+        );
+        assert_eq!(
+            round_2[1],
+            F::from_u64(60),
+            "Round 2: A_2[1] = 0 + 60 = 60 (only acc_2 contributed)"
+        );
+        assert_eq!(
+            round_2[2],
+            F::ZERO,
+            "Round 2: A_2[2] = 0 + 0 = 0 (neither contributed)"
+        );
+        assert_eq!(
+            round_2[3],
+            F::from_u64(200),
+            "Round 2: A_2[3] = 200 + 0 = 200 (only acc_1 contributed)"
+        );
+        assert_eq!(
+            round_2[4],
+            F::ZERO,
+            "Round 2: A_2[4] = 0 + 0 = 0 (neither contributed)"
+        );
+        assert_eq!(
+            round_2[5],
+            F::ZERO,
+            "Round 2: A_2[5] = 0 + 0 = 0 (neither contributed)"
+        );
+        assert_eq!(
+            round_2[6],
+            F::ZERO,
+            "Round 2: A_2[6] = 0 + 0 = 0 (neither contributed)"
+        );
+        assert_eq!(
+            round_2[7],
+            F::from_u64(370),
+            "Round 2: A_2[7] = 300 + 70 = 370"
+        );
+    }
 }
