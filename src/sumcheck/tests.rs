@@ -649,10 +649,12 @@ fn run_sumcheck_test_svo(
         );
 
         // Compute and apply the next folding round
-        prover_randomness = extend_point(
-            &prover_randomness,
-            &sumcheck.compute_sumcheck_polynomials(prover, folding, 0, Some(constraint)),
-        );
+        prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
+            prover,
+            folding,
+            0,
+            Some(constraint),
+        ));
 
         num_vars_inter -= folding;
 
@@ -665,10 +667,8 @@ fn run_sumcheck_test_svo(
     assert_eq!(num_vars_inter, final_rounds);
 
     // FINAL ROUND
-    prover_randomness = extend_point(
-        &prover_randomness,
-        &sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0, None),
-    );
+
+    prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0, None));
 
     assert_eq!(sumcheck.evals.num_variables(), 0);
     assert_eq!(sumcheck.evals.num_evals(), 1);
@@ -713,8 +713,7 @@ fn run_sumcheck_test_svo(
 
         // Extend r with verifier's folding challenges
         let folding = folding_factor.at_round(round_idx);
-        verifier_randomness = extend_point(
-            &verifier_randomness,
+        verifier_randomness.extend(
             &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, SumcheckOptimization::Svo)
                 .unwrap(),
         );
@@ -723,8 +722,7 @@ fn run_sumcheck_test_svo(
     }
 
     // Final round check
-    verifier_randomness = extend_point(
-        &verifier_randomness,
+    verifier_randomness.extend(
         &verify_sumcheck_rounds(
             verifier,
             &mut sum,
@@ -748,7 +746,7 @@ fn run_sumcheck_test_svo(
     //
     // No skip optimization, so the first round is treated as a standard sumcheck round.
     let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
-    let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness);
+    let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness.reversed());
 
     // CHECK SUM == f(r) * weights(z, r)
     assert_eq!(sum, final_folded_value * weights);

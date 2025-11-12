@@ -226,37 +226,6 @@ where
         CoefficientList::new(evals)
     }
 
-    /// Compresses a list of evaluations in-place using a random challenge.
-    ///
-    /// ## Arguments
-    /// * `r`: A value from the field `F`, used as the random folding challenge.
-    ///
-    /// ## Mathematical Formula
-    /// The compression is achieved by applying the following formula to pairs of evaluations:
-    /// ```text
-    ///     p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)
-    /// ```
-    #[inline]
-    pub fn compress(&mut self, r: F) {
-        assert_ne!(self.num_variables(), 0);
-        let num_evals = self.num_evals();
-        let mid = num_evals / 2;
-
-        // Evaluations at `a_i` and `a_{i + n/2}` slots are folded with `r` into `a_i` slot
-        let (p0, p1) = self.0.split_at_mut(mid);
-        if num_evals >= PARALLEL_THRESHOLD {
-            p0.par_iter_mut()
-                .zip(p1.par_iter())
-                .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
-        } else {
-            p0.iter_mut()
-                .zip(p1.iter())
-                .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
-        }
-        // Free higher part of the evaluations
-        self.0.truncate(mid);
-    }
-
     /// Compresses the evaluation list by folding the **first** variable ($X_1$) with a challenge.
     ///
     /// This function is the core operation for the standard rounds of a sumcheck prover,
@@ -294,58 +263,24 @@ where
     ///
     /// The function computes `result[i] = left[i] + r * (right[i] - left[i])` for
     /// all `i` in the first half, and then truncates the list.
-    ///
-    /// > **Note: `compress_svo` vs. `compress`**
-    /// >
-    /// > - **`compress_svo` (this):** Folds the **first** variable ($X_1$).
-    /// >   Accesses `[i]` and `[mid + i]`.
-    /// >
-    /// > - **`compress`:** Folds the **last** variable ($X_n$).
-    /// >   Accesses `[2i]` and `[2i + 1]`.
-    ///
-    /// ## Context: Sumcheck with Small-Value Optimization (SVO)
-    ///
-    /// In the SVO paper, the sumcheck prover has two distinct phases:
-    ///
-    /// 1.  **SVO Rounds (Rounds 1 to $l_0$):**
-    ///     The prover uses precomputed "accumulators" and interpolation.
-    ///     The evaluation list is not folded.
-    ///     **`compress_svo` is NOT used here.**
-    ///
-    /// 2.  **Standard Rounds (Rounds $l_0+1$ to $l$):**
-    ///     After the SVO rounds, the prover switches over to the classical
-    ///     sumcheck protocol. For every subsequent round $i$, it must fold
-    ///     the *next* variable $X_i$ using the challenge $r_i$.
-    ///     **`compress_svo` IS used for every round in this phase.**
     #[inline]
-    pub fn compress_svo(&mut self, r: F) {
+    pub fn compress(&mut self, r: F) {
         assert_ne!(self.num_variables(), 0);
-        let mid = self.num_evals() / 2;
-        // For large inputs, we use a parallel strategy.
-        if self.num_evals() >= PARALLEL_THRESHOLD {
-            // Split into mutable left half and immutable right half.
-            let (left, right) = self.0.split_at_mut(mid);
-            // Process each pair (left[i], right[i]) in parallel.
-            left.par_iter_mut()
-                .zip(right.par_iter())
-                .for_each(|(p0_mut, &p1)| {
-                    // Compute the folded value and write it back to the left half.
-                    //
-                    // Formula: p(r, x') = r * (p(1, x') - p(0, x')) + p(0, x')
-                    *p0_mut += r * (p1 - *p0_mut);
-                });
+        let num_evals = self.num_evals();
+        let mid = num_evals / 2;
+
+        // Evaluations at `a_i` and `a_{i + n/2}` slots are folded with `r` into `a_i` slot
+        let (p0, p1) = self.0.split_at_mut(mid);
+        if num_evals >= PARALLEL_THRESHOLD {
+            p0.par_iter_mut()
+                .zip(p1.par_iter())
+                .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
         } else {
-            // For smaller inputs, we use a sequential strategy.
-            for i in 0..mid {
-                // p(0, x'_i) from left half
-                let p0 = self.0[i];
-                // p(1, x'_i) from right half
-                let p1 = self.0[mid + i];
-                // Compute the folded value in-place.
-                self.0[i] += r * (p1 - p0);
-            }
+            p0.iter_mut()
+                .zip(p1.iter())
+                .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
         }
-        // Remove the right half, which is no longer needed.
+        // Free higher part of the evaluations
         self.0.truncate(mid);
     }
 
@@ -1641,32 +1576,6 @@ mod tests {
     }
 
     #[test]
-    fn test_compress() {
-        let initial_evals: Vec<F> = [1u64, 3, 5, 7, 2, 4, 6, 8]
-            .into_iter()
-            .map(F::from_u64)
-            .collect();
-        let mut evals_list = EvaluationsList::new(initial_evals);
-        let r = F::from_u64(10);
-
-        // Manually compute the expected folded values using the formula:
-        // p' = r * (p1 - p0) + p0
-        let expected = vec![
-            r * (F::from_u64(2) - F::from_u64(1)) + F::from_u64(1),
-            r * (F::from_u64(4) - F::from_u64(3)) + F::from_u64(3),
-            r * (F::from_u64(6) - F::from_u64(5)) + F::from_u64(5),
-            r * (F::from_u64(8) - F::from_u64(7)) + F::from_u64(7),
-        ];
-
-        // The method modifies the list in-place.
-        evals_list.compress(r);
-
-        assert_eq!(evals_list.num_variables(), 2);
-        assert_eq!(evals_list.num_evals(), 4);
-        assert_eq!(evals_list.as_slice(), &expected);
-    }
-
-    #[test]
     #[should_panic]
     fn test_compress_panics_on_constant() {
         // A constant polynomial has 0 variables and cannot be compressed.
@@ -1675,7 +1584,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compress_svo_basic() {
+    fn test_compress_basic() {
         // Initial layout (n=3 variables, 8 evaluations):
         //
         // [p(0,0,0), p(0,0,1), p(0,1,0), p(0,1,1), p(1,0,0), p(1,0,1), p(1,1,0), p(1,1,1)]
@@ -1711,7 +1620,7 @@ mod tests {
         assert_eq!(evals_list.num_variables(), 3);
         assert_eq!(evals_list.num_evals(), 8);
 
-        evals_list.compress_svo(r);
+        evals_list.compress(r);
 
         // After compression, the dimensions are:
         // - n = 2 variables
@@ -1722,49 +1631,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compress_svo_folds_first_variable() {
-        // Verify that compress_svo folds the FIRST variable (not the last like compress).
-        //
-        // Initial layout (n=3 variables, 8 evaluations):
-        //
-        // [p(0,0,0), p(0,0,1), p(0,1,0), p(0,1,1), p(1,0,0), p(1,0,1), p(1,1,0), p(1,1,1)]
-        let p_000 = F::from_u64(1);
-        let p_001 = F::from_u64(2);
-        let p_010 = F::from_u64(3);
-        let p_011 = F::from_u64(4);
-        let p_100 = F::from_u64(5);
-        let p_101 = F::from_u64(6);
-        let p_110 = F::from_u64(7);
-        let p_111 = F::from_u64(8);
-        let initial_evals = vec![p_000, p_001, p_010, p_011, p_100, p_101, p_110, p_111];
-        let mut evals_svo = EvaluationsList::new(initial_evals.clone());
-        let r = F::from_u64(10);
-
-        evals_svo.compress_svo(r);
-
-        // Expected: folding first variable X_1
-        //
-        // - result[0] = p(r, 0, 0) = r * (p(1,0,0) - p(0,0,0)) + p(0,0,0)
-        // - result[1] = p(r, 0, 1) = r * (p(1,0,1) - p(0,0,1)) + p(0,0,1)
-        // - result[2] = p(r, 1, 0) = r * (p(1,1,0) - p(0,1,0)) + p(0,1,0)
-        // - result[3] = p(r, 1, 1) = r * (p(1,1,1) - p(0,1,1)) + p(0,1,1)
-        let expected = vec![
-            r * (p_100 - p_000) + p_000,
-            r * (p_101 - p_001) + p_001,
-            r * (p_110 - p_010) + p_010,
-            r * (p_111 - p_011) + p_011,
-        ];
-
-        assert_eq!(evals_svo.as_slice(), &expected);
-
-        // Verify this is different from compress (which folds last variable)
-        let mut evals_compress = EvaluationsList::new(initial_evals);
-        evals_compress.compress(r);
-        assert_ne!(evals_svo.as_slice(), evals_compress.as_slice());
-    }
-
-    #[test]
-    fn test_compress_svo_parallel_path() {
+    fn test_compress_parallel_path() {
         // Test the parallel code path.
         let num_evals = PARALLEL_THRESHOLD;
         let mid = num_evals / 2;
@@ -1780,7 +1647,7 @@ mod tests {
 
         let num_variables_before = evals_list.num_variables();
 
-        evals_list.compress_svo(r);
+        evals_list.compress(r);
 
         // Verify dimensions.
         assert_eq!(evals_list.num_variables(), num_variables_before - 1);
@@ -1800,15 +1667,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_compress_svo_panics_on_constant() {
-        // A constant polynomial has 0 variables and cannot be compressed.
-        let mut evals_list = EvaluationsList::new(vec![F::from_u64(42)]);
-        evals_list.compress_svo(F::ONE); // This should panic.
-    }
-
-    #[test]
-    fn test_compress_svo_multiple_rounds() {
+    fn test_compress_multiple_rounds() {
         // Test multiple rounds of compression, as would happen in reality.
         //
         // Each round folds the first variable of the current polynomial.
@@ -1819,7 +1678,7 @@ mod tests {
 
         // Apply three rounds of compression.
         for &r in &challenges {
-            evals_list.compress_svo(r);
+            evals_list.compress(r);
         }
 
         // After 3 rounds, we should go from 4 variables to 1 variable.
@@ -1828,7 +1687,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compress_svo_single_variable() {
+    fn test_compress_single_variable() {
         // Test compression of a polynomial with just 1 variable (edge case).
         //
         // Initial layout (n=1 variable, 2 evaluations):
@@ -1839,7 +1698,7 @@ mod tests {
         let mut evals_list = EvaluationsList::new(vec![p_0, p_1]);
         let r = F::from_u64(7);
 
-        evals_list.compress_svo(r);
+        evals_list.compress(r);
 
         // After compression, we should have a constant polynomial.
         assert_eq!(evals_list.num_variables(), 0);
@@ -1851,7 +1710,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compress_svo_with_zero_challenge() {
+    fn test_compress_with_zero_challenge() {
         // Test with challenge r = 0 (should select the left half).
         //
         // Initial layout (n=3 variables, 8 evaluations):
@@ -1869,7 +1728,7 @@ mod tests {
             EvaluationsList::new(vec![p_000, p_001, p_010, p_011, p_100, p_101, p_110, p_111]);
         let r = F::ZERO;
 
-        evals_list.compress_svo(r);
+        evals_list.compress(r);
 
         // With r = 0, result[i] = 0 * (right[i] - left[i]) + left[i] = left[i]
         //
@@ -1880,7 +1739,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compress_svo_with_one_challenge() {
+    fn test_compress_with_one_challenge() {
         // Test with challenge r = 1 (should select the right half).
         //
         // Initial layout (n=3 variables, 8 evaluations):
@@ -1898,7 +1757,7 @@ mod tests {
             EvaluationsList::new(vec![p_000, p_001, p_010, p_011, p_100, p_101, p_110, p_111]);
         let r = F::ONE;
 
-        evals_list.compress_svo(r);
+        evals_list.compress(r);
 
         // With r = 1, result[i] = 1 * (right[i] - left[i]) + left[i] = right[i]
         //
@@ -1970,7 +1829,7 @@ mod tests {
         }
 
         #[test]
-        fn prop_compress_svo_dimensions(
+        fn prop_compress_dimensions(
             n in 1usize..=10,
             seed in any::<u64>(),
         ) {
@@ -1980,7 +1839,7 @@ mod tests {
             let r: F = rng.random();
 
             let mut list = EvaluationsList::new(evals);
-            list.compress_svo(r);
+            list.compress(r);
 
             // After one round of compression, we should have n-1 variables.
             prop_assert_eq!(list.num_variables(), n - 1);
@@ -1988,7 +1847,7 @@ mod tests {
         }
 
         #[test]
-        fn prop_compress_svo_boundary_challenges(
+        fn prop_compress_boundary_challenges(
             n in 2usize..=8,
             seed in any::<u64>(),
         ) {
@@ -1998,12 +1857,12 @@ mod tests {
 
             // Test with r = 0: should select left half
             let mut list_zero = EvaluationsList::new(evals.clone());
-            list_zero.compress_svo(F::ZERO);
+            list_zero.compress(F::ZERO);
             prop_assert_eq!(list_zero.num_evals(), num_evals / 2);
 
             // Test with r = 1: should select right half
             let mut list_one = EvaluationsList::new(evals);
-            list_one.compress_svo(F::ONE);
+            list_one.compress(F::ONE);
             prop_assert_eq!(list_one.num_evals(), num_evals / 2);
 
             // Results should be different (unless all evals are the same)
@@ -2013,7 +1872,7 @@ mod tests {
         }
 
         #[test]
-        fn prop_compress_svo_multiple_rounds(
+        fn prop_compress_multiple_rounds(
             n in 2usize..=8,
             num_rounds in 1usize..=5,
             seed in any::<u64>(),
@@ -2026,10 +1885,10 @@ mod tests {
             let actual_rounds = num_rounds.min(n);
             let challenges: Vec<F> = (0..actual_rounds).map(|_| rng.random()).collect();
 
-            // Apply multiple rounds of compress_svo.
+            // Apply multiple rounds of compress.
             let mut list = EvaluationsList::new(evals);
             for &r in &challenges {
-                list.compress_svo(r);
+                list.compress(r);
             }
 
             // Verify final dimensions are correct.

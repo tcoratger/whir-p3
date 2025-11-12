@@ -161,17 +161,6 @@ where
         randomness.push(rand);
     }
 
-    // Reverse randomness order only for Classic and UnivariateSkip modes
-    // SVO prover doesn't reverse, so verifier also doesn't reverse
-    match sumcheck_optimization {
-        SumcheckOptimization::Svo => {
-            // SVO doesn't reverse randomness
-        }
-        SumcheckOptimization::Classic | SumcheckOptimization::UnivariateSkip => {
-            randomness.reverse();
-        }
-    }
-
     Ok(MultilinearPoint::new(randomness))
 }
 
