@@ -157,9 +157,6 @@ fn test_no_initial_statement_no_sumcheck() {
     // Folding factor was 2, so we expect 2 sampled folding randomness values
     assert_eq!(state.folding_randomness.num_variables(), 2);
 
-    // Full randomness vector should be padded up to `num_variables`
-    assert_eq!(state.randomness_vec.len(), num_variables);
-
     // Since this is the first round, no Merkle data for folded rounds should exist
     assert!(state.merkle_prover_data.is_none());
 }
@@ -245,16 +242,6 @@ fn test_initial_statement_with_folding_factor_3() {
         .sum();
     assert_eq!(dot_product, sumcheck.sum);
 
-    // Verify that the `randomness_vec` (which is in reverse variable order) matches the expected layout
-    assert_eq!(
-        state.randomness_vec,
-        vec![
-            sumcheck_randomness[2],
-            sumcheck_randomness[1],
-            sumcheck_randomness[0]
-        ]
-    );
-
     // The `folding_randomness` should store values in forward order (X0, X1, X2)
     assert_eq!(
         state.folding_randomness.as_slice(),
@@ -318,12 +305,6 @@ fn test_zero_poly_multiple_constraints() {
 
     // Folding randomness should have length equal to the folding factor (1)
     assert_eq!(sumcheck_randomness.num_variables(), 1);
-
-    // The `randomness_vec` is populated in reverse variable order, padded with 0s
-    assert_eq!(
-        state.randomness_vec,
-        vec![sumcheck_randomness[0], EF4::ZERO, EF4::ZERO]
-    );
 
     // Confirm that folding randomness matches exactly
     assert_eq!(
@@ -422,12 +403,6 @@ fn test_initialize_round_state_with_initial_statement() {
 
     // No Merkle tree data has been created for folded rounds yet
     assert!(state.merkle_prover_data.is_none());
-
-    // The randomness_vec must contain the sampled folding randomness, reversed and zero-padded
-    assert_eq!(
-        state.randomness_vec,
-        vec![sumcheck_randomness[0], EF4::ZERO, EF4::ZERO]
-    );
 
     // The folding randomness must match what was sampled by the sumcheck
     assert_eq!(

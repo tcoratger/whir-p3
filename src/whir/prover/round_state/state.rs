@@ -103,20 +103,7 @@ where
     ///
     /// This affects how randomness is stored across rounds to maintain consistency
     /// with the constraint evaluation format.
-    pub used_univariate_skip: bool,
     pub merkle_prover_data: Option<RoundMerkleTree<F, EF, W, DIGEST_ELEMS>>,
-
-    /// Global randomness vector tracking all folding challenges across rounds.
-    ///
-    /// This vector accumulates folding randomness in reverse variable order:
-    /// position i stores the challenge for variable X_{n-1-i}. As rounds progress,
-    /// new challenges are prepended, building the complete evaluation point needed
-    /// for final constraint verification.
-    ///
-    /// The vector enables efficient polynomial evaluation at the accumulated
-    /// challenge point while maintaining the proper variable ordering for
-    /// multilinear extensions and sumcheck interactions.
-    pub randomness_vec: Vec<EF>,
 
     /// Current constraint set defining the Reed-Solomon proximity testing problem.
     ///
@@ -237,25 +224,6 @@ where
             (sumcheck, folding_randomness)
         };
 
-        // Build global randomness accumulator for multi-round evaluation
-        let mut randomness_vec = Vec::with_capacity(prover.num_variables);
-
-        let is_skip_used = matches!(
-            prover.sumcheck_optimization,
-            SumcheckOptimization::UnivariateSkip
-        ) && K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0);
-
-        // Store challenges
-        // - For skip case: store in forward order to match the expected format
-        // - For non-skip case: store in reverse order for reversed variable layout
-        if is_skip_used {
-            randomness_vec.extend(folding_randomness.iter().copied());
-        } else {
-            randomness_vec.extend(folding_randomness.iter().rev().copied());
-        }
-        // Pad with zeros for variables not yet folded
-        randomness_vec.resize(prover.num_variables, EF::ZERO);
-
         // Initialize complete round state for first WHIR protocol round
         Ok(Self {
             // Starting domain H_0 with |H_0| = 2^m evaluation points
@@ -270,12 +238,8 @@ where
             folding_randomness,
             // Merkle commitment from witness for base field polynomial
             commitment_merkle_prover_data: witness.prover_data,
-            // Track if univariate skip was used in round 0
-            used_univariate_skip: is_skip_used,
             // No extension field commitment yet (first round operates in base field)
             merkle_prover_data: None,
-            // Global challenge vector for cross-round polynomial evaluation
-            randomness_vec,
             // Constraint set augmented with OOD evaluations
             statement,
         })

@@ -397,27 +397,6 @@ where
             Some(constraint),
         );
 
-        let start_idx = self.folding_factor.total_number(round_index);
-        let dst_randomness =
-            &mut round_state.randomness_vec[start_idx..][..folding_randomness.num_variables()];
-
-        // Store randomness: for skip case, don't reverse to maintain correct order
-        if round_state.used_univariate_skip {
-            for (dst, src) in dst_randomness
-                .iter_mut()
-                .zip(folding_randomness.iter().copied())
-            {
-                *dst = src;
-            }
-        } else {
-            for (dst, src) in dst_randomness
-                .iter_mut()
-                .zip(folding_randomness.iter().rev())
-            {
-                *dst = *src;
-            }
-        }
-
         // Update round state
         round_state.domain_size = new_domain_size;
         round_state.next_domain_gen =
@@ -530,33 +509,12 @@ where
 
         // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
-            let final_folding_randomness =
-                round_state.sumcheck_prover.compute_sumcheck_polynomials(
-                    prover_state,
-                    self.final_sumcheck_rounds,
-                    self.final_folding_pow_bits,
-                    None,
-                );
-            let start_idx = self.folding_factor.total_number(round_index);
-            let rand_dst = &mut round_state.randomness_vec
-                [start_idx..start_idx + final_folding_randomness.num_variables()];
-
-            // Store final randomness: for skip case, don't reverse to maintain correct order
-            if round_state.used_univariate_skip {
-                for (dst, src) in rand_dst
-                    .iter_mut()
-                    .zip(final_folding_randomness.iter().copied())
-                {
-                    *dst = src;
-                }
-            } else {
-                for (dst, src) in rand_dst
-                    .iter_mut()
-                    .zip(final_folding_randomness.iter().rev())
-                {
-                    *dst = *src;
-                }
-            }
+            round_state.sumcheck_prover.compute_sumcheck_polynomials(
+                prover_state,
+                self.final_sumcheck_rounds,
+                self.final_folding_pow_bits,
+                None,
+            );
         }
 
         Ok(())
