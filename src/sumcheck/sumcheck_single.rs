@@ -153,8 +153,9 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
         .zip(phi.par_iter())
         .zip(elo.par_iter().zip(ehi.par_iter()))
         .map(|((&p0, &p1), (&e0, &e1))| (e0 * p0, (e1 - e0) * (p1 - p0)))
-        .reduce(
+        .par_fold_reduce(
             || (EF::ZERO, EF::ZERO),
+            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
             |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
         );
 
