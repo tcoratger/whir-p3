@@ -463,7 +463,7 @@ where
                     pow_bits,
                 )
             })
-            .collect::<Vec<_>>();
+            .collect();
 
         // Return the full vector of verifier challenges as a multilinear point.
         MultilinearPoint::new(res)
