@@ -89,6 +89,69 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     }
 }
 
+/// Evaluate a single round's constraint.
+fn eval_round<F: Field, EF: ExtensionField<F> + TwoAdicField>(
+    round: usize,
+    constraint: &Constraint<F, EF>,
+    original_point: &MultilinearPoint<EF>,
+    context: &PointContext<EF>,
+) -> EF {
+    let (eval_point, use_skip_eval) = match (round, context) {
+        // Round 0 with skip: use full rotated point with skip evaluation
+        (0, PointContext::Skip { rotated, .. }) => (rotated.clone(), true),
+        // Round 0 without skip: reverse full point
+        (0, PointContext::NonSkip) => (original_point.reversed(), false),
+        // Round >0 with skip: slice from this round's offset to end
+        (
+            i,
+            PointContext::Skip {
+                rotated,
+                prover_challenge_offsets,
+            },
+        ) => {
+            let start = if i == 1 {
+                0
+            } else {
+                prover_challenge_offsets[i - 1]
+            };
+            let challenges = rotated.get_subpoint_over_range(0..rotated.num_variables() - 1);
+            (
+                challenges.get_subpoint_over_range(start..challenges.num_variables()),
+                false,
+            )
+        }
+        // Round >0 without skip: take first num_vars and reverse
+        (_, PointContext::NonSkip) => {
+            let slice = original_point.get_subpoint_over_range(0..constraint.num_variables());
+            (slice.reversed(), false)
+        }
+    };
+
+    // Evaluate eq and sel constraints at the computed point
+    let eq_contribution = constraint
+        .iter_eqs()
+        .map(|(pt, coeff)| {
+            let val = if use_skip_eval {
+                pt.eq_poly_with_skip(&eval_point, K_SKIP_SUMCHECK)
+            } else {
+                pt.eq_poly(&eval_point)
+            };
+            val * coeff
+        })
+        .sum::<EF>();
+
+    let sel_contribution = constraint
+        .iter_sels()
+        .map(|(&var, coeff)| {
+            let expanded =
+                MultilinearPoint::expand_from_univariate(var, constraint.num_variables());
+            coeff * expanded.select_poly(&eval_point)
+        })
+        .sum::<EF>();
+
+    eq_contribution + sel_contribution
+}
+
 /// Lightweight evaluator for the combined constraint polynomial W(r).
 #[derive(Clone, Debug)]
 pub struct ConstraintPolyEvaluator {
@@ -144,7 +207,7 @@ impl ConstraintPolyEvaluator {
         constraints
             .iter()
             .enumerate()
-            .map(|(i, constraint)| self.eval_round(i, constraint, point, &context))
+            .map(|(i, constraint)| eval_round(i, constraint, point, &context))
             .sum()
     }
 
@@ -169,70 +232,6 @@ impl ConstraintPolyEvaluator {
             rotated,
             prover_challenge_offsets: offsets,
         }
-    }
-
-    /// Evaluate a single round's constraint.
-    fn eval_round<F: Field, EF: ExtensionField<F> + TwoAdicField>(
-        &self,
-        round: usize,
-        constraint: &Constraint<F, EF>,
-        original_point: &MultilinearPoint<EF>,
-        context: &PointContext<EF>,
-    ) -> EF {
-        let (eval_point, use_skip_eval) = match (round, context) {
-            // Round 0 with skip: use full rotated point with skip evaluation
-            (0, PointContext::Skip { rotated, .. }) => (rotated.clone(), true),
-            // Round 0 without skip: reverse full point
-            (0, PointContext::NonSkip) => (original_point.reversed(), false),
-            // Round >0 with skip: slice from this round's offset to end
-            (
-                i,
-                PointContext::Skip {
-                    rotated,
-                    prover_challenge_offsets,
-                },
-            ) => {
-                let start = if i == 1 {
-                    0
-                } else {
-                    prover_challenge_offsets[i - 1]
-                };
-                let challenges = rotated.get_subpoint_over_range(0..rotated.num_variables() - 1);
-                (
-                    challenges.get_subpoint_over_range(start..challenges.num_variables()),
-                    false,
-                )
-            }
-            // Round >0 without skip: take first num_vars and reverse
-            (_, PointContext::NonSkip) => {
-                let slice = original_point.get_subpoint_over_range(0..constraint.num_variables());
-                (slice.reversed(), false)
-            }
-        };
-
-        // Evaluate eq and sel constraints at the computed point
-        let eq_contribution = constraint
-            .iter_eqs()
-            .map(|(pt, coeff)| {
-                let val = if use_skip_eval {
-                    pt.eq_poly_with_skip(&eval_point, K_SKIP_SUMCHECK)
-                } else {
-                    pt.eq_poly(&eval_point)
-                };
-                val * coeff
-            })
-            .sum::<EF>();
-
-        let sel_contribution = constraint
-            .iter_sels()
-            .map(|(&var, coeff)| {
-                let expanded =
-                    MultilinearPoint::expand_from_univariate(var, constraint.num_variables());
-                coeff * expanded.select_poly(&eval_point)
-            })
-            .sum::<EF>();
-
-        eq_contribution + sel_contribution
     }
 }
 
