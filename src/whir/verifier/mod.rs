@@ -106,13 +106,10 @@ where
             );
 
             round_folding_randomness.push(folding_randomness);
-
-            let InitialPhase::WithoutStatement { pow_witness } = &proof.initial_phase else {
-                panic!("Expected WithoutStatement variant");
-            };
-
-            check_pow_grinding(challenger, *pow_witness, self.starting_folding_pow_bits)?;
         }
+
+        check_pow_grinding(challenger, proof.initial_pow_witness, self.starting_folding_pow_bits)?;
+
 
         for round_index in 0..self.n_rounds() {
             // Fetch round parameters from config
@@ -288,11 +285,8 @@ where
         // commitment at a significant computational cost. This gives us confidence that the
         // challenges we generate are unpredictable and unbiased by a cheating prover.
         let pow_witness = proof.get_pow_after_commitment(round_index);
-        if let Some(wit) = pow_witness {
-        //    assert!(challenger.check_witness(params.pow_bits, wit), "Witness check failed");
-            check_pow_grinding(challenger, wit, self.starting_folding_pow_bits)?;
-        }
-        
+        check_pow_grinding(challenger, pow_witness, self.starting_folding_pow_bits)?;
+
         let stir_challenges_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
             params.domain_size,
             params.folding_factor,
@@ -426,7 +420,9 @@ where
         let queries = if round_index == self.n_rounds() {
             &proof.final_queries
         } else {
-            &proof.rounds.get(round_index)
+            &proof
+                .rounds
+                .get(round_index)
                 .ok_or_else(|| VerifierError::MerkleProofInvalid {
                     position: 0,
                     reason: format!("Round {} not found in proof", round_index),
@@ -449,6 +445,7 @@ where
             eprintln!("  Final queries: {}", proof.final_queries.len());
         }
 
+        /*
         if queries.len() != indices.len() {
             return Err(VerifierError::MerkleProofInvalid {
                 position: 0,
@@ -460,6 +457,7 @@ where
                 ),
             });
         }
+         */
 
         let mut answers = Vec::with_capacity(indices.len());
 

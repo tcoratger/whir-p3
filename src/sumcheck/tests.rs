@@ -661,6 +661,9 @@ fn run_sumcheck_test_skips(folding_factors: &[usize], num_points: &[usize]) {
     // Create protocol parameters and WhirProof with univariate skip enabled
     let mut params = create_protocol_parameters(num_vars);
     params.univariate_skip = true;
+    // IMPORTANT: Set the folding factor to match the actual folding used in the test
+    // Otherwise from_protocol_parameters will incorrectly determine the initial phase
+    params.folding_factor = FoldingFactor::Constant(folding_factors[0]);
     let mut whir_proof = WhirProof::<F, EF, DIGEST_ELEMS>::from_protocol_parameters(&params, num_vars);
 
     // Domain separation: observe protocol parameters (not actual proof lengths, since they start at 0)

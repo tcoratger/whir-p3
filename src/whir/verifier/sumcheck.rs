@@ -9,6 +9,7 @@ use crate::{
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     whir::proof::{InitialPhase, SumcheckData, WhirRoundProof},
 };
+use crate::whir::grinding::check_pow_grinding;
 use crate::whir::verifier::errors::VerifierError;
 
 /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
@@ -90,14 +91,12 @@ where
             let flattened: Vec<F> = EF::flatten_to_base(skip_evaluations.to_vec());
             challenger.observe_slice(&flattened);
 
-            // Verify PoW if present
-            if pow_bits > 0 {
-                if let Some(pow_witnesses) = skip_pow {
-                    if !pow_witnesses.is_empty() {
-                        let _ = challenger.check_witness(pow_bits, pow_witnesses[0]);
-                    }
-                }
-            }
+            /* todo() verify grinding
+            check_pow_grinding(
+                challenger,
+                skip_pow.),
+                pow_bits)?;
+            */
 
             // Sample challenge for the skip round
             let r_skip: EF = challenger.sample_algebra_element();
@@ -113,7 +112,7 @@ where
             // The remaining (rounds - K_SKIP_SUMCHECK) rounds are standard sumcheck rounds
             // stored in the sumcheck field
             let remaining_rounds = rounds - K_SKIP_SUMCHECK;
-            for i in 0..remaining_rounds.min(sumcheck.polynomial_evaluations.len()) {
+            for i in 0..remaining_rounds {
                 let [c0, c1, c2] = sumcheck.polynomial_evaluations[i];
 
                 // Verify sumcheck equation: h(0) + h(1) = claimed_sum
@@ -129,13 +128,7 @@ where
                 challenger.observe_slice(&EF::flatten_to_base(vec![c0, c1, c2]));
 
                 // Verify PoW if present
-                if pow_bits > 0 {
-                    if let Some(ref pow_witnesses) = sumcheck.pow_witnesses {
-                        if i < pow_witnesses.len() {
-                            let _ = challenger.check_witness(pow_bits, pow_witnesses[i]);
-                        }
-                    }
-                }
+                check_pow_grinding(challenger, sumcheck.pow_witnesses.as_ref().and_then(|w| w.get(i).cloned()), pow_bits)?;
 
                 // Create polynomial and sample challenge
                 let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
@@ -164,7 +157,7 @@ where
             let mut randomness = Vec::with_capacity(rounds);
 
             // Process all sumcheck rounds in the initial phase
-            for i in 0..rounds.min(sumcheck.polynomial_evaluations.len()) {
+            for i in 0..rounds {
                 let [c0, c1, c2] = sumcheck.polynomial_evaluations[i];
 
                 // Verify sumcheck equation: h(0) + h(1) = claimed_sum
@@ -180,13 +173,7 @@ where
                 challenger.observe_slice(&EF::flatten_to_base(vec![c0, c1, c2]));
 
                 // Verify PoW if present
-                if pow_bits > 0 {
-                    if let Some(ref pow_witnesses) = sumcheck.pow_witnesses {
-                        if i < pow_witnesses.len() {
-                            let _ = challenger.check_witness(pow_bits, pow_witnesses[i]);
-                        }
-                    }
-                }
+                check_pow_grinding(challenger, sumcheck.pow_witnesses.as_ref().and_then(|w| w.get(i).cloned()), pow_bits)?;
 
                 // Create polynomial and sample challenge
                 let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);

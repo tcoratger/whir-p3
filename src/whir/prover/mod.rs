@@ -283,7 +283,7 @@ where
         // Skip grinding entirely if difficulty is zero.
 
         // Perform grinding and obtain a witness element in the base field.
-        let pow_witness = pow_grinding(challenger, self.final_pow_bits).expect("Grinding failure in round");
+        let pow_witness = pow_grinding(challenger, self.final_pow_bits);
 
         // STIR Queries
         let (ood_challenges, stir_challenges, stir_challenges_indexes) = self

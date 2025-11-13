@@ -234,21 +234,12 @@ where
                     EF::ONE,
                 );
 
-                // Apply proof-of-work grinding for transcript security
-                let pow_bits = prover.starting_folding_pow_bits;
-                let witness = pow_grinding(challenger, pow_bits);
-
-                if let InitialPhase::WithoutStatement { ref mut pow_witness } = proof.initial_phase {
-                    if let Some(w) = witness {
-                        *pow_witness = w;
-                    }
-                } else {
-                    panic!("initial_round called with incorrect InitialPhase variant");
-                }
-
                 (sumcheck, folding_randomness)
             }
         };
+
+        let pow_bits = prover.starting_folding_pow_bits;
+        proof.initial_pow_witness =  pow_grinding(challenger, pow_bits);
 
         // Build global randomness accumulator for multi-round evaluation
         let mut randomness_vec = Vec::with_capacity(prover.num_variables);

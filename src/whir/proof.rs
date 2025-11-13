@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::constant::K_SKIP_SUMCHECK;
 use crate::parameters::ProtocolParameters;
 use crate::poly::evals::EvaluationsList;
 
@@ -12,6 +13,9 @@ use crate::poly::evals::EvaluationsList;
 pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
     /// Initial polynomial commitment (Merkle root)
     pub initial_commitment: [F; DIGEST_ELEMS],
+
+    // Initial PoW witness after the commitment
+    pub initial_pow_witness: Option<F>,
 
     /// Initial OOD evaluations
     pub initial_ood_answers: Vec<EF>,
@@ -61,10 +65,7 @@ pub enum InitialPhase<EF, F> {
 
     /// Protocol without statement (direct folding)
     #[serde(rename = "without_statement")]
-    WithoutStatement {
-        /// Single PoW witness
-        pow_witness: F,
-    },
+    WithoutStatement,
 }
 
 /// Data for a single WHIR round
@@ -81,7 +82,7 @@ pub struct WhirRoundProof<F, EF, const DIGEST_ELEMS: usize> {
     pub ood_answers: Vec<EF>,
 
     /// PoW witness after commitment
-    pub pow_witness: F,
+    pub pow_witness: Option<F>,
 
     /// STIR query openings
     pub queries: Vec<QueryOpening<F, EF, DIGEST_ELEMS>>,
@@ -95,7 +96,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default for WhirRoundPr
         Self {
             commitment: std::array::from_fn(|_| F::default()),
             ood_answers: Vec::new(),
-            pow_witness: F::default(),
+            pow_witness: None,
             queries: Vec::new(),
             sumcheck: SumcheckData::default(),
         }
@@ -169,14 +170,20 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
         params: &ProtocolParameters<H, C>,
         num_variables: usize,
     ) -> Self {
-        let initial_phase = match (params.initial_statement, params.univariate_skip) {
+        // The initial phase must match the prover's branching logic:
+        // - WithStatementSkip is only used when univariate_skip is enabled AND
+        //   the folding factor is large enough (>= K_SKIP_SUMCHECK)
+        let initial_phase = match (
+            params.initial_statement,
+            params.univariate_skip && K_SKIP_SUMCHECK <= params.folding_factor.at_round(0),
+        ) {
             (true, true) => InitialPhase::with_statement_skip(
                 Vec::new(),
                 None,
                 SumcheckData::default(),
             ),
             (true, false) => InitialPhase::with_statement(SumcheckData::default()),
-            (false, _) => InitialPhase::without_statement(F::default()),
+            (false, _) => InitialPhase::without_statement(),
         };
 
         // Use the actual FoldingFactor method to calculate rounds correctly
@@ -195,6 +202,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
 
         Self {
             initial_commitment: std::array::from_fn(|_| F::default()),
+            initial_pow_witness: None,
             initial_ood_answers: Vec::new(),
             initial_phase,
             rounds: Vec::with_capacity(num_rounds),
@@ -214,23 +222,35 @@ impl<F: Clone, EF, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
     pub fn get_pow_after_commitment(&self, round_index: usize) -> Option<F> {
         if round_index == 0 {
             // Initial commitment PoW
-            match &self.initial_phase {
-                InitialPhase::WithStatementSkip { skip_pow, .. } => {
-                    // For WithStatementSkip, return the first PoW witness if available
-                    skip_pow.as_ref()?.first().cloned()
-                }
-                InitialPhase::WithStatement { sumcheck } => {
-                    // For WithStatement, the first PoW might be in sumcheck.pow_witnesses
-                    // or might be None
-                    sumcheck.pow_witnesses.as_ref()?.first().cloned()
-                }
-                InitialPhase::WithoutStatement { pow_witness } => Some(pow_witness.clone()),
-            }
+            self.initial_pow_witness.clone()
         } else {
             // Ordinary round PoW (round_index - 1 because rounds are 0-indexed)
-            self.rounds.get(round_index - 1).map(|round| round.pow_witness.clone())
+            self.rounds.get(round_index - 1).and_then(|round| round.pow_witness.clone())
         }
     }
+
+    /*
+    /// Extract the PoW witness from the sumcheck rounds
+    pub fn get_sumcheck_pow(&self, round_index: usize) -> Option<Vec<F>> {
+        if round_index == 0 {
+            // Initial commitment PoW
+            match &self.initial_phase {
+                InitialPhase::WithStatementSkip { skip_pow, .. } => {
+                    skip_pow.clone()
+                }
+                InitialPhase::WithStatement { sumcheck, .. } => {
+                    sumcheck.pow_witnesses.clone()
+                }
+                InitialPhase::WithoutStatement => None,
+            }
+        } else {
+            // Ordinary round PoW
+            self.rounds
+                .get(round_index )
+                .and_then(|round| round.sumcheck.pow_witnesses.clone())
+        }
+    }
+     */
 }
 
 impl<EF, F> InitialPhase<EF, F> {
@@ -253,7 +273,7 @@ impl<EF, F> InitialPhase<EF, F> {
     }
 
     /// Create initial phase without statement
-    pub fn without_statement(pow_witness: F) -> Self {
-        Self::WithoutStatement { pow_witness }
+    pub fn without_statement() -> Self {
+        Self::WithoutStatement
     }
 }

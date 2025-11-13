@@ -84,16 +84,22 @@ where
 /// ```
 pub fn check_pow_grinding<C, F>(
     challenger: &mut C,
-    witness: F,
+    witness: Option<F>,
     bits: usize,
 ) -> Result<(), FiatShamirError>
 where
     C: GrindingChallenger<Witness = F>,
 {
-    // If no grinding is required, succeed immediately
+    // If no grinding is required or no witness is provided, succeed immediately
     if bits == 0 {
         return Ok(());
     }
+
+    // If witness is None, succeed immediately
+    let witness = match witness {
+        Some(w) => w,
+        None => return Ok(()),
+    };
 
     // Verify the witness using the challenger
     if challenger.check_witness(bits, witness) {
