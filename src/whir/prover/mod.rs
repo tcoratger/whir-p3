@@ -8,7 +8,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::{
     Matrix,
-    dense::{DenseMatrix, RowMajorMatrix},
+    dense::{DenseMatrix, RowMajorMatrixView},
 };
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
@@ -134,9 +134,6 @@ where
     /// - `statement`: The public input, consisting of linear or nonlinear constraints
     /// - `witness`: The private witness satisfying the constraints, including committed values
     ///
-    /// # Returns
-    /// - The final random evaluation point used to evaluate deferred constraints
-    /// - The list of evaluations of all deferred constraints at that point
     ///
     /// # Errors
     /// Returns an error if the witness or statement are invalid, or if a round fails.
@@ -147,7 +144,7 @@ where
         prover_state: &mut ProverState<F, EF, Challenger>,
         statement: EqStatement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
-    ) -> Result<MultilinearPoint<EF>, FiatShamirError>
+    ) -> Result<(), FiatShamirError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
@@ -174,14 +171,7 @@ where
             self.round(dft, round, prover_state, &mut round_state)?;
         }
 
-        // Reverse the vector of verifier challenges (used as evaluation point)
-        //
-        // These challenges were pushed in round order; we reverse them to use as a single
-        // evaluation point for final statement consistency checks.
-        round_state.randomness_vec.reverse();
-        let constraint_eval = MultilinearPoint::new(round_state.randomness_vec);
-
-        Ok(constraint_eval)
+        Ok(())
     }
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = self.num_variables - self.folding_factor.total_number(round_index)))]
@@ -221,12 +211,18 @@ where
         let new_domain_size = round_state.domain_size / domain_reduction;
         let inv_rate = new_domain_size / folded_evaluations.num_evals();
 
-        // Pad evaluation vector with zeros
-        let n = folded_evaluations.num_evals();
-        let padded = info_span!("repeating evals").in_scope(|| {
-            let mut padded = EF::zero_vec(n * inv_rate);
-            padded[..n].copy_from_slice(folded_evaluations.as_slice());
-            RowMajorMatrix::new(padded, 1 << folding_factor_next)
+        // Transpose for reverse variable order
+        // And then pad with zeros
+        let padded = info_span!("transpose & pad").in_scope(|| {
+            let num_vars = folded_evaluations.num_variables();
+            let mut mat = RowMajorMatrixView::new(
+                folded_evaluations.as_slice(),
+                1 << (num_vars - folding_factor_next),
+            )
+            .transpose();
+
+            mat.pad_to_height(inv_rate * (1 << (num_vars - folding_factor_next)), EF::ZERO);
+            mat
         });
 
         // Perform DFT on the padded evaluations matrix
@@ -401,17 +397,6 @@ where
             Some(constraint),
         );
 
-        let start_idx = self.folding_factor.total_number(round_index);
-        let dst_randomness =
-            &mut round_state.randomness_vec[start_idx..][..folding_randomness.num_variables()];
-
-        for (dst, src) in dst_randomness
-            .iter_mut()
-            .zip(folding_randomness.iter().rev())
-        {
-            *dst = *src;
-        }
-
         // Update round state
         round_state.domain_size = new_domain_size;
         round_state.next_domain_gen =
@@ -524,23 +509,12 @@ where
 
         // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
-            let final_folding_randomness =
-                round_state.sumcheck_prover.compute_sumcheck_polynomials(
-                    prover_state,
-                    self.final_sumcheck_rounds,
-                    self.final_folding_pow_bits,
-                    None,
-                );
-            let start_idx = self.folding_factor.total_number(round_index);
-            let rand_dst = &mut round_state.randomness_vec
-                [start_idx..start_idx + final_folding_randomness.num_variables()];
-
-            for (dst, src) in rand_dst
-                .iter_mut()
-                .zip(final_folding_randomness.iter().rev())
-            {
-                *dst = *src;
-            }
+            round_state.sumcheck_prover.compute_sumcheck_polynomials(
+                prover_state,
+                self.final_sumcheck_rounds,
+                self.final_folding_pow_bits,
+                None,
+            );
         }
 
         Ok(())

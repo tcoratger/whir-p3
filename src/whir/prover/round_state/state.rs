@@ -98,19 +98,12 @@ where
     ///
     /// The extension field structure enables efficient constraint batching while
     /// preserving the Reed-Solomon proximity properties necessary for soundness.
-    pub merkle_prover_data: Option<RoundMerkleTree<F, EF, W, DIGEST_ELEMS>>,
 
-    /// Global randomness vector tracking all folding challenges across rounds.
+    /// Flag indicating whether univariate skip was used in round 0.
     ///
-    /// This vector accumulates folding randomness in reverse variable order:
-    /// position i stores the challenge for variable X_{n-1-i}. As rounds progress,
-    /// new challenges are prepended, building the complete evaluation point needed
-    /// for final constraint verification.
-    ///
-    /// The vector enables efficient polynomial evaluation at the accumulated
-    /// challenge point while maintaining the proper variable ordering for
-    /// multilinear extensions and sumcheck interactions.
-    pub randomness_vec: Vec<EF>,
+    /// This affects how randomness is stored across rounds to maintain consistency
+    /// with the constraint evaluation format.
+    pub merkle_prover_data: Option<RoundMerkleTree<F, EF, W, DIGEST_ELEMS>>,
 
     /// Current constraint set defining the Reed-Solomon proximity testing problem.
     ///
@@ -231,13 +224,6 @@ where
             (sumcheck, folding_randomness)
         };
 
-        // Build global randomness accumulator for multi-round evaluation
-        let mut randomness_vec = Vec::with_capacity(prover.num_variables);
-        // Store challenges in reverse order: α_k, α_{k-1}, ..., α_1 (for variable X_{n-1-i})
-        randomness_vec.extend(folding_randomness.iter().rev().copied());
-        // Pad with zeros for variables not yet folded: X_{n-1}, X_{n-2}, ..., X_k
-        randomness_vec.resize(prover.num_variables, EF::ZERO);
-
         // Initialize complete round state for first WHIR protocol round
         Ok(Self {
             // Starting domain H_0 with |H_0| = 2^m evaluation points
@@ -254,8 +240,6 @@ where
             commitment_merkle_prover_data: witness.prover_data,
             // No extension field commitment yet (first round operates in base field)
             merkle_prover_data: None,
-            // Global challenge vector for cross-round polynomial evaluation
-            randomness_vec,
             // Constraint set augmented with OOD evaluations
             statement,
         })

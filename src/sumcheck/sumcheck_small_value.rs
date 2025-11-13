@@ -442,7 +442,7 @@ pub fn algorithm_5<Challenger, F, EF>(
 
         // Update state for next round: binding updates scalar AND pops used table
         eq_poly.bind(r_i);
-        poly.compress_svo(r_i);
+        poly.compress(r_i);
 
         // Update claimed sum
         let eval_1 = *sum - s_0;

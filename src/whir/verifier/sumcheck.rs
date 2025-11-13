@@ -161,17 +161,6 @@ where
         randomness.push(rand);
     }
 
-    // Reverse randomness order only for Classic and UnivariateSkip modes
-    // SVO prover doesn't reverse, so verifier also doesn't reverse
-    match sumcheck_optimization {
-        SumcheckOptimization::Svo => {
-            // SVO doesn't reverse randomness
-        }
-        SumcheckOptimization::Classic | SumcheckOptimization::UnivariateSkip => {
-            randomness.reverse();
-        }
-    }
-
     Ok(MultilinearPoint::new(randomness))
 }
 
@@ -367,8 +356,7 @@ mod tests {
         assert_eq!(randomness.num_variables(), folding_factor);
 
         // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
-        let expected_randomness =
-            MultilinearPoint::new(expected.iter().map(|&(_, r)| r).rev().collect());
+        let expected_randomness = MultilinearPoint::new(expected.iter().map(|&(_, r)| r).collect());
         assert_eq!(
             randomness, expected_randomness,
             "Mismatch in full MultilinearPoint folding randomness"
@@ -501,9 +489,8 @@ mod tests {
         // - 1 randomness for each regular round
         assert_eq!(randomness.num_variables(), NUM_VARS - K_SKIP + 1);
 
-        // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
-        let expected_randomness =
-            MultilinearPoint::new(expected.iter().map(|&(_, r)| r).rev().collect());
+        // Reconstruct the expected MultilinearPoint from the expected randomness
+        let expected_randomness = MultilinearPoint::new(expected.iter().map(|&(_, r)| r).collect());
         assert_eq!(
             randomness, expected_randomness,
             "Mismatch in full MultilinearPoint folding randomness"

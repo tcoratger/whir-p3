@@ -2,7 +2,7 @@ use alloc::{vec, vec::Vec};
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
-use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField};
+use p3_field::{PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -233,20 +233,6 @@ where
     Constraint::new(verifier.sample(), eq_statement, sel_statement)
 }
 
-/// Helper to extend a `MultilinearPoint` by creating a new one.
-fn extend_point<F: Field>(
-    point: &MultilinearPoint<F>,
-    extension: &MultilinearPoint<F>,
-) -> MultilinearPoint<F> {
-    let new_coords: Vec<_> = extension
-        .as_slice()
-        .iter()
-        .chain(point.iter())
-        .copied()
-        .collect();
-    MultilinearPoint::new(new_coords)
-}
-
 /// Runs an end-to-end prover-verifier test for the `SumcheckSingle` protocol with nested folding.
 ///
 /// This test:
@@ -314,10 +300,12 @@ fn run_sumcheck_test(
         );
 
         // Compute and apply the next folding round
-        prover_randomness = extend_point(
-            &prover_randomness,
-            &sumcheck.compute_sumcheck_polynomials(prover, folding, 0, Some(constraint)),
-        );
+        prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
+            prover,
+            folding,
+            0,
+            Some(constraint),
+        ));
 
         num_vars_inter -= folding;
 
@@ -330,16 +318,13 @@ fn run_sumcheck_test(
     assert_eq!(num_vars_inter, final_rounds);
 
     // FINAL ROUND
-    prover_randomness = extend_point(
-        &prover_randomness,
-        &sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0, None),
-    );
+    prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0, None));
+    let final_folded_value = sumcheck.evals.as_constant().unwrap();
 
     assert_eq!(sumcheck.evals.num_variables(), 0);
     assert_eq!(sumcheck.evals.num_evals(), 1);
 
     // Final folded value must match f(r)
-    let final_folded_value = sumcheck.evals.as_constant().unwrap();
     assert_eq!(
         poly.evaluate_hypercube(&prover_randomness),
         final_folded_value
@@ -378,8 +363,7 @@ fn run_sumcheck_test(
 
         // Extend r with verifier's folding challenges
         let folding = folding_factor.at_round(round_idx);
-        verifier_randomness = extend_point(
-            &verifier_randomness,
+        verifier_randomness.extend(
             &verify_sumcheck_rounds(
                 verifier,
                 &mut sum,
@@ -394,8 +378,7 @@ fn run_sumcheck_test(
     }
 
     // Final round check
-    verifier_randomness = extend_point(
-        &verifier_randomness,
+    verifier_randomness.extend(
         &verify_sumcheck_rounds(
             verifier,
             &mut sum,
@@ -419,7 +402,7 @@ fn run_sumcheck_test(
     //
     // No skip optimization, so the first round is treated as a standard sumcheck round.
     let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
-    let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness);
+    let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness.reversed());
 
     // CHECK SUM == f(r) * weights(z, r)
     assert_eq!(sum, final_folded_value * weights);
@@ -494,10 +477,12 @@ fn run_sumcheck_test_skips(
         );
 
         // Fold the sumcheck polynomial again and extend randomness vector
-        prover_randomness = extend_point(
-            &prover_randomness,
-            &sumcheck.compute_sumcheck_polynomials(prover, folding, 0, Some(constraint)),
-        );
+        prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
+            prover,
+            folding,
+            0,
+            Some(constraint),
+        ));
 
         num_vars_inter -= folding;
 
@@ -510,10 +495,7 @@ fn run_sumcheck_test_skips(
     assert_eq!(num_vars_inter, final_rounds);
 
     // FINAL ROUND
-    prover_randomness = extend_point(
-        &prover_randomness,
-        &sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0, None),
-    );
+    prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0, None));
 
     // After final round, polynomial must collapse to a constant
     assert_eq!(sumcheck.evals.num_variables(), 0);
@@ -524,23 +506,13 @@ fn run_sumcheck_test_skips(
 
     // Verify that the final folded value matches the polynomial evaluation under skip semantics.
     //
-    // After the univariate skip optimization, the prover's randomness has been reversed and
-    // stored in the format: [r_1, r_2, ..., r_j, r_skip], where:
+    // The prover's randomness is in the format: [r_skip, r_1, r_2, ..., r_j], where:
+    //   - r_skip is the single challenge for the k skipped variables (first element)
     //   - r_1, ..., r_j are the j challenges for the non-skipped variables
-    //   - r_skip is the single challenge for the k skipped variables
     //
-    // However, for the evaluation, we expect the point in the format:
-    // [r_skip, r_1, r_2, ..., r_j], with the skip challenge first.
-    //
-    // We reorder the point by moving r_skip from the end to the beginning.
-    let mut point_for_eval = prover_randomness.as_slice().to_vec();
-    let r_skip = point_for_eval.pop().unwrap();
-    point_for_eval.insert(0, r_skip);
-    let reformatted_point = MultilinearPoint::new(point_for_eval);
-
     // Verify: f̂(r_skip, r_1, ..., rj) == final_folded_value
     assert_eq!(
-        poly.evaluate_with_univariate_skip(&reformatted_point, K_SKIP_SUMCHECK),
+        poly.evaluate_with_univariate_skip(&prover_randomness, K_SKIP_SUMCHECK),
         final_folded_value
     );
     // Commit final result to Fiat-Shamir transcript
@@ -584,17 +556,14 @@ fn run_sumcheck_test_skips(
             SumcheckOptimization::Classic
         };
         let folding = folding_factor.at_round(round_idx);
-        verifier_randomness = extend_point(
-            &verifier_randomness,
-            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, sumcheck_opt).unwrap(),
-        );
+        verifier_randomness
+            .extend(&verify_sumcheck_rounds(verifier, &mut sum, folding, 0, sumcheck_opt).unwrap());
 
         num_vars_inter -= folding;
     }
 
     // FINAL FOLDING
-    verifier_randomness = extend_point(
-        &verifier_randomness,
+    verifier_randomness.extend(
         &verify_sumcheck_rounds(
             verifier,
             &mut sum,
@@ -670,10 +639,12 @@ fn run_sumcheck_test_svo(
         );
 
         // Compute and apply the next folding round
-        prover_randomness = extend_point(
-            &prover_randomness,
-            &sumcheck.compute_sumcheck_polynomials(prover, folding, 0, Some(constraint)),
-        );
+        prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
+            prover,
+            folding,
+            0,
+            Some(constraint),
+        ));
 
         num_vars_inter -= folding;
 
@@ -686,10 +657,8 @@ fn run_sumcheck_test_svo(
     assert_eq!(num_vars_inter, final_rounds);
 
     // FINAL ROUND
-    prover_randomness = extend_point(
-        &prover_randomness,
-        &sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0, None),
-    );
+
+    prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(prover, final_rounds, 0, None));
 
     assert_eq!(sumcheck.evals.num_variables(), 0);
     assert_eq!(sumcheck.evals.num_evals(), 1);
@@ -734,8 +703,7 @@ fn run_sumcheck_test_svo(
 
         // Extend r with verifier's folding challenges
         let folding = folding_factor.at_round(round_idx);
-        verifier_randomness = extend_point(
-            &verifier_randomness,
+        verifier_randomness.extend(
             &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, SumcheckOptimization::Svo)
                 .unwrap(),
         );
@@ -744,8 +712,7 @@ fn run_sumcheck_test_svo(
     }
 
     // Final round check
-    verifier_randomness = extend_point(
-        &verifier_randomness,
+    verifier_randomness.extend(
         &verify_sumcheck_rounds(
             verifier,
             &mut sum,
@@ -769,7 +736,7 @@ fn run_sumcheck_test_svo(
     //
     // No skip optimization, so the first round is treated as a standard sumcheck round.
     let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
-    let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness);
+    let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness.reversed());
 
     // CHECK SUM == f(r) * weights(z, r)
     assert_eq!(sum, final_folded_value * weights);

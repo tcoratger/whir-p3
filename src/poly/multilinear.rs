@@ -329,6 +329,18 @@ where
         // Evaluate the new, smaller polynomial at the remaining challenges `r_rest`.
         EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest)
     }
+
+    /// Returns a new `MultilinearPoint` with the variables in reversed order.
+    #[must_use]
+    pub fn reversed(&self) -> Self {
+        Self(self.0.iter().rev().copied().collect())
+    }
+
+    /// Helper to extend a `MultilinearPoint` by creating a new one.
+    #[cfg(test)]
+    pub fn extend(&mut self, other: &Self) {
+        self.0.extend_from_slice(&other.0);
+    }
 }
 
 impl<F> MultilinearPoint<F>
