@@ -534,6 +534,8 @@ mod tests {
         // - `r_rest`,
         // - `r_skip`.
         let num_remaining = num_vars - K_SKIP_SUMCHECK;
+
+        let final_point = final_point.reversed();
         let r_rest = final_point.get_subpoint_over_range(0..num_remaining);
         let r_skip = *final_point
             .last_variable()
@@ -546,7 +548,7 @@ mod tests {
         let folded_row = interpolate_subgroup(&w0_mat, r_skip);
 
         // d) Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-        let w0_eval = EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest);
+        let w0_eval = EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest.reversed());
         expected_result += w0_eval;
 
         expected_result += constraints
@@ -557,7 +559,7 @@ mod tests {
                 let mut eval = EF::ZERO;
                 constraint.combine(&mut combined, &mut eval);
                 let point = r_rest.get_subpoint_over_range(0..constraint.num_variables());
-                combined.evaluate_hypercube(&point)
+                combined.evaluate_hypercube(&point.reversed())
             })
             .sum::<EF>();
 
@@ -665,6 +667,7 @@ mod tests {
 
 
             let num_remaining = num_vars - K_SKIP_SUMCHECK;
+            let final_point = final_point.reversed();
             let r_rest = final_point.get_subpoint_over_range(0..num_remaining);
             let r_skip = *final_point
                 .last_variable()
@@ -677,7 +680,7 @@ mod tests {
             let folded_row = interpolate_subgroup(&w0_mat, r_skip);
 
             // d) Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-            let w0_eval = EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest);
+            let w0_eval = EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest.reversed());
             expected_result += w0_eval;
 
             expected_result += constraints
@@ -688,7 +691,7 @@ mod tests {
                     let mut eval = EF::ZERO;
                     constraint.combine(&mut combined, &mut eval);
                     let point = r_rest.get_subpoint_over_range(0..constraint.num_variables());
-                    combined.evaluate_hypercube(&point)
+                    combined.evaluate_hypercube(&point.reversed())
                 })
                 .sum::<EF>();
 
