@@ -98,11 +98,6 @@ where
     ///
     /// The extension field structure enables efficient constraint batching while
     /// preserving the Reed-Solomon proximity properties necessary for soundness.
-
-    /// Flag indicating whether univariate skip was used in round 0.
-    ///
-    /// This affects how randomness is stored across rounds to maintain consistency
-    /// with the constraint evaluation format.
     pub merkle_prover_data: Option<RoundMerkleTree<F, EF, W, DIGEST_ELEMS>>,
 
     /// Current constraint set defining the Reed-Solomon proximity testing problem.
