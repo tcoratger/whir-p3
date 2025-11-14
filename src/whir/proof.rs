@@ -132,7 +132,7 @@ pub enum QueryOpening<F, EF, const DIGEST_ELEMS: usize> {
 }
 
 /// Sumcheck polynomial data
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct SumcheckData<EF, F> {
     /// Polynomial evaluations for each sumcheck round
     /// Each entry contains [h(0), h(1), h(2)] for that round
