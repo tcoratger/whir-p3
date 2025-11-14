@@ -202,14 +202,6 @@ where
         let folded_evaluations = &round_state.sumcheck_prover.evals;
         let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
 
-        eprintln!("\n[PROVER ROUND {}] Variable count check:", round_index);
-        eprintln!("  self.num_variables = {}", self.num_variables);
-        eprintln!("  self.n_rounds() = {}", self.n_rounds());
-        eprintln!("  self.folding_factor.total_number({}) = {}", round_index, self.folding_factor.total_number(round_index));
-        eprintln!("  Expected num_variables = {}", num_variables);
-        eprintln!("  Actual folded_evaluations.num_variables() = {}", folded_evaluations.num_variables());
-        eprintln!("  Is final round? {}", round_index == self.n_rounds());
-
         assert_eq!(num_variables, folded_evaluations.num_variables());
 
         // Base case: final round reached
@@ -283,7 +275,10 @@ where
         // Skip grinding entirely if difficulty is zero.
 
         // Perform grinding and obtain a witness element in the base field.
-        let pow_witness = pow_grinding(challenger, self.final_pow_bits);
+        let pow_witness = pow_grinding(challenger, round_params.pow_bits);
+
+        // Transcript checkpoint after PoW
+        let _checkpoint_after_pow: F = challenger.sample();
 
         // STIR Queries
         let (ood_challenges, stir_challenges, stir_challenges_indexes) = self
@@ -305,10 +300,11 @@ where
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = Vec::with_capacity(queries.len());
 
-                for challenge in &stir_challenges_indexes {
+                for  challenge in stir_challenges_indexes.iter() {
                     let commitment =
                         mmcs.open_batch(*challenge, &round_state.commitment_merkle_prover_data);
                     let answer = commitment.opened_values[0].clone();
+
                     queries.push(QueryOpening::Base {
                         values: answer.clone(),
                         proof: commitment.opening_proof,
@@ -378,9 +374,10 @@ where
                 // Evaluate answers in the folding randomness.
                 let mut stir_evaluations = Vec::with_capacity(queries.len());
 
-                for challenge in &stir_challenges_indexes {
+                for challenge in stir_challenges_indexes.iter() {
                     let commitment = extension_mmcs.open_batch(*challenge, data);
                     let answer = commitment.opened_values[0].clone();
+
                     queries.push(QueryOpening::Extension {
                         values: answer.clone(),
                         proof: commitment.opening_proof,
@@ -424,7 +421,7 @@ where
             commitment: *root.as_ref(),
             ood_answers,
             pow_witness,
-            queries,
+            queries: queries.clone(),
             sumcheck: SumcheckData::default(),
         };
 

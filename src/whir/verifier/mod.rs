@@ -23,7 +23,7 @@ use crate::{
     },
 };
 use crate::whir::grinding::check_pow_grinding;
-use crate::whir::proof::{InitialPhase, QueryOpening, WhirProof};
+use crate::whir::proof::{QueryOpening, WhirProof};
 
 pub mod errors;
 pub mod sumcheck;
@@ -284,8 +284,16 @@ where
         // By verifying that proof-of-work *now*, we confirm that the prover "locked in" their
         // commitment at a significant computational cost. This gives us confidence that the
         // challenges we generate are unpredictable and unbiased by a cheating prover.
-        let pow_witness = proof.get_pow_after_commitment(round_index);
-        check_pow_grinding(challenger, pow_witness, self.starting_folding_pow_bits)?;
+        //
+        // Note: For the final round (round_index >= n_rounds), the PoW has already been
+        // checked separately before calling this function, so we skip it here.
+        if round_index < self.n_rounds() {
+            let pow_witness = proof.get_pow_after_commitment(round_index);
+            check_pow_grinding(challenger, pow_witness, params.pow_bits)?;
+
+            // Transcript checkpoint after PoW
+            challenger.sample();
+        }
 
         let stir_challenges_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
             params.domain_size,
@@ -431,21 +439,6 @@ where
         };
 
         // Verify we have the expected number of queries
-        eprintln!("\n[VERIFIER] verify_merkle_proof at round {}:", round_index);
-        eprintln!("  Total rounds in proof.rounds: {}", proof.rounds.len());
-        eprintln!("  Expected queries (indices.len()): {}", indices.len());
-        eprintln!("  Actual queries in proof: {}", queries.len());
-        eprintln!("  leafs_base_field: {}", leafs_base_field);
-        eprintln!("  Proof structure:");
-        for (i, round) in proof.rounds.iter().enumerate() {
-            eprintln!("    Round {}: {} queries, {} sumcheck evals",
-                i, round.queries.len(), round.sumcheck.polynomial_evaluations.len());
-        }
-        if proof.final_queries.len() > 0 {
-            eprintln!("  Final queries: {}", proof.final_queries.len());
-        }
-
-        /*
         if queries.len() != indices.len() {
             return Err(VerifierError::MerkleProofInvalid {
                 position: 0,
@@ -457,7 +450,6 @@ where
                 ),
             });
         }
-         */
 
         let mut answers = Vec::with_capacity(indices.len());
 
@@ -466,7 +458,7 @@ where
             match (leafs_base_field, query) {
                 // Base field case with base field query (expected)
                 (true, QueryOpening::Base { values, proof: merkle_proof }) => {
-                    mmcs.verify_batch(
+                    let verify_result = mmcs.verify_batch(
                         root,
                         dimensions,
                         index,
@@ -474,8 +466,9 @@ where
                             opened_values: &[values.clone()],
                             opening_proof: merkle_proof,
                         },
-                    )
-                        .map_err(|_| VerifierError::MerkleProofInvalid {
+                    );
+
+                    verify_result.map_err(|_| VerifierError::MerkleProofInvalid {
                             position: index,
                             reason: format!(
                                 "Base field Merkle proof verification failed at round {}",

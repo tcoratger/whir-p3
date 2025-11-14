@@ -91,12 +91,10 @@ where
             let flattened: Vec<F> = EF::flatten_to_base(skip_evaluations.to_vec());
             challenger.observe_slice(&flattened);
 
-            /* todo() verify grinding
             check_pow_grinding(
                 challenger,
-                skip_pow.),
+                *skip_pow,
                 pow_bits)?;
-            */
 
             // Sample challenge for the skip round
             let r_skip: EF = challenger.sample_algebra_element();

@@ -91,8 +91,8 @@ where
                 (proof.initial_commitment, proof.clone().initial_ood_answers)
             }
             Some(idx) => {
-                // Round commitment
                 let round_proof = &proof.rounds[idx];
+                // Round commitment
                 (round_proof.commitment, round_proof.ood_answers.clone())
             }
         };

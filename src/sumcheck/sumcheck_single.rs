@@ -401,9 +401,6 @@ where
         let flattened = EF::flatten_to_base(polynomial_skip_evaluation.to_vec());
         challenger.observe_slice(&flattened);
 
-        // Proof-of-work challenge to delay prover.
-        let witness = pow_grinding(challenger, pow_bits);
-
         // Update the WhirProof structure
         if let InitialPhase::WithStatementSkip {
             ref mut skip_evaluations,
@@ -413,11 +410,8 @@ where
             skip_evaluations
                 .extend_from_slice(polynomial_skip_evaluation);
 
-            if let Some(w) = witness {
-                skip_pow
-                    .get_or_insert_with(Vec::new)
-                    .push(w);
-            }
+            *skip_pow = pow_grinding(challenger, pow_bits);
+
         } else {
             panic!("initial_round called with incorrect InitialPhase variant");
         }

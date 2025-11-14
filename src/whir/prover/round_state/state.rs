@@ -21,7 +21,7 @@ use crate::{
     },
 };
 use crate::whir::grinding::pow_grinding;
-use crate::whir::proof::{InitialPhase, WhirProof};
+use crate::whir::proof::WhirProof;
 
 /// Holds all per-round prover state required during the execution of the WHIR protocol.
 ///

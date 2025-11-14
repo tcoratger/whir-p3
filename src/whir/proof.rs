@@ -50,7 +50,7 @@ pub enum InitialPhase<EF, F> {
         skip_evaluations: Vec<EF>,
 
         /// PoW witness after skip round
-        skip_pow: Option<Vec<F>>,
+        skip_pow: Option<F>,
 
         /// Remaining sumcheck rounds after the skip (for folding_factor > k_skip)
         sumcheck: SumcheckData<EF, F>,
@@ -217,47 +217,18 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
 impl<F: Clone, EF, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
     /// Extract the PoW witness after the commitment at the given round index
     ///
-    /// * round_index = 0: Returns the PoW witness after the initial commitment
-    /// * round_index > 0: Returns the PoW witness after the commitment in round (round_index - 1)
+    /// Returns the PoW witness from the round at the given index.
+    /// The PoW witness is stored in proof.rounds[round_index].pow_witness.
     pub fn get_pow_after_commitment(&self, round_index: usize) -> Option<F> {
-        if round_index == 0 {
-            // Initial commitment PoW
-            self.initial_pow_witness.clone()
-        } else {
-            // Ordinary round PoW (round_index - 1 because rounds are 0-indexed)
-            self.rounds.get(round_index - 1).and_then(|round| round.pow_witness.clone())
-        }
+        self.rounds.get(round_index).and_then(|round| round.pow_witness.clone())
     }
-
-    /*
-    /// Extract the PoW witness from the sumcheck rounds
-    pub fn get_sumcheck_pow(&self, round_index: usize) -> Option<Vec<F>> {
-        if round_index == 0 {
-            // Initial commitment PoW
-            match &self.initial_phase {
-                InitialPhase::WithStatementSkip { skip_pow, .. } => {
-                    skip_pow.clone()
-                }
-                InitialPhase::WithStatement { sumcheck, .. } => {
-                    sumcheck.pow_witnesses.clone()
-                }
-                InitialPhase::WithoutStatement => None,
-            }
-        } else {
-            // Ordinary round PoW
-            self.rounds
-                .get(round_index )
-                .and_then(|round| round.sumcheck.pow_witnesses.clone())
-        }
-    }
-     */
 }
 
 impl<EF, F> InitialPhase<EF, F> {
     /// Create initial phase with statement and skip optimization
     pub fn with_statement_skip(
         skip_evaluations: Vec<EF>,
-        skip_pow: Option<Vec<F>>,
+        skip_pow: Option<F>,
         sumcheck: SumcheckData<EF, F>,
     ) -> Self {
         Self::WithStatementSkip {
