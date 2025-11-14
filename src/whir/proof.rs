@@ -144,14 +144,6 @@ pub struct SumcheckData<EF, F> {
     pub pow_witnesses: Option<Vec<F>>,
 }
 
-impl<EF, F> Default for SumcheckData<EF, F> {
-    fn default() -> Self {
-        Self {
-            polynomial_evaluations: Vec::new(),
-            pow_witnesses: None,
-        }
-    }
-}
 
 impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
     /// Create a new WhirProof from protocol parameters and configuration
