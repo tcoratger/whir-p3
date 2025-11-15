@@ -95,7 +95,9 @@ pub struct WhirRoundProof<F, EF, const DIGEST_ELEMS: usize> {
     pub sumcheck: SumcheckData<EF, F>,
 }
 
-impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default for WhirRoundProof<F, EF, DIGEST_ELEMS> {
+impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default
+    for WhirRoundProof<F, EF, DIGEST_ELEMS>
+{
     fn default() -> Self {
         Self {
             commitment: array::from_fn(|_| F::default()),
@@ -131,7 +133,7 @@ pub enum QueryOpening<F, EF, const DIGEST_ELEMS: usize> {
         /// Merkle leaf values in EF
         values: Vec<EF>,
         /// Merkle authentication path
-        proof: Vec<[F; DIGEST_ELEMS]>
+        proof: Vec<[F; DIGEST_ELEMS]>,
     },
 }
 
@@ -147,7 +149,6 @@ pub struct SumcheckData<EF, F> {
     /// Length: folding_factor
     pub pow_witnesses: Option<Vec<F>>,
 }
-
 
 impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
     /// Create a new WhirProof from protocol parameters and configuration
@@ -169,15 +170,14 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
         // The initial phase must match the prover's branching logic:
         // - WithStatementSkip is only used when UnivariateSkip optimization is enabled AND
         //   the folding factor is large enough (>= K_SKIP_SUMCHECK)
-        let use_univariate_skip = params.sumcheck_optimization == SumcheckOptimization::UnivariateSkip
+        let use_univariate_skip = params.sumcheck_optimization
+            == SumcheckOptimization::UnivariateSkip
             && K_SKIP_SUMCHECK <= params.folding_factor.at_round(0);
 
         let initial_phase = match (params.initial_statement, use_univariate_skip) {
-            (true, true) => InitialPhase::with_statement_skip(
-                Vec::new(),
-                None,
-                SumcheckData::default(),
-            ),
+            (true, true) => {
+                InitialPhase::with_statement_skip(Vec::new(), None, SumcheckData::default())
+            }
             (true, false) => InitialPhase::with_statement(SumcheckData::default()),
             (false, _) => InitialPhase::without_statement(),
         };
@@ -191,10 +191,9 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
         let protocol_security_level = params.security_level.saturating_sub(params.pow_bits);
 
         // Compute the number of queries
-        let num_queries = params.soundness_type.queries(
-            protocol_security_level,
-            params.starting_log_inv_rate,
-        );
+        let num_queries = params
+            .soundness_type
+            .queries(protocol_security_level, params.starting_log_inv_rate);
 
         Self {
             initial_commitment: array::from_fn(|_| F::default()),
@@ -216,7 +215,9 @@ impl<F: Clone, EF, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
     /// Returns the PoW witness from the round at the given index.
     /// The PoW witness is stored in proof.rounds[round_index].pow_witness.
     pub fn get_pow_after_commitment(&self, round_index: usize) -> Option<F> {
-        self.rounds.get(round_index).and_then(|round| round.pow_witness.clone())
+        self.rounds
+            .get(round_index)
+            .and_then(|round| round.pow_witness.clone())
     }
 }
 

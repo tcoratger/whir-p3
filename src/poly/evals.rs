@@ -6,8 +6,8 @@ use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixView};
 use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::eq_batch::{eval_eq_base_batch, eval_eq_batch};
-use tracing::instrument;
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
 use crate::{constant::MLE_RECURSION_THRESHOLD, utils::uninitialized_vec};
