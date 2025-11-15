@@ -3,10 +3,10 @@ use core::array;
 
 use serde::{Deserialize, Serialize};
 
-use crate::constant::K_SKIP_SUMCHECK;
-use crate::parameters::ProtocolParameters;
-use crate::poly::evals::EvaluationsList;
-use crate::whir::parameters::SumcheckOptimization;
+use crate::{
+    constant::K_SKIP_SUMCHECK, parameters::ProtocolParameters, poly::evals::EvaluationsList,
+    whir::parameters::SumcheckOptimization,
+};
 
 /// Complete WHIR proof
 #[derive(Serialize, Deserialize, Clone, Debug)]
