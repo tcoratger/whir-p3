@@ -223,7 +223,7 @@ impl<F: Clone, EF, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
 
 impl<EF, F> InitialPhase<EF, F> {
     /// Create initial phase with statement and skip optimization
-    pub fn with_statement_skip(
+    pub const fn with_statement_skip(
         skip_evaluations: Vec<EF>,
         skip_pow: Option<F>,
         sumcheck: SumcheckData<EF, F>,
@@ -236,12 +236,14 @@ impl<EF, F> InitialPhase<EF, F> {
     }
 
     /// Create initial phase with statement (no skip)
-    pub fn with_statement(sumcheck: SumcheckData<EF, F>) -> Self {
+    #[must_use]
+    pub const fn with_statement(sumcheck: SumcheckData<EF, F>) -> Self {
         Self::WithStatement { sumcheck }
     }
 
     /// Create initial phase without statement
-    pub fn without_statement() -> Self {
+    #[must_use]
+    pub const fn without_statement() -> Self {
         Self::WithoutStatement
     }
 }
