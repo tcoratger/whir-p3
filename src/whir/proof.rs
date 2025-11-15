@@ -1,8 +1,12 @@
+use alloc::vec::Vec;
+use core::array;
+
 use serde::{Deserialize, Serialize};
 
 use crate::constant::K_SKIP_SUMCHECK;
 use crate::parameters::ProtocolParameters;
 use crate::poly::evals::EvaluationsList;
+use crate::whir::parameters::SumcheckOptimization;
 
 /// Complete WHIR proof
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -94,7 +98,7 @@ pub struct WhirRoundProof<F, EF, const DIGEST_ELEMS: usize> {
 impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default for WhirRoundProof<F, EF, DIGEST_ELEMS> {
     fn default() -> Self {
         Self {
-            commitment: std::array::from_fn(|_| F::default()),
+            commitment: array::from_fn(|_| F::default()),
             ood_answers: Vec::new(),
             pow_witness: None,
             queries: Vec::new(),
@@ -163,12 +167,12 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
         num_variables: usize,
     ) -> Self {
         // The initial phase must match the prover's branching logic:
-        // - WithStatementSkip is only used when univariate_skip is enabled AND
+        // - WithStatementSkip is only used when UnivariateSkip optimization is enabled AND
         //   the folding factor is large enough (>= K_SKIP_SUMCHECK)
-        let initial_phase = match (
-            params.initial_statement,
-            params.univariate_skip && K_SKIP_SUMCHECK <= params.folding_factor.at_round(0),
-        ) {
+        let use_univariate_skip = params.sumcheck_optimization == SumcheckOptimization::UnivariateSkip
+            && K_SKIP_SUMCHECK <= params.folding_factor.at_round(0);
+
+        let initial_phase = match (params.initial_statement, use_univariate_skip) {
             (true, true) => InitialPhase::with_statement_skip(
                 Vec::new(),
                 None,
@@ -193,7 +197,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
         );
 
         Self {
-            initial_commitment: std::array::from_fn(|_| F::default()),
+            initial_commitment: array::from_fn(|_| F::default()),
             initial_pow_witness: None,
             initial_ood_answers: Vec::new(),
             initial_phase,

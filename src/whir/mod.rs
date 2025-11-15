@@ -24,6 +24,7 @@ pub mod parameters;
 pub mod prover;
 pub mod utils;
 pub mod verifier;
+pub mod proof;
 
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;

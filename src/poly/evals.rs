@@ -7,6 +7,7 @@ use p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixView};
 use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::eq_batch::{eval_eq_base_batch, eval_eq_batch};
 use tracing::instrument;
+use serde::{Deserialize, Serialize};
 
 use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
 use crate::{constant::MLE_RECURSION_THRESHOLD, utils::uninitialized_vec};
@@ -19,7 +20,7 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// The inner vector stores function evaluations at points of the hypercube in lexicographic
 /// order. The number of variables `n` is inferred from the length of this vector, where
 /// `self.len() = 2^n`.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub struct EvaluationsList<F>(pub(crate) Vec<F>);
 
