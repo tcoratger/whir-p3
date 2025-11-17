@@ -123,6 +123,17 @@ where
         VerifierState::new(self, proof_data, challenger)
     }
 
+    /// Observe the domain separator into the challenger
+    pub fn observe_domain_separator<Challenger>(
+        &self,
+        challenger: &mut Challenger,
+    )
+    where
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
+        challenger.observe_slice(&self.as_field_elements());
+    }
+
     pub fn add_ood(&mut self, num_samples: usize) {
         if num_samples > 0 {
             self.sample(num_samples, Sample::OodQuery);
