@@ -159,8 +159,8 @@ fn main() {
 
     // Set up the Domain separation by observing the current Whir Proof structure
     // Observe protocol parameters for domain separation
-    challenger.observe(F::from_u64(proof.rounds.len() as u64));
-    challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+    challenger.observe(F::from_usize(proof.rounds.len()));
+    challenger.observe(F::from_usize(proof.final_queries.len()));
 
     // Observe initial phase variant (0=WithoutStatement, 1=WithStatement, 2=WithStatementSkip)
     let phase_tag = match &proof.initial_phase {
