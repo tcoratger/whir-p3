@@ -4,12 +4,15 @@ use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use whir::{
-    fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
-    whir::constraints::{evaluator::Constraint, statement::EqStatement},
+    whir::constraints::statement::EqStatement,
 };
-use whir_p3 as whir;
+use whir_p3::{
+    self as whir,
+    fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
+    whir::constraints::Constraint,
+};
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, 8>;

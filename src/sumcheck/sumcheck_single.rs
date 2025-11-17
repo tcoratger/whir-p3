@@ -11,7 +11,7 @@ use crate::{
     fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
-    whir::constraints::{evaluator::Constraint, statement::EqStatement},
+    whir::constraints::{Constraint, statement::EqStatement},
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;

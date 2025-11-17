@@ -26,7 +26,7 @@ use crate::{
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        constraints::{evaluator::Constraint, statement::SelectStatement},
+        constraints::{Constraint, statement::SelectStatement},
         utils::get_challenge_stir_queries,
     },
 };
