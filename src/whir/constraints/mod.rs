@@ -220,7 +220,6 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     ///
     /// Use this method when starting a new constraint combination.
     /// Use [`combine`](Self::combine) when accumulating multiple constraints.
-    #[must_use]
     pub fn combine_new(&self) -> (EvaluationsList<EF>, EF) {
         // Initialize fresh accumulators for the weight polynomial and expected evaluation.
         // The weight polynomial needs 2^k entries for the full Boolean hypercube.
@@ -655,7 +654,7 @@ mod tests {
 
         let eq_statement = EqStatement::new_hypercube(
             num_variables,
-            vec![eq_point_0.clone(), eq_point_1.clone(), eq_point_2.clone()],
+            vec![eq_point_0, eq_point_1, eq_point_2],
             vec![eq_eval_0, eq_eval_1, eq_eval_2],
         );
 
@@ -753,10 +752,7 @@ mod tests {
         let eq_statement = EqStatement::new_hypercube(num_variables, vec![eq_point], vec![eq_eval]);
         let constraint: Constraint<F, EF> = Constraint::new_eq_only(challenge, eq_statement);
 
-        // Collect iterator results
-        let results: Vec<_> = constraint.iter_sels().collect();
-
         // Verify that the iterator is empty
-        assert_eq!(results.len(), 0);
+        assert_eq!(constraint.iter_sels().count(), 0);
     }
 }
