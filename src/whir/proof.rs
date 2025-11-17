@@ -670,7 +670,7 @@ mod tests {
 
         // Construct Base variant
         let base_opening: QueryOpening<F, EF, DIGEST_ELEMS> = QueryOpening::Base {
-            values: values.clone(),
+            values,
             proof: proof.clone(),
         };
 
@@ -685,7 +685,7 @@ mod tests {
                 assert_eq!(v[1], base_val_1);
                 assert_eq!(p.len(), 1);
             }
-            _ => panic!("Expected Base variant"),
+            QueryOpening::Extension { .. } => panic!("Expected Base variant"),
         }
 
         // Test Extension variant
@@ -698,8 +698,8 @@ mod tests {
 
         // Construct Extension variant
         let ext_opening: QueryOpening<F, EF, DIGEST_ELEMS> = QueryOpening::Extension {
-            values: ext_values.clone(),
-            proof: proof.clone(),
+            values: ext_values,
+            proof,
         };
 
         // Verify it's the correct variant
@@ -713,7 +713,7 @@ mod tests {
                 assert_eq!(v[1], ext_val_1);
                 assert_eq!(p.len(), 1);
             }
-            _ => panic!("Expected Extension variant"),
+            QueryOpening::Base { .. } => panic!("Expected Extension variant"),
         }
     }
 }
