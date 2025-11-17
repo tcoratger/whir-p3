@@ -301,8 +301,8 @@ mod tests {
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
         // Observe protocol parameters for domain separation
-        challenger.observe(F::from_u64(proof.rounds.len() as u64));
-        challenger.observe(F::from_u64(proof.final_queries.len() as u64));
+        challenger.observe(F::from_usize(proof.rounds.len()));
+        challenger.observe(F::from_usize(proof.final_queries.len()));
 
         // Observe initial phase variant (0=WithoutStatement, 1=WithStatement, 2=WithStatementSkip)
         let phase_tag = match &proof.initial_phase {
