@@ -19,12 +19,12 @@ pub struct Constraint<F: Field, EF: ExtensionField<F>> {
 }
 
 impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
-    pub fn new(
+    pub const fn new(
         challenge: EF,
         eq_statement: EqStatement<EF>,
         sel_statement: SelectStatement<F, EF>,
     ) -> Self {
-        assert_eq!(eq_statement.num_variables(), sel_statement.num_variables());
+        assert!(eq_statement.num_variables() == sel_statement.num_variables());
         Self {
             eq_statement,
             sel_statement,
@@ -32,7 +32,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
         }
     }
 
-    pub fn new_eq_only(challenge: EF, eq_statement: EqStatement<EF>) -> Self {
+    pub const fn new_eq_only(challenge: EF, eq_statement: EqStatement<EF>) -> Self {
         let num_variables = eq_statement.num_variables();
         Self::new(
             challenge,
@@ -72,7 +72,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
         (combined, eval)
     }
 
-    pub fn validate_for_skip_case(&self) {
+    pub const fn validate_for_skip_case(&self) {
         assert!(
             self.sel_statement.is_empty(),
             "select constraints not supported in skip case"
