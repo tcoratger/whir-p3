@@ -124,10 +124,7 @@ where
     }
 
     /// Observe the domain separator into the challenger
-    pub fn observe_domain_separator<Challenger>(
-        &self,
-        challenger: &mut Challenger,
-    )
+    pub fn observe_domain_separator<Challenger>(&self, challenger: &mut Challenger)
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
