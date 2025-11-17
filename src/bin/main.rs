@@ -168,7 +168,7 @@ fn main() {
         InitialPhase::WithStatement { .. } => 1,
         InitialPhase::WithStatementSkip { .. } => 2,
     };
-    challenger.observe(F::from_u64(phase_tag as u64));
+    challenger.observe(F::from_u8(phase_tag as u8));
 
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
