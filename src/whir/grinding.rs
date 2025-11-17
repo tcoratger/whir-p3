@@ -54,8 +54,7 @@ where
     }
 
     // Perform grinding and obtain a witness element in the base field
-    let witness = challenger.grind(bits);
-    Some(witness)
+    Some(challenger.grind(bits))
 }
 
 /// Verify a proof-of-work grinding witness.
