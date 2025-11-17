@@ -16,7 +16,8 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::{
-            evaluator::{Constraint, ConstraintPolyEvaluator},
+            Constraint,
+            evaluator::ConstraintPolyEvaluator,
             statement::{EqStatement, SelectStatement},
         },
         parameters::SumcheckOptimization,

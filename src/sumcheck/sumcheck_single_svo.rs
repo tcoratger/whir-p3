@@ -11,7 +11,7 @@ use crate::{
         sumcheck_single::SumcheckSingle,
         sumcheck_small_value::{algorithm_5, fold_evals_with_challenges, svo_first_rounds},
     },
-    whir::constraints::evaluator::Constraint,
+    whir::constraints::Constraint,
 };
 
 /// Number of SVO rounds (first 3 rounds use special optimized algorithm).

@@ -182,7 +182,7 @@ mod tests {
         poly::{coeffs::CoefficientList, evals::EvaluationsList},
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
-            constraints::{evaluator::Constraint, statement::EqStatement},
+            constraints::{Constraint, statement::EqStatement},
             parameters::WhirConfig,
         },
     };

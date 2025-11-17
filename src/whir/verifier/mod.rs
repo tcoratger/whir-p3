@@ -22,10 +22,7 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         EqStatement,
-        constraints::{
-            evaluator::{Constraint, ConstraintPolyEvaluator},
-            statement::SelectStatement,
-        },
+        constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
         parameters::{SumcheckOptimization, WhirConfig},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
