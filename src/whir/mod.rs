@@ -16,6 +16,7 @@ use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
+    whir::proof::WhirProof,
 };
 
 pub mod committer;
@@ -108,6 +109,7 @@ pub fn make_whir_things(
     // Create fresh RNG and challenger for transcript randomness
     let mut rng = SmallRng::seed_from_u64(1);
     let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    let mut prover_challenger = challenger.clone();
 
     // Initialize prover's view of the Fiat-Shamir transcript
     let mut prover_state = domainsep.to_prover_state(challenger.clone());
@@ -117,9 +119,17 @@ pub fn make_whir_things(
     // DFT evaluator for polynomial
     let dft = Radix2DFTSmallBatch::<F>::default();
 
+    let mut proof = WhirProof::<F, EF, 8>::default();
+
     // Commit to polynomial evaluations and generate cryptographic witness
     let witness = committer
-        .commit(&dft, &mut prover_state, polynomial)
+        .commit(
+            &dft,
+            &mut prover_state,
+            &mut proof,
+            &mut prover_challenger,
+            polynomial,
+        )
         .unwrap();
 
     // Initialize WHIR prover with the configured parameters

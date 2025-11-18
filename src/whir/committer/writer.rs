@@ -15,7 +15,10 @@ use super::Witness;
 use crate::{
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{committer::DenseMatrix, constraints::statement::EqStatement, parameters::WhirConfig},
+    whir::{
+        committer::DenseMatrix, constraints::statement::EqStatement, parameters::WhirConfig,
+        proof::WhirProof,
+    },
 };
 
 /// Responsible for committing polynomials using a Merkle-based scheme.
@@ -58,6 +61,8 @@ where
         &self,
         dft: &Dft,
         prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         polynomial: EvaluationsList<F>,
     ) -> Result<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>, FiatShamirError>
     where
@@ -100,6 +105,9 @@ where
 
         prover_state.add_base_scalars(root.as_ref());
 
+        proof.initial_commitment = *root.as_ref();
+        challenger.observe_slice(root.as_ref());
+
         let mut ood_statement = EqStatement::initialize(self.num_variables);
         (0..self.0.commitment_ood_samples).for_each(|_| {
             // Generate OOD points from ProverState randomness
@@ -108,6 +116,14 @@ where
             let eval =
                 info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point));
             prover_state.add_extension_scalar(eval);
+
+            let point_rf: EF = challenger.sample_algebra_element();
+            let point_rf = MultilinearPoint::expand_from_univariate(point_rf, self.num_variables);
+            let eval_rf =
+                info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point_rf));
+            proof.initial_ood_answers.push(eval_rf);
+            challenger.observe_algebra_element(eval_rf);
+
             ood_statement.add_evaluated_constraint(point, eval);
         });
 
@@ -188,12 +204,16 @@ mod tests {
         };
 
         // Define multivariate parameters for the polynomial.
-        let params =
-            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
+        let params = WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(
+            num_variables,
+            whir_params.clone(),
+        );
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
+
+        let mut proof = WhirProof::<F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
         let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
@@ -201,15 +221,22 @@ mod tests {
         domainsep.add_whir_proof::<_, _, _, 8>(&params);
 
         let mut rng = SmallRng::seed_from_u64(1);
-        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-        let mut prover_state = domainsep.to_prover_state(challenger);
+        let mut prover_state = domainsep.to_prover_state(challenger.clone());
+        domainsep.observe_domain_separator(&mut challenger);
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(&params);
         let dft = Radix2DFTSmallBatch::<F>::default();
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial.clone())
+            .commit(
+                &dft,
+                &mut prover_state,
+                &mut proof,
+                &mut challenger,
+                polynomial.clone(),
+            )
             .unwrap();
 
         // Ensure OOD (out-of-domain) points are generated.
@@ -266,24 +293,35 @@ mod tests {
             sumcheck_optimization: SumcheckOptimization::Classic,
         };
 
-        let params =
-            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
+        let params = WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(
+            num_variables,
+            whir_params.clone(),
+        );
 
         let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
+
+        let mut proof = WhirProof::<F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
 
         let mut domainsep = DomainSeparator::new(vec![]);
         domainsep.commit_statement::<_, _, _, 8>(&params);
 
         let mut rng = SmallRng::seed_from_u64(1);
-        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-        let mut prover_state = domainsep.to_prover_state(challenger);
+        let mut prover_state = domainsep.to_prover_state(challenger.clone());
+        domainsep.observe_domain_separator(&mut challenger);
 
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let _ = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(
+                &dft,
+                &mut prover_state,
+                &mut proof,
+                &mut challenger,
+                polynomial,
+            )
             .unwrap();
     }
 
@@ -318,8 +356,10 @@ mod tests {
             sumcheck_optimization: SumcheckOptimization::Classic,
         };
 
-        let mut params =
-            WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
+        let mut params = WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(
+            num_variables,
+            whir_params.clone(),
+        );
 
         // Explicitly set OOD samples to 0
         params.commitment_ood_samples = 0;
@@ -327,18 +367,27 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
+        let mut proof = WhirProof::<F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+
         let mut domainsep = DomainSeparator::new(vec![]);
         domainsep.commit_statement::<_, _, _, 8>(&params);
 
         let mut rng = SmallRng::seed_from_u64(1);
-        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-        let mut prover_state = domainsep.to_prover_state(challenger);
+        let mut prover_state = domainsep.to_prover_state(challenger.clone());
+        domainsep.observe_domain_separator(&mut challenger);
 
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(
+                &dft,
+                &mut prover_state,
+                &mut proof,
+                &mut challenger,
+                polynomial,
+            )
             .unwrap();
 
         assert!(

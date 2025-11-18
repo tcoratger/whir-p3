@@ -9,7 +9,6 @@ use crate::{poly::evals::EvaluationsList, whir::constraints::statement::EqStatem
 pub mod reader;
 mod reader_rf;
 pub mod writer;
-mod writer_rf;
 
 pub type RoundMerkleTree<F, EF, W, const DIGEST_ELEMS: usize> =
     MerkleTree<F, W, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>;
@@ -25,9 +24,9 @@ where
     F: Field,
     EF: ExtensionField<F>,
 {
-    /// The committed polynomial in evaluations form.  
+    /// The committed polynomial in evaluations form.
     pub polynomial: EvaluationsList<F>,
-    /// Prover data of the Merkle tree.  
+    /// Prover data of the Merkle tree.
     pub prover_data: Arc<MerkleTree<F, F, M, DIGEST_ELEMS>>,
     /// Out-of-domain statement with:
     /// - Out-of-domain challenge points used for polynomial verification.

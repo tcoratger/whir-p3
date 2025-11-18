@@ -17,6 +17,7 @@ use crate::{
         committer::{Witness, writer::CommitmentWriter},
         constraints::statement::EqStatement,
         parameters::SumcheckOptimization,
+        proof::WhirProof,
         prover::{Prover, round_state::RoundState},
     },
 };
@@ -101,6 +102,7 @@ fn setup_domain_and_commitment(
 
     let mut rng = SmallRng::seed_from_u64(1);
     let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    let mut prover_challenger = challenger.clone();
 
     // Convert the domain separator into a mutable prover-side transcript.
     let mut prover_state = domsep.to_prover_state::<_>(challenger);
@@ -108,12 +110,16 @@ fn setup_domain_and_commitment(
     // Create a committer using the protocol configuration (Merkle parameters, hashers, etc.).
     let committer = CommitmentWriter::new(params);
 
+    let mut proof = WhirProof::<F, EF4, DIGEST_ELEMS>::default();
+
     // Perform DFT-based commitment to the polynomial, producing a witness
     // which includes the Merkle tree and polynomial values.
     let witness = committer
         .commit(
             &Radix2DFTSmallBatch::<F>::default(),
             &mut prover_state,
+            &mut proof,
+            &mut prover_challenger,
             poly,
         )
         .unwrap();

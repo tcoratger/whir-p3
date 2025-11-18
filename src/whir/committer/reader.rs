@@ -156,6 +156,7 @@ mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_dft::Radix2DFTSmallBatch;
+    use p3_field::extension::BinomialExtensionField;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -165,10 +166,12 @@ mod tests {
         poly::evals::EvaluationsList,
         whir::{
             DomainSeparator, committer::writer::CommitmentWriter, parameters::SumcheckOptimization,
+            proof::WhirProof,
         },
     };
 
     type F = BabyBear;
+    type EF = BinomialExtensionField<F, 4>;
     type Perm = Poseidon2BabyBear<16>;
     type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
@@ -179,12 +182,13 @@ mod tests {
     /// This sets up the protocol parameters and multivariate polynomial settings,
     /// with control over number of variables and OOD samples.
     #[allow(clippy::type_complexity)]
-    fn make_test_params(
+    fn make_test_params<const DIGEST_ELEMS: usize>(
         num_variables: usize,
         ood_samples: usize,
     ) -> (
-        WhirConfig<BabyBear, BabyBear, MyHash, MyCompress, MyChallenger>,
+        WhirConfig<EF, BabyBear, MyHash, MyCompress, MyChallenger>,
         SmallRng,
+        WhirProof<F, EF, DIGEST_ELEMS>,
     ) {
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
@@ -210,19 +214,23 @@ mod tests {
         };
 
         // Construct full WHIR configuration with MV polynomial shape and protocol rules.
-        let mut config = WhirConfig::new(num_variables, whir_params);
+        let mut config = WhirConfig::new(num_variables, whir_params.clone());
 
         // Set the number of OOD samples for commitment testing.
         config.commitment_ood_samples = ood_samples;
 
         // Return the config and a thread-local random number generator.
-        (config, SmallRng::seed_from_u64(1))
+        (
+            config,
+            SmallRng::seed_from_u64(1),
+            WhirProof::from_protocol_parameters(&whir_params, num_variables),
+        )
     }
 
     #[test]
     fn test_commitment_roundtrip_with_ood() {
         // Create WHIR config with 5 variables and 3 OOD samples, plus a random number generator.
-        let (params, mut rng) = make_test_params(5, 3);
+        let (params, mut rng, mut proof) = make_test_params(5, 3);
 
         // Create a random degree-5 multilinear polynomial (32 coefficients).
         let polynomial = EvaluationsList::new((0..32).map(|_| rng.random()).collect());
@@ -240,12 +248,19 @@ mod tests {
         // Create the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut prover_challenger = challenger.clone();
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(
+                &dft,
+                &mut prover_state,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
 
         // Simulate verifier state using transcript view of prover’s nonce string.
@@ -266,7 +281,7 @@ mod tests {
     #[test]
     fn test_commitment_roundtrip_no_ood() {
         // Create WHIR config with 4 variables and *no* OOD samples.
-        let (params, mut rng) = make_test_params(4, 0);
+        let (params, mut rng, mut proof) = make_test_params(4, 0);
 
         // Generate a polynomial with 16 random coefficients.
         let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
@@ -282,11 +297,18 @@ mod tests {
         // Generate the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut prover_challenger = challenger.clone();
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial to obtain the witness.
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(
+                &dft,
+                &mut prover_state,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
 
         // Initialize the verifier view of the transcript.
@@ -307,7 +329,7 @@ mod tests {
     #[test]
     fn test_commitment_roundtrip_large_polynomial() {
         // Create config with 10 variables and 5 OOD samples.
-        let (params, mut rng) = make_test_params(10, 5);
+        let (params, mut rng, mut proof) = make_test_params(10, 5);
 
         // Generate a large polynomial with 1024 random coefficients.
         let polynomial = EvaluationsList::new((0..1024).map(|_| rng.random()).collect());
@@ -323,12 +345,19 @@ mod tests {
         // Create prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut prover_challenger = challenger.clone();
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain the witness.
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(
+                &dft,
+                &mut prover_state,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
@@ -347,7 +376,7 @@ mod tests {
     #[test]
     fn test_oods_constraints_correctness() {
         // Create WHIR config with 4 variables and 2 OOD samples.
-        let (params, mut rng) = make_test_params(4, 2);
+        let (params, mut rng, mut proof) = make_test_params(4, 2);
 
         // Generate a multilinear polynomial with 16 coefficients.
         let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
@@ -363,10 +392,17 @@ mod tests {
         // Generate prover and verifier transcript states.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut prover_challenger = challenger.clone();
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(
+                &dft,
+                &mut prover_state,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);

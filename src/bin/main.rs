@@ -22,6 +22,7 @@ use whir_p3::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         constraints::statement::EqStatement,
         parameters::{SumcheckOptimization, WhirConfig},
+        proof::WhirProof,
         prover::Prover,
         verifier::Verifier,
     },
@@ -157,6 +158,7 @@ fn main() {
     }
 
     let challenger = MyChallenger::new(poseidon16);
+    let mut prover_challenger = challenger.clone();
 
     // Initialize the Merlin transcript from the IOPattern
     let mut prover_state = domainsep.to_prover_state(challenger.clone());
@@ -166,9 +168,17 @@ fn main() {
 
     let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
 
+    let mut proof = WhirProof::<F, EF, 8>::default();
+
     let time = Instant::now();
     let witness = committer
-        .commit(&dft, &mut prover_state, polynomial)
+        .commit(
+            &dft,
+            &mut prover_state,
+            &mut proof,
+            &mut prover_challenger,
+            polynomial,
+        )
         .unwrap();
     let commit_time = time.elapsed();
 

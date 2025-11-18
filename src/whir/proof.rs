@@ -43,6 +43,24 @@ pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
     pub final_sumcheck: Option<SumcheckData<EF, F>>,
 }
 
+impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default
+    for WhirProof<F, EF, DIGEST_ELEMS>
+{
+    fn default() -> Self {
+        Self {
+            initial_commitment: array::from_fn(|_| F::default()),
+            initial_pow_witness: None,
+            initial_ood_answers: Vec::new(),
+            initial_phase: InitialPhase::default(),
+            rounds: Vec::new(),
+            final_poly: None,
+            final_pow_witness: F::default(),
+            final_queries: Vec::new(),
+            final_sumcheck: None,
+        }
+    }
+}
+
 /// Initial phase of WHIR protocol
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
@@ -70,6 +88,14 @@ pub enum InitialPhase<EF, F> {
     /// Protocol without statement (direct folding)
     #[serde(rename = "without_statement")]
     WithoutStatement,
+}
+
+impl<F: Default, EF: Default> Default for InitialPhase<EF, F> {
+    fn default() -> Self {
+        Self::WithStatement {
+            sumcheck: SumcheckData::default(),
+        }
+    }
 }
 
 /// Data for a single WHIR round
