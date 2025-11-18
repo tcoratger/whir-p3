@@ -126,7 +126,7 @@ mod tests {
         assert!(check_pow_grinding(&mut challenger, None, 0).is_ok());
 
         // Test with Some witness (should still succeed when bits = 0)
-        assert!(check_pow_grinding(&mut challenger, Some(F::from_usize(123)), 0).is_ok());
+        assert!(check_pow_grinding(&mut challenger, Some(F::from_u64(123)), 0).is_ok());
     }
 
     #[test]
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn test_check_pow_grinding_invalid_witness_fails() {
         let mut challenger = make_challenger();
-        let bad_witness = Some(F::from_usize(42));
+        let bad_witness = Some(F::from_u64(42));
 
         // This witness is not valid for the current challenger state
         let result = check_pow_grinding(&mut challenger, bad_witness, 4);
@@ -167,7 +167,7 @@ mod tests {
     fn test_pow_grinding_different_with_different_challenger_state() {
         let mut challenger1 = make_challenger();
         // Modify challenger1 state by observing a value
-        challenger1.observe(F::from_usize(999));
+        challenger1.observe(F::from_u64(999));
 
         let mut challenger2 = make_challenger();
 
@@ -188,7 +188,7 @@ mod tests {
 
         // Try to verify with a different challenger state
         let mut challenger2 = make_challenger();
-        challenger2.observe(F::from_usize(123)); // Different state
+        challenger2.observe(F::from_u64(123)); // Different state
 
         let result = check_pow_grinding(&mut challenger2, witness, 4);
         assert!(
