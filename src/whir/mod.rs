@@ -161,7 +161,13 @@ pub fn make_whir_things(
 
     // Execute WHIR verification
     verifier
-        .verify(&mut verifier_state, &parsed_commitment, statement, &proof, &mut verifier_challenger)
+        .verify(
+            &mut verifier_state,
+            &parsed_commitment,
+            statement,
+            &proof,
+            &mut verifier_challenger,
+        )
         .unwrap();
 
     let checkpoint_verifier: EF = verifier_state.sample();

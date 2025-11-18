@@ -211,7 +211,13 @@ fn main() {
 
     let verif_time = Instant::now();
     verifier
-        .verify(&mut verifier_state, &parsed_commitment, statement, &proof, &mut verifier_challenger)
+        .verify(
+            &mut verifier_state,
+            &parsed_commitment,
+            statement,
+            &proof,
+            &mut verifier_challenger,
+        )
         .unwrap();
     let verify_time = verif_time.elapsed();
 
