@@ -59,8 +59,8 @@ where
     /// This is used to verify consistency of polynomial commitments in WHIR.
     pub fn parse<EF, Challenger, const DIGEST_ELEMS: usize>(
         verifier_state: &mut VerifierState<F, EF, Challenger>,
-        _proof: &WhirProof<F, EF, DIGEST_ELEMS>,
-        _challenger: &mut Challenger,
+        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         num_variables: usize,
         ood_samples: usize,
     ) -> Result<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>, FiatShamirError>
@@ -86,6 +86,17 @@ where
             ood_statement.add_evaluated_constraint(point, eval);
             Ok(())
         })?;
+
+        for eval in proof.initial_ood_answers.iter().take(ood_samples) {
+            let point: EF = challenger.sample_algebra_element();
+            let _point = MultilinearPoint::expand_from_univariate(point, num_variables);
+
+            // Get the answer from proof
+            challenger.observe_algebra_element(*eval);
+
+            // // Add to statement
+            // ood_statement.add_evaluated_constraint(point, *eval);
+        }
 
         // Return a structured representation of the commitment.
         Ok(ParsedCommitment {
