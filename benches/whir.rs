@@ -14,6 +14,7 @@ use whir_p3::{
         committer::writer::CommitmentWriter,
         constraints::statement::EqStatement,
         parameters::{SumcheckOptimization, WhirConfig},
+        proof::WhirProof,
         prover::Prover,
     },
 };
@@ -32,6 +33,8 @@ type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 #[allow(clippy::type_complexity)]
 fn prepare_inputs() -> (
     WhirConfig<EF, F, MerkleHash, MerkleCompress, MyChallenger>,
+    ProtocolParameters<MerkleHash, MerkleCompress>,
+    usize,
     Radix2DFTSmallBatch<F>,
     EvaluationsList<F>,
     EqStatement<EF>,
@@ -86,7 +89,7 @@ fn prepare_inputs() -> (
     };
 
     // Combine multivariate and protocol parameters into a unified WHIR config.
-    let params = WhirConfig::new(num_variables, whir_params);
+    let params = WhirConfig::new(num_variables, whir_params.clone());
 
     // Sample random multilinear polynomial
 
@@ -126,18 +129,37 @@ fn prepare_inputs() -> (
     let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
 
     // Return all preprocessed components needed to run commit/prove/verify benchmarks.
-    (params, dft, polynomial, statement, challenger, domainsep)
+    (
+        params,
+        whir_params,
+        num_variables,
+        dft,
+        polynomial,
+        statement,
+        challenger,
+        domainsep,
+    )
 }
 
 fn benchmark_commit_and_prove(c: &mut Criterion) {
-    let (params, dft, polynomial, statement, challenger, domainsep) = prepare_inputs();
+    let (params, whir_params, num_variables, dft, polynomial, statement, challenger, domainsep) =
+        prepare_inputs();
 
     c.bench_function("commit", |b| {
         b.iter(|| {
             let mut prover_state = domainsep.to_prover_state(challenger.clone());
+            let mut challenger_clone = challenger.clone();
+            let mut proof =
+                WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
             let committer = CommitmentWriter::new(&params);
             let _witness = committer
-                .commit(&dft, &mut prover_state, polynomial.clone())
+                .commit(
+                    &dft,
+                    &mut prover_state,
+                    &mut proof,
+                    &mut challenger_clone,
+                    polynomial.clone(),
+                )
                 .unwrap();
         });
     });
@@ -145,9 +167,18 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
     c.bench_function("prove", |b| {
         b.iter(|| {
             let mut prover_state = domainsep.to_prover_state(challenger.clone());
+            let mut challenger_clone = challenger.clone();
+            let mut proof =
+                WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
             let committer = CommitmentWriter::new(&params);
             let witness = committer
-                .commit(&dft, &mut prover_state, polynomial.clone())
+                .commit(
+                    &dft,
+                    &mut prover_state,
+                    &mut proof,
+                    &mut challenger_clone,
+                    polynomial.clone(),
+                )
                 .unwrap();
 
             let prover = Prover(&params);

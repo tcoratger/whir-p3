@@ -22,6 +22,7 @@ use whir_p3::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         constraints::statement::EqStatement,
         parameters::{SumcheckOptimization, WhirConfig},
+        proof::WhirProof,
         prover::Prover,
         verifier::Verifier,
     },
@@ -69,6 +70,7 @@ struct Args {
     rs_domain_initial_reduction_factor: usize,
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
@@ -157,6 +159,7 @@ fn main() {
     }
 
     let challenger = MyChallenger::new(poseidon16);
+    let mut prover_challenger = challenger.clone();
 
     // Initialize the Merlin transcript from the IOPattern
     let mut prover_state = domainsep.to_prover_state(challenger.clone());
@@ -166,9 +169,17 @@ fn main() {
 
     let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
 
+    let mut proof = WhirProof::<F, EF, 8>::default();
+
     let time = Instant::now();
     let witness = committer
-        .commit(&dft, &mut prover_state, polynomial)
+        .commit(
+            &dft,
+            &mut prover_state,
+            &mut proof,
+            &mut prover_challenger,
+            polynomial,
+        )
         .unwrap();
     let commit_time = time.elapsed();
 
@@ -189,17 +200,24 @@ fn main() {
     let verifier = Verifier::new(&params);
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
+    let mut verifier_challenger = challenger.clone();
     let mut verifier_state =
         domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
-        .parse_commitment::<8>(&mut verifier_state)
+        .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
         .unwrap();
 
     let verif_time = Instant::now();
     verifier
-        .verify(&mut verifier_state, &parsed_commitment, statement)
+        .verify(
+            &mut verifier_state,
+            &parsed_commitment,
+            statement,
+            &proof,
+            &mut verifier_challenger,
+        )
         .unwrap();
     let verify_time = verif_time.elapsed();
 

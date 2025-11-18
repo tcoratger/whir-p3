@@ -7,7 +7,7 @@ use p3_symmetric::Hash;
 use crate::{
     fiat_shamir::{errors::FiatShamirError, verifier::VerifierState},
     poly::multilinear::MultilinearPoint,
-    whir::{constraints::statement::EqStatement, parameters::WhirConfig},
+    whir::{constraints::statement::EqStatement, parameters::WhirConfig, proof::WhirProof},
 };
 
 /// Represents a parsed commitment from the prover in the WHIR protocol.
@@ -43,6 +43,8 @@ where
     /// # Arguments
     ///
     /// - `verifier_state`: The verifier's Fiat-Shamir state from which data is read.
+    /// - `proof`: The proof data the verifier reads (currently unused, reserved for RF flow).
+    /// - `challenger`: The verifier's challenger (currently unused, reserved for RF flow).
     /// - `num_variables`: Number of variables in the committed multilinear polynomial.
     /// - `ood_samples`: Number of out-of-domain points the verifier expects to query.
     ///
@@ -57,6 +59,8 @@ where
     /// This is used to verify consistency of polynomial commitments in WHIR.
     pub fn parse<EF, Challenger, const DIGEST_ELEMS: usize>(
         verifier_state: &mut VerifierState<F, EF, Challenger>,
+        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         num_variables: usize,
         ood_samples: usize,
     ) -> Result<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>, FiatShamirError>
@@ -82,6 +86,18 @@ where
             ood_statement.add_evaluated_constraint(point, eval);
             Ok(())
         })?;
+
+        for eval in proof.initial_ood_answers.iter().take(ood_samples) {
+            let point: EF = challenger.sample_algebra_element();
+            let _point = MultilinearPoint::expand_from_univariate(point, num_variables);
+
+            // Get the answer from proof
+            challenger.observe_algebra_element(*eval);
+
+            // Add to statement
+            // TODO: Add this back when we fully rely on Plonky3 Fiat-Shamir.
+            // ood_statement.add_evaluated_constraint(point, *eval);
+        }
 
         // Return a structured representation of the commitment.
         Ok(ParsedCommitment {
@@ -128,9 +144,13 @@ where
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<F, EF, Challenger>,
+        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
     ) -> Result<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>, FiatShamirError> {
         ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
             verifier_state,
+            proof,
+            challenger,
             self.num_variables,
             self.commitment_ood_samples,
         )
@@ -156,6 +176,7 @@ mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_dft::Radix2DFTSmallBatch;
+    use p3_field::extension::BinomialExtensionField;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -165,10 +186,12 @@ mod tests {
         poly::evals::EvaluationsList,
         whir::{
             DomainSeparator, committer::writer::CommitmentWriter, parameters::SumcheckOptimization,
+            proof::WhirProof,
         },
     };
 
     type F = BabyBear;
+    type EF = BinomialExtensionField<F, 4>;
     type Perm = Poseidon2BabyBear<16>;
     type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
@@ -179,12 +202,13 @@ mod tests {
     /// This sets up the protocol parameters and multivariate polynomial settings,
     /// with control over number of variables and OOD samples.
     #[allow(clippy::type_complexity)]
-    fn make_test_params(
+    fn make_test_params<const DIGEST_ELEMS: usize>(
         num_variables: usize,
         ood_samples: usize,
     ) -> (
-        WhirConfig<BabyBear, BabyBear, MyHash, MyCompress, MyChallenger>,
+        WhirConfig<EF, BabyBear, MyHash, MyCompress, MyChallenger>,
         SmallRng,
+        WhirProof<F, EF, DIGEST_ELEMS>,
     ) {
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
@@ -210,19 +234,23 @@ mod tests {
         };
 
         // Construct full WHIR configuration with MV polynomial shape and protocol rules.
-        let mut config = WhirConfig::new(num_variables, whir_params);
+        let mut config = WhirConfig::new(num_variables, whir_params.clone());
 
         // Set the number of OOD samples for commitment testing.
         config.commitment_ood_samples = ood_samples;
 
         // Return the config and a thread-local random number generator.
-        (config, SmallRng::seed_from_u64(1))
+        (
+            config,
+            SmallRng::seed_from_u64(1),
+            WhirProof::from_protocol_parameters(&whir_params, num_variables),
+        )
     }
 
     #[test]
     fn test_commitment_roundtrip_with_ood() {
         // Create WHIR config with 5 variables and 3 OOD samples, plus a random number generator.
-        let (params, mut rng) = make_test_params(5, 3);
+        let (params, mut rng, mut proof) = make_test_params(5, 3);
 
         // Create a random degree-5 multilinear polynomial (32 coefficients).
         let polynomial = EvaluationsList::new((0..32).map(|_| rng.random()).collect());
@@ -240,21 +268,31 @@ mod tests {
         // Create the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut prover_challenger = challenger.clone();
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(
+                &dft,
+                &mut prover_state,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
 
-        // Simulate verifier state using transcript view of prover’s nonce string.
+        // Simulate verifier state using transcript view of prover's nonce string.
+        let mut verifier_challenger = challenger.clone();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
         // Create a commitment reader and parse the commitment from verifier state.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader
+            .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
+            .unwrap();
 
         // Ensure the Merkle root matches between prover and parsed result.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -266,7 +304,7 @@ mod tests {
     #[test]
     fn test_commitment_roundtrip_no_ood() {
         // Create WHIR config with 4 variables and *no* OOD samples.
-        let (params, mut rng) = make_test_params(4, 0);
+        let (params, mut rng, mut proof) = make_test_params(4, 0);
 
         // Generate a polynomial with 16 random coefficients.
         let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
@@ -282,20 +320,30 @@ mod tests {
         // Generate the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut prover_challenger = challenger.clone();
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial to obtain the witness.
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(
+                &dft,
+                &mut prover_state,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
 
         // Initialize the verifier view of the transcript.
+        let mut verifier_challenger = challenger.clone();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
         // Parse the commitment from verifier transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader
+            .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
+            .unwrap();
 
         // Validate the Merkle root matches.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -307,7 +355,7 @@ mod tests {
     #[test]
     fn test_commitment_roundtrip_large_polynomial() {
         // Create config with 10 variables and 5 OOD samples.
-        let (params, mut rng) = make_test_params(10, 5);
+        let (params, mut rng, mut proof) = make_test_params(10, 5);
 
         // Generate a large polynomial with 1024 random coefficients.
         let polynomial = EvaluationsList::new((0..1024).map(|_| rng.random()).collect());
@@ -323,21 +371,31 @@ mod tests {
         // Create prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut prover_challenger = challenger.clone();
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial and obtain the witness.
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(
+                &dft,
+                &mut prover_state,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
+        let mut verifier_challenger = challenger.clone();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
-        // Parse the commitment from verifier’s transcript.
+        // Parse the commitment from verifier's transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader
+            .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
+            .unwrap();
 
         // Check Merkle root and OOD answers match.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -347,7 +405,7 @@ mod tests {
     #[test]
     fn test_oods_constraints_correctness() {
         // Create WHIR config with 4 variables and 2 OOD samples.
-        let (params, mut rng) = make_test_params(4, 2);
+        let (params, mut rng, mut proof) = make_test_params(4, 2);
 
         // Generate a multilinear polynomial with 16 coefficients.
         let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
@@ -363,17 +421,28 @@ mod tests {
         // Generate prover and verifier transcript states.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut prover_challenger = challenger.clone();
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
         let witness = committer
-            .commit(&dft, &mut prover_state, polynomial)
+            .commit(
+                &dft,
+                &mut prover_state,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
+
+        let mut verifier_challenger = challenger.clone();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
-        // Parse the commitment from the verifier’s state.
+        // Parse the commitment from the verifier's state.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader
+            .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
+            .unwrap();
 
         // Each constraint should have correct univariate weight, sum, and flag.
         for (i, (point, &eval)) in parsed.ood_statement.iter().enumerate() {
