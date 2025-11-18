@@ -61,6 +61,8 @@ where
         verifier_state: &mut VerifierState<F, EF, Challenger>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         mut statement: EqStatement<EF>,
+        proof: &crate::whir::proof::WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
     ) -> Result<MultilinearPoint<EF>, VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
@@ -133,6 +135,8 @@ where
             // Receive commitment to the folded polynomial (likely encoded at higher expansion)
             let new_commitment = ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
                 verifier_state,
+                proof,
+                challenger,
                 round_params.num_variables,
                 round_params.ood_samples,
             )?;

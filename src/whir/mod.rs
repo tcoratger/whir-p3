@@ -150,17 +150,18 @@ pub fn make_whir_things(
     let verifier = Verifier::new(&params);
 
     // Reconstruct verifier's transcript from proof data and domain separator
+    let mut verifier_challenger = challenger.clone();
     let mut verifier_state =
         domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
     // Parse and validate the polynomial commitment from proof data
     let parsed_commitment = commitment_reader
-        .parse_commitment::<8>(&mut verifier_state)
+        .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
         .unwrap();
 
     // Execute WHIR verification
     verifier
-        .verify(&mut verifier_state, &parsed_commitment, statement)
+        .verify(&mut verifier_state, &parsed_commitment, statement, &proof, &mut verifier_challenger)
         .unwrap();
 
     let checkpoint_verifier: EF = verifier_state.sample();

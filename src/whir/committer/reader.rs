@@ -7,7 +7,7 @@ use p3_symmetric::Hash;
 use crate::{
     fiat_shamir::{errors::FiatShamirError, verifier::VerifierState},
     poly::multilinear::MultilinearPoint,
-    whir::{constraints::statement::EqStatement, parameters::WhirConfig},
+    whir::{constraints::statement::EqStatement, parameters::WhirConfig, proof::WhirProof},
 };
 
 /// Represents a parsed commitment from the prover in the WHIR protocol.
@@ -43,6 +43,8 @@ where
     /// # Arguments
     ///
     /// - `verifier_state`: The verifier's Fiat-Shamir state from which data is read.
+    /// - `proof`: The proof data the verifier reads (currently unused, reserved for RF flow).
+    /// - `challenger`: The verifier's challenger (currently unused, reserved for RF flow).
     /// - `num_variables`: Number of variables in the committed multilinear polynomial.
     /// - `ood_samples`: Number of out-of-domain points the verifier expects to query.
     ///
@@ -57,6 +59,8 @@ where
     /// This is used to verify consistency of polynomial commitments in WHIR.
     pub fn parse<EF, Challenger, const DIGEST_ELEMS: usize>(
         verifier_state: &mut VerifierState<F, EF, Challenger>,
+        _proof: &WhirProof<F, EF, DIGEST_ELEMS>,
+        _challenger: &mut Challenger,
         num_variables: usize,
         ood_samples: usize,
     ) -> Result<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>, FiatShamirError>
@@ -128,9 +132,13 @@ where
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
         verifier_state: &mut VerifierState<F, EF, Challenger>,
+        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
     ) -> Result<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>, FiatShamirError> {
         ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
             verifier_state,
+            proof,
+            challenger,
             self.num_variables,
             self.commitment_ood_samples,
         )
@@ -263,13 +271,16 @@ mod tests {
             )
             .unwrap();
 
-        // Simulate verifier state using transcript view of prover’s nonce string.
+        // Simulate verifier state using transcript view of prover's nonce string.
+        let mut verifier_challenger = challenger.clone();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
         // Create a commitment reader and parse the commitment from verifier state.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader
+            .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
+            .unwrap();
 
         // Ensure the Merkle root matches between prover and parsed result.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -312,12 +323,15 @@ mod tests {
             .unwrap();
 
         // Initialize the verifier view of the transcript.
+        let mut verifier_challenger = challenger.clone();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
         // Parse the commitment from verifier transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader
+            .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
+            .unwrap();
 
         // Validate the Merkle root matches.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -361,12 +375,15 @@ mod tests {
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
+        let mut verifier_challenger = challenger.clone();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
-        // Parse the commitment from verifier’s transcript.
+        // Parse the commitment from verifier's transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader
+            .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
+            .unwrap();
 
         // Check Merkle root and OOD answers match.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -404,12 +421,16 @@ mod tests {
                 polynomial,
             )
             .unwrap();
+
+        let mut verifier_challenger = challenger.clone();
         let mut verifier_state =
             ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
-        // Parse the commitment from the verifier’s state.
+        // Parse the commitment from the verifier's state.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&mut verifier_state).unwrap();
+        let parsed = reader
+            .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
+            .unwrap();
 
         // Each constraint should have correct univariate weight, sum, and flag.
         for (i, (point, &eval)) in parsed.ood_statement.iter().enumerate() {

@@ -200,17 +200,18 @@ fn main() {
     let verifier = Verifier::new(&params);
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
+    let mut verifier_challenger = challenger.clone();
     let mut verifier_state =
         domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
-        .parse_commitment::<8>(&mut verifier_state)
+        .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
         .unwrap();
 
     let verif_time = Instant::now();
     verifier
-        .verify(&mut verifier_state, &parsed_commitment, statement)
+        .verify(&mut verifier_state, &parsed_commitment, statement, &proof, &mut verifier_challenger)
         .unwrap();
     let verify_time = verif_time.elapsed();
 
