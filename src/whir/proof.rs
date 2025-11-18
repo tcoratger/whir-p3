@@ -206,14 +206,10 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
 
             // With statement + UnivariateSkip optimization
             (true, SumcheckOptimization::UnivariateSkip)
-            if K_SKIP_SUMCHECK <= params.folding_factor.at_round(0) =>
-                {
-                    InitialPhase::with_statement_skip(
-                        Vec::new(),
-                        None,
-                        SumcheckData::default()
-                    )
-                }
+                if K_SKIP_SUMCHECK <= params.folding_factor.at_round(0) =>
+            {
+                InitialPhase::with_statement_skip(Vec::new(), None, SumcheckData::default())
+            }
 
             // With statement + SVO optimization
             (true, SumcheckOptimization::Svo) => {
@@ -221,9 +217,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             }
 
             // With statement + Classic (or UnivariateSkip with insufficient folding factor)
-            (true, _) => {
-                InitialPhase::with_statement(SumcheckData::default())
-            }
+            (true, _) => InitialPhase::with_statement(SumcheckData::default()),
         };
 
         // Use the actual FoldingFactor method to calculate rounds correctly
