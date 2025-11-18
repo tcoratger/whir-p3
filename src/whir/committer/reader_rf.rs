@@ -71,41 +71,15 @@ where
         EF: ExtensionField<F> + TwoAdicField,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        Self::parse_with_round(proof, challenger, num_variables, ood_samples, None)
-    }
-
-    #[allow(unreachable_pub)]
-    pub fn parse_with_round<EF, Challenger, const DIGEST_ELEMS: usize>(
-        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
-        challenger: &mut Challenger,
-        num_variables: usize,
-        ood_samples: usize,
-        round_index: Option<usize>,
-    ) -> ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>
-    where
-        F: TwoAdicField,
-        EF: ExtensionField<F> + TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    {
-        // Read the Merkle root and OOD answers from the appropriate source
-        let (root_array, ood_answers) = round_index.map_or_else(
-            || (proof.initial_commitment, proof.clone().initial_ood_answers),
-            |idx| {
-                let round_proof = &proof.rounds[idx];
-                (round_proof.commitment, round_proof.ood_answers.clone())
-            },
-        );
-
-        challenger.observe_slice(&root_array);
-        // Convert array to Hash type
-        let root: Hash<F, F, DIGEST_ELEMS> = root_array.into();
+        challenger.observe_slice(&proof.initial_commitment);
 
         // Construct equality constraints for all out-of-domain (OOD) samples.
+        //
         // Each constraint enforces that the committed polynomial evaluates to the
         // claimed `ood_answer` at the corresponding `ood_point`, using a univariate
         // equality weight over `num_variables` inputs.
         let mut ood_statement = EqStatement::initialize(num_variables);
-        for eval in ood_answers.iter().take(ood_samples) {
+        for eval in proof.initial_ood_answers.iter().take(ood_samples) {
             let point: EF = challenger.sample_algebra_element();
             let point = MultilinearPoint::expand_from_univariate(point, num_variables);
 
@@ -120,7 +94,7 @@ where
         // Return a structured representation of the commitment.
         ParsedCommitment {
             num_variables,
-            root,
+            root: proof.initial_commitment.into(),
             ood_statement,
         }
     }
