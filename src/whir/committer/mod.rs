@@ -7,7 +7,9 @@ use p3_merkle_tree::MerkleTree;
 use crate::{poly::evals::EvaluationsList, whir::constraints::statement::EqStatement};
 
 pub mod reader;
+mod reader_rf;
 pub mod writer;
+mod writer_rf;
 
 pub type RoundMerkleTree<F, EF, W, const DIGEST_ELEMS: usize> =
     MerkleTree<F, W, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>;
