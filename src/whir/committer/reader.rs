@@ -94,7 +94,8 @@ where
             // Get the answer from proof
             challenger.observe_algebra_element(*eval);
 
-            // // Add to statement
+            // Add to statement
+            // TODO: Add this back when we fully rely on Plonky3 Fiat-Shamir.
             // ood_statement.add_evaluated_constraint(point, *eval);
         }
 
