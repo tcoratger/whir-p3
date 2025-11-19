@@ -385,18 +385,24 @@ where
         // Case round > l/2: Use eq_tail (passed as eq_l)
         let half_size = 1 << (num_vars_poly_current - 1);
 
+        let poly_slice_l = &poly_slice[..half_size];
+        let poly_slice_r = &poly_slice[half_size..];
+
+        debug_assert_eq!(eq_l.len(), poly_slice_l.len());
+        debug_assert_eq!(eq_l.len(), poly_slice_r.len());
+
         let (t0, t1) = join(
             || {
                 // t_i(0): Dot product of eq_tail with the first half of poly
                 eq_l.par_iter()
-                    .zip_eq(poly_slice[..half_size].par_iter())
+                    .zip(poly_slice_l.par_iter())
                     .map(|(&e, &p)| e * p)
                     .sum()
             },
             || {
                 // t_i(1): Dot product of eq_tail with the second half of poly
                 eq_l.par_iter()
-                    .zip_eq(poly_slice[half_size..].par_iter())
+                    .zip(poly_slice_r.par_iter())
                     .map(|(&e, &p)| e * p)
                     .sum()
             },
