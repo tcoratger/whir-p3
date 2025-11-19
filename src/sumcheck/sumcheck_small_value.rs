@@ -130,11 +130,7 @@ fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
             }
             local_accumulators
         })
-        .par_fold_reduce(
-            || Accumulators::<EF>::new_empty(),
-            |a, b| a + b,
-            |a, b| a + b,
-        )
+        .par_fold_reduce(|| Accumulators::new_empty(), |a, b| a + b, |a, b| a + b)
 }
 
 /// Algorithm 6. Page 19.
