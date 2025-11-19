@@ -907,4 +907,128 @@ mod tests {
         assert_eq!(round_1[3], F::from_u64(55), "N=2: Round 1[3] should be 55");
         assert_eq!(round_1.len(), 4, "N=2: Round 1 should have 4 accumulators");
     }
+
+    #[test]
+    fn test_add_and_add_assign_consistency() {
+        // Create first accumulator with specific values
+        let mut acc1_for_add = SvoAccumulators::<F, 3>::new();
+        acc1_for_add.accumulate(0, 0, F::from_u64(10));
+        acc1_for_add.accumulate(0, 1, F::from_u64(20));
+        acc1_for_add.accumulate(1, 2, F::from_u64(30));
+        acc1_for_add.accumulate(2, 5, F::from_u64(40));
+
+        // Clone for AddAssign test
+        let mut acc1_for_add_assign = acc1_for_add.clone();
+
+        // Create second accumulator
+        let mut acc2 = SvoAccumulators::<F, 3>::new();
+        acc2.accumulate(0, 0, F::from_u64(5));
+        acc2.accumulate(0, 1, F::from_u64(15));
+        acc2.accumulate(1, 1, F::from_u64(25));
+        acc2.accumulate(2, 7, F::from_u64(35));
+
+        // Test Add trait: result_add = acc1 + acc2
+        let result_add = acc1_for_add.clone() + acc2.clone();
+
+        // Test AddAssign trait: acc1 += acc2
+        acc1_for_add_assign += acc2;
+
+        // VERIFY: Both operations produce identical results
+        assert_eq!(
+            result_add.at_round(0),
+            acc1_for_add_assign.at_round(0),
+            "Add and AddAssign should produce identical Round 0 results"
+        );
+        assert_eq!(
+            result_add.at_round(1),
+            acc1_for_add_assign.at_round(1),
+            "Add and AddAssign should produce identical Round 1 results"
+        );
+        assert_eq!(
+            result_add.at_round(2),
+            acc1_for_add_assign.at_round(2),
+            "Add and AddAssign should produce identical Round 2 results"
+        );
+
+        // Verify the actual values are correct (element-wise addition)
+        assert_eq!(
+            result_add.at_round(0)[0],
+            F::from_u64(15),
+            "Round 0[0]: 10 + 5 = 15"
+        );
+        assert_eq!(
+            result_add.at_round(0)[1],
+            F::from_u64(35),
+            "Round 0[1]: 20 + 15 = 35"
+        );
+        assert_eq!(
+            result_add.at_round(1)[1],
+            F::from_u64(25),
+            "Round 1[1]: 0 + 25 = 25"
+        );
+        assert_eq!(
+            result_add.at_round(1)[2],
+            F::from_u64(30),
+            "Round 1[2]: 30 + 0 = 30"
+        );
+    }
+
+    #[test]
+    fn test_add_multiple_accumulators() {
+        // Thread 1 accumulator
+        let mut thread1 = SvoAccumulators::<F, 2>::new();
+        thread1.accumulate(0, 0, F::from_u64(100));
+        thread1.accumulate(0, 1, F::from_u64(200));
+        thread1.accumulate(1, 0, F::from_u64(10));
+
+        // Thread 2 accumulator
+        let mut thread2 = SvoAccumulators::<F, 2>::new();
+        thread2.accumulate(0, 0, F::from_u64(50));
+        thread2.accumulate(0, 1, F::from_u64(75));
+        thread2.accumulate(1, 3, F::from_u64(20));
+
+        // Thread 3 accumulator
+        let mut thread3 = SvoAccumulators::<F, 2>::new();
+        thread3.accumulate(0, 0, F::from_u64(25));
+        thread3.accumulate(1, 0, F::from_u64(5));
+        thread3.accumulate(1, 3, F::from_u64(15));
+
+        // Combine all thread results using Add: result = thread1 + thread2 + thread3
+        let result = thread1 + thread2 + thread3;
+
+        // VERIFY: Check cumulative sums
+        //
+        // Round 0[0] = 100 + 50 + 25 = 175
+        // Round 0[1] = 200 + 75 + 0 = 275
+        // Round 1[0] = 10 + 0 + 5 = 15
+        // Round 1[3] = 0 + 20 + 15 = 35
+
+        let round_0 = result.at_round(0);
+        assert_eq!(
+            round_0[0],
+            F::from_u64(175),
+            "Round 0[0] should accumulate all thread contributions: 100+50+25"
+        );
+        assert_eq!(
+            round_0[1],
+            F::from_u64(275),
+            "Round 0[1] should accumulate all thread contributions: 200+75+0"
+        );
+
+        let round_1 = result.at_round(1);
+        assert_eq!(
+            round_1[0],
+            F::from_u64(15),
+            "Round 1[0] should accumulate all thread contributions: 10+0+5"
+        );
+        assert_eq!(
+            round_1[3],
+            F::from_u64(35),
+            "Round 1[3] should accumulate all thread contributions: 0+20+15"
+        );
+
+        // Verify other indices remain zero (no contributions from any thread)
+        assert_eq!(round_1[1], F::ZERO, "Round 1[1] had no contributions");
+        assert_eq!(round_1[2], F::ZERO, "Round 1[2] had no contributions");
+    }
 }
