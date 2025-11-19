@@ -61,8 +61,8 @@ pub enum InitialPhase<EF, F> {
     },
 
     /// Protocol with statement and svo optimization.
-    /// First 3 rounds of svo optimization, the remaing rounds from algorithm_5
-    /// (which have the same structure) stored in the subsequents WhirRoundProof elements.
+    /// First `l` rounds of svo optimization, the remaining rounds from algorithm 5 of the paper
+    /// (which have the same structure) stored in the subsequents `WhirRoundProof` elements.
     #[serde(rename = "with_statement_svo")]
     WithStatementSvo {
         /// Svo sumcheck data
