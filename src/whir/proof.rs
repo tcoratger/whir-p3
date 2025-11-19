@@ -161,7 +161,7 @@ pub enum SumcheckRoundData<EF> {
 }
 
 /// Sumcheck polynomial data
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct SumcheckData<EF, F> {
     /// Polynomial evaluations for each sumcheck round
     /// Format depends on optimization used
