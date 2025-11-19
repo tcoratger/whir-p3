@@ -2510,25 +2510,39 @@ mod tests {
 
         // For N=3, we need E_out for rounds 0, 1, and 2.
         //
-        // Round 0: E_out[0] corresponds to β_0 (the last prefix variable)
-        //   E_out[0][0] = (1-s_0)
-        //   E_out[0][1] = s_0
+        // Round 0: block_size=4, so E_out[0] has 4 elements
+        //   Represents eq(β_1, β_0; s_1, s_0) evaluated at all 4 Boolean combinations
+        //   E_out[0][00] = (1-s_1)(1-s_0)
+        //   E_out[0][01] = (1-s_1)·s_0
+        //   E_out[0][10] = s_1·(1-s_0)
+        //   E_out[0][11] = s_1·s_0
         //
-        // Round 1: E_out[1] corresponds to β_1 (the middle prefix variable)
-        //   E_out[1][0] = (1-s_1)
-        //   E_out[1][1] = s_1
+        // Round 1: block_size=2, so E_out[1] has 2 elements
+        //   Represents eq(β_0; s_0) evaluated at 2 Boolean values
+        //   E_out[1][0] = (1-s_0)
+        //   E_out[1][1] = s_0
         //
-        // Round 2: E_out[2] corresponds to β_2 (the first prefix variable)
-        //   E_out[2][0] = (1-s_2)
-        //   E_out[2][1] = s_2
+        // Round 2: block_size=1, so E_out[2] has 1 element
+        //   Just a constant value (no variables left to evaluate)
+        //   E_out[2][0] = 1
         let s0 = EF4::from_u64(7);
         let s1 = EF4::from_u64(11);
-        let s2 = EF4::from_u64(13);
 
         let e_out = [
-            EvaluationsList::new(vec![EF4::ONE - s0, s0]), // Round 0
-            EvaluationsList::new(vec![EF4::ONE - s1, s1]), // Round 1
-            EvaluationsList::new(vec![EF4::ONE - s2, s2]), // Round 2
+            // Round 0: 4 elements for block_size=4
+            EvaluationsList::new(vec![
+                (EF4::ONE - s1) * (EF4::ONE - s0), // 00
+                (EF4::ONE - s1) * s0,              // 01
+                s1 * (EF4::ONE - s0),              // 10
+                s1 * s0,                           // 11
+            ]),
+            // Round 1: 2 elements for block_size=2
+            EvaluationsList::new(vec![
+                EF4::ONE - s0, // 0
+                s0,            // 1
+            ]),
+            // Round 2: 1 element for block_size=1
+            EvaluationsList::new(vec![EF4::ONE]),
         ];
 
         //  CALL FUNCTION UNDER TEST
