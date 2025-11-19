@@ -1,22 +1,41 @@
+use core::fmt::Debug;
 use std::time::Instant;
 
+use rand::distr::StandardUniform;
+use rand::prelude::Distribution;
+
 use clap::Parser;
+use p3_air::{Air, BaseAir};
 use p3_baby_bear::BabyBear;
-use p3_challenger::DuplexChallenger;
-use p3_dft::Radix2DFTSmallBatch;
-use p3_field::{PrimeField64, extension::BinomialExtensionField};
-use p3_goldilocks::Goldilocks;
-use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
-use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
-use rand::{
-    Rng, SeedableRng,
-    rngs::{SmallRng, StdRng},
+use p3_challenger::{DuplexChallenger, FieldChallenger};
+use p3_commit::{ExtensionMmcs, PolynomialSpace};
+use p3_dft::{Radix2DFTSmallBatch, Radix2DitParallel, TwoAdicSubgroupDft};
+use p3_examples::airs::{ExampleHashAir, ProofObjective};
+use p3_field::{
+    extension::BinomialExtensionField, ExtensionField, Field, PrimeField32, PrimeField64,
+    TwoAdicField,
 };
-use tracing_forest::{ForestLayer, util::LevelFilter};
-use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+use p3_fri::{FriParameters, TwoAdicFriPcs};
+use p3_goldilocks::Goldilocks;
+use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear, Poseidon2KoalaBear};
+use p3_matrix::dense::RowMajorMatrix;
+use p3_merkle_tree::MerkleTreeMmcs;
+use p3_poseidon2::GenericPoseidon2LinearLayers;
+use p3_poseidon2_air::{RoundConstants, VectorizedPoseidon2Air};
+use p3_symmetric::{CryptographicPermutation, PaddingFreeSponge, TruncatedPermutation};
+use p3_uni_stark::{
+    prove, verify, DebugConstraintBuilder, ProverConstraintFolder, StarkConfig, StarkGenericConfig,
+    SymbolicAirBuilder, VerifierConstraintFolder,
+};
+use rand::{
+    rngs::{SmallRng, StdRng},
+    Rng, SeedableRng,
+};
+use tracing_forest::{util::LevelFilter, ForestLayer};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use whir_p3::{
     fiat_shamir::domain_separator::DomainSeparator,
-    parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+    parameters::{errors::SecurityAssumption, FoldingFactor, ProtocolParameters, DEFAULT_MAX_POW},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
@@ -70,16 +89,95 @@ struct Args {
     rs_domain_initial_reduction_factor: usize,
 }
 
-#[allow(clippy::too_many_lines)]
-fn main() {
+// Types related to using Poseidon2 in the Merkle tree.
+pub(crate) type Poseidon2Sponge<Perm24> = PaddingFreeSponge<Perm24, 24, 16, 8>;
+pub(crate) type Poseidon2Compression<Perm16> = TruncatedPermutation<Perm16, 2, 8, 16>;
+pub(crate) type Poseidon2MerkleMmcs<F, Perm16, Perm24> = MerkleTreeMmcs<
+    <F as Field>::Packing,
+    <F as Field>::Packing,
+    Poseidon2Sponge<Perm24>,
+    Poseidon2Compression<Perm16>,
+    8,
+>;
+pub(crate) type Poseidon2StarkConfig<F, EF, DFT, Perm16, Perm24> = StarkConfig<
+    TwoAdicFriPcs<
+        F,
+        DFT,
+        Poseidon2MerkleMmcs<F, Perm16, Perm24>,
+        ExtensionMmcs<F, EF, Poseidon2MerkleMmcs<F, Perm16, Perm24>>,
+    >,
+    EF,
+    DuplexChallenger<F, Perm24, 24, 16>,
+>;
+
+// /// An AIR for a hash function used for example proofs and benchmarking.
+// ///
+// /// A key feature is the ability to randomly generate a trace which proves
+// /// the output of some number of hashes using a given hash function.
+// pub trait ExampleHashAir<F: Field, SC: StarkGenericConfig>:
+//     BaseAir<F>
+//     + for<'a> Air<DebugConstraintBuilder<'a, F>>
+//     + Air<SymbolicAirBuilder<F>>
+//     + for<'a> Air<ProverConstraintFolder<'a, SC>>
+//     + for<'a> Air<VerifierConstraintFolder<'a, SC>>
+// {
+//     fn generate_trace_rows(
+//         &self,
+//         num_hashes: usize,
+//         extra_capacity_bits: usize,
+//     ) -> RowMajorMatrix<F>
+//     where
+//         StandardUniform: Distribution<F>;
+// }
+//
+//impl<
+//        F: PrimeField64,
+//        Domain: PolynomialSpace<Val = F>,
+//        EF: ExtensionField<F>,
+//        Challenger: FieldChallenger<F>,
+//        Pcs: p3_commit::Pcs<EF, Challenger, Domain = Domain>,
+//        SC: StarkGenericConfig<Pcs = Pcs, Challenge = EF, Challenger = Challenger>,
+//        LinearLayers: GenericPoseidon2LinearLayers<WIDTH>,
+//        const WIDTH: usize,
+//        const SBOX_DEGREE: u64,
+//        const SBOX_REGISTERS: usize,
+//        const HALF_FULL_ROUNDS: usize,
+//        const PARTIAL_ROUNDS: usize,
+//        const VECTOR_LEN: usize,
+//    > ExampleHashAir<F, SC>
+//    for VectorizedPoseidon2Air<
+//        F,
+//        LinearLayers,
+//        WIDTH,
+//        SBOX_DEGREE,
+//        SBOX_REGISTERS,
+//        HALF_FULL_ROUNDS,
+//        PARTIAL_ROUNDS,
+//        VECTOR_LEN,
+//    >
+//{
+//    #[inline]
+//    fn generate_trace_rows(
+//        &self,
+//        num_hashes: usize,
+//        extra_capacity_bits: usize,
+//    ) -> RowMajorMatrix<F>
+//    where
+//        StandardUniform: Distribution<F>,
+//    {
+//        self.generate_vectorized_trace_rows(num_hashes, extra_capacity_bits)
+//    }
+//}
+//
+fn prepare_params() -> WhirConfig<EF, F, MerkleHash, MerkleCompress, MyChallenger> {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
 
-    Registry::default()
+    let _ = Registry::default()
         .with(env_filter)
         .with(ForestLayer::default())
-        .init();
+        .try_init();
 
     let mut args = Args::parse();
 
@@ -131,6 +229,17 @@ fn main() {
         whir_params,
     );
 
+    params
+}
+
+fn run_whir() {
+    let args = Args::parse();
+
+    let num_variables = args.num_variables;
+    let num_evaluations = args.num_evaluations;
+    let num_coeffs = 1 << num_variables;
+    let params = prepare_params();
+
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
 
@@ -158,6 +267,7 @@ fn main() {
         println!("WARN: more PoW bits required than what specified.");
     }
 
+    let poseidon16 = Poseidon16::new_from_rng_128(&mut rng);
     let challenger = MyChallenger::new(poseidon16);
     let mut prover_challenger = challenger.clone();
 
@@ -230,4 +340,157 @@ fn main() {
     let proof_size = prover_state.proof_data().len() as f64 * (F::ORDER_U64 as f64).log2() / 8.0;
     println!("proof size: {:.2} KiB", proof_size / 1024.0);
     println!("Verification time: {} μs", verify_time.as_micros());
+}
+
+/// Produce a MerkleTreeMmcs from a pair of cryptographic field permutations.
+///
+/// The first permutation will be used for compression and the second for more sponge hashing.
+/// Currently this is only intended to be used with a pair of Poseidon2 hashes of with 16 and 24
+/// but this can easily be generalised in future if we desire.
+const fn get_poseidon2_mmcs<
+    F: Field,
+    Perm16: CryptographicPermutation<[F; 16]> + CryptographicPermutation<[F::Packing; 16]>,
+    Perm24: CryptographicPermutation<[F; 24]> + CryptographicPermutation<[F::Packing; 24]>,
+>(
+    perm16: Perm16,
+    perm24: Perm24,
+) -> Poseidon2MerkleMmcs<F, Perm16, Perm24> {
+    let hash = Poseidon2Sponge::new(perm24);
+
+    let compress = Poseidon2Compression::new(perm16);
+
+    Poseidon2MerkleMmcs::<F, _, _>::new(hash, compress)
+}
+
+/// Creates a set of `FriParameters` suitable for benchmarking.
+/// These parameters represent typical settings used in production-like scenarios.
+pub const fn create_benchmark_fri_params<Mmcs>(mmcs: Mmcs) -> FriParameters<Mmcs> {
+    FriParameters {
+        log_blowup: 1,
+        log_final_poly_len: 0,
+        num_queries: 100,
+        proof_of_work_bits: 16,
+        mmcs,
+    }
+}
+
+pub fn prove_monty31_poseidon2<
+    F: PrimeField32 + TwoAdicField,
+    EF: ExtensionField<F>,
+    DFT: TwoAdicSubgroupDft<F>,
+    Perm16: CryptographicPermutation<[F; 16]> + CryptographicPermutation<[F::Packing; 16]>,
+    Perm24: CryptographicPermutation<[F; 24]> + CryptographicPermutation<[F::Packing; 24]>,
+    PG: ExampleHashAir<F, Poseidon2StarkConfig<F, EF, DFT, Perm16, Perm24>>,
+>(
+    proof_goal: PG,
+    dft: DFT,
+    num_hashes: usize,
+    perm16: Perm16,
+    perm24: Perm24,
+) -> Result<(), impl Debug>
+where
+    StandardUniform: Distribution<F>,
+{
+    let val_mmcs = get_poseidon2_mmcs::<F, _, _>(perm16, perm24.clone());
+
+    let challenge_mmcs = ExtensionMmcs::<F, EF, _>::new(val_mmcs.clone());
+    let fri_params = create_benchmark_fri_params(challenge_mmcs);
+
+    let trace = proof_goal.generate_trace_rows(num_hashes, fri_params.log_blowup);
+
+    let pcs = TwoAdicFriPcs::new(dft, val_mmcs, fri_params);
+    let challenger = DuplexChallenger::new(perm24);
+
+    let config = Poseidon2StarkConfig::new(pcs, challenger);
+
+    let proof = prove(&config, &proof_goal, trace, &vec![]);
+    //report_proof_size(&proof);
+
+    verify(&config, &proof_goal, &proof, &vec![])
+}
+
+/// Report the result of the proof.
+///
+/// Either print that the proof was successful or panic and return the error.
+#[inline]
+pub fn report_result(result: Result<(), impl Debug>) {
+    if let Err(e) = result {
+        panic!("{e:?}");
+    } else {
+        println!("Proof Verified Successfully")
+    }
+}
+
+// General constants for constructing the Poseidon2 AIR.
+const P2_WIDTH: usize = 16;
+const P2_HALF_FULL_ROUNDS: usize = 4;
+const P2_LOG_VECTOR_LEN: usize = 3;
+const P2_VECTOR_LEN: usize = 1 << P2_LOG_VECTOR_LEN;
+
+fn run_fri() {
+    let args = Args::parse();
+    let num_evaluations = args.num_evaluations;
+    let trace_height = 1 << args.num_variables;
+
+    let num_hashes = {
+        println!("Proving 2^{} native Poseidon-2 permutations", {
+            args.num_variables + P2_LOG_VECTOR_LEN
+        });
+        trace_height << P2_LOG_VECTOR_LEN
+    };
+
+    // WHIR setup, to reuse parameters for FRI (that are applicable)
+    let params = prepare_params();
+
+    // WARNING: Use a real cryptographic PRNG in applications!!
+    let mut rng = SmallRng::seed_from_u64(1);
+
+    type EF = BinomialExtensionField<KoalaBear, 4>;
+
+    let proof_goal = {
+        let constants = RoundConstants::from_rng(&mut rng);
+
+        // Field specific constants for constructing the Poseidon2 AIR.
+        const SBOX_DEGREE: u64 = 3;
+        const SBOX_REGISTERS: usize = 0;
+        const PARTIAL_ROUNDS: usize = 20;
+
+        let p2_air: VectorizedPoseidon2Air<
+            KoalaBear,
+            GenericPoseidon2LinearLayersKoalaBear,
+            P2_WIDTH,
+            SBOX_DEGREE,
+            SBOX_REGISTERS,
+            P2_HALF_FULL_ROUNDS,
+            PARTIAL_ROUNDS,
+            P2_VECTOR_LEN,
+        > = VectorizedPoseidon2Air::new(constants);
+        ProofObjective::Poseidon2(p2_air)
+    };
+
+    let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
+    //let dft = Radix2DitParallel::default();
+    //let dft = RecursiveDft::new(trace_height << 1);
+    // match args.discrete_fourier_transform {
+    //    DftOptions::RecursiveDft => DftChoice::Recursive(RecursiveDft::new(trace_height << 1)),
+    //    DftOptions::Radix2DitParallel => DftChoice::Parallel(Radix2DitParallel::default()),
+    //    DftOptions::None => panic!(
+    //        "Please specify what dft to use. Options are recursive-dft and radix-2-dit-parallel"
+    //    ),
+    //};
+
+    let perm16 = Poseidon2KoalaBear::<16>::new_from_rng_128(&mut rng);
+    let perm24 = Poseidon2KoalaBear::<24>::new_from_rng_128(&mut rng);
+    let result =
+        prove_monty31_poseidon2::<_, EF, _, _, _, _>(proof_goal, dft, num_hashes, perm16, perm24);
+    report_result(result);
+}
+
+#[allow(clippy::too_many_lines)]
+fn main() {
+    // 1. First run WHIR
+    run_whir();
+
+    // 2. Now run FRI
+    run_fri();
 }

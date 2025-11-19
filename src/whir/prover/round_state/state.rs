@@ -17,7 +17,7 @@ use crate::{
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{RoundMerkleTree, Witness},
-        constraints::{Constraint, statement::EqStatement},
+        constraints::{statement::EqStatement, Constraint},
         parameters::SumcheckOptimization,
         prover::Prover,
     },
