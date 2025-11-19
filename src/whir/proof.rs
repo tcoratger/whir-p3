@@ -173,7 +173,6 @@ pub struct SumcheckData<EF, F> {
     pub pow_witnesses: Option<Vec<F>>,
 }
 
-
 impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
     /// Create a new WhirProof from protocol parameters and configuration
     ///
