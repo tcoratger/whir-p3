@@ -580,74 +580,73 @@ where
         //
         (0..1 << x_out_num_vars)
             .into_par_iter()
-            .fold(
-                || {
-                    //  THREAD INITIALIZATION (once per thread)
-                    // - The thread-local accumulator
-                    // - A reusable scratch space for the inner product
-                    (SvoAccumulators::<EF, N>::new(), EF::zero_vec(1 << N))
-                },
-                |(mut local_accs, mut temp_buffer), x_out| {
-                    // STEP 1: Reset temp buffer
-                    temp_buffer.fill(EF::ZERO);
-                    let temp_ptr = temp_buffer.as_mut_ptr();
+            .map(|x_out| {
+                // THREAD-LOCAL INITIALIZATION
+                let mut local_accs = SvoAccumulators::<EF, N>::new();
+                let mut temp_buffer = EF::zero_vec(1 << N);
 
-                    // STEP 2: Inner product (small multiplications)
-                    //
-                    // For each x_in, accumulate:
-                    //   temp[β] += E_in[x_in] · P(β, x_in, x_out)
-                    for (x_in, &e_in_val) in e_in.0.iter().enumerate().take(num_x_in) {
-                        // Base index encodes: (β=0, x_in, x_out)
-                        let base_index = (x_in << x_out_num_vars) | x_out;
+                // STEP 1: Reset temp buffer
+                temp_buffer.fill(EF::ZERO);
+                let temp_ptr = temp_buffer.as_mut_ptr();
 
-                        // Iterate over all 2^N possible β prefixes
-                        for i in 0..(1 << N) {
-                            let beta = i << x_num_vars;
-                            let index = beta | base_index;
+                // STEP 2: Inner product (small multiplications)
+                //
+                // For each x_in, accumulate:
+                //   temp[β] += E_in[x_in] · P(β, x_in, x_out)
+                for (x_in, &e_in_val) in e_in.0.iter().enumerate().take(num_x_in) {
+                    // Base index encodes: (β=0, x_in, x_out)
+                    let base_index = (x_in << x_out_num_vars) | x_out;
 
-                            // SAFETY: index < 2^l by construction
+                    // Iterate over all 2^N possible β prefixes
+                    for i in 0..(1 << N) {
+                        let beta = i << x_num_vars;
+                        let index = beta | base_index;
+
+                        // SAFETY: index < 2^l by construction
+                        unsafe {
+                            let p_val = *poly_evals.get_unchecked(index);
+                            *temp_ptr.add(i) += e_in_val * p_val;
+                        }
+                    }
+                }
+
+                // STEP 3: Distribution (large multiplications)
+                //
+                // Multiply temp[β] by E_out and add to round accumulators
+                for (r, e_out_slice) in e_out_slices.iter().enumerate().take(N) {
+                    let block_size = 1 << (N - 1 - r);
+                    let e_out_ptr = e_out_slice.as_ptr();
+
+                    // SAFETY: r < N by loop bound
+                    let round_accs = unsafe { local_accs.at_round_unchecked_mut(r) };
+
+                    for (acc_idx, acc) in round_accs.iter_mut().enumerate() {
+                        let start_idx = acc_idx * block_size;
+                        let mut sum = EF::ZERO;
+
+                        // Dot product: sum over block variations
+                        for k in 0..block_size {
+                            let e_idx = (k << x_out_num_vars) | x_out;
+
                             unsafe {
-                                let p_val = *poly_evals.get_unchecked(index);
-                                *temp_ptr.add(i) += e_in_val * p_val;
+                                let e_val = *e_out_ptr.add(e_idx);
+                                let t_val = *temp_ptr.add(start_idx + k);
+                                sum += e_val * t_val;
                             }
                         }
+
+                        *acc += sum;
                     }
+                }
 
-                    // STEP 3: Distribution (large multiplications)
-                    //
-                    // Multiply temp[β] by E_out and add to round accumulators
-                    for (r, e_out_slice) in e_out_slices.iter().enumerate().take(N) {
-                        let block_size = 1 << (N - 1 - r);
-                        let e_out_ptr = e_out_slice.as_ptr();
-
-                        // SAFETY: r < N by loop bound
-                        let round_accs = unsafe { local_accs.at_round_unchecked_mut(r) };
-
-                        for (acc_idx, acc) in round_accs.iter_mut().enumerate() {
-                            let start_idx = acc_idx * block_size;
-                            let mut sum = EF::ZERO;
-
-                            // Dot product: sum over block variations
-                            for k in 0..block_size {
-                                let e_idx = (k << x_out_num_vars) | x_out;
-
-                                unsafe {
-                                    let e_val = *e_out_ptr.add(e_idx);
-                                    let t_val = *temp_ptr.add(start_idx + k);
-                                    sum += e_val * t_val;
-                                }
-                            }
-
-                            *acc += sum;
-                        }
-                    }
-
-                    (local_accs, temp_buffer)
-                },
-            )
+                local_accs
+            })
             // REDUCTION: Merge all thread-local accumulators
-            .map(|(accs, _)| accs) // Drop temp buffers
-            .reduce(SvoAccumulators::new, |a, b| a + b)
+            .par_fold_reduce(
+                SvoAccumulators::new,
+                |a, b| a + b,
+                |a, b| a + b,
+            )
     }
 }
 
@@ -2362,7 +2361,7 @@ mod tests {
         //    13   |  1   1   0   1  |   14
         //    14   |  1   1   1   0  |   15
         //    15   |  1   1   1   1  |   16
-        let poly = EvaluationsList::new((1..=16).map(|i| EF4::from_u64(i)).collect());
+        let poly = EvaluationsList::new((1..=16).map(EF4::from_u64).collect());
 
         // Define E_in (equality polynomial for x_in = x_1 x_0):
         //
@@ -2494,7 +2493,7 @@ mod tests {
         // We use a simple polynomial where P(i) = i + 1 for manual verification.
         const N: usize = 3;
 
-        let poly = EvaluationsList::new((1..=64).map(|i| EF4::from_u64(i)).collect());
+        let poly = EvaluationsList::new((1..=64).map(EF4::from_u64).collect());
 
         // Define E_in (equality polynomial for x_in = x_2 x_1 x_0):
         //
@@ -2651,7 +2650,7 @@ mod tests {
         const N: usize = 2;
 
         // Polynomial with base field values
-        let poly_f = EvaluationsList::new((1..=16).map(|i| F::from_u64(i)).collect());
+        let poly_f = EvaluationsList::new((1..=16).map(F::from_u64).collect());
 
         //  E_IN SETUP
         //

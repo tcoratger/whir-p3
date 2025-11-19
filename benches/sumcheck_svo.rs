@@ -59,7 +59,7 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
     group.sample_size(10);
 
     // Define the range of variable counts to benchmark.
-    for num_vars in &[16, 18, 20, 22, 24] {
+    for num_vars in &[24] {
         // Generate a large polynomial to use for this set of benchmarks.
         let poly = generate_poly(*num_vars);
 
