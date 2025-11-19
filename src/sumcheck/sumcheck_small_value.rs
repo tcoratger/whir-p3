@@ -51,7 +51,10 @@ where
     /// Gets the slice of accumulators for a given round (safe version).
     #[must_use]
     pub fn at_round(&self, round: usize) -> &[F] {
-        assert!(round < N);
+        assert!(
+            round < N,
+            "round index out of bounds: round={round} but N={N}"
+        );
         let start = (1 << (round + 1)) - 2;
         let len = 1 << (round + 1);
         &self.0[start..start + len]
@@ -867,5 +870,120 @@ mod tests {
             F::from_u64(370),
             "Round 2: A_2[7] = 300 + 70 = 370"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "round index out of bounds: round=3 but N=3")]
+    fn test_at_round_panic_on_invalid_round() {
+        // For N=3, valid rounds are 0, 1, 2. Accessing round 3 should panic.
+        let accumulators = SvoAccumulators::<F, 3>::new();
+
+        // This should panic with the expected message
+        let _ = accumulators.at_round(3);
+    }
+
+    #[test]
+    fn test_at_round_unchecked_mut_basic() {
+        // For N=3:
+        // - Round 0: 2 accumulators at indices 0..2
+        // - Round 1: 4 accumulators at indices 2..6
+        // - Round 2: 8 accumulators at indices 6..14
+
+        let mut accumulators = SvoAccumulators::<F, 3>::new();
+
+        // Modify Round 0 through the mutable slice
+        unsafe {
+            let round_0_mut = accumulators.at_round_unchecked_mut(0);
+            assert_eq!(round_0_mut.len(), 2, "Round 0 should have 2 accumulators");
+
+            round_0_mut[0] = F::from_u64(10);
+            round_0_mut[1] = F::from_u64(20);
+        }
+
+        // Modify Round 1 through the mutable slice
+        unsafe {
+            let round_1_mut = accumulators.at_round_unchecked_mut(1);
+            assert_eq!(round_1_mut.len(), 4, "Round 1 should have 4 accumulators");
+
+            round_1_mut[0] = F::from_u64(30);
+            round_1_mut[1] = F::from_u64(40);
+            round_1_mut[2] = F::from_u64(50);
+            round_1_mut[3] = F::from_u64(60);
+        }
+
+        // Modify Round 2 through the mutable slice
+        unsafe {
+            let round_2_mut = accumulators.at_round_unchecked_mut(2);
+            assert_eq!(round_2_mut.len(), 8, "Round 2 should have 8 accumulators");
+
+            round_2_mut[0] = F::from_u64(100);
+            round_2_mut[7] = F::from_u64(200);
+        }
+
+        // VERIFY: Check that modifications were correctly applied
+        let round_0 = accumulators.at_round(0);
+        assert_eq!(round_0[0], F::from_u64(10), "Round 0[0] should be 10");
+        assert_eq!(round_0[1], F::from_u64(20), "Round 0[1] should be 20");
+        assert_eq!(round_0.len(), 2, "Round 0 should have 2 accumulators");
+
+        let round_1 = accumulators.at_round(1);
+        assert_eq!(round_1[0], F::from_u64(30), "Round 1[0] should be 30");
+        assert_eq!(round_1[1], F::from_u64(40), "Round 1[1] should be 40");
+        assert_eq!(round_1[2], F::from_u64(50), "Round 1[2] should be 50");
+        assert_eq!(round_1[3], F::from_u64(60), "Round 1[3] should be 60");
+        assert_eq!(round_1.len(), 4, "Round 1 should have 4 accumulators");
+
+        let round_2 = accumulators.at_round(2);
+        assert_eq!(round_2[0], F::from_u64(100), "Round 2[0] should be 100");
+        assert_eq!(round_2[7], F::from_u64(200), "Round 2[7] should be 200");
+        assert_eq!(round_2.len(), 8, "Round 2 should have 8 accumulators");
+    }
+
+    #[test]
+    fn test_at_round_unchecked_mut_different_n() {
+        // Test with N=2:
+        // - Round 0: 2 accumulators (indices 0..2)
+        // - Round 1: 4 accumulators (indices 2..6)
+
+        let mut accumulators = SvoAccumulators::<F, 2>::new();
+
+        // Set values in Round 0
+        unsafe {
+            let round_0_mut = accumulators.at_round_unchecked_mut(0);
+            assert_eq!(
+                round_0_mut.len(),
+                2,
+                "N=2: Round 0 should have 2 accumulators"
+            );
+            round_0_mut[0] = F::from_u64(5);
+            round_0_mut[1] = F::from_u64(15);
+        }
+
+        // Set values in Round 1
+        unsafe {
+            let round_1_mut = accumulators.at_round_unchecked_mut(1);
+            assert_eq!(
+                round_1_mut.len(),
+                4,
+                "N=2: Round 1 should have 4 accumulators"
+            );
+            round_1_mut[0] = F::from_u64(25);
+            round_1_mut[1] = F::from_u64(35);
+            round_1_mut[2] = F::from_u64(45);
+            round_1_mut[3] = F::from_u64(55);
+        }
+
+        // VERIFY: Check the values
+        let round_0 = accumulators.at_round(0);
+        assert_eq!(round_0[0], F::from_u64(5), "N=2: Round 0[0] should be 5");
+        assert_eq!(round_0[1], F::from_u64(15), "N=2: Round 0[1] should be 15");
+        assert_eq!(round_0.len(), 2, "N=2: Round 0 should have 2 accumulators");
+
+        let round_1 = accumulators.at_round(1);
+        assert_eq!(round_1[0], F::from_u64(25), "N=2: Round 1[0] should be 25");
+        assert_eq!(round_1[1], F::from_u64(35), "N=2: Round 1[1] should be 35");
+        assert_eq!(round_1[2], F::from_u64(45), "N=2: Round 1[2] should be 45");
+        assert_eq!(round_1[3], F::from_u64(55), "N=2: Round 1[3] should be 55");
+        assert_eq!(round_1.len(), 4, "N=2: Round 1 should have 4 accumulators");
     }
 }
