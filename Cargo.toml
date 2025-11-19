@@ -34,6 +34,7 @@ should_panic_without_expect = "allow"
 similar_names = "allow"
 suboptimal_flops = "allow"
 cast_sign_loss = "allow"
+tuple_array_conversions = "allow"
 
 [dependencies]
 serde = { version = "1.0", default-features = false, features = [
