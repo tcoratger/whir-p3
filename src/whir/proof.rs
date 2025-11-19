@@ -78,6 +78,15 @@ pub enum InitialPhase<EF, F> {
         sumcheck: SumcheckData<EF, F>,
     },
 
+    /// Protocol with statement and svo optimization.
+    /// First `l` rounds of svo optimization, the remaining rounds from algorithm 5 of the paper
+    /// (which have the same structure) stored in the subsequents `WhirRoundProof` elements.
+    #[serde(rename = "with_statement_svo")]
+    WithStatementSvo {
+        /// Svo sumcheck data
+        sumcheck: SumcheckData<EF, F>,
+    },
+
     /// Protocol with statement (standard sumcheck, no skip)
     #[serde(rename = "with_statement")]
     WithStatement {
@@ -163,15 +172,29 @@ pub enum QueryOpening<F, EF, const DIGEST_ELEMS: usize> {
     },
 }
 
+/// Sumcheck round data that can represent different optimization formats
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "format")]
+pub enum SumcheckRoundData<EF> {
+    /// Classic format: h(0), h(1), h(2)
+    #[serde(rename = "classic")]
+    Classic([EF; 3]),
+
+    /// SVO format: S(0), S(inf)
+    /// S(1) is derived as claimed_sum - S(0)
+    #[serde(rename = "svo")]
+    Svo([EF; 2]),
+}
+
 /// Sumcheck polynomial data
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct SumcheckData<EF, F> {
     /// Polynomial evaluations for each sumcheck round
-    /// Each entry contains [h(0), h(1), h(2)] for that round
+    /// Format depends on optimization used
     /// Length: folding_factor
-    pub polynomial_evaluations: Vec<[EF; 3]>,
+    pub polynomial_evaluations: Vec<SumcheckRoundData<EF>>,
 
-    /// PoW witnesses for each sumcheck round
+    /// PoW witnesses for each sumcheck round (optional)
     /// Length: folding_factor
     pub pow_witnesses: Option<Vec<F>>,
 }
@@ -193,19 +216,25 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
         params: &ProtocolParameters<H, C>,
         num_variables: usize,
     ) -> Self {
-        // The initial phase must match the prover's branching logic:
-        // - WithStatementSkip is only used when UnivariateSkip optimization is enabled AND
-        //   the folding factor is large enough (>= K_SKIP_SUMCHECK)
-        let use_univariate_skip = params.sumcheck_optimization
-            == SumcheckOptimization::UnivariateSkip
-            && K_SKIP_SUMCHECK <= params.folding_factor.at_round(0);
+        // Determine which initial phase variant based on protocol configuration
+        let initial_phase = match (params.initial_statement, params.sumcheck_optimization) {
+            // No initial statement: direct folding path
+            (false, _) => InitialPhase::without_statement(),
 
-        let initial_phase = match (params.initial_statement, use_univariate_skip) {
-            (true, true) => {
+            // With statement + UnivariateSkip optimization
+            (true, SumcheckOptimization::UnivariateSkip)
+                if K_SKIP_SUMCHECK <= params.folding_factor.at_round(0) =>
+            {
                 InitialPhase::with_statement_skip(Vec::new(), None, SumcheckData::default())
             }
-            (true, false) => InitialPhase::with_statement(SumcheckData::default()),
-            (false, _) => InitialPhase::without_statement(),
+
+            // With statement + SVO optimization
+            (true, SumcheckOptimization::Svo) => {
+                InitialPhase::with_statement_svo(SumcheckData::default())
+            }
+
+            // With statement + Classic (or UnivariateSkip with insufficient folding factor)
+            (true, _) => InitialPhase::with_statement(SumcheckData::default()),
         };
 
         // Use the actual FoldingFactor method to calculate rounds correctly
@@ -259,6 +288,12 @@ impl<EF, F> InitialPhase<EF, F> {
             skip_pow,
             sumcheck,
         }
+    }
+
+    /// Create initial phase with statement and SVO optimization
+    #[must_use]
+    pub const fn with_statement_svo(sumcheck: SumcheckData<EF, F>) -> Self {
+        Self::WithStatementSvo { sumcheck }
     }
 
     /// Create initial phase with statement (no skip)
