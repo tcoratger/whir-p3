@@ -585,11 +585,7 @@ where
                 let mut local_accs = SvoAccumulators::<EF, N>::new();
                 let mut temp_buffer = EF::zero_vec(1 << N);
 
-                // STEP 1: Reset temp buffer
-                temp_buffer.fill(EF::ZERO);
-                let temp_ptr = temp_buffer.as_mut_ptr();
-
-                // STEP 2: Inner product (small multiplications)
+                // STEP 1: Inner product (small multiplications)
                 //
                 // For each x_in, accumulate:
                 //   temp[β] += E_in[x_in] · P(β, x_in, x_out)
@@ -598,55 +594,42 @@ where
                     let base_index = (x_in << x_out_num_vars) | x_out;
 
                     // Iterate over all 2^N possible β prefixes
-                    for i in 0..(1 << N) {
+                    //
+                    // Note: We need the index i for computing beta, not just for indexing
+                    for (i, buf) in temp_buffer.iter_mut().enumerate().take(1 << N) {
                         let beta = i << x_num_vars;
                         let index = beta | base_index;
 
                         // SAFETY: index < 2^l by construction
-                        unsafe {
-                            let p_val = *poly_evals.get_unchecked(index);
-                            *temp_ptr.add(i) += e_in_val * p_val;
-                        }
+                        let p_val = unsafe { *poly_evals.get_unchecked(index) };
+                        *buf += e_in_val * p_val;
                     }
                 }
 
-                // STEP 3: Distribution (large multiplications)
+                // STEP 2: Distribution (large multiplications)
                 //
                 // Multiply temp[β] by E_out and add to round accumulators
                 for (r, e_out_slice) in e_out_slices.iter().enumerate().take(N) {
                     let block_size = 1 << (N - 1 - r);
-                    let e_out_ptr = e_out_slice.as_ptr();
 
                     // SAFETY: r < N by loop bound
                     let round_accs = unsafe { local_accs.at_round_unchecked_mut(r) };
 
                     for (acc_idx, acc) in round_accs.iter_mut().enumerate() {
                         let start_idx = acc_idx * block_size;
-                        let mut sum = EF::ZERO;
 
                         // Dot product: sum over block variations
                         for k in 0..block_size {
                             let e_idx = (k << x_out_num_vars) | x_out;
-
-                            unsafe {
-                                let e_val = *e_out_ptr.add(e_idx);
-                                let t_val = *temp_ptr.add(start_idx + k);
-                                sum += e_val * t_val;
-                            }
+                            *acc += e_out_slice[e_idx] * temp_buffer[start_idx + k];
                         }
-
-                        *acc += sum;
                     }
                 }
 
                 local_accs
             })
             // REDUCTION: Merge all thread-local accumulators
-            .par_fold_reduce(
-                SvoAccumulators::new,
-                |a, b| a + b,
-                |a, b| a + b,
-            )
+            .par_fold_reduce(SvoAccumulators::new, |a, b| a + b, |a, b| a + b)
     }
 }
 
