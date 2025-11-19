@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use core::ops::Add;
+use core::ops::{Add, AddAssign};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
@@ -11,126 +11,84 @@ use crate::{
     sumcheck::{eq_state::SumcheckEqState, sumcheck_single_svo::NUM_SVO_ROUNDS},
 };
 
-/// One accumulator vector per SVO round.
-/// - `accumulators[i]` has 2^i accumulators for A_i(v, u)
+/// A container for the SVO accumulators for a specific number of rounds `N`.
+///
+/// Structure:
+/// The accumulators are stored in a single flat vector for cache locality.
+/// - Round 0 starts at index 0 with size 2^1.
+/// - Round i starts at index (2^(i+1) - 2) with size 2^(i+1).
+///
+/// Total size = \sum_{i=0}^{N-1} 2^{i+1} = 2^{N+1} - 2.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Accumulators<F: Field>([Vec<F>; NUM_SVO_ROUNDS]);
+pub struct SvoAccumulators<F: Field, const N: usize>(pub(crate) Vec<F>);
 
-impl<F> Accumulators<F>
+impl<F, const N: usize> Default for SvoAccumulators<F, N>
 where
     F: Field,
 {
-    /// In round i, we have 2^i accumulators: A_i(v, u) with v in {0, 1}^i and u in {0, 1}.
-    ///
-    /// We won't need accumulators with any digit as infinity.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<F, const N: usize> SvoAccumulators<F, N>
+where
+    F: Field,
+{
+    /// Creates a new empty set of accumulators with pre-allocated capacity.
     #[must_use]
-    pub fn new_empty() -> Self {
-        Self(core::array::from_fn(|i| F::zero_vec(1 << (i + 1))))
+    pub fn new() -> Self {
+        // Total size is 2 + 4 + ... + 2^N = 2^{N+1} - 2
+        Self(F::zero_vec((1 << (N + 1)) - 2))
     }
 
     /// Adds a value to a specific accumulator.
     pub fn accumulate(&mut self, round: usize, index: usize, value: F) {
-        self.0[round][index] += value;
+        let start = (1 << (round + 1)) - 2;
+        self.0[start + index] += value;
     }
 
-    /// Gets the slice of accumulators for a given round.
+    /// Gets the slice of accumulators for a given round (safe version).
     #[must_use]
     pub fn at_round(&self, round: usize) -> &[F] {
-        &self.0[round]
+        assert!(
+            round < N,
+            "round index out of bounds: round={round} but N={N}"
+        );
+        let start = (1 << (round + 1)) - 2;
+        let len = 1 << (round + 1);
+        &self.0[start..start + len]
+    }
+
+    /// Returns a mutable slice for a specific round.
+    ///
+    /// # Safety
+    /// The caller must ensure `round < N`.
+    pub unsafe fn at_round_unchecked_mut(&mut self, round: usize) -> &mut [F] {
+        let start = (1 << (round + 1)) - 2;
+        let len = 1 << (round + 1);
+        unsafe { self.0.get_unchecked_mut(start..start + len) }
     }
 }
 
-impl<F: Field> Add for Accumulators<F> {
+impl<F: Field, const N: usize> Add for SvoAccumulators<F, N> {
     type Output = Self;
 
-    fn add(mut self, other: Self) -> Self {
-        for i in 0..NUM_SVO_ROUNDS {
-            self.0[i]
-                .iter_mut()
-                .zip(other.0[i].iter())
-                .for_each(|(a, b)| *a += *b);
-        }
+    #[inline]
+    fn add(mut self, rhs: Self) -> Self::Output {
+        self += rhs;
         self
     }
 }
 
-/// Procedure 9. Page 37.
-/// We compute only the accumulators that we'll use, that is,
-/// A_i(v, u) for i in {0, 1, 2}, v in {0, 1}^{i}, and u in {0, 1}.
-fn compute_accumulators<F: Field, EF: ExtensionField<F>>(
-    poly: &EvaluationsList<F>,
-    e_in: &EvaluationsList<EF>,
-    e_out: &[EvaluationsList<EF>; NUM_SVO_ROUNDS],
-) -> Accumulators<EF> {
-    let l = poly.num_variables();
-    let half_l = l / 2;
-
-    let x_out_num_vars = half_l - NUM_SVO_ROUNDS + (l % 2);
-    let x_num_vars = l - NUM_SVO_ROUNDS;
-    debug_assert_eq!(half_l + x_out_num_vars, x_num_vars);
-
-    let poly_evals = poly.as_slice();
-
-    (0..1 << x_out_num_vars)
-        .into_par_iter()
-        .map(|x_out| {
-            // Each thread will compute its own set of local accumulators.
-            // This avoids mutable state sharing and the need for locks.
-            let mut local_accumulators = Accumulators::<EF>::new_empty();
-
-            let mut temp_accumulators = [EF::ZERO; 1 << NUM_SVO_ROUNDS];
-
-            let num_x_in = 1 << half_l;
-
-            for (x_in, &e_in_value) in e_in.iter().enumerate().take(num_x_in) {
-                // For each beta in {0,1}^3, we update tA(beta) += e_in[x_in] * p(beta, x_in, x_out)
-                for (i, temp_accumulator) in temp_accumulators
-                    .iter_mut()
-                    .enumerate()
-                    .take(1 << NUM_SVO_ROUNDS)
-                {
-                    let beta = i << x_num_vars;
-                    let index = beta | (x_in << x_out_num_vars) | x_out; // beta | x_in | x_out
-                    *temp_accumulator += e_in_value * poly_evals[index]; // += e_in[x_in] * p(beta, x_in, x_out)
-                }
-            }
-
-            // Destructure things since we will access them many times later
-            let [t0, t1, t2, t3, t4, t5, t6, t7] = temp_accumulators;
-            // Get E_out(y, x_out) for this x_out
-            // Round 0 (i=0) -> y=(b1,b2) -> 2 bits
-            let e0_0 = e_out[0].0[x_out]; // y=00
-            let e0_1 = e_out[0].0[(1 << x_out_num_vars) | x_out]; // y=01
-            let e0_2 = e_out[0].0[(2 << x_out_num_vars) | x_out]; // y=10
-            let e0_3 = e_out[0].0[(3 << x_out_num_vars) | x_out]; // y=11
-            // Round 1 (i=1) -> y=(b2) -> 1 bit
-            let e1_0 = e_out[1].0[x_out]; // y=0
-            let e1_1 = e_out[1].0[(1 << x_out_num_vars) | x_out]; // y=1
-            // Round 2 (i=2) -> y=() -> 0 bits
-            let e2 = e_out[2].0[x_out]; // y=()
-            // Round 0 (i=0)
-            // A_0(u=0) = Σ_{y} E_out_0(y) * tA( (u=0, y), x_out )
-            local_accumulators.accumulate(0, 0, e0_0 * t0 + e0_1 * t1 + e0_2 * t2 + e0_3 * t3);
-            // A_0(u=1) = Σ_{y} E_out_0(y) * tA( (u=1, y), x_out )
-            local_accumulators.accumulate(0, 1, e0_0 * t4 + e0_1 * t5 + e0_2 * t6 + e0_3 * t7);
-            // Round 1 (i=1)
-            // A_1(v, u) = Σ_{y} E_out_1(y) * tA( (v, u, y), x_out )
-            // v=0, u=0
-            local_accumulators.accumulate(1, 0, e1_0 * t0 + e1_1 * t1);
-            // v=0, u=1
-            local_accumulators.accumulate(1, 1, e1_0 * t2 + e1_1 * t3);
-            // v=1, u=0
-            local_accumulators.accumulate(1, 2, e1_0 * t4 + e1_1 * t5);
-            // v=1, u=1
-            local_accumulators.accumulate(1, 3, e1_0 * t6 + e1_1 * t7);
-            // Round 2 (i=2)
-            // A_2(v, u) = E_out_2() * tA( (v, u), x_out )
-            for (i, &temp_accumulator) in temp_accumulators.iter().enumerate() {
-                local_accumulators.accumulate(2, i, e2 * temp_accumulator);
-            }
-            local_accumulators
-        })
-        .par_fold_reduce(|| Accumulators::new_empty(), |a, b| a + b, |a, b| a + b)
+impl<F: Field, const N: usize> AddAssign for SvoAccumulators<F, N> {
+    #[inline]
+    fn add_assign(&mut self, rhs: Self) {
+        self.0
+            .iter_mut()
+            .zip(rhs.0.iter())
+            .for_each(|(l, r)| *l += *r);
+    }
 }
 
 /// Algorithm 6. Page 19.
@@ -152,7 +110,8 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     );
 
     // We compute all the accumulators A_i(v, u).
-    let accumulators = compute_accumulators(poly, &e_in, &e_out);
+    // let accumulators = compute_accumulators(poly, &e_in, &e_out);
+    let accumulators = poly.compute_svo_accumulators(&e_in, &e_out);
 
     // ------------------   Round 1   ------------------
 
@@ -551,7 +510,7 @@ mod tests {
         // - Round 1 (i=1): 2^(1+1) = 4 accumulators for A_1(v, u) with v in {0, 1} and u in {0, 1}
         // - Round 2 (i=2): 2^(2+1) = 8 accumulators for A_2(v, u) with v in {0, 1}^2 and u in {0, 1}
 
-        let accumulators = Accumulators::<F>::new_empty();
+        let accumulators = SvoAccumulators::<F, 3>::new();
 
         // VERIFY: Each round has the correct number of zero-initialized accumulators.
 
@@ -587,7 +546,7 @@ mod tests {
         // - Index 2: A_1(v=1, u=0)
         // - Index 3: A_1(v=1, u=1)
 
-        let mut accumulators = Accumulators::<F>::new_empty();
+        let mut accumulators = SvoAccumulators::<F, 3>::new();
 
         // Accumulate values at different indices in round 1
         let value_1 = F::from_u64(10); // Add 10 to A_1(v=0, u=0)
@@ -631,7 +590,7 @@ mod tests {
         //
         // We accumulate values in all three rounds and verify they don't interfere.
 
-        let mut accumulators = Accumulators::<F>::new_empty();
+        let mut accumulators = SvoAccumulators::<F, 3>::new();
 
         // Round 0: Accumulate at both indices
         // A_0(u=0) += 5, then += 3 → total 8
@@ -698,7 +657,7 @@ mod tests {
     #[test]
     fn test_accumulators_add() {
         // Create the first accumulator with specific values
-        let mut acc_1 = Accumulators::<F>::new_empty();
+        let mut acc_1 = SvoAccumulators::<F, 3>::new();
 
         // Thread 1 computed these accumulators from its chunk of the polynomial:
         // Round 0:
@@ -717,7 +676,7 @@ mod tests {
         acc_1.accumulate(2, 7, F::from_u64(300)); // A_2[7] = 300
 
         // Create the second accumulator with different values
-        let mut acc_2 = Accumulators::<F>::new_empty();
+        let mut acc_2 = SvoAccumulators::<F, 3>::new();
 
         // Thread 2 computed these accumulators from its chunk of the polynomial:
         // Round 0:
@@ -832,5 +791,120 @@ mod tests {
             F::from_u64(370),
             "Round 2: A_2[7] = 300 + 70 = 370"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "round index out of bounds: round=3 but N=3")]
+    fn test_at_round_panic_on_invalid_round() {
+        // For N=3, valid rounds are 0, 1, 2. Accessing round 3 should panic.
+        let accumulators = SvoAccumulators::<F, 3>::new();
+
+        // This should panic with the expected message
+        let _ = accumulators.at_round(3);
+    }
+
+    #[test]
+    fn test_at_round_unchecked_mut_basic() {
+        // For N=3:
+        // - Round 0: 2 accumulators at indices 0..2
+        // - Round 1: 4 accumulators at indices 2..6
+        // - Round 2: 8 accumulators at indices 6..14
+
+        let mut accumulators = SvoAccumulators::<F, 3>::new();
+
+        // Modify Round 0 through the mutable slice
+        unsafe {
+            let round_0_mut = accumulators.at_round_unchecked_mut(0);
+            assert_eq!(round_0_mut.len(), 2, "Round 0 should have 2 accumulators");
+
+            round_0_mut[0] = F::from_u64(10);
+            round_0_mut[1] = F::from_u64(20);
+        }
+
+        // Modify Round 1 through the mutable slice
+        unsafe {
+            let round_1_mut = accumulators.at_round_unchecked_mut(1);
+            assert_eq!(round_1_mut.len(), 4, "Round 1 should have 4 accumulators");
+
+            round_1_mut[0] = F::from_u64(30);
+            round_1_mut[1] = F::from_u64(40);
+            round_1_mut[2] = F::from_u64(50);
+            round_1_mut[3] = F::from_u64(60);
+        }
+
+        // Modify Round 2 through the mutable slice
+        unsafe {
+            let round_2_mut = accumulators.at_round_unchecked_mut(2);
+            assert_eq!(round_2_mut.len(), 8, "Round 2 should have 8 accumulators");
+
+            round_2_mut[0] = F::from_u64(100);
+            round_2_mut[7] = F::from_u64(200);
+        }
+
+        // VERIFY: Check that modifications were correctly applied
+        let round_0 = accumulators.at_round(0);
+        assert_eq!(round_0[0], F::from_u64(10), "Round 0[0] should be 10");
+        assert_eq!(round_0[1], F::from_u64(20), "Round 0[1] should be 20");
+        assert_eq!(round_0.len(), 2, "Round 0 should have 2 accumulators");
+
+        let round_1 = accumulators.at_round(1);
+        assert_eq!(round_1[0], F::from_u64(30), "Round 1[0] should be 30");
+        assert_eq!(round_1[1], F::from_u64(40), "Round 1[1] should be 40");
+        assert_eq!(round_1[2], F::from_u64(50), "Round 1[2] should be 50");
+        assert_eq!(round_1[3], F::from_u64(60), "Round 1[3] should be 60");
+        assert_eq!(round_1.len(), 4, "Round 1 should have 4 accumulators");
+
+        let round_2 = accumulators.at_round(2);
+        assert_eq!(round_2[0], F::from_u64(100), "Round 2[0] should be 100");
+        assert_eq!(round_2[7], F::from_u64(200), "Round 2[7] should be 200");
+        assert_eq!(round_2.len(), 8, "Round 2 should have 8 accumulators");
+    }
+
+    #[test]
+    fn test_at_round_unchecked_mut_different_n() {
+        // Test with N=2:
+        // - Round 0: 2 accumulators (indices 0..2)
+        // - Round 1: 4 accumulators (indices 2..6)
+
+        let mut accumulators = SvoAccumulators::<F, 2>::new();
+
+        // Set values in Round 0
+        unsafe {
+            let round_0_mut = accumulators.at_round_unchecked_mut(0);
+            assert_eq!(
+                round_0_mut.len(),
+                2,
+                "N=2: Round 0 should have 2 accumulators"
+            );
+            round_0_mut[0] = F::from_u64(5);
+            round_0_mut[1] = F::from_u64(15);
+        }
+
+        // Set values in Round 1
+        unsafe {
+            let round_1_mut = accumulators.at_round_unchecked_mut(1);
+            assert_eq!(
+                round_1_mut.len(),
+                4,
+                "N=2: Round 1 should have 4 accumulators"
+            );
+            round_1_mut[0] = F::from_u64(25);
+            round_1_mut[1] = F::from_u64(35);
+            round_1_mut[2] = F::from_u64(45);
+            round_1_mut[3] = F::from_u64(55);
+        }
+
+        // VERIFY: Check the values
+        let round_0 = accumulators.at_round(0);
+        assert_eq!(round_0[0], F::from_u64(5), "N=2: Round 0[0] should be 5");
+        assert_eq!(round_0[1], F::from_u64(15), "N=2: Round 0[1] should be 15");
+        assert_eq!(round_0.len(), 2, "N=2: Round 0 should have 2 accumulators");
+
+        let round_1 = accumulators.at_round(1);
+        assert_eq!(round_1[0], F::from_u64(25), "N=2: Round 1[0] should be 25");
+        assert_eq!(round_1[1], F::from_u64(35), "N=2: Round 1[1] should be 35");
+        assert_eq!(round_1[2], F::from_u64(45), "N=2: Round 1[2] should be 45");
+        assert_eq!(round_1[3], F::from_u64(55), "N=2: Round 1[3] should be 55");
+        assert_eq!(round_1.len(), 4, "N=2: Round 1 should have 4 accumulators");
     }
 }
