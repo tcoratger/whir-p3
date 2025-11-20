@@ -321,21 +321,49 @@ where
     let num_vars_poly_current = poly.num_variables();
     let poly_slice = poly.as_slice();
 
-    if round <= half_l {
-        // Case round <= l/2: Use eq_L and eq_R
+    let (t0, t1) = if round <= half_l {
+        // Case: round <= l/2
+        //
+        // We are folding the polynomial P(u, x_L, x_R) against the precomputed
+        // equality tables eq_L(x_L) and eq_R(x_R).
+        //
+        // The polynomial variables are split as: u || x_L || x_R
+        //
+        // Formula:
+        // t_i(u) = ∑_{x_R} eq_R(x_R) · ( ∑_{x_L} eq_L(x_L) · P(u, x_L, x_R) )
+        //
+        // We define a closure to compute this sum for a specific 'u' (determined by `offset`).
+        let compute_half = |offset: usize| -> EF {
+            // Parallelize over the outer summation (x_R)
+            (0..eq_r.len())
+                .into_par_iter()
+                .map(|x_r| {
+                    // Inner summation (x_L) is sequential for cache locality
+                    let sum_l: EF = (0..eq_l.len())
+                        .map(|x_l| {
+                            // Construct the flat index into the polynomial vector.
+                            // The bits are arranged as: [ u_bit |  x_L_bits  |  x_R_bits ]
+                            //                           ^       ^            ^
+                            //                           |       |            |
+                            // offset -------------------+       |            |
+                            // (x_l << num_vars_x_r) ------------+            |
+                            // x_r -------------------------------------------+
+                            let idx = offset | (x_l << num_vars_x_r) | x_r;
+
+                            eq_l[x_l] * poly_slice[idx]
+                        })
+                        .sum();
+
+                    eq_r[x_r] * sum_l
+                })
+                .sum()
+        };
+
+        // Compute t_i(0) and t_i(1) in parallel
         join(
-            || compute_t_evals_first_half(eq_l, eq_r, poly_slice, num_vars_x_r, 0),
-            || {
-                compute_t_evals_first_half(
-                    eq_l,
-                    eq_r,
-                    poly_slice,
-                    num_vars_x_r,
-                    1 << (num_vars_poly_current - 1),
-                )
-            },
+            || compute_half(0),                                // u = 0
+            || compute_half(1 << (num_vars_poly_current - 1)), // u = 1
         )
-        .into()
     } else {
         // Case round > l/2: Use eq_tail (passed as eq_l)
         let half_size = 1 << (num_vars_poly_current - 1);
@@ -346,7 +374,7 @@ where
         debug_assert_eq!(eq_l.len(), poly_slice_l.len());
         debug_assert_eq!(eq_l.len(), poly_slice_r.len());
 
-        let (t0, t1) = join(
+        join(
             || {
                 // t_i(0): Dot product of eq_tail with the first half of poly
                 eq_l.par_iter()
@@ -361,10 +389,10 @@ where
                     .map(|(&e, &p)| e * p)
                     .sum()
             },
-        );
+        )
+    };
 
-        [t0, t1]
-    }
+    [t0, t1]
 }
 
 /// Algorithm 5. Page 18.
@@ -422,31 +450,6 @@ pub fn algorithm_5<Challenger, F, EF>(
         let eval_1 = *sum - s_0;
         *sum = s_inf * r_i.square() + (eval_1 - s_0 - s_inf) * r_i + s_0;
     }
-}
-
-/// Auxiliary function for Algorithm 5, case `round <= l/2`.
-/// Computes `t_i(u) = Σ_{x_R} eq_R(x_R) * ( Σ_{x_L} eq_L(x_L) * p(u, x_L, x_R) )`
-#[inline]
-fn compute_t_evals_first_half<F: Field + Send + Sync>(
-    eq_l: &[F],
-    eq_r: &[F],
-    poly_slice: &[F],
-    num_vars_x_r: usize,
-    offset: usize,
-) -> F {
-    (0..eq_r.len())
-        .into_par_iter()
-        .map(|x_r| {
-            let sum_l: F = (0..eq_l.len())
-                .map(|x_l| {
-                    // idx = p(u, x_L, x_R)
-                    let idx = offset | (x_l << num_vars_x_r) | x_r;
-                    eq_l[x_l] * poly_slice[idx]
-                })
-                .sum();
-            eq_r[x_r] * sum_l
-        })
-        .sum()
 }
 
 #[cfg(test)]
