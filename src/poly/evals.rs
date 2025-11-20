@@ -295,39 +295,60 @@ where
         //   q(x') = Σ_b eq(r, b) * p(b, x').
         let eq_evals = EvaluationsList::new_from_point(challenges, EF::ONE);
 
+        // Prepare output buffer initialized with zeros so we can unconditionally accumulate.
+        //
+        // folded_evals_flat[i] will store q(x') for the suffix index i.
+        let mut folded_evals_flat = EF::zero_vec(num_remaining_evals);
+
         // Compute the folded evaluations in parallel.
         //
-        // We iterate over all suffix indices i, 0 ≤ i < 2^(n-k).
-        // Each i encodes a Boolean vector x' ∈ {0,1}^{n-k}.
-        let folded_evals_flat = (0..num_remaining_evals)
-            .into_par_iter()
-            .map(|i| {
-                // For a fixed suffix index i, we sum over all prefixes b.
+        // We split the output buffer into disjoint chunks. Each chunk corresponds
+        // to a contiguous range of suffix indices x'. Each thread owns its chunk
+        // and updates it independently, so no synchronization is needed.
+        //
+        // This layout ensures that both reads from the input polynomial and writes
+        // to the output are over contiguous slices, which is friendly to caches.
+        folded_evals_flat
+            .par_chunks_mut(PARALLEL_THRESHOLD)
+            .enumerate()
+            .for_each(|(chunk_idx, result_chunk)| {
+                // Compute the global starting index for this chunk of suffixes.
                 //
-                // j runs over all 2^k Boolean prefixes b_j.
-                // eq_val = eq(r, b_j).
-                //
-                // The evaluation p(b_j, x') lives at index:
-                //
-                //   original_eval_index = j * 2^(n-k) + i,
-                //
-                // because prefixes are in the most significant bits and
-                // suffixes are in the least significant bits.
-                eq_evals
-                    .iter()
-                    .enumerate()
-                    .fold(EF::ZERO, |acc, (j, &eq_val)| {
-                        // Compute the original table index for (b_j, x').
-                        let original_eval_index = (j * num_remaining_evals) + i;
+                // All suffix indices covered by this chunk are:
+                //   i = chunk_start_offset .. chunk_start_offset + result_chunk.len().
+                let chunk_start_offset = chunk_idx * PARALLEL_THRESHOLD;
 
-                        // Read p(b_j, x') in the base field.
-                        let p_b_x = self.0[original_eval_index];
+                // For this fixed range of suffix indices, sum over all prefixes b.
+                //
+                // - j runs over all 2^k Boolean prefixes b_j,
+                // - eq_val is the precomputed weight eq(r, b_j).
+                for (j, &eq_val) in eq_evals.0.iter().enumerate() {
+                    // Calculate where the block corresponding to prefix b_j starts in the input.
+                    //
+                    // The evaluation p(b_j, x') lives at index:
+                    //
+                    //   original_eval_index = j * 2^(n-k) + i,
+                    //
+                    // because prefixes are in the most significant bits and
+                    // suffixes are in the least significant bits.
+                    //
+                    // For the current chunk, the block we need starts at:
+                    let input_block_start = j * num_remaining_evals + chunk_start_offset;
 
+                    // Get the contiguous slice of input evaluations for this prefix,
+                    // restricted to the suffix range covered by `result_chunk`.
+                    let input_chunk =
+                        &self.0[input_block_start..input_block_start + result_chunk.len()];
+
+                    // Accumulate eq(r, b_j) * p(b_j, x') into the result.
+                    //
+                    // This hot loop iterates contiguously over both input and result chunks.
+                    for (res, &p_b_x) in result_chunk.iter_mut().zip(input_chunk) {
                         // Accumulate eq(r, b_j) * p(b_j, x') in the extension field.
-                        acc + eq_val * p_b_x
-                    })
-            })
-            .collect();
+                        *res += eq_val * p_b_x;
+                    }
+                }
+            });
 
         // Wrap the flat vector into a new evaluation list in EF.
         //
