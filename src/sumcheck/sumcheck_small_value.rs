@@ -253,43 +253,6 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
         + round_poly_evals[0];
 }
 
-/// This function takes a list of evaluations and "folds" or "compresses" them according
-/// to the provided challenges `r_1, ..., r_{k}`.
-///
-/// The result is a new evaluation list representing p(r_1, ..., r_{k}, x) for all x in {0,1}^k.
-/// This implementation is based on Algorithm 2 (page 13), optimized for our case of use.
-pub fn fold_evals_with_challenges<F, EF>(
-    evals: &EvaluationsList<F>,
-    challenges: &[EF],
-) -> EvaluationsList<EF>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    let num_challenges = challenges.len();
-    let remaining_vars = evals.num_variables() - num_challenges;
-    let num_remaining_evals = 1 << remaining_vars;
-
-    let eq_evals = EvaluationsList::new_from_point(challenges, EF::ONE);
-
-    let folded_evals_flat = (0..num_remaining_evals)
-        .into_par_iter()
-        .map(|i| {
-            // Use the multilinear extension formula: p(r, x') = Σ_{b} eq(r, b) * p(b, x')
-            eq_evals
-                .iter()
-                .enumerate()
-                .fold(EF::ZERO, |acc, (j, &eq_val)| {
-                    let original_eval_index = (j * num_remaining_evals) + i;
-                    let p_b_x = evals.as_slice()[original_eval_index];
-                    acc + eq_val * p_b_x
-                })
-        })
-        .collect();
-
-    EvaluationsList::new(folded_evals_flat)
-}
-
 /// Computes the round polynomial evaluations `t_i(u)` for a single standard sumcheck round.
 ///
 /// This is a pure function that computes `t_i(0)` and `t_i(1)` using precomputed
