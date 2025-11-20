@@ -184,6 +184,7 @@ mod tests {
         whir::{
             constraints::{Constraint, statement::EqStatement},
             parameters::WhirConfig,
+            proof::WhirProof,
         },
     };
 
@@ -297,10 +298,18 @@ mod tests {
 
         let constraint = Constraint::new_eq_only(EF4::ONE, statement.clone());
 
+        // Initialize proof and challenger
+        let mut proof = WhirProof::<F, EF4, 8>::default();
+        let mut rng = SmallRng::seed_from_u64(1);
+        let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        domsep.observe_domain_separator(&mut challenger_rf);
+
         // Instantiate the prover with base field coefficients
         let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals(
             &coeffs.to_evaluations(),
             &mut prover_state,
+            &mut proof,
+            &mut challenger_rf,
             folding_factor,
             pow_bits,
             &constraint,
@@ -416,7 +425,10 @@ mod tests {
         }
 
         let mut rng = SmallRng::seed_from_u64(1);
-        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+
+        // Initialize proof
+        let mut proof = WhirProof::<F, EF4, 8>::default();
 
         // Convert to prover state
         let mut prover_state = domsep.to_prover_state(challenger.clone());
@@ -434,6 +446,8 @@ mod tests {
         let (_, _) = SumcheckSingle::<F, EF4>::with_skip(
             &coeffs.to_evaluations(),
             &mut prover_state,
+            &mut proof,
+            &mut challenger,
             NUM_VARS,
             0,
             K_SKIP,

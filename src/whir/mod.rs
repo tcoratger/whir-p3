@@ -137,7 +137,14 @@ pub fn make_whir_things(
 
     // Generate WHIR proof
     prover
-        .prove(&dft, &mut prover_state, statement.clone(), witness)
+        .prove(
+            &dft,
+            &mut prover_state,
+            &mut proof,
+            &mut prover_challenger,
+            statement.clone(),
+            witness,
+        )
         .unwrap();
 
     // Sample final challenge to ensure transcript consistency between prover/verifier

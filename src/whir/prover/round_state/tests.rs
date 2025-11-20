@@ -151,10 +151,17 @@ fn test_no_initial_statement_no_sumcheck() {
     // Create an empty public statement (no constraints)
     let statement = EqStatement::<EF4>::initialize(num_variables);
 
+    // Initialize proof and challenger
+    let mut proof = WhirProof::<F, EF4, DIGEST_ELEMS>::default();
+    let mut rng = SmallRng::seed_from_u64(1);
+    let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+
     // Initialize the round state using the setup configuration and witness
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
         &mut prover_state,
+        &mut proof,
+        &mut challenger,
         statement,
         witness,
     )
@@ -212,12 +219,19 @@ fn test_initial_statement_with_folding_factor_3() {
     );
 
     // Set up the domain separator, prover state, and witness for this configuration
-    let (_, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
+    let (domsep, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
+    let mut rng = SmallRng::seed_from_u64(1);
+    let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    domsep.observe_domain_separator(&mut challenger_rf);
+    // Initialize proof
+    let mut proof = WhirProof::<F, EF4, DIGEST_ELEMS>::default();
 
     // Run the first round state initialization (this will trigger sumcheck)
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
         &mut prover_state,
+        &mut proof,
+        &mut challenger_rf,
         statement,
         witness,
     )
@@ -274,7 +288,10 @@ fn test_zero_poly_multiple_constraints() {
     let poly = EvaluationsList::new(vec![F::ZERO; 1 << num_variables]);
 
     // Generate domain separator, prover state, and Merkle commitment witness for the poly
-    let (_, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
+    let (domsep, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
+    let mut rng = SmallRng::seed_from_u64(1);
+    let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    domsep.observe_domain_separator(&mut challenger_rf);
 
     // Create a new statement with multiple constraints
     let mut statement = EqStatement::<EF4>::initialize(num_variables);
@@ -287,10 +304,15 @@ fn test_zero_poly_multiple_constraints() {
         statement.add_evaluated_constraint(MultilinearPoint::new(point), EF4::ZERO);
     }
 
+    // Initialize proof
+    let mut proof = WhirProof::<F, EF4, DIGEST_ELEMS>::default();
+
     // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
         &mut prover_state,
+        &mut proof,
+        &mut challenger_rf,
         statement,
         witness,
     )
@@ -368,12 +390,20 @@ fn test_initialize_round_state_with_initial_statement() {
     );
 
     // Set up Fiat-Shamir domain and produce commitment + witness
-    let (_, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
+    let (domsep, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
+
+    // Initialize proof and challenger
+    let mut proof = WhirProof::<F, EF4, DIGEST_ELEMS>::default();
+    let mut rng = SmallRng::seed_from_u64(1);
+    let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    domsep.observe_domain_separator(&mut challenger_rf);
 
     // Run the first round initialization
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
         &mut prover_state,
+        &mut proof,
+        &mut challenger_rf,
         statement,
         witness,
     )

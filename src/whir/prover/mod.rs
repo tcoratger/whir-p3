@@ -21,6 +21,7 @@ use super::{
     constraints::statement::EqStatement,
     parameters::{SumcheckOptimization, WhirConfig},
 };
+use crate::whir::proof::WhirProof;
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
@@ -142,6 +143,8 @@ where
         &self,
         dft: &Dft,
         prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         statement: EqStatement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
@@ -163,12 +166,25 @@ where
         );
 
         // Initialize the round state with inputs and initial polynomial data
-        let mut round_state =
-            RoundState::initialize_first_round_state(self, prover_state, statement, witness)?;
+        let mut round_state = RoundState::initialize_first_round_state(
+            self,
+            prover_state,
+            proof,
+            challenger,
+            statement,
+            witness,
+        )?;
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
-            self.round(dft, round, prover_state, &mut round_state)?;
+            self.round(
+                dft,
+                round,
+                prover_state,
+                proof,
+                challenger,
+                &mut round_state,
+            )?;
         }
 
         Ok(())
@@ -181,6 +197,8 @@ where
         dft: &Dft,
         round_index: usize,
         prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
     where
@@ -198,7 +216,7 @@ where
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
-            return self.final_round(round_index, prover_state, round_state);
+            return self.final_round(round_index, prover_state, proof, challenger, round_state);
         }
 
         let round_params = &self.round_parameters[round_index];
@@ -392,8 +410,11 @@ where
         let constraint = Constraint::new(prover_state.sample(), ood_statement, stir_statement);
         let folding_randomness = round_state.sumcheck_prover.compute_sumcheck_polynomials(
             prover_state,
+            proof,
+            challenger,
             folding_factor_next,
             round_params.folding_pow_bits,
+            false,
             Some(constraint),
         );
 
@@ -412,6 +433,8 @@ where
         &self,
         round_index: usize,
         prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
     where
@@ -511,8 +534,11 @@ where
         if self.final_sumcheck_rounds > 0 {
             round_state.sumcheck_prover.compute_sumcheck_polynomials(
                 prover_state,
+                proof,
+                challenger,
                 self.final_sumcheck_rounds,
                 self.final_folding_pow_bits,
+                true,
                 None,
             );
         }

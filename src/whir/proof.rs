@@ -1,3 +1,4 @@
+use alloc::vec;
 use alloc::vec::Vec;
 use core::array;
 
@@ -255,7 +256,9 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             initial_pow_witness: None,
             initial_ood_answers: Vec::new(),
             initial_phase,
-            rounds: Vec::with_capacity(num_rounds),
+            rounds: (0..num_rounds)
+                .map(|_| WhirRoundProof::default())
+                .collect(),
             final_poly: None,
             final_pow_witness: F::default(),
             final_queries: Vec::with_capacity(num_queries),
@@ -424,13 +427,13 @@ mod tests {
             _ => panic!("Expected WithStatementSkip variant"),
         }
 
-        // Verify rounds capacity
+        // Verify rounds length
         // Formula: ((num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS) / folding_factor) - 1
         // MAX_NUM_VARIABLES_TO_SEND_COEFFS = 6 (threshold for sending coefficients directly)
         // For 20 variables with folding_factor 6:
         //   (20 - 6).div_ceil(6) - 1 = 14.div_ceil(6) - 1 = 3 - 1 = 2
         let expected_rounds = 2;
-        assert_eq!(proof.rounds.capacity(), expected_rounds);
+        assert_eq!(proof.rounds.len(), expected_rounds);
     }
 
     #[test]
@@ -471,13 +474,13 @@ mod tests {
             _ => panic!("Expected WithStatement variant, not WithStatementSkip"),
         }
 
-        // Verify rounds capacity
+        // Verify rounds length
         // Formula: ((num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS) / folding_factor) - 1
         // MAX_NUM_VARIABLES_TO_SEND_COEFFS = 6
         // For 16 variables with folding_factor 4:
         //   (16 - 6).div_ceil(4) - 1 = 10.div_ceil(4) - 1 = 3 - 1 = 2
         let expected_rounds = 2;
-        assert_eq!(proof.rounds.capacity(), expected_rounds);
+        assert_eq!(proof.rounds.len(), expected_rounds);
     }
 
     #[test]
@@ -513,13 +516,13 @@ mod tests {
             _ => panic!("Expected WithoutStatement variant"),
         }
 
-        // Verify rounds capacity
+        // Verify rounds length
         // Formula: ((num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS) / folding_factor) - 1
         // MAX_NUM_VARIABLES_TO_SEND_COEFFS = 6
         // For 18 variables with folding_factor 6:
         //   (18 - 6).div_ceil(6) - 1 = 12.div_ceil(6) - 1 = 2 - 1 = 1
         let expected_rounds = 1;
-        assert_eq!(proof.rounds.capacity(), expected_rounds);
+        assert_eq!(proof.rounds.len(), expected_rounds);
     }
 
     #[test]
