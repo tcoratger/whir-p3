@@ -9,7 +9,7 @@ use crate::{
     sumcheck::{
         eq_state::SumcheckEqState,
         sumcheck_single::SumcheckSingle,
-        sumcheck_small_value::{algorithm_5, fold_evals_with_challenges, svo_first_rounds},
+        sumcheck_small_value::{algorithm_5, svo_first_rounds},
     },
     whir::constraints::Constraint,
 };
@@ -61,7 +61,7 @@ where
         );
 
         // We fold to obtain p(r1, r2, r3, x).
-        let mut folded_evals = fold_evals_with_challenges(evals, &challenges);
+        let mut folded_evals = evals.fold_batch(&challenges);
 
         algorithm_5(
             prover_state,

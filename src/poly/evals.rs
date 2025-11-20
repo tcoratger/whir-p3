@@ -198,6 +198,164 @@ where
         poly
     }
 
+    /// Folds the polynomial over the first `k` variables in a single batched step.
+    ///
+    /// - Let $p : \{0,1\}^n \to F$ be the multilinear polynomial represented by this
+    ///   evaluation list.
+    /// - Let `challenges` have length $k$ with elements in an extension field `EF`.
+    ///
+    /// This method returns the evaluations of the folded polynomial
+    ///
+    /// \begin{equation}
+    ///   q(x') = p(r_0, \dots, r_{k-1}, x')
+    /// \end{equation}
+    ///
+    /// for all $x' \in \{0,1\}^{n-k}$, where $(r_0, \dots, r_{k-1})$ come from `challenges`.
+    ///
+    /// # Memory layout and indexing
+    ///
+    /// The evaluations in `self.0` are stored in lexicographic order over $(x_0, \dots, x_{n-1})$.
+    ///
+    /// - The first `k` variables $(x_0, \dots, x_{k-1})$ correspond to the
+    ///   most significant bits of the index.
+    /// - The remaining `n - k` variables correspond to the least significant bits.
+    ///
+    /// We can view the table as a $2^k \times 2^{n-k}$ matrix:
+    ///
+    /// \begin{equation}
+    ///   p(b, x'), \quad b \in \{0,1\}^k,\ x' \in \{0,1\}^{n-k},
+    /// \end{equation}
+    ///
+    /// where each column (fixed $x'$) is contiguous in memory.
+    ///
+    /// For a fixed suffix $x'$, the folded value is
+    ///
+    /// \begin{equation}
+    ///   q(x') = \sum_{b \in \{0,1\}^k} eq(r, b) \cdot p(b, x'),
+    /// \end{equation}
+    ///
+    /// where $eq(r, b)$ is the multilinear equality polynomial evaluated at
+    /// `challenges` and the Boolean vector $b$.
+    ///
+    /// # Arguments
+    ///
+    /// - `challenges`: Slice of length $k$ containing the extension field
+    ///   challenges $(r_0, \dots, r_{k-1})$ to substitute for the first `k`
+    ///   variables. May be empty.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `challenges.len() > self.num_variables()`.
+    ///
+    /// # Returns
+    ///
+    /// An `EvaluationsList<EF>` with $2^{n-k}$ entries representing the folded
+    /// polynomial $q$ over the remaining `n - k` variables.
+    pub fn fold_batch<EF>(&self, challenges: &[EF]) -> EvaluationsList<EF>
+    where
+        EF: ExtensionField<F> + Send + Sync,
+    {
+        // Number of folded variables: k = challenges.len().
+        let num_challenges = challenges.len();
+
+        // Simple case: k = 0.
+        //
+        // No variables are folded. We just reinterpret the polynomial
+        // by lifting each base-field value into the extension field.
+        if num_challenges == 0 {
+            // - If F and EF differ, this converts each F into EF.
+            // - If they are the same type, this is a no-op conversion.
+            return EvaluationsList(self.0.iter().map(|&x| EF::from(x)).collect());
+        }
+
+        // Total number of variables in the original polynomial: n.
+        let n = self.num_variables();
+
+        // Sanity check: cannot fold more variables than we have.
+        assert!(
+            num_challenges <= n,
+            "fold_batch: challenges.len() = {num_challenges} exceeds num_variables() = {n}"
+        );
+
+        // Number of remaining variables after folding: n - k.
+        let remaining_vars = n - num_challenges;
+
+        // Number of evaluations in the folded table: 2^(n-k).
+        //
+        // Each such evaluation corresponds to one suffix x' ∈ {0,1}^{n-k}.
+        let num_remaining_evals = 1 << remaining_vars;
+
+        // Precompute equality weights:
+        //
+        // eq_evals[j] = eq(r, b_j) for the j-th Boolean vector b_j ∈ {0,1}^k,
+        // in lexicographic order over b_j.
+        //
+        // This gives us the coefficients for the dot product in the folding formula:
+        //
+        //   q(x') = Σ_b eq(r, b) * p(b, x').
+        let eq_evals = EvaluationsList::new_from_point(challenges, EF::ONE);
+
+        // Prepare output buffer initialized with zeros so we can unconditionally accumulate.
+        //
+        // folded_evals_flat[i] will store q(x') for the suffix index i.
+        let mut folded_evals_flat = EF::zero_vec(num_remaining_evals);
+
+        // Compute the folded evaluations in parallel.
+        //
+        // We split the output buffer into disjoint chunks. Each chunk corresponds
+        // to a contiguous range of suffix indices x'. Each thread owns its chunk
+        // and updates it independently, so no synchronization is needed.
+        //
+        // This layout ensures that both reads from the input polynomial and writes
+        // to the output are over contiguous slices, which is friendly to caches.
+        folded_evals_flat
+            .par_chunks_mut(PARALLEL_THRESHOLD)
+            .enumerate()
+            .for_each(|(chunk_idx, result_chunk)| {
+                // Compute the global starting index for this chunk of suffixes.
+                //
+                // All suffix indices covered by this chunk are:
+                //   i = chunk_start_offset .. chunk_start_offset + result_chunk.len().
+                let chunk_start_offset = chunk_idx * PARALLEL_THRESHOLD;
+
+                // For this fixed range of suffix indices, sum over all prefixes b.
+                //
+                // - j runs over all 2^k Boolean prefixes b_j,
+                // - eq_val is the precomputed weight eq(r, b_j).
+                for (j, &eq_val) in eq_evals.0.iter().enumerate() {
+                    // Calculate where the block corresponding to prefix b_j starts in the input.
+                    //
+                    // The evaluation p(b_j, x') lives at index:
+                    //
+                    //   original_eval_index = j * 2^(n-k) + i,
+                    //
+                    // because prefixes are in the most significant bits and
+                    // suffixes are in the least significant bits.
+                    //
+                    // For the current chunk, the block we need starts at:
+                    let input_block_start = j * num_remaining_evals + chunk_start_offset;
+
+                    // Get the contiguous slice of input evaluations for this prefix,
+                    // restricted to the suffix range covered by `result_chunk`.
+                    let input_chunk =
+                        &self.0[input_block_start..input_block_start + result_chunk.len()];
+
+                    // Accumulate eq(r, b_j) * p(b_j, x') into the result.
+                    //
+                    // This hot loop iterates contiguously over both input and result chunks.
+                    for (res, &p_b_x) in result_chunk.iter_mut().zip(input_chunk) {
+                        // Accumulate eq(r, b_j) * p(b_j, x') in the extension field.
+                        *res += eq_val * p_b_x;
+                    }
+                }
+            });
+
+        // Wrap the flat vector into a new evaluation list in EF.
+        //
+        // It holds the values q(x') for all x' ∈ {0,1}^{n-k}, in lexicographic order.
+        EvaluationsList::new(folded_evals_flat)
+    }
+
     /// Create a matrix representation of the evaluation list.
     #[inline]
     #[must_use]
@@ -2462,9 +2620,7 @@ mod tests {
 
     #[test]
     fn test_compute_svo_accumulators_n3_six_variables() {
-        // ═══════════════════════════════════════════════════════════════════════════
         //  TEST SETUP: N=3, n=6
-        // ═══════════════════════════════════════════════════════════════════════════
         //
         // This test verifies N=3 (three-round precomputation) on a 6-variable polynomial.
         //
@@ -2789,5 +2945,258 @@ mod tests {
         assert_eq!(result.at_round(1)[1], EF4::from_u64(56));
         assert_eq!(result.at_round(1)[2], EF4::from_u64(56));
         assert_eq!(result.at_round(1)[3], EF4::from_u64(56));
+    }
+
+    #[test]
+    fn test_fold_batch_no_challenges() {
+        // Setup: 3-variable polynomial p(x_2, x_1, x_0) with simple values
+        let poly = EvaluationsList::new(vec![
+            F::from_u64(1), // 000
+            F::from_u64(2), // 001
+            F::from_u64(3), // 010
+            F::from_u64(4), // 011
+            F::from_u64(5), // 100
+            F::from_u64(6), // 101
+            F::from_u64(7), // 110
+            F::from_u64(8), // 111
+        ]);
+
+        // Fold with empty challenges (k=0)
+        let challenges: &[EF4] = &[];
+        let result = poly.fold_batch(challenges);
+
+        // VERIFY: Result should have same length and values (just lifted to EF4)
+        assert_eq!(result.0.len(), 8, "Result should have 8 evaluations");
+
+        // Each value should be the same, just in extension field
+        let expected_poly = EvaluationsList::new(vec![
+            EF4::from_u64(1), // 000
+            EF4::from_u64(2), // 001
+            EF4::from_u64(3), // 010
+            EF4::from_u64(4), // 011
+            EF4::from_u64(5), // 100
+            EF4::from_u64(6), // 101
+            EF4::from_u64(7), // 110
+            EF4::from_u64(8), // 111
+        ]);
+        assert_eq!(
+            result, expected_poly,
+            "Result should be the original polynomial"
+        );
+    }
+
+    #[test]
+    fn test_fold_batch_single_variable() {
+        // Fold a 3-variable polynomial over the first variable.
+        //
+        // Polynomial: p(x_2, x_1, x_0) where p(i) = i+1 for i=0..7
+        //
+        // Variable ordering: x_2 (MSB) x_1 x_0 (LSB)
+        //
+        //   Index | x_2 x_1 x_0 | p(x_2, x_1, x_0)
+        //   ------|-------------|------------------
+        //     0   |  0   0   0  |        1
+        //     1   |  0   0   1  |        2
+        //     2   |  0   1   0  |        3
+        //     3   |  0   1   1  |        4
+        //     4   |  1   0   0  |        5
+        //     5   |  1   0   1  |        6
+        //     6   |  1   1   0  |        7
+        //     7   |  1   1   1  |        8
+
+        let poly = EvaluationsList::new((1..=8).map(F::from_u64).collect());
+
+        // Fold over x_2 with challenge r_2
+        let r2 = EF4::from_u64(3);
+        let challenges = vec![r2];
+
+        let result = poly.fold_batch(&challenges);
+
+        // VERIFY: Result has 2^(3-1) = 4 evaluations
+        assert_eq!(
+            result.0.len(),
+            4,
+            "Folded polynomial should have 4 evaluations"
+        );
+
+        //  MANUAL COMPUTATION
+        //
+        // After folding over x_2, we get q(x_1, x_0) where:
+        //
+        //   q(x_1, x_0) = eq(r_2, 0)·p(0, x_1, x_0) + eq(r_2, 1)·p(1, x_1, x_0)
+
+        // Compute equality polynomial values
+        let eq_r2_0 = EF4::ONE - r2; // eq(r_2, 0) = 1 - r_2
+        let eq_r2_1 = r2; // eq(r_2, 1) = r_2
+
+        // Polynomial values
+        let p_000 = F::from_u64(1);
+        let p_001 = F::from_u64(2);
+        let p_010 = F::from_u64(3);
+        let p_011 = F::from_u64(4);
+        let p_100 = F::from_u64(5);
+        let p_101 = F::from_u64(6);
+        let p_110 = F::from_u64(7);
+        let p_111 = F::from_u64(8);
+
+        // Compute folded values
+        let q_00 = eq_r2_0 * p_000 + eq_r2_1 * p_100;
+        let q_01 = eq_r2_0 * p_001 + eq_r2_1 * p_101;
+        let q_10 = eq_r2_0 * p_010 + eq_r2_1 * p_110;
+        let q_11 = eq_r2_0 * p_011 + eq_r2_1 * p_111;
+
+        assert_eq!(result.0[0], q_00, "q(0,0) mismatch");
+        assert_eq!(result.0[1], q_01, "q(0,1) mismatch");
+        assert_eq!(result.0[2], q_10, "q(1,0) mismatch");
+        assert_eq!(result.0[3], q_11, "q(1,1) mismatch");
+    }
+
+    #[test]
+    fn test_fold_batch_two_variables() {
+        // Fold a 3-variable polynomial over the first two variables.
+        //
+        // Polynomial: p(x_2, x_1, x_0) = 2^{x_2·4 + x_1·2 + x_0}
+        //
+        // Using powers of 2 for easier manual verification:
+        //   p(0,0,0) = 2^0 = 1
+        //   p(0,0,1) = 2^1 = 2
+        //   p(0,1,0) = 2^2 = 4
+        //   p(0,1,1) = 2^3 = 8
+        //   p(1,0,0) = 2^4 = 16
+        //   p(1,0,1) = 2^5 = 32
+        //   p(1,1,0) = 2^6 = 64
+        //   p(1,1,1) = 2^7 = 128
+
+        let poly = EvaluationsList::new(vec![
+            F::from_u64(1),   // 000
+            F::from_u64(2),   // 001
+            F::from_u64(4),   // 010
+            F::from_u64(8),   // 011
+            F::from_u64(16),  // 100
+            F::from_u64(32),  // 101
+            F::from_u64(64),  // 110
+            F::from_u64(128), // 111
+        ]);
+
+        // Fold over (x_2, x_1) with challenges (r_2=2, r_1=3)
+        let r2 = EF4::from_u64(2);
+        let r1 = EF4::from_u64(3);
+        let challenges = vec![r2, r1];
+
+        let result = poly.fold_batch(&challenges);
+
+        // VERIFY: Result has 2^(3-2) = 2 evaluations
+        assert_eq!(
+            result.0.len(),
+            2,
+            "Folded polynomial should have 2 evaluations"
+        );
+
+        //  MANUAL COMPUTATION
+        //
+        // After folding over (x_2, x_1), we get q(x_0) where:
+        //
+        //   q(x_0) = Σ_{x_2,x_1 ∈ {0,1}} eq(r_2, r_1; x_2, x_1)·p(x_2, x_1, x_0)
+
+        // Compute equality polynomial values
+        let eq_r2_0 = EF4::ONE - r2; // (1 - r_2)
+        let eq_r2_1 = r2; // r_2
+        let eq_r1_0 = EF4::ONE - r1; // (1 - r_1)
+        let eq_r1_1 = r1; // r_1
+
+        let eq_00 = eq_r2_0 * eq_r1_0; // eq(r_2, r_1; 0, 0)
+        let eq_01 = eq_r2_0 * eq_r1_1; // eq(r_2, r_1; 0, 1)
+        let eq_10 = eq_r2_1 * eq_r1_0; // eq(r_2, r_1; 1, 0)
+        let eq_11 = eq_r2_1 * eq_r1_1; // eq(r_2, r_1; 1, 1)
+
+        // Polynomial values (lifted to extension field)
+        let p_000 = EF4::from_u64(1);
+        let p_001 = EF4::from_u64(2);
+        let p_010 = EF4::from_u64(4);
+        let p_011 = EF4::from_u64(8);
+        let p_100 = EF4::from_u64(16);
+        let p_101 = EF4::from_u64(32);
+        let p_110 = EF4::from_u64(64);
+        let p_111 = EF4::from_u64(128);
+
+        // Compute folded values
+        let q_0 = eq_00 * p_000 + eq_01 * p_010 + eq_10 * p_100 + eq_11 * p_110;
+        let q_1 = eq_00 * p_001 + eq_01 * p_011 + eq_10 * p_101 + eq_11 * p_111;
+
+        assert_eq!(result.0[0], q_0, "q(0) mismatch");
+        assert_eq!(result.0[1], q_1, "q(1) mismatch");
+    }
+
+    #[test]
+    fn test_fold_batch_all_variables() {
+        // Fold all variables, resulting in a single evaluation.
+        //
+        // Polynomial: p(x_1, x_0) = index + 1
+        //   p(0,0) = 1, p(0,1) = 2, p(1,0) = 3, p(1,1) = 4
+
+        let poly = EvaluationsList::new(vec![
+            F::from_u64(1), // 00
+            F::from_u64(2), // 01
+            F::from_u64(3), // 10
+            F::from_u64(4), // 11
+        ]);
+
+        // Fold all variables with challenges (r_1=5, r_0=7)
+        let r1 = EF4::from_u64(5);
+        let r0 = EF4::from_u64(7);
+        let challenges = vec![r1, r0];
+
+        let result = poly.fold_batch(&challenges);
+
+        // VERIFY: Result should have exactly 1 evaluation
+        assert_eq!(
+            result.0.len(),
+            1,
+            "Folding all variables should produce a single value"
+        );
+
+        //  MANUAL COMPUTATION
+        //
+        // q() = Σ_{x_1,x_0} eq(r_1, r_0; x_1, x_0)·p(x_1, x_0)
+
+        // Compute equality polynomial values
+        let eq_r1_0 = EF4::ONE - r1; // (1 - r_1)
+        let eq_r1_1 = r1; // r_1
+        let eq_r0_0 = EF4::ONE - r0; // (1 - r_0)
+        let eq_r0_1 = r0; // r_0
+
+        let eq_00 = eq_r1_0 * eq_r0_0; // eq(r_1, r_0; 0, 0)
+        let eq_01 = eq_r1_0 * eq_r0_1; // eq(r_1, r_0; 0, 1)
+        let eq_10 = eq_r1_1 * eq_r0_0; // eq(r_1, r_0; 1, 0)
+        let eq_11 = eq_r1_1 * eq_r0_1; // eq(r_1, r_0; 1, 1)
+
+        // Polynomial values (lifted to extension field)
+        let p_00 = EF4::from_u64(1);
+        let p_01 = EF4::from_u64(2);
+        let p_10 = EF4::from_u64(3);
+        let p_11 = EF4::from_u64(4);
+
+        // Compute fully folded value
+        let q = eq_00 * p_00 + eq_01 * p_01 + eq_10 * p_10 + eq_11 * p_11;
+
+        assert_eq!(result.0[0], q, "Folded value mismatch");
+    }
+
+    #[test]
+    #[should_panic(expected = "fold_batch: challenges.len() = 3 exceeds num_variables() = 2")]
+    fn test_fold_batch_too_many_challenges() {
+        // 2-variable polynomial
+        let poly = EvaluationsList::new(vec![
+            F::from_u64(1), // 00
+            F::from_u64(2), // 01
+            F::from_u64(3), // 10
+            F::from_u64(4), // 11
+        ]);
+
+        // Try to fold 3 variables (more than the 2 that exist)
+        let challenges = vec![EF4::from_u64(2), EF4::from_u64(3), EF4::from_u64(5)];
+
+        // This should panic
+        let _ = poly.fold_batch(&challenges);
     }
 }
