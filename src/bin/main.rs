@@ -5,12 +5,10 @@ use rand::distr::StandardUniform;
 use rand::prelude::Distribution;
 
 use clap::Parser;
-use p3_air::{Air, BaseAir};
 use p3_baby_bear::BabyBear;
 use p3_challenger::{DuplexChallenger, FieldChallenger};
 use p3_commit::{BatchOpening, ExtensionMmcs, Pcs, PolynomialSpace};
 use p3_dft::{Radix2DFTSmallBatch, Radix2DitParallel, TwoAdicSubgroupDft};
-use p3_examples::airs::{ExampleHashAir, ProofObjective};
 use p3_field::coset::TwoAdicMultiplicativeCoset;
 use p3_field::{
     extension::BinomialExtensionField, ExtensionField, Field, PrimeField32, PrimeField64,
@@ -18,11 +16,9 @@ use p3_field::{
 };
 use p3_fri::{FriParameters, FriProof, TwoAdicFriPcs};
 use p3_goldilocks::Goldilocks;
-use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear, Poseidon2KoalaBear};
+use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_poseidon2::GenericPoseidon2LinearLayers;
-use p3_poseidon2_air::{RoundConstants, VectorizedPoseidon2Air};
 use p3_symmetric::{CryptographicPermutation, PaddingFreeSponge, TruncatedPermutation};
 use p3_uni_stark::{
     prove, verify, DebugConstraintBuilder, ProverConstraintFolder, StarkConfig, StarkGenericConfig,
@@ -72,7 +68,7 @@ struct Args {
     #[arg(short = 'p', long)]
     pow_bits: Option<usize>,
 
-    #[arg(short = 'd', long, default_value = "23")]
+    #[arg(short = 'd', long, default_value = "25")]
     num_variables: usize,
 
     #[arg(short = 'e', long = "evaluations", default_value = "1")]
