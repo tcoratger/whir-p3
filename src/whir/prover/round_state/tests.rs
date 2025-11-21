@@ -1,7 +1,7 @@
 use alloc::vec;
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::DuplexChallenger;
+use p3_challenger::{CanObserve, DuplexChallenger};
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_matrix::dense::DenseMatrix;
@@ -87,10 +87,29 @@ fn setup_domain_and_commitment(
     params: &WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger>,
     poly: EvaluationsList<F>,
 ) -> (
+    WhirProof<F, EF4, DIGEST_ELEMS>,
+    MyChallenger,
     DomainSeparator<EF4, F>,
     ProverState<F, EF4, MyChallenger>,
     Witness<EF4, F, DenseMatrix<F>, DIGEST_ELEMS>,
 ) {
+    // Build ProtocolParameters from WhirConfig fields
+    let protocol_params = ProtocolParameters {
+        initial_statement: params.initial_statement,
+        security_level: params.security_level,
+        pow_bits: params.starting_folding_pow_bits,
+        folding_factor: params.folding_factor,
+        merkle_hash: params.merkle_hash.clone(),
+        merkle_compress: params.merkle_compress.clone(),
+        soundness_type: params.soundness_type,
+        starting_log_inv_rate: params.starting_log_inv_rate,
+        rs_domain_initial_reduction_factor: 1,
+        sumcheck_optimization: Default::default(),
+    };
+
+    // Create WhirProof structure from protocol parameters
+    let mut whir_proof = WhirProof::from_protocol_parameters(&protocol_params, poly.num_variables());
+
     // Create a new Fiat-Shamir domain separator.
     let mut domsep = DomainSeparator::new(vec![]);
 
@@ -102,15 +121,18 @@ fn setup_domain_and_commitment(
 
     let mut rng = SmallRng::seed_from_u64(1);
     let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-    let mut prover_challenger = challenger.clone();
 
     // Convert the domain separator into a mutable prover-side transcript.
     let mut prover_state = domsep.to_prover_state::<_>(challenger);
 
+    let mut rng = SmallRng::seed_from_u64(1);
+    let mut prover_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    domsep.observe_domain_separator(&mut prover_challenger);
+
     // Create a committer using the protocol configuration (Merkle parameters, hashers, etc.).
     let committer = CommitmentWriter::new(params);
 
-    let mut proof = WhirProof::<F, EF4, DIGEST_ELEMS>::default();
+    let mut proof = WhirProof::from_protocol_parameters(&protocol_params, poly.num_variables());
 
     // Perform DFT-based commitment to the polynomial, producing a witness
     // which includes the Merkle tree and polynomial values.
@@ -125,7 +147,7 @@ fn setup_domain_and_commitment(
         .unwrap();
 
     // Return all initialized components needed for round state setup.
-    (domsep, prover_state, witness)
+    (whir_proof, prover_challenger, domsep, prover_state, witness)
 }
 
 #[test]
@@ -146,7 +168,7 @@ fn test_no_initial_statement_no_sumcheck() {
     // - domain separator for Fiat-Shamir transcript,
     // - prover state,
     // - witness containing Merkle tree for `poly`.
-    let (_, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
+    let (_, _, _, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
 
     // Create an empty public statement (no constraints)
     let statement = EqStatement::<EF4>::initialize(num_variables);
@@ -219,12 +241,7 @@ fn test_initial_statement_with_folding_factor_3() {
     );
 
     // Set up the domain separator, prover state, and witness for this configuration
-    let (domsep, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
-    let mut rng = SmallRng::seed_from_u64(1);
-    let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-    domsep.observe_domain_separator(&mut challenger_rf);
-    // Initialize proof
-    let mut proof = WhirProof::<F, EF4, DIGEST_ELEMS>::default();
+    let (mut proof, mut challenger_rf,  domsep, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
 
     // Run the first round state initialization (this will trigger sumcheck)
     let state = RoundState::initialize_first_round_state(
@@ -288,10 +305,7 @@ fn test_zero_poly_multiple_constraints() {
     let poly = EvaluationsList::new(vec![F::ZERO; 1 << num_variables]);
 
     // Generate domain separator, prover state, and Merkle commitment witness for the poly
-    let (domsep, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
-    let mut rng = SmallRng::seed_from_u64(1);
-    let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-    domsep.observe_domain_separator(&mut challenger_rf);
+    let (mut proof, mut challenger_rf, domsep, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
 
     // Create a new statement with multiple constraints
     let mut statement = EqStatement::<EF4>::initialize(num_variables);
@@ -303,9 +317,6 @@ fn test_zero_poly_multiple_constraints() {
             .collect();
         statement.add_evaluated_constraint(MultilinearPoint::new(point), EF4::ZERO);
     }
-
-    // Initialize proof
-    let mut proof = WhirProof::<F, EF4, DIGEST_ELEMS>::default();
 
     // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
     let state = RoundState::initialize_first_round_state(
@@ -390,13 +401,8 @@ fn test_initialize_round_state_with_initial_statement() {
     );
 
     // Set up Fiat-Shamir domain and produce commitment + witness
-    let (domsep, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
-
-    // Initialize proof and challenger
-    let mut proof = WhirProof::<F, EF4, DIGEST_ELEMS>::default();
-    let mut rng = SmallRng::seed_from_u64(1);
-    let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-    domsep.observe_domain_separator(&mut challenger_rf);
+    // Generate domain separator, prover state, and Merkle commitment witness for the poly
+    let (mut proof, mut challenger_rf, domsep, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
 
     // Run the first round initialization
     let state = RoundState::initialize_first_round_state(
