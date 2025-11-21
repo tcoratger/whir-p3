@@ -156,7 +156,8 @@ where
         let (sumcheck_prover, folding_randomness) = if prover.initial_statement {
             // Branch A: Initial statement exists - run sumcheck for constraint batching
             let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
-            let constraint_rf =
+            // Temporary: to sync the refactoring fiat-shamir and the curent
+            let _constraint_rf =
                 Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
 
             // Choose sumcheck strategy based on configured optimization

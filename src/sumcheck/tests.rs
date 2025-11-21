@@ -54,15 +54,6 @@ fn domainsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
     (DomainSeparator::new(vec![]), challenger)
 }
 
-/// Constructs a fresh `ProverState` using a domain separator and challenger.
-fn prover() -> ProverState<F, EF, MyChallenger> {
-    // Create a domain separator and challenger using deterministic RNG
-    let (domsep, challenger) = domainsep_and_challenger();
-
-    // Use the domain separator to construct a new prover state with the given challenger
-    domsep.to_prover_state(challenger)
-}
-
 fn create_test_protocol_params(
     folding_factor: FoldingFactor,
     initial_statement: bool,

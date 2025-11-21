@@ -183,7 +183,6 @@ mod tests {
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
             constraints::{Constraint, statement::EqStatement},
-            parameters::WhirConfig,
             proof::WhirProof,
         },
     };
@@ -196,10 +195,15 @@ mod tests {
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
+    // Digest size matches MyCompress output size (the 3rd parameter of TruncatedPermutation)
+    const DIGEST_ELEMS: usize = 8;
+
     /// Constructs a default WHIR configuration for testing
-    fn default_whir_config(
+    fn create_proof_from_test_protocol_params(
         num_variables: usize,
-    ) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger> {
+        folding_factor: FoldingFactor,
+        sumcheck_optimization: SumcheckOptimization,
+    ) ->  WhirProof<F, EF4, DIGEST_ELEMS> {
         // Create hash and compression functions for the Merkle tree
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
@@ -213,17 +217,18 @@ mod tests {
             security_level: 32,
             pow_bits: 0,
             rs_domain_initial_reduction_factor: 1,
-            folding_factor: FoldingFactor::Constant(2),
+            folding_factor,
             merkle_hash,
             merkle_compress,
             soundness_type: SecurityAssumption::UniqueDecoding,
             starting_log_inv_rate: 1,
-            sumcheck_optimization: SumcheckOptimization::Classic,
+            sumcheck_optimization,
         };
 
         // Combine protocol and polynomial parameters into a single config
-        WhirConfig::new(num_variables, whir_params)
+        WhirProof::from_protocol_parameters(&whir_params, num_variables)
     }
+
 
     #[test]
     #[allow(clippy::too_many_lines)]
@@ -425,10 +430,7 @@ mod tests {
         }
 
         let mut rng = SmallRng::seed_from_u64(1);
-        let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-
-        // Initialize proof
-        let mut proof = WhirProof::<F, EF4, 8>::default();
+        let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
         // Convert to prover state
         let mut prover_state = domsep.to_prover_state(challenger.clone());
@@ -443,11 +445,16 @@ mod tests {
         // -------------------------------------------------------------
         // Construct prover with base coefficients
         // -------------------------------------------------------------
+        let mut proof = create_proof_from_test_protocol_params(NUM_VARS, FoldingFactor::Constant(5), SumcheckOptimization::UnivariateSkip);
+        let mut rng = SmallRng::seed_from_u64(1);
+        let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        domsep.observe_domain_separator(&mut challenger_rf);
+
         let (_, _) = SumcheckSingle::<F, EF4>::with_skip(
             &coeffs.to_evaluations(),
             &mut prover_state,
             &mut proof,
-            &mut challenger,
+            &mut challenger_rf,
             NUM_VARS,
             0,
             K_SKIP,

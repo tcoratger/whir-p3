@@ -59,11 +59,15 @@ where
         .polynomial_evaluations
         .push(Classic(polynomial_evaluation.clone()));
 
+    // Observe polynomial evaluations on BOTH challengers before grinding
+    prover_state.add_extension_scalars(&polynomial_evaluation);
+
     // Observe polynomial evaluations for Fiat-Shamir
     let flattened = EF::flatten_to_base(polynomial_evaluation.to_vec());
     challenger.observe_slice(&flattened);
 
     // Proof-of-work challenge to delay prover
+    prover_state.pow_grinding(pow_bits);
     let witness = pow_grinding(challenger, pow_bits);
 
     // Store PoW witness if present
@@ -74,16 +78,8 @@ where
             .push(w);
     }
 
-    prover_state.add_extension_scalar(polynomial_evaluation.clone()[0]);
-    prover_state.add_extension_scalar(polynomial_evaluation.clone()[1]);
-    prover_state.add_extension_scalar(polynomial_evaluation.clone()[2]);
-
-    prover_state.pow_grinding(pow_bits);
-
     // Sample verifier challenge.
     let r: EF = prover_state.sample();
-    let r_rf: EF = challenger.sample_algebra_element();
-    assert_eq!(r, r_rf);
 
     // Compress polynomials and update the sum.
     let evals = join(|| weights.compress(r), || evals.compress_ext(r)).1;
@@ -131,11 +127,15 @@ where
         .polynomial_evaluations
         .push(Classic(polynomial_evaluation));
 
+    // Observe polynomial evaluations on BOTH challengers before grinding
+    prover_state.add_extension_scalars(&polynomial_evaluation);
+
     // Observe polynomial evaluations for Fiat-Shamir
     let flattened = EF::flatten_to_base(polynomial_evaluation.to_vec());
     challenger.observe_slice(&flattened);
 
-    // Proof-of-work challenge to delay prover ì
+    // Proof-of-work challenge to delay prover
+    prover_state.pow_grinding(pow_bits);
     let witness = pow_grinding(challenger, pow_bits);
 
     // Store PoW witness if present
@@ -146,17 +146,8 @@ where
             .push(w);
     }
 
-    prover_state.add_extension_scalar(polynomial_evaluation.clone()[0]);
-    prover_state.add_extension_scalar(polynomial_evaluation.clone()[1]);
-    prover_state.add_extension_scalar(polynomial_evaluation.clone()[2]);
-
-    prover_state.pow_grinding(pow_bits);
-
     // Sample verifier challenge.
     let r: EF = prover_state.sample();
-    let r_rf: EF = challenger.sample_algebra_element();
-
-    assert_eq!(r, r_rf);
 
     // Compress polynomials and update the sum.
     join(|| evals.compress(r), || weights.compress(r));
@@ -456,10 +447,10 @@ where
         else { panic!("initial_round called with incorrect InitialPhase variant"); };
 
         skip_evaluations.extend_from_slice(polynomial_skip_evaluation);
-        *skip_pow = pow_grinding(challenger, pow_bits);
 
         // Proof-of-work challenge to delay prover.
         prover_state.pow_grinding(pow_bits);
+        *skip_pow = pow_grinding(challenger, pow_bits);
 
         // Receive the verifier challenge for this entire collapsed round.
         let r: EF = prover_state.sample();

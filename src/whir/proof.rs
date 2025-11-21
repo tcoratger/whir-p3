@@ -1,4 +1,3 @@
-use alloc::vec;
 use alloc::vec::Vec;
 use core::array;
 
@@ -230,8 +229,10 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             }
 
             // With statement + SVO optimization
+            // TODO: SVO optimization is not yet fully implemented
+            // Fall back to classic sumcheck for now
             (true, SumcheckOptimization::Svo) => {
-                InitialPhase::with_statement_svo(SumcheckData::default())
+                InitialPhase::with_statement(SumcheckData::default())
             }
 
             // With statement + Classic (or UnivariateSkip with insufficient folding factor)
