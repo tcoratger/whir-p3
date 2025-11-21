@@ -8,13 +8,14 @@ use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
-use crate::whir::proof::SumcheckRoundData::Classic;
-use crate::whir::proof::{InitialPhase, SumcheckData, WhirProof};
 use crate::{
     fiat_shamir::{grinding::pow_grinding, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
-    whir::constraints::{Constraint, statement::EqStatement},
+    whir::{
+        constraints::{Constraint, statement::EqStatement},
+        proof::{InitialPhase, SumcheckData, SumcheckRoundData::Classic, WhirProof},
+    },
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;
@@ -57,7 +58,7 @@ where
     // Store polynomial evaluations in proof
     sumcheck_data
         .polynomial_evaluations
-        .push(Classic(polynomial_evaluation.clone()));
+        .push(Classic(polynomial_evaluation));
 
     // Observe polynomial evaluations on BOTH challengers before grinding
     prover_state.add_extension_scalars(&polynomial_evaluation);
@@ -386,6 +387,7 @@ where
     /// - Initializes internal sumcheck state with weights and expected sum.
     /// - Applies first set of sumcheck rounds with univariate skip optimization.
     #[instrument(skip_all)]
+    #[allow(clippy::too_many_arguments)]
     pub fn with_skip<Challenger, const DIGEST_ELEMS: usize>(
         evals: &EvaluationsList<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
@@ -442,9 +444,11 @@ where
         let InitialPhase::WithStatementSkip {
             ref mut skip_evaluations,
             ref mut skip_pow,
-            ref mut sumcheck
+            ref mut sumcheck,
         } = proof.initial_phase
-        else { panic!("initial_round called with incorrect InitialPhase variant"); };
+        else {
+            panic!("initial_round called with incorrect InitialPhase variant");
+        };
 
         skip_evaluations.extend_from_slice(polynomial_skip_evaluation);
 
@@ -529,6 +533,7 @@ where
     /// - If `folding_factor > num_variables()`
     /// - If univariate skip is attempted with evaluations in the extension field.
     #[instrument(skip_all)]
+    #[allow(clippy::too_many_arguments)]
     pub fn compute_sumcheck_polynomials<Challenger, const DIGEST_ELEMS: usize>(
         &mut self,
         prover_state: &mut ProverState<F, EF, Challenger>,

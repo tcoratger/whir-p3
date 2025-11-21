@@ -183,7 +183,14 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
 
             let prover = Prover(&params);
             prover
-                .prove(&dft, &mut prover_state, statement.clone(), witness)
+                .prove(
+                    &dft,
+                    &mut prover_state,
+                    &mut proof,
+                    &mut challenger_clone,
+                    statement.clone(),
+                    witness,
+                )
                 .unwrap();
         });
     });

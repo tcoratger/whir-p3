@@ -203,7 +203,7 @@ mod tests {
         num_variables: usize,
         folding_factor: FoldingFactor,
         sumcheck_optimization: SumcheckOptimization,
-    ) ->  WhirProof<F, EF4, DIGEST_ELEMS> {
+    ) -> WhirProof<F, EF4, DIGEST_ELEMS> {
         // Create hash and compression functions for the Merkle tree
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
@@ -228,7 +228,6 @@ mod tests {
         // Combine protocol and polynomial parameters into a single config
         WhirProof::from_protocol_parameters(&whir_params, num_variables)
     }
-
 
     #[test]
     #[allow(clippy::too_many_lines)]
@@ -445,7 +444,11 @@ mod tests {
         // -------------------------------------------------------------
         // Construct prover with base coefficients
         // -------------------------------------------------------------
-        let mut proof = create_proof_from_test_protocol_params(NUM_VARS, FoldingFactor::Constant(5), SumcheckOptimization::UnivariateSkip);
+        let mut proof = create_proof_from_test_protocol_params(
+            NUM_VARS,
+            FoldingFactor::Constant(5),
+            SumcheckOptimization::UnivariateSkip,
+        );
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         domsep.observe_domain_separator(&mut challenger_rf);

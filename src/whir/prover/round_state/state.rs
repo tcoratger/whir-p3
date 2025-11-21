@@ -10,7 +10,6 @@ use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
 use tracing::instrument;
 
-use crate::whir::proof::WhirProof;
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{errors::FiatShamirError, prover::ProverState},
@@ -20,6 +19,7 @@ use crate::{
         committer::{RoundMerkleTree, Witness},
         constraints::{Constraint, statement::EqStatement},
         parameters::SumcheckOptimization,
+        proof::WhirProof,
         prover::Prover,
     },
 };

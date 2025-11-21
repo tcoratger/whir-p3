@@ -21,13 +21,13 @@ use super::{
     constraints::statement::EqStatement,
     parameters::{SumcheckOptimization, WhirConfig},
 };
-use crate::whir::proof::WhirProof;
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{errors::FiatShamirError, grinding::pow_grinding, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::{Constraint, statement::SelectStatement},
+        proof::WhirProof,
         utils::get_challenge_stir_queries,
     },
 };
@@ -174,7 +174,6 @@ where
             statement,
             witness,
         )?;
-
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {

@@ -257,9 +257,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             initial_pow_witness: None,
             initial_ood_answers: Vec::new(),
             initial_phase,
-            rounds: (0..num_rounds)
-                .map(|_| WhirRoundProof::default())
-                .collect(),
+            rounds: (0..num_rounds).map(|_| WhirRoundProof::default()).collect(),
             final_poly: None,
             final_pow_witness: F::default(),
             final_queries: Vec::with_capacity(num_queries),

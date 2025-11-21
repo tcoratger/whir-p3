@@ -76,8 +76,10 @@ pub fn make_whir_things(
     };
 
     // Create unified configuration combining protocol and polynomial parameters
-    let params =
-        WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params.clone());
+    let params = WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(
+        num_variables,
+        whir_params.clone(),
+    );
 
     // Define test polynomial: all coefficients = 1 for simple verification
     //

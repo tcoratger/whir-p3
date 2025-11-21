@@ -9,14 +9,12 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 
 use super::sumcheck_single::SumcheckSingle;
-use crate::parameters::ProtocolParameters;
-use crate::parameters::errors::SecurityAssumption;
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{
         domain_separator::DomainSeparator, prover::ProverState, verifier::VerifierState,
     },
-    parameters::FoldingFactor,
+    parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::{
@@ -25,11 +23,10 @@ use crate::{
             statement::{EqStatement, SelectStatement},
         },
         parameters::SumcheckOptimization,
-        proof::WhirProof,
+        proof::{WhirProof, WhirRoundProof},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
-use crate::whir::proof::WhirRoundProof;
 
 type F = BabyBear;
 type EF = BinomialExtensionField<BabyBear, 4>;
@@ -300,6 +297,7 @@ where
 /// - `folding_factors`: List of how many variables to fold per round.
 /// - `num_eqs`: Number of equality statements to apply at each stage.
 /// - `num_sels`: Number of select statements to apply at each stage.
+#[allow(clippy::too_many_lines)]
 fn run_sumcheck_test(
     num_vars: usize,
     folding_factor: FoldingFactor,
@@ -506,6 +504,7 @@ fn run_sumcheck_test(
 /// - `folding_factors`: List of how many variables to fold per round.
 /// - `num_eqs`: Number of equality statements to apply at each stage.
 /// - `num_sels`: Number of select statements to apply at each stage.
+#[allow(clippy::too_many_lines)]
 fn run_sumcheck_test_skips(
     num_vars: usize,
     folding_factor: FoldingFactor,
@@ -711,6 +710,7 @@ fn run_sumcheck_test_skips(
     assert_eq!(sum, final_folded_value * weights);
 }
 
+#[allow(clippy::too_many_lines)]
 fn run_sumcheck_test_svo(
     num_vars: usize,
     folding_factor: FoldingFactor,
@@ -792,7 +792,6 @@ fn run_sumcheck_test_svo(
     assert_eq!(num_vars_inter, final_rounds);
 
     // FINAL ROUND
-
     prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
         prover,
         &mut proof,
