@@ -361,9 +361,9 @@ where
             pow_bits,
         );
 
-        let subsequent_rounds = (1..folding_factor).map(|i| {
+        let subsequent_rounds = (1..folding_factor).map(|_| {
             round::<Challenger, F, EF>(
-                &mut proof.rounds[i].sumcheck,
+                sumcheck,
                 challenger,
                 prover_state,
                 &mut evals,
@@ -451,7 +451,7 @@ where
         let InitialPhase::WithStatementSkip {
             ref mut skip_evaluations,
             ref mut skip_pow,
-            ..
+            ref mut sumcheck
         } = proof.initial_phase
         else { panic!("initial_round called with incorrect InitialPhase variant"); };
 
@@ -484,9 +484,9 @@ where
 
         // Apply rest of sumcheck rounds
         let res = iter::once(r)
-            .chain((k_skip..folding_factor).map(|i| {
+            .chain((k_skip..folding_factor).map(|_| {
                 round(
-                    &mut proof.rounds[i].sumcheck,
+                    sumcheck,
                     challenger,
                     prover_state,
                     &mut evals,
