@@ -89,7 +89,7 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
         // Generate a large polynomial to use for this set of benchmarks.
         let poly = generate_poly(*num_vars);
 
-        // Keep the original folding schedule: fold half, then fold the rest
+        // Benchmark for the classic, round-by-round sumcheck
         let classic_folding_schedule = [*num_vars / 2, num_vars - (*num_vars / 2)];
 
         // Create parameters with a dummy folding factor (we'll use manual schedule)
