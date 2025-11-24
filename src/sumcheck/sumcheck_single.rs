@@ -72,12 +72,7 @@ where
     let witness = pow_grinding(challenger, pow_bits);
 
     // Store PoW witness if present
-    if let Some(w) = witness {
-        sumcheck_data
-            .pow_witnesses
-            .get_or_insert_with(Vec::new)
-            .push(w);
-    }
+    sumcheck_data.push_pow_witness(witness);
 
     // Sample verifier challenge.
     let r: EF = prover_state.sample();
@@ -140,12 +135,7 @@ where
     let witness = pow_grinding(challenger, pow_bits);
 
     // Store PoW witness if present
-    if let Some(w) = witness {
-        sumcheck_data
-            .pow_witnesses
-            .get_or_insert_with(Vec::new)
-            .push(w);
-    }
+    sumcheck_data.push_pow_witness(witness);
 
     // Sample verifier challenge.
     let r: EF = prover_state.sample();

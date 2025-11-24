@@ -199,6 +199,16 @@ pub struct SumcheckData<EF, F> {
     pub pow_witnesses: Option<Vec<F>>,
 }
 
+impl<EF, F> SumcheckData<EF, F> {
+    /// Appends a proof-of-work witness if one exists.
+    /// Automatically handles the initialization of the internal vector.
+    pub fn push_pow_witness(&mut self, witness: Option<F>) {
+        if let Some(w) = witness {
+            self.pow_witnesses.get_or_insert_with(Vec::new).push(w);
+        }
+    }
+}
+
 impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
     /// Create a new WhirProof from protocol parameters and configuration
     ///
