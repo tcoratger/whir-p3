@@ -45,7 +45,7 @@ fn create_test_protocol_params(
 }
 
 /// Helper to create a fresh domain separator and challenger for each benchmark iteration.
-fn setup_prover_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
+fn setup_domsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
     let mut rng = SmallRng::seed_from_u64(0);
     let perm = Perm::new_from_rng_128(&mut rng);
     let challenger = MyChallenger::new(perm);
