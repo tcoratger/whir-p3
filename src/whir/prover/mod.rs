@@ -16,11 +16,7 @@ use round_state::RoundState;
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
-use super::{
-    committer::Witness,
-    constraints::statement::EqStatement,
-    parameters::{InitialPhaseConfig, WhirConfig},
-};
+use super::{committer::Witness, constraints::statement::EqStatement, parameters::WhirConfig};
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::{errors::FiatShamirError, grinding::pow_grinding, prover::ProverState},
@@ -90,7 +86,7 @@ where
     /// `true` if the statement structure is valid for this protocol instance.
     const fn validate_statement(&self, statement: &EqStatement<EF>) -> bool {
         statement.num_variables() == self.0.num_variables
-            && (self.0.initial_phase_config.has_initial_statement() || statement.is_empty())
+            && (self.0.initial_phase.has_initial_statement() || statement.is_empty())
     }
 
     /// Validates that the witness satisfies the structural requirements of the WHIR prover.
@@ -113,7 +109,7 @@ where
         &self,
         witness: &Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> bool {
-        if !self.0.initial_phase_config.has_initial_statement() {
+        if !self.0.initial_phase.has_initial_statement() {
             assert!(witness.ood_statement.is_empty());
         }
         witness.polynomial.num_variables() == self.0.num_variables
@@ -329,10 +325,7 @@ where
 
                 // Determine if this is the special first round where the univariate skip is applied.
                 let is_skip_round = round_index == 0
-                    && matches!(
-                        self.initial_phase_config,
-                        InitialPhaseConfig::WithStatementUnivariateSkip
-                    )
+                    && self.initial_phase.is_univariate_skip()
                     && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
                 // Process each set of evaluations retrieved from the Merkle tree openings.

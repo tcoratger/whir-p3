@@ -185,8 +185,9 @@ mod tests {
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
         whir::{
-            DomainSeparator, committer::writer::CommitmentWriter, parameters::InitialPhaseConfig,
-            proof::WhirProof,
+            DomainSeparator,
+            committer::writer::CommitmentWriter,
+            proof::{InitialPhase, SumcheckData, WhirProof},
         },
     };
 
@@ -220,8 +221,8 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         // Define core protocol parameters for WHIR.
-        let whir_params = ProtocolParameters {
-            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+        let whir_params: ProtocolParameters<_, _, EF, F> = ProtocolParameters {
+            initial_phase: InitialPhase::with_statement(SumcheckData::default()),
             security_level: 100,
             pow_bits: 10,
             rs_domain_initial_reduction_factor: 1,

@@ -7,7 +7,10 @@ use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
-use parameters::{InitialPhaseConfig, WhirConfig};
+use parameters::WhirConfig;
+use proof::InitialPhase;
+#[cfg(test)]
+use proof::SumcheckData;
 use prover::Prover;
 use rand::{SeedableRng, rngs::SmallRng};
 use verifier::Verifier;
@@ -44,7 +47,7 @@ pub fn make_whir_things(
     soundness_type: SecurityAssumption,
     pow_bits: usize,
     rs_domain_initial_reduction_factor: usize,
-    initial_phase_config: InitialPhaseConfig,
+    initial_phase: InitialPhase<EF, F>,
 ) {
     // Calculate polynomial size: 2^num_variables coefficients for multilinear polynomial
     let num_coeffs = 1 << num_variables;
@@ -62,7 +65,7 @@ pub fn make_whir_things(
 
     // Configure WHIR protocol with all security and performance parameters
     let whir_params = ProtocolParameters {
-        initial_phase_config,
+        initial_phase,
         security_level: 32,
         pow_bits,
         rs_domain_initial_reduction_factor,
@@ -226,7 +229,7 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    InitialPhaseConfig::WithStatementClassic,
+                                    InitialPhase::with_statement(SumcheckData::default()),
                                 );
                             }
                         }
@@ -274,7 +277,11 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    InitialPhaseConfig::WithStatementUnivariateSkip,
+                                    InitialPhase::with_statement_skip(
+                                        Vec::new(),
+                                        None,
+                                        SumcheckData::default(),
+                                    ),
                                 );
                             }
                         }
@@ -322,7 +329,7 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    InitialPhaseConfig::WithStatementSvo,
+                                    InitialPhase::with_statement_svo(SumcheckData::default()),
                                 );
                             }
                         }
@@ -361,7 +368,7 @@ mod tests {
                             soundness_type,
                             pow_bits,
                             rs_reduction_factor,
-                            InitialPhaseConfig::WithoutStatement,
+                            InitialPhase::without_statement(),
                         );
                     }
                 }

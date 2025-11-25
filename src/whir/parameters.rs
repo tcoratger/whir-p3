@@ -4,58 +4,8 @@ use core::{f64::consts::LOG2_10, marker::PhantomData};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
+use super::proof::InitialPhase;
 use crate::parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption};
-
-/// Configuration for the initial phase of the WHIR protocol.
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InitialPhaseConfig {
-    /// Protocol with statement using classic sumcheck (no optimization).
-    ///
-    /// This is the standard baseline implementation where the prover proves
-    /// both polynomial commitment validity and evaluation statements.
-    #[default]
-    WithStatementClassic,
-
-    /// Protocol with statement using univariate skip optimization.
-    ///
-    /// Uses the univariate skip optimization from <https://eprint.iacr.org/2024/108>
-    /// to skip the first k variables in the sumcheck by using a univariate representation.
-    WithStatementUnivariateSkip,
-
-    /// Protocol with statement using Small Value Optimization (SVO).
-    ///
-    /// Uses SVO from Algorithm 6 of <https://eprint.iacr.org/2025/1117> with
-    /// specialized accumulators for the first three rounds to reduce prover work.
-    ///
-    /// TODO: Full SVO implementation is not yet complete in the codebase.
-    WithStatementSvo,
-
-    /// Protocol without statement (direct folding).
-    ///
-    /// The commitment proves only that it is a valid low-degree polynomial,
-    /// without any additional evaluation statements.
-    WithoutStatement,
-}
-
-impl InitialPhaseConfig {
-    /// Returns `true` if this configuration includes an initial statement.
-    #[must_use]
-    pub const fn has_initial_statement(&self) -> bool {
-        !matches!(self, Self::WithoutStatement)
-    }
-
-    /// Returns `true` if univariate skip optimization is enabled.
-    #[must_use]
-    pub const fn is_univariate_skip(&self) -> bool {
-        matches!(self, Self::WithStatementUnivariateSkip)
-    }
-
-    /// Returns `true` if SVO optimization is enabled.
-    #[must_use]
-    pub const fn is_svo(&self) -> bool {
-        matches!(self, Self::WithStatementSvo)
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct RoundConfig<F> {
@@ -88,7 +38,10 @@ where
     /// 1. The commitment is a valid low degree polynomial (WithoutStatement).
     /// 2. The commitment is a valid folded polynomial, and an additional polynomial evaluation
     ///    statement (any of the WithStatement* variants).
-    pub initial_phase_config: InitialPhaseConfig,
+    ///
+    /// The `InitialPhase` enum serves as both configuration (variant selection) and
+    /// can hold proof data during proof generation.
+    pub initial_phase: InitialPhase<EF, F>,
     pub starting_log_inv_rate: usize,
     pub starting_folding_pow_bits: usize,
 
@@ -118,7 +71,10 @@ where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     #[allow(clippy::too_many_lines)]
-    pub fn new(num_variables: usize, whir_parameters: ProtocolParameters<Hash, C>) -> Self {
+    pub fn new<EF2, F2>(
+        num_variables: usize,
+        whir_parameters: ProtocolParameters<Hash, C, EF2, F2>,
+    ) -> Self {
         // We need to store the initial number of variables for the final composition.
         let initial_num_variables = num_variables;
         whir_parameters
@@ -157,7 +113,10 @@ where
             .folding_factor
             .compute_number_of_rounds(num_variables);
 
-        let has_initial_statement = whir_parameters.initial_phase_config.has_initial_statement();
+        let has_initial_statement = whir_parameters.initial_phase.has_initial_statement();
+
+        // Convert the incoming InitialPhase to the target field types
+        let initial_phase = InitialPhase::from_config(&whir_parameters.initial_phase);
 
         let commitment_ood_samples = if has_initial_statement {
             whir_parameters.soundness_type.determine_ood_samples(
@@ -275,7 +234,7 @@ where
         Self {
             security_level: whir_parameters.security_level,
             max_pow_bits: whir_parameters.pow_bits,
-            initial_phase_config: whir_parameters.initial_phase_config,
+            initial_phase,
             commitment_ood_samples,
             num_variables: initial_num_variables,
             soundness_type: whir_parameters.soundness_type,
@@ -502,6 +461,7 @@ mod tests {
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 
     use super::*;
+    use crate::whir::proof::SumcheckData;
 
     type F = BabyBear;
     type Poseidon2Compression<Perm16> = TruncatedPermutation<Perm16, 2, 8, 16>;
@@ -510,10 +470,10 @@ mod tests {
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
     /// Generates default WHIR parameters
-    const fn default_whir_params()
-    -> ProtocolParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
+    fn default_whir_params()
+    -> ProtocolParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>, F, F> {
         ProtocolParameters {
-            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+            initial_phase: InitialPhase::with_statement(SumcheckData::default()),
             security_level: 100,
             pow_bits: 20,
             rs_domain_initial_reduction_factor: 1,
@@ -537,7 +497,7 @@ mod tests {
         assert_eq!(config.security_level, 100);
         assert_eq!(config.max_pow_bits, 20);
         assert_eq!(config.soundness_type, SecurityAssumption::CapacityBound);
-        assert!(config.initial_phase_config.has_initial_statement());
+        assert!(config.initial_phase.has_initial_statement());
     }
 
     #[test]

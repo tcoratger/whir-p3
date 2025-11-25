@@ -10,7 +10,7 @@ use crate::{
     fiat_shamir::verifier::VerifierState,
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
-    whir::{parameters::InitialPhaseConfig, verifier::VerifierError},
+    whir::{proof::InitialPhase, verifier::VerifierError},
 };
 
 /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
@@ -36,17 +36,17 @@ use crate::{
 /// - `verifier_state`: The verifier's Fiat–Shamir transcript state.
 /// - `rounds`: Total number of variables being folded.
 /// - `pow_bits`: Optional proof-of-work difficulty (0 disables PoW).
-/// - `initial_phase_config`: The initial phase configuration which determines optimization strategy.
+/// - `initial_phase`: The initial phase which determines optimization strategy.
 ///
 /// # Returns
 ///
 /// - A `MultilinearPoint` of folding randomness values in reverse order.
-pub(crate) fn verify_sumcheck_rounds<EF, F, Challenger>(
+pub(crate) fn verify_sumcheck_rounds<EF, F, EF2, F2, Challenger>(
     verifier_state: &mut VerifierState<F, EF, Challenger>,
     claimed_sum: &mut EF,
     rounds: usize,
     pow_bits: usize,
-    initial_phase_config: InitialPhaseConfig,
+    initial_phase: &InitialPhase<EF2, F2>,
 ) -> Result<MultilinearPoint<EF>, VerifierError>
 where
     F: TwoAdicField,
@@ -56,7 +56,8 @@ where
     // Calculate how many `(poly, rand)` pairs to expect based on optimization strategy
     //
     // If using univariate skip: we do 1 large round for the skip, and the remaining normally
-    let is_univariate_skip = initial_phase_config.is_univariate_skip();
+    // Note: SVO falls back to classic behavior since it's not yet fully implemented
+    let is_univariate_skip = initial_phase.is_univariate_skip();
     let effective_rounds = if is_univariate_skip && (rounds >= K_SKIP_SUMCHECK) {
         1 + (rounds - K_SKIP_SUMCHECK)
     } else {
@@ -110,34 +111,34 @@ where
         0
     };
 
+    // Check if SVO is being used (note: SVO currently falls back to classic in the prover)
+    let is_svo = initial_phase.is_svo();
+
     for i in start_round..rounds {
         // Extract polynomial evaluations based on optimization mode
-        let (c0, c1, c2) = match initial_phase_config {
-            InitialPhaseConfig::WithStatementSvo => {
-                // SVO: Read only c0 and c2, derive c1 from claimed_sum
-                let c0 = verifier_state.next_extension_scalar()?;
-                let c1 = *claimed_sum - c0;
-                let c2 = verifier_state.next_extension_scalar()?;
-                (c0, c1, c2)
-            }
-            InitialPhaseConfig::WithStatementClassic
-            | InitialPhaseConfig::WithStatementUnivariateSkip
-            | InitialPhaseConfig::WithoutStatement => {
-                // Classic/UnivariateSkip/WithoutStatement: Read all three values and verify sum
-                let c0 = verifier_state.next_extension_scalar()?;
-                let c1 = verifier_state.next_extension_scalar()?;
-                let c2 = verifier_state.next_extension_scalar()?;
+        // First coefficient is always read the same way
+        let c0 = verifier_state.next_extension_scalar()?;
 
-                // Verify that the sum matches
-                if *claimed_sum != c0 + c1 {
-                    return Err(VerifierError::SumcheckFailed {
-                        round: i,
-                        expected: claimed_sum.to_string(),
-                        actual: (c0 + c1).to_string(),
-                    });
-                }
-                (c0, c1, c2)
+        let (c1, c2) = if is_svo {
+            // SVO: Derive c1 from claimed_sum, then read c2
+            // Note: SVO currently falls back to classic in prover, so this branch won't be hit
+            let c1 = *claimed_sum - c0;
+            let c2 = verifier_state.next_extension_scalar()?;
+            (c1, c2)
+        } else {
+            // Classic/UnivariateSkip/WithoutStatement: Read c1 and c2, then verify sum
+            let c1 = verifier_state.next_extension_scalar()?;
+            let c2 = verifier_state.next_extension_scalar()?;
+
+            // Verify that the sum matches
+            if *claimed_sum != c0 + c1 {
+                return Err(VerifierError::SumcheckFailed {
+                    round: i,
+                    expected: claimed_sum.to_string(),
+                    actual: (c0 + c1).to_string(),
+                });
             }
+            (c1, c2)
         };
 
         // Optional PoW interaction (grinding resistance)
@@ -147,18 +148,13 @@ where
         let rand: EF = verifier_state.sample();
 
         // Update claimed sum using the appropriate formula
-        match initial_phase_config {
-            InitialPhaseConfig::WithStatementSvo => {
-                // SVO formula: c2 * r² + (c1 - c0 - c2) * r + c0
-                *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
-            }
-            InitialPhaseConfig::WithStatementClassic
-            | InitialPhaseConfig::WithStatementUnivariateSkip
-            | InitialPhaseConfig::WithoutStatement => {
-                // Classic/UnivariateSkip formula: use SumcheckPolynomial evaluation
-                *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
-                    .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
-            }
+        if is_svo {
+            // SVO formula: c2 * r² + (c1 - c0 - c2) * r + c0
+            *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
+        } else {
+            // Classic/UnivariateSkip formula: use SumcheckPolynomial evaluation
+            *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
+                .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
         }
 
         // Store this round's randomness
@@ -187,8 +183,7 @@ mod tests {
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
             constraints::{Constraint, statement::EqStatement},
-            parameters::InitialPhaseConfig,
-            proof::WhirProof,
+            proof::{InitialPhase, SumcheckData, WhirProof},
         },
     };
 
@@ -207,7 +202,7 @@ mod tests {
     fn create_proof_from_test_protocol_params(
         num_variables: usize,
         folding_factor: FoldingFactor,
-        initial_phase_config: InitialPhaseConfig,
+        initial_phase: InitialPhase<EF4, F>,
     ) -> WhirProof<F, EF4, DIGEST_ELEMS> {
         // Create hash and compression functions for the Merkle tree
         let mut rng = SmallRng::seed_from_u64(1);
@@ -218,7 +213,7 @@ mod tests {
 
         // Construct WHIR protocol parameters
         let whir_params = ProtocolParameters {
-            initial_phase_config,
+            initial_phase,
             security_level: 32,
             pow_bits: 0,
             rs_domain_initial_reduction_factor: 1,
@@ -306,8 +301,8 @@ mod tests {
 
         let constraint = Constraint::new_eq_only(EF4::ONE, statement.clone());
 
-        // Initialize proof and challenger
-        let mut proof = WhirProof::<F, EF4, 8>::default();
+        // Initialize sumcheck data and challenger
+        let mut sumcheck_data = SumcheckData::<EF4, F>::default();
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         domsep.observe_domain_separator(&mut challenger_rf);
@@ -316,7 +311,7 @@ mod tests {
         let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals(
             &coeffs.to_evaluations(),
             &mut prover_state,
-            &mut proof,
+            &mut sumcheck_data,
             &mut challenger_rf,
             folding_factor,
             pow_bits,
@@ -360,12 +355,14 @@ mod tests {
         let mut verifier_state =
             domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
+        let classic_phase: InitialPhase<EF4, F> =
+            InitialPhase::with_statement(SumcheckData::default());
         let randomness = verify_sumcheck_rounds(
             &mut verifier_state,
             &mut expected_initial_sum,
             folding_factor,
             pow_bits,
-            InitialPhaseConfig::WithStatementClassic,
+            &classic_phase,
         )
         .unwrap();
 
@@ -448,11 +445,10 @@ mod tests {
         // -------------------------------------------------------------
         // Construct prover with base coefficients
         // -------------------------------------------------------------
-        let mut proof = create_proof_from_test_protocol_params(
-            NUM_VARS,
-            FoldingFactor::Constant(5),
-            InitialPhaseConfig::WithStatementUnivariateSkip,
-        );
+        let mut skip_evaluations: Vec<EF4> = Vec::new();
+        let mut skip_pow: Option<F> = None;
+        let mut sumcheck_data = SumcheckData::<EF4, F>::default();
+
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         domsep.observe_domain_separator(&mut challenger_rf);
@@ -460,7 +456,9 @@ mod tests {
         let (_, _) = SumcheckSingle::<F, EF4>::with_skip(
             &coeffs.to_evaluations(),
             &mut prover_state,
-            &mut proof,
+            &mut skip_evaluations,
+            &mut skip_pow,
+            &mut sumcheck_data,
             &mut challenger_rf,
             NUM_VARS,
             0,
@@ -503,12 +501,14 @@ mod tests {
         // -------------------------------------------------------------
         let mut verifier_state =
             domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+        let skip_phase: InitialPhase<EF4, F> =
+            InitialPhase::with_statement_skip(Vec::new(), None, SumcheckData::default());
         let randomness = verify_sumcheck_rounds(
             &mut verifier_state,
             &mut expected_sum,
             NUM_VARS,
             0,
-            InitialPhaseConfig::WithStatementUnivariateSkip,
+            &skip_phase,
         )
         .unwrap();
 
@@ -610,12 +610,14 @@ mod tests {
         let mut verifier_state =
             domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
+        let svo_phase: InitialPhase<EF4, F> =
+            InitialPhase::with_statement_svo(SumcheckData::default());
         let randomness = verify_sumcheck_rounds(
             &mut verifier_state,
             &mut expected_initial_sum,
             folding_factor,
             pow_bits,
-            InitialPhaseConfig::WithStatementSvo,
+            &svo_phase,
         )
         .unwrap();
 

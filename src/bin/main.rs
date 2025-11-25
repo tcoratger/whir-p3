@@ -21,8 +21,8 @@ use whir_p3::{
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         constraints::statement::EqStatement,
-        parameters::{InitialPhaseConfig, WhirConfig},
-        proof::WhirProof,
+        parameters::WhirConfig,
+        proof::{InitialPhase, SumcheckData, WhirProof},
         prover::Prover,
         verifier::Verifier,
     },
@@ -113,8 +113,8 @@ fn main() {
     let num_coeffs = 1 << num_variables;
 
     // Construct WHIR protocol parameters
-    let whir_params = ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+    let whir_params: ProtocolParameters<_, _, EF, F> = ProtocolParameters {
+        initial_phase: InitialPhase::with_statement(SumcheckData::default()),
         security_level,
         pow_bits,
         folding_factor,

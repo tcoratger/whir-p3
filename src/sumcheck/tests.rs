@@ -22,8 +22,7 @@ use crate::{
             evaluator::ConstraintPolyEvaluator,
             statement::{EqStatement, SelectStatement},
         },
-        parameters::InitialPhaseConfig,
-        proof::{WhirProof, WhirRoundProof},
+        proof::{InitialPhase, SumcheckData, WhirProof, WhirRoundProof},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -53,13 +52,13 @@ fn domainsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
 
 fn create_test_protocol_params(
     folding_factor: FoldingFactor,
-    initial_phase_config: InitialPhaseConfig,
-) -> ProtocolParameters<MyHash, MyCompress> {
+    initial_phase: InitialPhase<EF, F>,
+) -> ProtocolParameters<MyHash, MyCompress, EF, F> {
     let mut rng = SmallRng::seed_from_u64(1);
     let perm = Perm::new_from_rng_128(&mut rng);
 
     ProtocolParameters {
-        initial_phase_config,
+        initial_phase,
         security_level: 32,
         pow_bits: 0,
         rs_domain_initial_reduction_factor: 1,
@@ -330,8 +329,10 @@ fn run_sumcheck_test(
     let prover = &mut domsep.to_prover_state(challenger_for_prover);
 
     // Initialize proof and challenger
-    let params =
-        create_test_protocol_params(folding_factor, InitialPhaseConfig::WithStatementClassic);
+    let params = create_test_protocol_params(
+        folding_factor,
+        InitialPhase::with_statement(SumcheckData::default()),
+    );
     let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, num_vars);
     let mut rng = SmallRng::seed_from_u64(1);
     let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
@@ -349,15 +350,24 @@ fn run_sumcheck_test(
 
     // ROUND 0
     let folding0 = folding_factor.at_round(0);
-    let (mut sumcheck, mut prover_randomness) = SumcheckSingle::from_base_evals(
+
+    // Extract mutable reference to sumcheck data from proof
+    let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
+        panic!("Test requires InitialPhase::WithStatement");
+    };
+
+    let (mut sumcheck_prover, mut prover_randomness) = SumcheckSingle::from_base_evals(
         &poly,
         prover,
-        &mut proof,
+        sumcheck,
         &mut challenger_rf,
         folding0,
         0,
         &constraint,
     );
+
+    // Rebind variable name for subsequent use
+    let sumcheck = &mut sumcheck_prover;
 
     // Track how many variables remain to fold
     let mut num_vars_inter = num_vars - folding0;
@@ -454,30 +464,18 @@ fn run_sumcheck_test(
 
         // Extend r with verifier's folding challenges
         let folding = folding_factor.at_round(round_idx);
+        let classic_phase: InitialPhase<EF, F> = InitialPhase::default();
         verifier_randomness.extend(
-            &verify_sumcheck_rounds(
-                verifier,
-                &mut sum,
-                folding,
-                0,
-                InitialPhaseConfig::WithStatementClassic,
-            )
-            .unwrap(),
+            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, &classic_phase).unwrap(),
         );
 
         num_vars_inter -= folding;
     }
 
     // Final round check
+    let classic_phase: InitialPhase<EF, F> = InitialPhase::default();
     verifier_randomness.extend(
-        &verify_sumcheck_rounds(
-            verifier,
-            &mut sum,
-            final_rounds,
-            0,
-            InitialPhaseConfig::WithStatementClassic,
-        )
-        .unwrap(),
+        &verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, &classic_phase).unwrap(),
     );
 
     // Check that the randomness vectors are the same
@@ -542,7 +540,7 @@ fn run_sumcheck_test_skips(
     // Initialize proof and challenger
     let params = create_test_protocol_params(
         folding_factor,
-        InitialPhaseConfig::WithStatementUnivariateSkip,
+        InitialPhase::with_statement_skip(Vec::new(), None, SumcheckData::default()),
     );
     let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, num_vars);
     let mut rng = SmallRng::seed_from_u64(1);
@@ -563,16 +561,32 @@ fn run_sumcheck_test_skips(
     // ROUND 0
     // Initialize sumcheck with univariate skip (skips K_SKIP_SUMCHECK)
     let folding0 = folding_factor.at_round(0);
-    let (mut sumcheck, mut prover_randomness) = SumcheckSingle::with_skip(
+
+    // Extract mutable references to skip-specific fields from proof
+    let InitialPhase::WithStatementSkip {
+        ref mut skip_evaluations,
+        ref mut skip_pow,
+        ref mut sumcheck,
+    } = proof.initial_phase
+    else {
+        panic!("Test requires InitialPhase::WithStatementSkip");
+    };
+
+    let (mut sumcheck_prover, mut prover_randomness) = SumcheckSingle::with_skip(
         &poly,
         prover,
-        &mut proof,
+        skip_evaluations,
+        skip_pow,
+        sumcheck,
         &mut challenger_rf,
         folding0,
         0,
         K_SKIP_SUMCHECK,
         &constraint,
     );
+
+    // Rebind variable name for subsequent use
+    let sumcheck = &mut sumcheck_prover;
 
     // Track how many variables remain after folding
     let mut num_vars_inter = num_vars - folding0;
@@ -680,29 +694,23 @@ fn run_sumcheck_test_skips(
         // Extend r with verifier's folding randomness
         //
         // The skip optimization is only applied to the first round.
-        let initial_phase = if round_idx == 0 {
-            InitialPhaseConfig::WithStatementUnivariateSkip
+        let initial_phase: InitialPhase<EF, F> = if round_idx == 0 {
+            InitialPhase::with_statement_skip(Vec::new(), None, SumcheckData::default())
         } else {
-            InitialPhaseConfig::WithStatementClassic
+            InitialPhase::default()
         };
         let folding = folding_factor.at_round(round_idx);
         verifier_randomness.extend(
-            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, initial_phase).unwrap(),
+            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, &initial_phase).unwrap(),
         );
 
         num_vars_inter -= folding;
     }
 
     // FINAL FOLDING
+    let classic_phase: InitialPhase<EF, F> = InitialPhase::default();
     verifier_randomness.extend(
-        &verify_sumcheck_rounds(
-            verifier,
-            &mut sum,
-            final_rounds,
-            0,
-            InitialPhaseConfig::WithStatementClassic,
-        )
-        .unwrap(),
+        &verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, &classic_phase).unwrap(),
     );
 
     // Check that the randomness vectors are the same
@@ -747,7 +755,10 @@ fn run_sumcheck_test_svo(
     let prover = &mut domsep.to_prover_state(challenger_for_prover);
 
     // Initialize proof and challenger
-    let params = create_test_protocol_params(folding_factor, InitialPhaseConfig::WithStatementSvo);
+    let params = create_test_protocol_params(
+        folding_factor,
+        InitialPhase::with_statement_svo(SumcheckData::default()),
+    );
     let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, num_vars);
     let mut rng = SmallRng::seed_from_u64(1);
     let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
@@ -861,31 +872,18 @@ fn run_sumcheck_test_svo(
 
         // Extend r with verifier's folding challenges
         let folding = folding_factor.at_round(round_idx);
-        verifier_randomness.extend(
-            &verify_sumcheck_rounds(
-                verifier,
-                &mut sum,
-                folding,
-                0,
-                InitialPhaseConfig::WithStatementSvo,
-            )
-            .unwrap(),
-        );
+        let svo_phase: InitialPhase<EF, F> =
+            InitialPhase::with_statement_svo(SumcheckData::default());
+        verifier_randomness
+            .extend(&verify_sumcheck_rounds(verifier, &mut sum, folding, 0, &svo_phase).unwrap());
 
         num_vars_inter -= folding;
     }
 
     // Final round check
-    verifier_randomness.extend(
-        &verify_sumcheck_rounds(
-            verifier,
-            &mut sum,
-            final_rounds,
-            0,
-            InitialPhaseConfig::WithStatementSvo,
-        )
-        .unwrap(),
-    );
+    let svo_phase: InitialPhase<EF, F> = InitialPhase::with_statement_svo(SumcheckData::default());
+    verifier_randomness
+        .extend(&verify_sumcheck_rounds(verifier, &mut sum, final_rounds, 0, &svo_phase).unwrap());
 
     // Check that the randomness vectors are the same
     assert_eq!(prover_randomness, verifier_randomness);

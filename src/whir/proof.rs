@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     constant::K_SKIP_SUMCHECK, parameters::ProtocolParameters, poly::evals::EvaluationsList,
-    whir::parameters::InitialPhaseConfig,
 };
 
 /// Complete WHIR proof
@@ -222,17 +221,17 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
     ///
     /// # Returns
     /// A new `WhirProof` with pre-allocated vectors sized according to the protocol parameters
-    pub fn from_protocol_parameters<H, C>(
-        params: &ProtocolParameters<H, C>,
+    pub fn from_protocol_parameters<H, C, EF2, F2>(
+        params: &ProtocolParameters<H, C, EF2, F2>,
         num_variables: usize,
     ) -> Self {
-        // Determine which initial phase variant based on protocol configuration
-        let initial_phase = match params.initial_phase_config {
+        // Clone the initial phase configuration, resetting internal data to defaults
+        let initial_phase = match &params.initial_phase {
             // No initial statement: direct folding path
-            InitialPhaseConfig::WithoutStatement => InitialPhase::without_statement(),
+            InitialPhase::WithoutStatement => InitialPhase::without_statement(),
 
             // With statement + UnivariateSkip optimization
-            InitialPhaseConfig::WithStatementUnivariateSkip
+            InitialPhase::WithStatementSkip { .. }
                 if K_SKIP_SUMCHECK <= params.folding_factor.at_round(0) =>
             {
                 InitialPhase::with_statement_skip(Vec::new(), None, SumcheckData::default())
@@ -241,7 +240,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             // With statement + SVO optimization
             // TODO: SVO optimization is not yet fully implemented
             // Fall back to classic sumcheck for now
-            InitialPhaseConfig::WithStatementSvo => {
+            InitialPhase::WithStatementSvo { .. } => {
                 InitialPhase::with_statement(SumcheckData::default())
             }
 
@@ -307,6 +306,22 @@ impl<F: Clone, EF, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
     }
 }
 
+impl<EF: Default, F: Default> InitialPhase<EF, F> {
+    #[must_use]
+    pub fn from_config<EF2, F2>(config: &InitialPhase<EF2, F2>) -> Self {
+        match config {
+            InitialPhase::WithStatementSkip { .. } => {
+                Self::with_statement_skip(Vec::new(), None, SumcheckData::default())
+            }
+            InitialPhase::WithStatementSvo { .. } => {
+                Self::with_statement_svo(SumcheckData::default())
+            }
+            InitialPhase::WithStatement { .. } => Self::with_statement(SumcheckData::default()),
+            InitialPhase::WithoutStatement => Self::without_statement(),
+        }
+    }
+}
+
 impl<EF, F> InitialPhase<EF, F> {
     /// Create initial phase with statement and skip optimization
     pub const fn with_statement_skip(
@@ -338,6 +353,58 @@ impl<EF, F> InitialPhase<EF, F> {
     pub const fn without_statement() -> Self {
         Self::WithoutStatement
     }
+
+    /// Returns `true` if this configuration includes an initial statement.
+    ///
+    /// All variants except `WithoutStatement` include an initial statement.
+    #[must_use]
+    pub const fn has_initial_statement(&self) -> bool {
+        !matches!(self, Self::WithoutStatement)
+    }
+
+    /// Returns `true` if univariate skip optimization is enabled.
+    #[must_use]
+    pub const fn is_univariate_skip(&self) -> bool {
+        matches!(self, Self::WithStatementSkip { .. })
+    }
+
+    /// Returns `true` if SVO optimization is enabled.
+    #[must_use]
+    pub const fn is_svo(&self) -> bool {
+        matches!(self, Self::WithStatementSvo { .. })
+    }
+
+    /// Returns `true` if classic sumcheck (no optimization) is used.
+    #[must_use]
+    pub const fn is_classic(&self) -> bool {
+        matches!(self, Self::WithStatement { .. })
+    }
+
+    /// Returns a mutable reference to the sumcheck data, if this variant has one.
+    ///
+    /// Returns `None` for `WithoutStatement`.
+    #[must_use]
+    pub const fn sumcheck_data_mut(&mut self) -> Option<&mut SumcheckData<EF, F>> {
+        match self {
+            Self::WithStatementSkip { sumcheck, .. }
+            | Self::WithStatementSvo { sumcheck }
+            | Self::WithStatement { sumcheck } => Some(sumcheck),
+            Self::WithoutStatement => None,
+        }
+    }
+
+    /// Returns a reference to the sumcheck data, if this variant has one.
+    ///
+    /// Returns `None` for `WithoutStatement`.
+    #[must_use]
+    pub const fn sumcheck_data(&self) -> Option<&SumcheckData<EF, F>> {
+        match self {
+            Self::WithStatementSkip { sumcheck, .. }
+            | Self::WithStatementSvo { sumcheck }
+            | Self::WithStatement { sumcheck } => Some(sumcheck),
+            Self::WithoutStatement => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -350,7 +417,7 @@ mod tests {
     use rand::SeedableRng;
 
     use super::*;
-    use crate::parameters::{FoldingFactor, errors::SecurityAssumption};
+    use crate::parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption};
 
     /// Type alias for the base field used in tests
     type F = BabyBear;
@@ -376,20 +443,20 @@ mod tests {
     /// for testing different proof initialization scenarios.
     ///
     /// # Parameters
-    /// - `initial_phase_config`: Configuration for the initial phase
+    /// - `initial_phase`: Configuration for the initial phase
     /// - `folding_factor`: The folding strategy for the protocol
     ///
     /// # Returns
     /// A `ProtocolParameters` instance configured for testing
     fn create_test_params(
-        initial_phase_config: InitialPhaseConfig,
+        initial_phase: InitialPhase<EF, F>,
         folding_factor: FoldingFactor,
-    ) -> ProtocolParameters<MyHash, MyCompress> {
+    ) -> ProtocolParameters<MyHash, MyCompress, EF, F> {
         // Create the permutation for hash and compress
         let perm = Perm::new_from_rng_128(&mut rand::rngs::SmallRng::seed_from_u64(42));
 
         ProtocolParameters {
-            initial_phase_config,
+            initial_phase,
             starting_log_inv_rate: 2,
             rs_domain_initial_reduction_factor: 1,
             folding_factor,
@@ -411,13 +478,14 @@ mod tests {
         let folding_factor = FoldingFactor::Constant(folding_factor_value);
 
         // Enable univariate skip optimization
-        let initial_phase_config = InitialPhaseConfig::WithStatementUnivariateSkip;
+        let initial_phase =
+            InitialPhase::with_statement_skip(Vec::new(), None, SumcheckData::default());
 
         // Use 20 variables for testing
         let num_variables = 20;
 
         // Create protocol parameters with univariate skip enabled
-        let params = create_test_params(initial_phase_config, folding_factor);
+        let params = create_test_params(initial_phase, folding_factor);
 
         // Create proof structure from parameters
         let proof: WhirProof<F, EF, DIGEST_ELEMS> =
@@ -465,13 +533,14 @@ mod tests {
 
         // Even if we request UnivariateSkip, it won't be used
         // because folding_factor < K_SKIP_SUMCHECK
-        let initial_phase_config = InitialPhaseConfig::WithStatementUnivariateSkip;
+        let initial_phase =
+            InitialPhase::with_statement_skip(Vec::new(), None, SumcheckData::default());
 
         // Use 16 variables for testing
         let num_variables = 16;
 
         // Create protocol parameters (skip won't be enabled due to folding_factor < 5)
-        let params = create_test_params(initial_phase_config, folding_factor);
+        let params = create_test_params(initial_phase, folding_factor);
 
         // Create proof structure from parameters
         let proof: WhirProof<F, EF, DIGEST_ELEMS> =
@@ -507,13 +576,13 @@ mod tests {
         let folding_factor = FoldingFactor::Constant(folding_factor_value);
 
         // Configure without initial statement
-        let initial_phase_config = InitialPhaseConfig::WithoutStatement;
+        let initial_phase = InitialPhase::without_statement();
 
         // Use 18 variables for testing
         let num_variables = 18;
 
         // Create protocol parameters without initial statement
-        let params = create_test_params(initial_phase_config, folding_factor);
+        let params = create_test_params(initial_phase, folding_factor);
 
         // Create proof structure from parameters
         let proof: WhirProof<F, EF, DIGEST_ELEMS> =

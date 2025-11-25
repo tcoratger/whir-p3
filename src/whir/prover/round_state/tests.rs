@@ -16,8 +16,7 @@ use crate::{
         WhirConfig,
         committer::{Witness, writer::CommitmentWriter},
         constraints::statement::EqStatement,
-        parameters::InitialPhaseConfig,
-        proof::WhirProof,
+        proof::{InitialPhase, SumcheckData, WhirProof},
         prover::{Prover, round_state::RoundState},
     },
 };
@@ -44,7 +43,7 @@ const DIGEST_ELEMS: usize = 8;
 /// for round state construction in WHIR tests.
 fn make_test_config(
     num_variables: usize,
-    initial_phase_config: InitialPhaseConfig,
+    initial_phase: InitialPhase<EF4, F>,
     folding_factor: usize,
     pow_bits: usize,
 ) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger> {
@@ -57,7 +56,7 @@ fn make_test_config(
     // Define the core protocol parameters for WHIR, customizing behavior based
     // on whether to start with an initial sumcheck and how to fold the polynomial.
     let protocol_params = ProtocolParameters {
-        initial_phase_config,
+        initial_phase,
         security_level: 80,
         pow_bits,
         rs_domain_initial_reduction_factor: 1,
@@ -92,8 +91,8 @@ fn setup_domain_and_commitment(
     Witness<EF4, F, DenseMatrix<F>, DIGEST_ELEMS>,
 ) {
     // Build ProtocolParameters from WhirConfig fields
-    let protocol_params = ProtocolParameters {
-        initial_phase_config: params.initial_phase_config,
+    let protocol_params: ProtocolParameters<_, _, EF4, F> = ProtocolParameters {
+        initial_phase: InitialPhase::from_config(&params.initial_phase),
         security_level: params.security_level,
         pow_bits: params.starting_folding_pow_bits,
         folding_factor: params.folding_factor,
@@ -156,7 +155,7 @@ fn test_no_initial_statement_no_sumcheck() {
     // - no initial sumcheck,
     // - folding factor 2,
     // - no PoW grinding.
-    let config = make_test_config(num_variables, InitialPhaseConfig::WithoutStatement, 2, 0);
+    let config = make_test_config(num_variables, InitialPhase::without_statement(), 2, 0);
 
     // Define a polynomial
     let poly = EvaluationsList::new(vec![F::from_u64(3); 1 << num_variables]);
@@ -204,7 +203,7 @@ fn test_initial_statement_with_folding_factor_3() {
     // - PoW disabled.
     let config = make_test_config(
         num_variables,
-        InitialPhaseConfig::WithStatementClassic,
+        InitialPhase::with_statement(SumcheckData::default()),
         3,
         0,
     );
@@ -304,7 +303,7 @@ fn test_zero_poly_multiple_constraints() {
     // Build a WHIR config with an initial statement, folding factor 1, and no PoW
     let config = make_test_config(
         num_variables,
-        InitialPhaseConfig::WithStatementClassic,
+        InitialPhase::with_statement(SumcheckData::default()),
         1,
         0,
     );
@@ -378,7 +377,7 @@ fn test_initialize_round_state_with_initial_statement() {
     // - PoW bits enabled.
     let config = make_test_config(
         num_variables,
-        InitialPhaseConfig::WithStatementClassic,
+        InitialPhase::with_statement(SumcheckData::default()),
         1,
         pow_bits,
     );

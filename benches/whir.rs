@@ -13,8 +13,8 @@ use whir_p3::{
     whir::{
         committer::writer::CommitmentWriter,
         constraints::statement::EqStatement,
-        parameters::{InitialPhaseConfig, WhirConfig},
-        proof::WhirProof,
+        parameters::WhirConfig,
+        proof::{InitialPhase, SumcheckData, WhirProof},
         prover::Prover,
     },
 };
@@ -33,7 +33,7 @@ type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 #[allow(clippy::type_complexity)]
 fn prepare_inputs() -> (
     WhirConfig<EF, F, MerkleHash, MerkleCompress, MyChallenger>,
-    ProtocolParameters<MerkleHash, MerkleCompress>,
+    ProtocolParameters<MerkleHash, MerkleCompress, EF, F>,
     usize,
     Radix2DFTSmallBatch<F>,
     EvaluationsList<F>,
@@ -75,8 +75,8 @@ fn prepare_inputs() -> (
     let soundness_type = SecurityAssumption::CapacityBound;
 
     // Assemble the protocol-level parameters.
-    let whir_params = ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+    let whir_params: ProtocolParameters<_, _, EF, F> = ProtocolParameters {
+        initial_phase: InitialPhase::with_statement(SumcheckData::default()),
         security_level,
         pow_bits,
         folding_factor,

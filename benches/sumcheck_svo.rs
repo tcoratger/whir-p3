@@ -13,7 +13,10 @@ use whir_p3::{
     self as whir,
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    whir::{constraints::Constraint, parameters::InitialPhaseConfig, proof::WhirProof},
+    whir::{
+        constraints::Constraint,
+        proof::{InitialPhase, SumcheckData, WhirProof},
+    },
 };
 
 type F = KoalaBear;
@@ -30,12 +33,12 @@ const POW_BITS: usize = 0;
 /// Helper to create protocol parameters for benchmarking
 fn create_test_protocol_params_classic(
     folding_factor: FoldingFactor,
-) -> ProtocolParameters<MyHash, MyCompress> {
+) -> ProtocolParameters<MyHash, MyCompress, EF, F> {
     let mut rng = SmallRng::seed_from_u64(1);
     let perm = Poseidon16::new_from_rng_128(&mut rng);
 
     ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+        initial_phase: InitialPhase::with_statement(SumcheckData::default()),
         security_level: 32,
         pow_bits: 0,
         rs_domain_initial_reduction_factor: 1,
@@ -110,11 +113,14 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
                 // Keep challenger_rf in sync
                 let _alpha_rf: EF = challenger_rf.sample_algebra_element();
 
+                // Extract sumcheck_data from proof
+                let sumcheck_data = proof.initial_phase.sumcheck_data_mut().unwrap();
+
                 // Fold all variables in one round
                 SumcheckSingle::from_base_evals(
                     poly,
                     &mut prover,
-                    &mut proof,
+                    sumcheck_data,
                     &mut challenger_rf,
                     *num_vars,
                     0,

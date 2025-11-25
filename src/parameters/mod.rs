@@ -3,7 +3,7 @@ use core::fmt::Display;
 use errors::SecurityAssumption;
 use thiserror::Error;
 
-use crate::whir::parameters::InitialPhaseConfig;
+use crate::whir::proof::InitialPhase;
 
 pub mod errors;
 
@@ -145,13 +145,23 @@ impl FoldingFactor {
 }
 
 /// Configuration parameters for WHIR proofs.
+///
+/// The `EF` and `F` type parameters are used for the `InitialPhase` configuration,
+/// which specifies the initial phase variant and can hold proof data. For configuration
+/// purposes (before proof generation), these are typically set to `()` or simple types.
 #[derive(Clone, Debug)]
-pub struct ProtocolParameters<H, C> {
+pub struct ProtocolParameters<H, C, EF = (), F = ()> {
     /// Configuration for the initial phase of the protocol.
     ///
     /// This determines whether an initial statement is included and which optimization
-    /// strategy to use for the sumcheck protocol.
-    pub initial_phase_config: InitialPhaseConfig,
+    /// strategy to use for the sumcheck protocol. The `InitialPhase` enum serves as both
+    /// configuration (variant selection) and data container (during proof generation).
+    ///
+    /// For configuration purposes, use the default constructors like:
+    /// - `InitialPhase::with_statement(SumcheckData::default())` for classic sumcheck
+    /// - `InitialPhase::with_statement_skip(...)` for univariate skip
+    /// - `InitialPhase::without_statement()` for no initial statement
+    pub initial_phase: InitialPhase<EF, F>,
     /// The logarithmic inverse rate for sampling.
     pub starting_log_inv_rate: usize,
     /// The value v such that that the size of the Reed Solomon domain on which
@@ -174,7 +184,7 @@ pub struct ProtocolParameters<H, C> {
     pub merkle_compress: C,
 }
 
-impl<H, C> Display for ProtocolParameters<H, C> {
+impl<H, C, EF, F> Display for ProtocolParameters<H, C, EF, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(
             f,

@@ -14,7 +14,7 @@ use crate::{
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
     whir::{
         constraints::{Constraint, statement::EqStatement},
-        proof::{InitialPhase, SumcheckData, SumcheckRoundData::Classic, WhirProof},
+        proof::{SumcheckData, SumcheckRoundData::Classic, WhirProof},
     },
 };
 
@@ -39,7 +39,7 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// * The verifier's challenge `r` as an `EF` element.
 /// * The new, compressed polynomial evaluations as an `EvaluationsList<EF>`.
 #[instrument(skip_all)]
-fn initial_round<Challenger, F: Field, EF: ExtensionField<F>, const DIGEST_ELEMS: usize>(
+fn initial_round<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     sumcheck_data: &mut SumcheckData<EF, F>,
     challenger: &mut Challenger,
@@ -318,11 +318,21 @@ where
     /// - Applies the given constraint `Statement` using a random linear combination.
     /// - Initializes internal sumcheck state with weights and expected sum.
     /// - Applies first set of sumcheck rounds
+    ///
+    /// # Arguments
+    /// * `evals` - Polynomial evaluations in the base field
+    /// * `prover_state` - Mutable reference to the prover's Fiat-Shamir state
+    /// * `sumcheck_data` - Mutable reference to the sumcheck data where polynomial evaluations
+    ///   and PoW witnesses will be recorded
+    /// * `challenger` - Mutable reference to the challenger for Fiat-Shamir
+    /// * `folding_factor` - Number of variables to fold
+    /// * `pow_bits` - Number of proof-of-work bits
+    /// * `constraint` - The constraint to apply
     #[instrument(skip_all)]
-    pub fn from_base_evals<Challenger, const DIGEST_ELEMS: usize>(
+    pub fn from_base_evals<Challenger>(
         evals: &EvaluationsList<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        sumcheck_data: &mut SumcheckData<EF, F>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
@@ -335,15 +345,11 @@ where
     {
         assert_ne!(folding_factor, 0);
 
-        let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
-            panic!("initial_round called with incorrect InitialPhase variant");
-        };
-
         let (mut weights, mut sum) = constraint.combine_new();
 
-        let (first_round, mut evals) = initial_round::<Challenger, F, EF, DIGEST_ELEMS>(
+        let (first_round, mut evals) = initial_round(
             prover_state,
-            sumcheck,
+            sumcheck_data,
             challenger,
             evals,
             &mut weights,
@@ -355,7 +361,7 @@ where
         res.push(first_round);
         for _ in 1..folding_factor {
             res.push(round::<Challenger, F, EF>(
-                sumcheck,
+                sumcheck_data,
                 challenger,
                 prover_state,
                 &mut evals,
@@ -365,14 +371,14 @@ where
             ));
         }
 
-        let sumcheck = Self {
+        let sumcheck_prover = Self {
             evals,
             weights,
             sum,
             phantom: core::marker::PhantomData,
         };
 
-        (sumcheck, MultilinearPoint::new(res))
+        (sumcheck_prover, MultilinearPoint::new(res))
     }
 
     /// Constructs a new `SumcheckSingle` instance from evaluations in the base field.
@@ -382,12 +388,26 @@ where
     /// - Applies the given constraint `Statement` using a random linear combination.
     /// - Initializes internal sumcheck state with weights and expected sum.
     /// - Applies first set of sumcheck rounds with univariate skip optimization.
+    ///
+    /// # Arguments
+    /// * `evals` - Polynomial evaluations in the base field
+    /// * `prover_state` - Mutable reference to the prover's Fiat-Shamir state
+    /// * `skip_evaluations` - Mutable reference to store skip polynomial evaluations
+    /// * `skip_pow` - Mutable reference to store the PoW witness for the skip round
+    /// * `sumcheck_data` - Mutable reference to the sumcheck data for remaining rounds
+    /// * `challenger` - Mutable reference to the challenger for Fiat-Shamir
+    /// * `folding_factor` - Number of variables to fold
+    /// * `pow_bits` - Number of proof-of-work bits
+    /// * `k_skip` - Number of variables to skip in the univariate optimization
+    /// * `constraint` - The constraint to apply
     #[instrument(skip_all)]
     #[allow(clippy::too_many_arguments)]
-    pub fn with_skip<Challenger, const DIGEST_ELEMS: usize>(
+    pub fn with_skip<Challenger>(
         evals: &EvaluationsList<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        skip_evaluations: &mut Vec<EF>,
+        skip_pow: &mut Option<F>,
+        sumcheck_data: &mut SumcheckData<EF, F>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
@@ -436,16 +456,7 @@ where
         let flattened = EF::flatten_to_base(polynomial_skip_evaluation.to_vec());
         challenger.observe_slice(&flattened);
 
-        // Update the WhirProof structure
-        let InitialPhase::WithStatementSkip {
-            ref mut skip_evaluations,
-            ref mut skip_pow,
-            ref mut sumcheck,
-        } = proof.initial_phase
-        else {
-            panic!("initial_round called with incorrect InitialPhase variant");
-        };
-
+        // Store skip polynomial evaluations in proof
         skip_evaluations.extend_from_slice(polynomial_skip_evaluation);
 
         // Proof-of-work challenge to delay prover.
@@ -478,7 +489,7 @@ where
         res.push(r);
         for _ in k_skip..folding_factor {
             res.push(round(
-                sumcheck,
+                sumcheck_data,
                 challenger,
                 prover_state,
                 &mut evals,
@@ -488,14 +499,14 @@ where
             ));
         }
 
-        let sumcheck = Self {
+        let sumcheck_prover = Self {
             evals,
             weights,
             sum,
             phantom: core::marker::PhantomData,
         };
 
-        (sumcheck, MultilinearPoint::new(res))
+        (sumcheck_prover, MultilinearPoint::new(res))
     }
 
     /// Returns the number of variables in the polynomial.

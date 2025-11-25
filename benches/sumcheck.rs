@@ -11,8 +11,7 @@ use whir_p3::{
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         constraints::{Constraint, statement::EqStatement},
-        parameters::InitialPhaseConfig,
-        proof::WhirProof,
+        proof::{InitialPhase, SumcheckData, WhirProof},
     },
 };
 
@@ -26,12 +25,12 @@ type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 /// Helper to create protocol parameters for benchmarking
 fn create_test_protocol_params(
     folding_factor: FoldingFactor,
-) -> ProtocolParameters<MyHash, MyCompress> {
+) -> ProtocolParameters<MyHash, MyCompress, EF, F> {
     let mut rng = SmallRng::seed_from_u64(1);
     let perm = Perm::new_from_rng_128(&mut rng);
 
     ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+        initial_phase: InitialPhase::with_statement(SumcheckData::default()),
         security_level: 32,
         pow_bits: 0,
         rs_domain_initial_reduction_factor: 1,
@@ -112,11 +111,14 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
                 // Keep challenger_rf in sync
                 let _alpha_rf: EF = challenger_rf.sample_algebra_element();
 
+                // Extract sumcheck_data from proof
+                let sumcheck_data = proof.initial_phase.sumcheck_data_mut().unwrap();
+
                 // First round - fold first half of variables
                 let (mut sumcheck, _) = SumcheckSingle::from_base_evals(
                     poly,
                     &mut prover,
-                    &mut proof,
+                    sumcheck_data,
                     &mut challenger_rf,
                     classic_folding_schedule[0],
                     0,

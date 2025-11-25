@@ -23,7 +23,8 @@ use crate::{
     whir::{
         EqStatement,
         constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
-        parameters::{InitialPhaseConfig, WhirConfig},
+        parameters::WhirConfig,
+        proof::InitialPhase,
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -77,7 +78,7 @@ where
         let mut prev_commitment = parsed_commitment.clone();
 
         // Optional initial sumcheck round
-        if self.initial_phase_config.has_initial_statement() {
+        if self.initial_phase.has_initial_statement() {
             // Combine OODS constraints and statement constraints to claimed_sum
             statement.concatenate(&prev_commitment.ood_statement);
 
@@ -94,16 +95,14 @@ where
             //
             // TODO: SVO optimization is not yet fully implemented in the prover,
             // so the verifier also falls back to classic behavior for SVO.
-            let sumcheck_config = match self.initial_phase_config {
-                InitialPhaseConfig::WithStatementSvo => InitialPhaseConfig::WithStatementClassic,
-                other => other,
-            };
+            // We pass the initial_phase directly - the verify_sumcheck_rounds function
+            // handles the SVO fallback internally.
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_eval,
                 self.folding_factor.at_round(0),
                 self.starting_folding_pow_bits,
-                sumcheck_config,
+                &self.initial_phase,
             )?;
 
             round_folding_randomness.push(folding_randomness);
@@ -154,12 +153,14 @@ where
 
             // TODO: SVO optimization is not yet fully implemented
             // Falls back to classic sumcheck for all optimization modes
+            // Inner rounds always use classic sumcheck (no optimization)
+            let classic_phase: InitialPhase<EF, F> = InitialPhase::default();
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_eval,
                 self.folding_factor.at_round(round_index + 1),
                 round_params.folding_pow_bits,
-                InitialPhaseConfig::WithStatementClassic,
+                &classic_phase,
             )?;
 
             round_folding_randomness.push(folding_randomness);
@@ -193,12 +194,13 @@ where
 
         // TODO: SVO optimization is not yet fully implemented
         // Falls back to classic sumcheck for all optimization modes
+        let classic_phase: InitialPhase<EF, F> = InitialPhase::default();
         let final_sumcheck_randomness = verify_sumcheck_rounds(
             verifier_state,
             &mut claimed_eval,
             self.final_sumcheck_rounds,
             self.final_folding_pow_bits,
-            InitialPhaseConfig::WithStatementClassic,
+            &classic_phase,
         )?;
 
         round_folding_randomness.push(final_sumcheck_randomness.clone());
@@ -213,7 +215,7 @@ where
 
         // For skip case, don't reverse the randomness (prover stores it in forward order)
         // For non-skip case, reverse it to match the prover's storage
-        let is_skip_used = self.initial_phase_config.is_univariate_skip()
+        let is_skip_used = self.initial_phase.is_univariate_skip()
             && K_SKIP_SUMCHECK <= self.folding_factor.at_round(0);
 
         let point_for_eval = if is_skip_used {
@@ -319,10 +321,7 @@ where
 
         // Determine if this is the special first round where the univariate skip is applied.
         let is_skip_round = round_index == 0
-            && matches!(
-                self.initial_phase_config,
-                InitialPhaseConfig::WithStatementUnivariateSkip
-            )
+            && self.initial_phase.is_univariate_skip()
             && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
         // Compute STIR Constraints
