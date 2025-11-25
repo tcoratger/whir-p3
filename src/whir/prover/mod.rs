@@ -23,10 +23,11 @@ use super::{
 };
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::FiatShamirError, prover::ProverState},
+    fiat_shamir::{errors::FiatShamirError, grinding::pow_grinding, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::{Constraint, statement::SelectStatement},
+        proof::WhirProof,
         utils::get_challenge_stir_queries,
     },
 };
@@ -142,6 +143,8 @@ where
         &self,
         dft: &Dft,
         prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         statement: EqStatement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
@@ -163,12 +166,25 @@ where
         );
 
         // Initialize the round state with inputs and initial polynomial data
-        let mut round_state =
-            RoundState::initialize_first_round_state(self, prover_state, statement, witness)?;
+        let mut round_state = RoundState::initialize_first_round_state(
+            self,
+            prover_state,
+            proof,
+            challenger,
+            statement,
+            witness,
+        )?;
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
-            self.round(dft, round, prover_state, &mut round_state)?;
+            self.round(
+                dft,
+                round,
+                prover_state,
+                proof,
+                challenger,
+                &mut round_state,
+            )?;
         }
 
         Ok(())
@@ -181,6 +197,8 @@ where
         dft: &Dft,
         round_index: usize,
         prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
     where
@@ -198,7 +216,7 @@ where
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
-            return self.final_round(round_index, prover_state, round_state);
+            return self.final_round(round_index, prover_state, proof, challenger, round_state);
         }
 
         let round_params = &self.round_parameters[round_index];
@@ -237,6 +255,7 @@ where
         let (root, prover_data) =
             info_span!("commit matrix").in_scope(|| extension_mmcs.commit_matrix(folded_matrix));
         prover_state.add_base_scalars(root.as_ref());
+        challenger.observe_slice(root.as_ref());
 
         // Handle OOD (Out-Of-Domain) samples
         let mut ood_statement = EqStatement::initialize(num_variables);
@@ -245,6 +264,10 @@ where
                 MultilinearPoint::expand_from_univariate(prover_state.sample(), num_variables);
             let eval = folded_evaluations.evaluate_hypercube(&point);
             prover_state.add_extension_scalar(eval);
+            // Sync: sample and observe on external challenger
+            let _point_rf: EF = challenger.sample_algebra_element();
+            challenger.observe_algebra_element(eval);
+
             ood_statement.add_evaluated_constraint(point, eval);
         });
 
@@ -262,6 +285,8 @@ where
         // *before* receiving the queries, we make it computationally infeasible to "shop" for
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
         prover_state.pow_grinding(round_params.pow_bits);
+        // Sync: grind on external challenger
+        pow_grinding(challenger, round_params.pow_bits);
 
         // STIR Queries
         let stir_challenges_indexes = get_challenge_stir_queries(
@@ -270,10 +295,12 @@ where
             round_params.num_queries,
             prover_state,
         )?;
+
         let stir_vars = stir_challenges_indexes
             .iter()
             .map(|&i| round_state.next_domain_gen.exp_u64(i as u64))
             .collect::<Vec<_>>();
+
         let mut stir_statement = SelectStatement::initialize(num_variables);
 
         // Collect Merkle proofs for stir queries
@@ -390,10 +417,16 @@ where
         }
 
         let constraint = Constraint::new(prover_state.sample(), ood_statement, stir_statement);
+        // Temporary: to sync the refactoring fiat-shamir and the current
+        let _constraint_rf: EF = challenger.sample_algebra_element();
+
         let folding_randomness = round_state.sumcheck_prover.compute_sumcheck_polynomials(
             prover_state,
+            proof,
+            challenger,
             folding_factor_next,
             round_params.folding_pow_bits,
+            false,
             Some(constraint),
         );
 
@@ -412,6 +445,8 @@ where
         &self,
         round_index: usize,
         prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
     where
@@ -425,6 +460,10 @@ where
     {
         // Directly send coefficients of the polynomial to the verifier.
         prover_state.add_extension_scalars(round_state.sumcheck_prover.evals.as_slice());
+        // Sync: observe on external challenger
+        challenger.observe_slice(&EF::flatten_to_base(
+            round_state.sumcheck_prover.evals.as_slice().to_vec(),
+        ));
 
         // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
         //
@@ -440,6 +479,8 @@ where
         // *before* receiving the queries, we make it computationally infeasible to "shop" for
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
         prover_state.pow_grinding(self.final_pow_bits);
+        // Sync: grind on external challenger
+        pow_grinding(challenger, self.final_pow_bits);
 
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
@@ -511,8 +552,11 @@ where
         if self.final_sumcheck_rounds > 0 {
             round_state.sumcheck_prover.compute_sumcheck_polynomials(
                 prover_state,
+                proof,
+                challenger,
                 self.final_sumcheck_rounds,
                 self.final_folding_pow_bits,
+                true,
                 None,
             );
         }

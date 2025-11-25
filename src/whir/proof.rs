@@ -199,6 +199,16 @@ pub struct SumcheckData<EF, F> {
     pub pow_witnesses: Option<Vec<F>>,
 }
 
+impl<EF, F> SumcheckData<EF, F> {
+    /// Appends a proof-of-work witness if one exists.
+    /// Automatically handles the initialization of the internal vector.
+    pub fn push_pow_witness(&mut self, witness: Option<F>) {
+        if let Some(w) = witness {
+            self.pow_witnesses.get_or_insert_with(Vec::new).push(w);
+        }
+    }
+}
+
 impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
     /// Create a new WhirProof from protocol parameters and configuration
     ///
@@ -229,8 +239,10 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             }
 
             // With statement + SVO optimization
+            // TODO: SVO optimization is not yet fully implemented
+            // Fall back to classic sumcheck for now
             (true, SumcheckOptimization::Svo) => {
-                InitialPhase::with_statement_svo(SumcheckData::default())
+                InitialPhase::with_statement(SumcheckData::default())
             }
 
             // With statement + Classic (or UnivariateSkip with insufficient folding factor)
@@ -255,7 +267,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             initial_pow_witness: None,
             initial_ood_answers: Vec::new(),
             initial_phase,
-            rounds: Vec::with_capacity(num_rounds),
+            rounds: (0..num_rounds).map(|_| WhirRoundProof::default()).collect(),
             final_poly: None,
             final_pow_witness: F::default(),
             final_queries: Vec::with_capacity(num_queries),
@@ -273,6 +285,25 @@ impl<F: Clone, EF, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
         self.rounds
             .get(round_index)
             .and_then(|round| round.pow_witness.clone())
+    }
+
+    /// Stores sumcheck data in the correct location (final field or last round).
+    ///
+    /// # Parameters
+    /// - `data`: The sumcheck data to store
+    /// - `is_final`: If true, stores in `final_sumcheck`; otherwise stores in the last round
+    ///
+    /// # Panics
+    /// Panics if `is_final` is false and no rounds have been initialized yet.
+    pub fn set_sumcheck_data(&mut self, data: SumcheckData<EF, F>, is_final: bool) {
+        if is_final {
+            self.final_sumcheck = Some(data);
+        } else {
+            self.rounds
+                .last_mut()
+                .expect("No rounds initialized before storing sumcheck data")
+                .sumcheck = data;
+        }
     }
 }
 
@@ -424,13 +455,13 @@ mod tests {
             _ => panic!("Expected WithStatementSkip variant"),
         }
 
-        // Verify rounds capacity
+        // Verify rounds length
         // Formula: ((num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS) / folding_factor) - 1
         // MAX_NUM_VARIABLES_TO_SEND_COEFFS = 6 (threshold for sending coefficients directly)
         // For 20 variables with folding_factor 6:
         //   (20 - 6).div_ceil(6) - 1 = 14.div_ceil(6) - 1 = 3 - 1 = 2
         let expected_rounds = 2;
-        assert_eq!(proof.rounds.capacity(), expected_rounds);
+        assert_eq!(proof.rounds.len(), expected_rounds);
     }
 
     #[test]
@@ -471,13 +502,13 @@ mod tests {
             _ => panic!("Expected WithStatement variant, not WithStatementSkip"),
         }
 
-        // Verify rounds capacity
+        // Verify rounds length
         // Formula: ((num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS) / folding_factor) - 1
         // MAX_NUM_VARIABLES_TO_SEND_COEFFS = 6
         // For 16 variables with folding_factor 4:
         //   (16 - 6).div_ceil(4) - 1 = 10.div_ceil(4) - 1 = 3 - 1 = 2
         let expected_rounds = 2;
-        assert_eq!(proof.rounds.capacity(), expected_rounds);
+        assert_eq!(proof.rounds.len(), expected_rounds);
     }
 
     #[test]
@@ -513,13 +544,13 @@ mod tests {
             _ => panic!("Expected WithoutStatement variant"),
         }
 
-        // Verify rounds capacity
+        // Verify rounds length
         // Formula: ((num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS) / folding_factor) - 1
         // MAX_NUM_VARIABLES_TO_SEND_COEFFS = 6
         // For 18 variables with folding_factor 6:
         //   (18 - 6).div_ceil(6) - 1 = 12.div_ceil(6) - 1 = 2 - 1 = 1
         let expected_rounds = 1;
-        assert_eq!(proof.rounds.capacity(), expected_rounds);
+        assert_eq!(proof.rounds.len(), expected_rounds);
     }
 
     #[test]

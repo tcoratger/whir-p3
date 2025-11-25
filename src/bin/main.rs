@@ -128,7 +128,7 @@ fn main() {
 
     let params = WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(
         num_variables,
-        whir_params,
+        whir_params.clone(),
     );
 
     let mut rng = StdRng::seed_from_u64(0);
@@ -163,13 +163,14 @@ fn main() {
 
     // Initialize the Merlin transcript from the IOPattern
     let mut prover_state = domainsep.to_prover_state(challenger.clone());
+    domainsep.observe_domain_separator(&mut prover_challenger);
 
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
 
     let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
 
-    let mut proof = WhirProof::<F, EF, 8>::default();
+    let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
 
     let time = Instant::now();
     let witness = committer
@@ -189,8 +190,16 @@ fn main() {
     // Generate a proof for the given statement and witness
     let time = Instant::now();
     prover
-        .prove(&dft, &mut prover_state, statement.clone(), witness)
+        .prove(
+            &dft,
+            &mut prover_state,
+            &mut proof,
+            &mut prover_challenger,
+            statement.clone(),
+            witness,
+        )
         .unwrap();
+
     let opening_time = time.elapsed();
 
     // Create a commitment reader

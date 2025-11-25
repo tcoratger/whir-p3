@@ -19,6 +19,7 @@ use crate::{
         committer::{RoundMerkleTree, Witness},
         constraints::{Constraint, statement::EqStatement},
         parameters::SumcheckOptimization,
+        proof::WhirProof,
         prover::Prover,
     },
 };
@@ -138,6 +139,8 @@ where
     pub fn initialize_first_round_state<MyChallenger, C, Challenger>(
         prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
         prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         mut statement: EqStatement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<Self, FiatShamirError>
@@ -153,6 +156,9 @@ where
         let (sumcheck_prover, folding_randomness) = if prover.initial_statement {
             // Branch A: Initial statement exists - run sumcheck for constraint batching
             let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
+            // Temporary: to sync the refactoring fiat-shamir and the curent
+            let _constraint_rf =
+                Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
 
             // Choose sumcheck strategy based on configured optimization
             let (sumcheck, folding_randomness) = match prover.sumcheck_optimization {
@@ -163,6 +169,8 @@ where
                     SumcheckSingle::with_skip(
                         &witness.polynomial,
                         prover_state,
+                        proof,
+                        challenger,
                         prover.folding_factor.at_round(0),
                         prover.starting_folding_pow_bits,
                         K_SKIP_SUMCHECK,
@@ -176,6 +184,8 @@ where
                     SumcheckSingle::from_base_evals(
                         &witness.polynomial,
                         prover_state,
+                        proof,
+                        challenger,
                         prover.folding_factor.at_round(0),
                         prover.starting_folding_pow_bits,
                         &constraint,
@@ -186,6 +196,8 @@ where
                     SumcheckSingle::from_base_evals(
                         &witness.polynomial,
                         prover_state,
+                        proof,
+                        challenger,
                         prover.folding_factor.at_round(0),
                         prover.starting_folding_pow_bits,
                         &constraint,

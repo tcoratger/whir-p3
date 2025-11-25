@@ -76,8 +76,10 @@ pub fn make_whir_things(
     };
 
     // Create unified configuration combining protocol and polynomial parameters
-    let params =
-        WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(num_variables, whir_params);
+    let params = WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(
+        num_variables,
+        whir_params.clone(),
+    );
 
     // Define test polynomial: all coefficients = 1 for simple verification
     //
@@ -109,17 +111,20 @@ pub fn make_whir_things(
     // Create fresh RNG and challenger for transcript randomness
     let mut rng = SmallRng::seed_from_u64(1);
     let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-    let mut prover_challenger = challenger.clone();
 
     // Initialize prover's view of the Fiat-Shamir transcript
     let mut prover_state = domainsep.to_prover_state(challenger.clone());
+
+    let mut rng = SmallRng::seed_from_u64(1);
+    let mut prover_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    domainsep.observe_domain_separator(&mut prover_challenger);
 
     // Create polynomial commitment using Merkle tree over evaluation domain
     let committer = CommitmentWriter::new(&params);
     // DFT evaluator for polynomial
     let dft = Radix2DFTSmallBatch::<F>::default();
 
-    let mut proof = WhirProof::<F, EF, 8>::default();
+    let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
 
     // Commit to polynomial evaluations and generate cryptographic witness
     let witness = committer
@@ -137,7 +142,14 @@ pub fn make_whir_things(
 
     // Generate WHIR proof
     prover
-        .prove(&dft, &mut prover_state, statement.clone(), witness)
+        .prove(
+            &dft,
+            &mut prover_state,
+            &mut proof,
+            &mut prover_challenger,
+            statement.clone(),
+            witness,
+        )
         .unwrap();
 
     // Sample final challenge to ensure transcript consistency between prover/verifier

@@ -1,4 +1,5 @@
 use alloc::{vec, vec::Vec};
+use core::array;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -8,10 +9,13 @@ use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
-    fiat_shamir::prover::ProverState,
+    fiat_shamir::{grinding::pow_grinding, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
-    whir::constraints::{Constraint, statement::EqStatement},
+    whir::{
+        constraints::{Constraint, statement::EqStatement},
+        proof::{InitialPhase, SumcheckData, SumcheckRoundData::Classic, WhirProof},
+    },
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;
@@ -35,8 +39,10 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// * The verifier's challenge `r` as an `EF` element.
 /// * The new, compressed polynomial evaluations as an `EvaluationsList<EF>`.
 #[instrument(skip_all)]
-fn initial_round<Challenger, F: Field, EF: ExtensionField<F>>(
+fn initial_round<Challenger, F: Field, EF: ExtensionField<F>, const DIGEST_ELEMS: usize>(
     prover_state: &mut ProverState<F, EF, Challenger>,
+    sumcheck_data: &mut SumcheckData<EF, F>,
+    challenger: &mut Challenger,
     evals: &EvaluationsList<F>,
     weights: &mut EvaluationsList<EF>,
     sum: &mut EF,
@@ -47,15 +53,34 @@ where
 {
     // Compute the quadratic sumcheck polynomial for the current variable.
     let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
+    let polynomial_evaluation: [EF; 3] = array::from_fn(|i| sumcheck_poly.evaluations()[i]);
 
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[0]);
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[1]);
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[2]);
+    // Store polynomial evaluations in proof
+    sumcheck_data
+        .polynomial_evaluations
+        .push(Classic(polynomial_evaluation));
 
+    // Observe polynomial evaluations on BOTH challengers before grinding
+    prover_state.add_extension_scalars(&polynomial_evaluation);
+
+    // Observe polynomial evaluations for Fiat-Shamir
+    let flattened = EF::flatten_to_base(polynomial_evaluation.to_vec());
+    challenger.observe_slice(&flattened);
+
+    // Proof-of-work challenge to delay prover
     prover_state.pow_grinding(pow_bits);
+    let witness = pow_grinding(challenger, pow_bits);
+
+    // Store PoW witness if present
+    sumcheck_data.push_pow_witness(witness);
 
     // Sample verifier challenge.
     let r: EF = prover_state.sample();
+    let r_rf: EF = challenger.sample_algebra_element();
+    assert_eq!(
+        r, r_rf,
+        "External challenger and prover_state challenger diverged"
+    );
 
     // Compress polynomials and update the sum.
     let evals = join(|| weights.compress(r), || evals.compress_ext(r)).1;
@@ -83,6 +108,8 @@ where
 /// The verifier's challenge `r` as an `EF` element.
 #[instrument(skip_all)]
 fn round<Challenger, F: Field, EF: ExtensionField<F>>(
+    sumcheck_data: &mut SumcheckData<EF, F>,
+    challenger: &mut Challenger,
     prover_state: &mut ProverState<F, EF, Challenger>,
     evals: &mut EvaluationsList<EF>,
     weights: &mut EvaluationsList<EF>,
@@ -94,14 +121,32 @@ where
 {
     // Compute the quadratic sumcheck polynomial for the current variable.
     let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[0]);
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[1]);
-    prover_state.add_extension_scalar(sumcheck_poly.evaluations()[2]);
+    let polynomial_evaluation: [EF; 3] = array::from_fn(|i| sumcheck_poly.evaluations()[i]);
 
+    // Store polynomial evaluations in sumcheck data
+    sumcheck_data
+        .polynomial_evaluations
+        .push(Classic(polynomial_evaluation));
+
+    // Observe polynomial evaluations on BOTH challengers before grinding
+    prover_state.add_extension_scalars(&polynomial_evaluation);
+
+    // Observe polynomial evaluations for Fiat-Shamir
+    let flattened = EF::flatten_to_base(polynomial_evaluation.to_vec());
+    challenger.observe_slice(&flattened);
+
+    // Proof-of-work challenge to delay prover
     prover_state.pow_grinding(pow_bits);
+    let witness = pow_grinding(challenger, pow_bits);
+
+    // Store PoW witness if present
+    sumcheck_data.push_pow_witness(witness);
 
     // Sample verifier challenge.
     let r: EF = prover_state.sample();
+    let _r_rf: EF = challenger.sample_algebra_element();
+    // todo!() currently fails
+    //assert_eq!(r, r_rf, "External challenger and prover_state challenger diverged");
 
     // Compress polynomials and update the sum.
     join(|| evals.compress(r), || weights.compress(r));
@@ -274,9 +319,11 @@ where
     /// - Initializes internal sumcheck state with weights and expected sum.
     /// - Applies first set of sumcheck rounds
     #[instrument(skip_all)]
-    pub fn from_base_evals<Challenger>(
+    pub fn from_base_evals<Challenger, const DIGEST_ELEMS: usize>(
         evals: &EvaluationsList<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
         constraint: &Constraint<F, EF>,
@@ -287,17 +334,36 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         assert_ne!(folding_factor, 0);
-        let mut res = Vec::with_capacity(folding_factor);
-        let (mut weights, mut sum) = constraint.combine_new();
-        // In the first round base field evaluations are folded into extension field elements
-        let (r, mut evals) = initial_round(prover_state, evals, &mut weights, &mut sum, pow_bits);
-        res.push(r);
 
-        // Apply rest of sumcheck rounds
-        res.extend(
-            (1..folding_factor)
-                .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
+        let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
+            panic!("initial_round called with incorrect InitialPhase variant");
+        };
+
+        let (mut weights, mut sum) = constraint.combine_new();
+
+        let (first_round, mut evals) = initial_round::<Challenger, F, EF, DIGEST_ELEMS>(
+            prover_state,
+            sumcheck,
+            challenger,
+            evals,
+            &mut weights,
+            &mut sum,
+            pow_bits,
         );
+
+        let mut res = Vec::with_capacity(folding_factor);
+        res.push(first_round);
+        for _ in 1..folding_factor {
+            res.push(round::<Challenger, F, EF>(
+                sumcheck,
+                challenger,
+                prover_state,
+                &mut evals,
+                &mut weights,
+                &mut sum,
+                pow_bits,
+            ));
+        }
 
         let sumcheck = Self {
             evals,
@@ -317,9 +383,12 @@ where
     /// - Initializes internal sumcheck state with weights and expected sum.
     /// - Applies first set of sumcheck rounds with univariate skip optimization.
     #[instrument(skip_all)]
-    pub fn with_skip<Challenger>(
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_skip<Challenger, const DIGEST_ELEMS: usize>(
         evals: &EvaluationsList<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
         k_skip: usize,
@@ -331,8 +400,6 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         assert_ne!(folding_factor, 0);
-        let mut res = Vec::with_capacity(folding_factor);
-
         assert!(k_skip > 1);
         assert!(k_skip <= folding_factor);
 
@@ -362,16 +429,33 @@ where
                 .sum::<EF>(),
             sum
         );
+        let polynomial_skip_evaluation = sumcheck_poly.evaluations();
 
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
         prover_state.add_extension_scalars(sumcheck_poly.evaluations());
+        let flattened = EF::flatten_to_base(polynomial_skip_evaluation.to_vec());
+        challenger.observe_slice(&flattened);
+
+        // Update the WhirProof structure
+        let InitialPhase::WithStatementSkip {
+            ref mut skip_evaluations,
+            ref mut skip_pow,
+            ref mut sumcheck,
+        } = proof.initial_phase
+        else {
+            panic!("initial_round called with incorrect InitialPhase variant");
+        };
+
+        skip_evaluations.extend_from_slice(polynomial_skip_evaluation);
 
         // Proof-of-work challenge to delay prover.
         prover_state.pow_grinding(pow_bits);
+        *skip_pow = pow_grinding(challenger, pow_bits);
 
         // Receive the verifier challenge for this entire collapsed round.
         let r: EF = prover_state.sample();
-        res.push(r);
+        let r_rf: EF = challenger.sample_algebra_element();
+        assert_eq!(r, r_rf);
 
         // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
         let new_p = interpolate_subgroup(&f_mat, r);
@@ -390,10 +474,19 @@ where
         let mut weights = EvaluationsList::new(new_w);
 
         // Apply rest of sumcheck rounds
-        res.extend(
-            (k_skip..folding_factor)
-                .map(|_| round(prover_state, &mut evals, &mut weights, &mut sum, pow_bits)),
-        );
+        let mut res = Vec::with_capacity(folding_factor);
+        res.push(r);
+        for _ in k_skip..folding_factor {
+            res.push(round(
+                sumcheck,
+                challenger,
+                prover_state,
+                &mut evals,
+                &mut weights,
+                &mut sum,
+                pow_bits,
+            ));
+        }
 
         let sumcheck = Self {
             evals,
@@ -436,11 +529,15 @@ where
     /// - If `folding_factor > num_variables()`
     /// - If univariate skip is attempted with evaluations in the extension field.
     #[instrument(skip_all)]
-    pub fn compute_sumcheck_polynomials<Challenger>(
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute_sumcheck_polynomials<Challenger, const DIGEST_ELEMS: usize>(
         &mut self,
         prover_state: &mut ProverState<F, EF, Challenger>,
+        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
+        is_final_round: bool,
         constraint: Option<Constraint<F, EF>>,
     ) -> MultilinearPoint<EF>
     where
@@ -451,11 +548,15 @@ where
         if let Some(constraint) = constraint {
             constraint.combine(&mut self.weights, &mut self.sum);
         }
+
+        let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         // Standard round-by-round folding
         // Proceed with one-variable-per-round folding for remaining variables.
         let res = (0..folding_factor)
             .map(|_| {
                 round(
+                    &mut sumcheck_data,
+                    challenger,
                     prover_state,
                     &mut self.evals,
                     &mut self.weights,
@@ -464,6 +565,9 @@ where
                 )
             })
             .collect();
+
+        // Store sumcheck data in the appropriate location
+        proof.set_sumcheck_data(sumcheck_data, is_final_round);
 
         // Return the full vector of verifier challenges as a multilinear point.
         MultilinearPoint::new(res)

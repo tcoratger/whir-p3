@@ -1,6 +1,6 @@
 pub mod domain_separator;
 pub mod errors;
-mod grinding;
+pub(crate) mod grinding;
 pub mod pattern;
 pub mod prover;
 #[cfg(test)]
