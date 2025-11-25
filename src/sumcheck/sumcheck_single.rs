@@ -1,5 +1,5 @@
 use alloc::{vec, vec::Vec};
-use core::{array, iter};
+use core::array;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -343,8 +343,10 @@ where
             pow_bits,
         );
 
-        let subsequent_rounds = (1..folding_factor).map(|_| {
-            round::<Challenger, F, EF>(
+        let mut res = Vec::with_capacity(folding_factor);
+        res.push(first_round);
+        for _ in 1..folding_factor {
+            res.push(round::<Challenger, F, EF>(
                 sumcheck,
                 challenger,
                 prover_state,
@@ -352,12 +354,8 @@ where
                 &mut weights,
                 &mut sum,
                 pow_bits,
-            )
-        });
-
-        let res = iter::once(first_round)
-            .chain(subsequent_rounds)
-            .collect::<Vec<_>>();
+            ));
+        }
 
         let sumcheck = Self {
             evals,
@@ -468,19 +466,19 @@ where
         let mut weights = EvaluationsList::new(new_w);
 
         // Apply rest of sumcheck rounds
-        let res = iter::once(r)
-            .chain((k_skip..folding_factor).map(|_| {
-                round(
-                    sumcheck,
-                    challenger,
-                    prover_state,
-                    &mut evals,
-                    &mut weights,
-                    &mut sum,
-                    pow_bits,
-                )
-            }))
-            .collect::<Vec<_>>();
+        let mut res = Vec::with_capacity(folding_factor);
+        res.push(r);
+        for _ in k_skip..folding_factor {
+            res.push(round(
+                sumcheck,
+                challenger,
+                prover_state,
+                &mut evals,
+                &mut weights,
+                &mut sum,
+                pow_bits,
+            ));
+        }
 
         let sumcheck = Self {
             evals,

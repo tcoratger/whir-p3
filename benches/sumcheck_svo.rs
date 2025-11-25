@@ -95,7 +95,7 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("Classic", *num_vars), &poly, |b, poly| {
             b.iter(|| {
                 // Setup fresh for each iteration
-                let (domsep, challenger_for_prover) = setup_prover_and_challenger();
+                let (domsep, challenger_for_prover) = setup_domsep_and_challenger();
                 let mut prover = domsep.to_prover_state(challenger_for_prover);
 
                 // Initialize proof and challenger (refactored approach)
@@ -128,7 +128,7 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("SVO", *num_vars), &poly, |b, poly| {
             b.iter(|| {
                 // Setup fresh for each iteration (SVO still uses old approach)
-                let (domsep, challenger_for_prover) = setup_prover_and_challenger();
+                let (domsep, challenger_for_prover) = setup_domsep_and_challenger();
                 let mut prover = domsep.to_prover_state(challenger_for_prover);
 
                 // Create constraint
