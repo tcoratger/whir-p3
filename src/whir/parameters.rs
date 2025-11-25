@@ -217,7 +217,14 @@ where
         let has_initial_statement = whir_parameters.initial_phase.has_initial_statement();
 
         // Convert the incoming InitialPhase to the target field types
-        let initial_phase = InitialPhase::from_config(&whir_parameters.initial_phase);
+        //
+        // Note: SVO falls back to Classic because full SVO integration is not yet complete
+        let initial_phase = match &whir_parameters.initial_phase {
+            InitialPhase::WithStatementSvo { .. } => {
+                InitialPhase::with_statement(super::proof::SumcheckData::default())
+            }
+            other => InitialPhase::from_config(other),
+        };
 
         let commitment_ood_samples = if has_initial_statement {
             whir_parameters.soundness_type.determine_ood_samples(
