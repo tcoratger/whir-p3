@@ -559,17 +559,7 @@ where
             .collect();
 
         // Store sumcheck data in the appropriate location
-        if is_final_round {
-            // Final round: write sumcheck data to proof.final_sumcheck
-            proof.final_sumcheck = Some(sumcheck_data);
-        } else {
-            // Regular round: update the last round in proof.rounds with sumcheck data
-            if let Some(last_round) = proof.rounds.last_mut() {
-                last_round.sumcheck = sumcheck_data;
-            } else {
-                panic!("no rounds exist yet!");
-            }
-        }
+        proof.set_sumcheck_data(sumcheck_data, is_final_round);
 
         // Return the full vector of verifier challenges as a multilinear point.
         MultilinearPoint::new(res)

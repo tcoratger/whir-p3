@@ -286,6 +286,25 @@ impl<F: Clone, EF, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
             .get(round_index)
             .and_then(|round| round.pow_witness.clone())
     }
+
+    /// Stores sumcheck data in the correct location (final field or last round).
+    ///
+    /// # Parameters
+    /// - `data`: The sumcheck data to store
+    /// - `is_final`: If true, stores in `final_sumcheck`; otherwise stores in the last round
+    ///
+    /// # Panics
+    /// Panics if `is_final` is false and no rounds have been initialized yet.
+    pub fn set_sumcheck_data(&mut self, data: SumcheckData<EF, F>, is_final: bool) {
+        if is_final {
+            self.final_sumcheck = Some(data);
+        } else {
+            self.rounds
+                .last_mut()
+                .expect("No rounds initialized before storing sumcheck data")
+                .sumcheck = data;
+        }
+    }
 }
 
 impl<EF, F> InitialPhase<EF, F> {
