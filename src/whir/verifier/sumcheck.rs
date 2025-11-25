@@ -128,7 +128,7 @@ where
                 let c1 = verifier_state.next_extension_scalar()?;
                 let c2 = verifier_state.next_extension_scalar()?;
 
-                // Verify that the sum matches (only for Classic/UnivariateSkip modes)
+                // Verify that the sum matches
                 if *claimed_sum != c0 + c1 {
                     return Err(VerifierError::SumcheckFailed {
                         round: i,

@@ -92,14 +92,18 @@ where
 
             // Initial sumcheck
             //
-            // TODO: SVO optimization is not yet fully implemented
-            // Currently all initial phase configs use the same sumcheck rounds verification
+            // TODO: SVO optimization is not yet fully implemented in the prover,
+            // so the verifier also falls back to classic behavior for SVO.
+            let sumcheck_config = match self.initial_phase_config {
+                InitialPhaseConfig::WithStatementSvo => InitialPhaseConfig::WithStatementClassic,
+                other => other,
+            };
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_eval,
                 self.folding_factor.at_round(0),
                 self.starting_folding_pow_bits,
-                self.initial_phase_config,
+                sumcheck_config,
             )?;
 
             round_folding_randomness.push(folding_randomness);
