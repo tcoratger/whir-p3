@@ -7,60 +7,161 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use super::proof::InitialPhase;
 use crate::parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption};
 
+/// Per-round configuration for intermediate WHIR rounds.
 #[derive(Debug, Clone)]
 pub struct RoundConfig<F> {
+    /// Proof-of-work difficulty after the commitment phase.
+    ///
+    /// Higher values increase security but slow down proving.
     pub pow_bits: usize,
+
+    /// Proof-of-work difficulty after the folding phase.
+    ///
+    /// Applied after sumcheck randomness is sampled.
     pub folding_pow_bits: usize,
+
+    /// Number of query positions to open in this round.
+    ///
+    /// More queries strengthen soundness but increase proof size.
     pub num_queries: usize,
+
+    /// Number of out-of-domain samples for proximity testing.
+    ///
+    /// Used to verify the polynomial lies close to a Reed-Solomon codeword.
     pub ood_samples: usize,
+
+    /// Logarithm of the inverse rate for this round.
+    ///
+    /// Controls the Reed-Solomon code rate: rate = 2^(-log_inv_rate).
     pub log_inv_rate: usize,
+
+    /// Number of variables remaining at this round.
+    ///
+    /// Decreases by the folding factor each round.
     pub num_variables: usize,
+
+    /// How many variables to fold in this round.
+    ///
+    /// Determines the degree reduction per round.
     pub folding_factor: usize,
+
+    /// Size of the evaluation domain for this round.
+    ///
+    /// Equal to 2^(num_variables + log_inv_rate).
     pub domain_size: usize,
+
+    /// Generator for the folded domain.
+    ///
+    /// Used to construct the evaluation points after folding.
     pub folded_domain_gen: F,
 }
 
+/// Complete WHIR protocol configuration.
 #[derive(Debug, Clone)]
 pub struct WhirConfig<EF, F, Hash, C, Challenger>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
+    /// Number of variables in the multilinear polynomial.
+    ///
+    /// The polynomial has 2^num_variables coefficients.
     pub num_variables: usize,
+
+    /// Soundness assumption for security analysis.
+    ///
+    /// Determines how many queries are needed to achieve the target security level.
     pub soundness_type: SecurityAssumption,
+
+    /// Target security level in bits.
+    ///
+    /// The protocol aims to provide 2^(-security_level) soundness error.
     pub security_level: usize,
+
+    /// Maximum proof-of-work difficulty across all rounds.
+    ///
+    /// Caps the grinding work required from the prover.
     pub max_pow_bits: usize,
 
+    /// Number of out-of-domain samples for the initial commitment.
+    ///
+    /// Used when proving evaluation claims to strengthen soundness.
     pub commitment_ood_samples: usize,
-    /// Initial phase configuration.
+
+    /// Initial phase strategy for the protocol.
     ///
-    /// The WHIR protocol can prove either:
-    /// 1. The commitment is a valid low degree polynomial (WithoutStatement).
-    /// 2. The commitment is a valid folded polynomial, and an additional polynomial evaluation
-    ///    statement (any of the WithStatement* variants).
-    ///
-    /// The `InitialPhase` enum serves as both configuration (variant selection) and
-    /// can hold proof data during proof generation.
+    /// Controls whether evaluation claims are proven and which sumcheck
+    /// optimization to apply. Also holds proof data during generation.
     pub initial_phase: InitialPhase<EF, F>,
+
+    /// Logarithm of the inverse rate for the initial domain.
+    ///
+    /// Sets the Reed-Solomon blowup factor at the start of the protocol.
     pub starting_log_inv_rate: usize,
+
+    /// Proof-of-work difficulty for the initial folding phase.
+    ///
+    /// Applied after the first sumcheck completes.
     pub starting_folding_pow_bits: usize,
 
+    /// Strategy for how many variables to fold per round.
+    ///
+    /// Can be constant across all rounds or vary between the first and subsequent rounds.
     pub folding_factor: FoldingFactor,
+
+    /// Domain size reduction factor for the first round.
+    ///
+    /// The initial domain shrinks by 2^(this value) after round one.
+    /// Subsequent rounds always halve the domain.
     pub rs_domain_initial_reduction_factor: usize,
+
+    /// Pre-computed configuration for each intermediate round.
+    ///
+    /// Contains per-round query counts, PoW bits, domain parameters, etc.
     pub round_parameters: Vec<RoundConfig<F>>,
 
+    /// Number of queries in the final verification phase.
+    ///
+    /// The verifier opens this many positions in the final polynomial.
     pub final_queries: usize,
+
+    /// Proof-of-work difficulty for the final phase.
+    ///
+    /// Applied after the final commitment.
     pub final_pow_bits: usize,
+
+    /// Logarithm of the inverse rate for the final domain.
+    ///
+    /// Controls the Reed-Solomon rate at the protocol's end.
     pub final_log_inv_rate: usize,
+
+    /// Number of sumcheck rounds in the final phase.
+    ///
+    /// Equals the number of variables remaining after all folding rounds.
     pub final_sumcheck_rounds: usize,
+
+    /// Proof-of-work difficulty for final sumcheck folding.
+    ///
+    /// Applied after each round of the final sumcheck.
     pub final_folding_pow_bits: usize,
 
-    // Merkle tree parameters
+    /// Hash function for Merkle tree leaves.
+    ///
+    /// Maps polynomial evaluations to leaf digests.
     pub merkle_hash: Hash,
+
+    /// Compression function for Merkle tree nodes.
+    ///
+    /// Combines two child digests into a parent digest.
     pub merkle_compress: C,
 
+    /// Marker for the base field type.
     pub _base_field: PhantomData<F>,
+
+    /// Marker for the extension field type.
     pub _extension_field: PhantomData<EF>,
+
+    /// Marker for the challenger type.
     pub _challenger: PhantomData<Challenger>,
 }
 

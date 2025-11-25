@@ -147,16 +147,16 @@ impl FoldingFactor {
 /// Configuration parameters for WHIR proofs.
 #[derive(Clone, Debug)]
 pub struct ProtocolParameters<H, C, EF = (), F = ()> {
-    /// Configuration for the initial phase of the protocol.
+    /// Initial phase strategy for the WHIR protocol.
     ///
-    /// This determines whether an initial statement is included and which optimization
-    /// strategy to use for the sumcheck protocol. The `InitialPhase` enum serves as both
-    /// configuration (variant selection) and data container (during proof generation).
+    /// Controls two fundamental choices:
     ///
-    /// For configuration purposes, use the default constructors like:
-    /// - `InitialPhase::with_statement(SumcheckData::default())` for classic sumcheck
-    /// - `InitialPhase::with_statement_skip(...)` for univariate skip
-    /// - `InitialPhase::without_statement()` for no initial statement
+    /// 1. Whether to prove evaluation claims (with statement) or only commitment validity (without).
+    ///
+    /// 2. Which sumcheck optimization to apply: classic, univariate skip, or svo.
+    ///
+    /// This field serves dual purposes. Before proving, it specifies the strategy.
+    /// During proving, it accumulates the generated proof data.
     pub initial_phase: InitialPhase<EF, F>,
     /// The logarithmic inverse rate for sampling.
     pub starting_log_inv_rate: usize,
