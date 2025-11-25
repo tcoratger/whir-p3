@@ -23,7 +23,7 @@ use crate::{
     whir::{
         EqStatement,
         constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
-        parameters::{SumcheckOptimization, WhirConfig},
+        parameters::{InitialPhaseConfig, WhirConfig},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -77,7 +77,7 @@ where
         let mut prev_commitment = parsed_commitment.clone();
 
         // Optional initial sumcheck round
-        if self.initial_statement {
+        if self.initial_phase_config.has_initial_statement() {
             // Combine OODS constraints and statement constraints to claimed_sum
             statement.concatenate(&prev_commitment.ood_statement);
 
@@ -91,26 +91,16 @@ where
             constraints.push(constraint);
 
             // Initial sumcheck
-            let folding_randomness = match self.sumcheck_optimization {
-                // TODO: SVO optimization is not yet fully implemented
-                //
-                // Fall back to classic sumcheck
-                SumcheckOptimization::Svo => verify_sumcheck_rounds(
-                    verifier_state,
-                    &mut claimed_eval,
-                    self.folding_factor.at_round(0),
-                    self.starting_folding_pow_bits,
-                    SumcheckOptimization::Classic,
-                )?,
-
-                _ => verify_sumcheck_rounds(
-                    verifier_state,
-                    &mut claimed_eval,
-                    self.folding_factor.at_round(0),
-                    self.starting_folding_pow_bits,
-                    self.sumcheck_optimization,
-                )?,
-            };
+            //
+            // TODO: SVO optimization is not yet fully implemented
+            // Currently all initial phase configs use the same sumcheck rounds verification
+            let folding_randomness = verify_sumcheck_rounds(
+                verifier_state,
+                &mut claimed_eval,
+                self.folding_factor.at_round(0),
+                self.starting_folding_pow_bits,
+                self.initial_phase_config,
+            )?;
 
             round_folding_randomness.push(folding_randomness);
         } else {
@@ -165,7 +155,7 @@ where
                 &mut claimed_eval,
                 self.folding_factor.at_round(round_index + 1),
                 round_params.folding_pow_bits,
-                SumcheckOptimization::Classic,
+                InitialPhaseConfig::WithStatementClassic,
             )?;
 
             round_folding_randomness.push(folding_randomness);
@@ -204,7 +194,7 @@ where
             &mut claimed_eval,
             self.final_sumcheck_rounds,
             self.final_folding_pow_bits,
-            SumcheckOptimization::Classic,
+            InitialPhaseConfig::WithStatementClassic,
         )?;
 
         round_folding_randomness.push(final_sumcheck_randomness.clone());
@@ -219,10 +209,8 @@ where
 
         // For skip case, don't reverse the randomness (prover stores it in forward order)
         // For non-skip case, reverse it to match the prover's storage
-        let is_skip_used = matches!(
-            self.sumcheck_optimization,
-            SumcheckOptimization::UnivariateSkip
-        ) && K_SKIP_SUMCHECK <= self.folding_factor.at_round(0);
+        let is_skip_used = self.initial_phase_config.is_univariate_skip()
+            && K_SKIP_SUMCHECK <= self.folding_factor.at_round(0);
 
         let point_for_eval = if is_skip_used {
             folding_randomness.clone()
@@ -326,11 +314,10 @@ where
         )?;
 
         // Determine if this is the special first round where the univariate skip is applied.
-        let is_skip_round = self.initial_statement
-            && round_index == 0
+        let is_skip_round = round_index == 0
             && matches!(
-                self.sumcheck_optimization,
-                SumcheckOptimization::UnivariateSkip
+                self.initial_phase_config,
+                InitialPhaseConfig::WithStatementUnivariateSkip
             )
             && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 

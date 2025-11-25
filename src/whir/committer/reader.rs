@@ -185,7 +185,7 @@ mod tests {
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
         whir::{
-            DomainSeparator, committer::writer::CommitmentWriter, parameters::SumcheckOptimization,
+            DomainSeparator, committer::writer::CommitmentWriter, parameters::InitialPhaseConfig,
             proof::WhirProof,
         },
     };
@@ -221,7 +221,7 @@ mod tests {
 
         // Define core protocol parameters for WHIR.
         let whir_params = ProtocolParameters {
-            initial_statement: true,
+            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
             security_level: 100,
             pow_bits: 10,
             rs_domain_initial_reduction_factor: 1,
@@ -230,7 +230,6 @@ mod tests {
             merkle_compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
-            sumcheck_optimization: SumcheckOptimization::Classic,
         };
 
         // Construct full WHIR configuration with MV polynomial shape and protocol rules.

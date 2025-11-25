@@ -11,7 +11,7 @@ use whir_p3::{
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         constraints::{Constraint, statement::EqStatement},
-        parameters::SumcheckOptimization,
+        parameters::InitialPhaseConfig,
         proof::WhirProof,
     },
 };
@@ -31,7 +31,7 @@ fn create_test_protocol_params(
     let perm = Perm::new_from_rng_128(&mut rng);
 
     ProtocolParameters {
-        initial_statement: true,
+        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
         security_level: 32,
         pow_bits: 0,
         rs_domain_initial_reduction_factor: 1,
@@ -40,7 +40,6 @@ fn create_test_protocol_params(
         merkle_compress: MyCompress::new(perm),
         soundness_type: SecurityAssumption::UniqueDecoding,
         starting_log_inv_rate: 1,
-        sumcheck_optimization: SumcheckOptimization::Classic,
     }
 }
 

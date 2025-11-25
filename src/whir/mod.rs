@@ -7,7 +7,7 @@ use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
-use parameters::{SumcheckOptimization, WhirConfig};
+use parameters::{InitialPhaseConfig, WhirConfig};
 use prover::Prover;
 use rand::{SeedableRng, rngs::SmallRng};
 use verifier::Verifier;
@@ -44,8 +44,7 @@ pub fn make_whir_things(
     soundness_type: SecurityAssumption,
     pow_bits: usize,
     rs_domain_initial_reduction_factor: usize,
-    sumcheck_optimization: SumcheckOptimization,
-    initial_statement: bool,
+    initial_phase_config: InitialPhaseConfig,
 ) {
     // Calculate polynomial size: 2^num_variables coefficients for multilinear polynomial
     let num_coeffs = 1 << num_variables;
@@ -63,7 +62,7 @@ pub fn make_whir_things(
 
     // Configure WHIR protocol with all security and performance parameters
     let whir_params = ProtocolParameters {
-        initial_statement,
+        initial_phase_config,
         security_level: 32,
         pow_bits,
         rs_domain_initial_reduction_factor,
@@ -72,7 +71,6 @@ pub fn make_whir_things(
         merkle_compress,
         soundness_type,
         starting_log_inv_rate: 1,
-        sumcheck_optimization,
     };
 
     // Create unified configuration combining protocol and polynomial parameters
@@ -228,8 +226,7 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    SumcheckOptimization::Classic,
-                                    true,
+                                    InitialPhaseConfig::WithStatementClassic,
                                 );
                             }
                         }
@@ -277,8 +274,7 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    SumcheckOptimization::UnivariateSkip,
-                                    true,
+                                    InitialPhaseConfig::WithStatementUnivariateSkip,
                                 );
                             }
                         }
@@ -326,8 +322,7 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    SumcheckOptimization::Svo,
-                                    true,
+                                    InitialPhaseConfig::WithStatementSvo,
                                 );
                             }
                         }
@@ -366,8 +361,7 @@ mod tests {
                             soundness_type,
                             pow_bits,
                             rs_reduction_factor,
-                            SumcheckOptimization::Classic,
-                            false, // initial_statement: FALSE
+                            InitialPhaseConfig::WithoutStatement,
                         );
                     }
                 }

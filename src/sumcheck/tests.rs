@@ -22,7 +22,7 @@ use crate::{
             evaluator::ConstraintPolyEvaluator,
             statement::{EqStatement, SelectStatement},
         },
-        parameters::SumcheckOptimization,
+        parameters::InitialPhaseConfig,
         proof::{WhirProof, WhirRoundProof},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
@@ -53,14 +53,13 @@ fn domainsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
 
 fn create_test_protocol_params(
     folding_factor: FoldingFactor,
-    initial_statement: bool,
-    sumcheck_optimization: SumcheckOptimization,
+    initial_phase_config: InitialPhaseConfig,
 ) -> ProtocolParameters<MyHash, MyCompress> {
     let mut rng = SmallRng::seed_from_u64(1);
     let perm = Perm::new_from_rng_128(&mut rng);
 
     ProtocolParameters {
-        initial_statement,
+        initial_phase_config,
         security_level: 32,
         pow_bits: 0,
         rs_domain_initial_reduction_factor: 1,
@@ -69,7 +68,6 @@ fn create_test_protocol_params(
         merkle_compress: MyCompress::new(perm),
         soundness_type: SecurityAssumption::UniqueDecoding,
         starting_log_inv_rate: 1,
-        sumcheck_optimization,
     }
 }
 
@@ -332,7 +330,8 @@ fn run_sumcheck_test(
     let prover = &mut domsep.to_prover_state(challenger_for_prover);
 
     // Initialize proof and challenger
-    let params = create_test_protocol_params(folding_factor, true, SumcheckOptimization::Classic);
+    let params =
+        create_test_protocol_params(folding_factor, InitialPhaseConfig::WithStatementClassic);
     let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, num_vars);
     let mut rng = SmallRng::seed_from_u64(1);
     let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
@@ -461,7 +460,7 @@ fn run_sumcheck_test(
                 &mut sum,
                 folding,
                 0,
-                SumcheckOptimization::Classic,
+                InitialPhaseConfig::WithStatementClassic,
             )
             .unwrap(),
         );
@@ -476,7 +475,7 @@ fn run_sumcheck_test(
             &mut sum,
             final_rounds,
             0,
-            SumcheckOptimization::Classic,
+            InitialPhaseConfig::WithStatementClassic,
         )
         .unwrap(),
     );
@@ -541,8 +540,10 @@ fn run_sumcheck_test_skips(
     let prover = &mut domsep.to_prover_state(challenger_for_prover);
 
     // Initialize proof and challenger
-    let params =
-        create_test_protocol_params(folding_factor, true, SumcheckOptimization::UnivariateSkip);
+    let params = create_test_protocol_params(
+        folding_factor,
+        InitialPhaseConfig::WithStatementUnivariateSkip,
+    );
     let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, num_vars);
     let mut rng = SmallRng::seed_from_u64(1);
     let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
@@ -679,14 +680,15 @@ fn run_sumcheck_test_skips(
         // Extend r with verifier's folding randomness
         //
         // The skip optimization is only applied to the first round.
-        let sumcheck_opt = if round_idx == 0 {
-            SumcheckOptimization::UnivariateSkip
+        let initial_phase = if round_idx == 0 {
+            InitialPhaseConfig::WithStatementUnivariateSkip
         } else {
-            SumcheckOptimization::Classic
+            InitialPhaseConfig::WithStatementClassic
         };
         let folding = folding_factor.at_round(round_idx);
-        verifier_randomness
-            .extend(&verify_sumcheck_rounds(verifier, &mut sum, folding, 0, sumcheck_opt).unwrap());
+        verifier_randomness.extend(
+            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, initial_phase).unwrap(),
+        );
 
         num_vars_inter -= folding;
     }
@@ -698,7 +700,7 @@ fn run_sumcheck_test_skips(
             &mut sum,
             final_rounds,
             0,
-            SumcheckOptimization::Classic,
+            InitialPhaseConfig::WithStatementClassic,
         )
         .unwrap(),
     );
@@ -745,7 +747,7 @@ fn run_sumcheck_test_svo(
     let prover = &mut domsep.to_prover_state(challenger_for_prover);
 
     // Initialize proof and challenger
-    let params = create_test_protocol_params(folding_factor, true, SumcheckOptimization::Svo);
+    let params = create_test_protocol_params(folding_factor, InitialPhaseConfig::WithStatementSvo);
     let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, num_vars);
     let mut rng = SmallRng::seed_from_u64(1);
     let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
@@ -860,8 +862,14 @@ fn run_sumcheck_test_svo(
         // Extend r with verifier's folding challenges
         let folding = folding_factor.at_round(round_idx);
         verifier_randomness.extend(
-            &verify_sumcheck_rounds(verifier, &mut sum, folding, 0, SumcheckOptimization::Svo)
-                .unwrap(),
+            &verify_sumcheck_rounds(
+                verifier,
+                &mut sum,
+                folding,
+                0,
+                InitialPhaseConfig::WithStatementSvo,
+            )
+            .unwrap(),
         );
 
         num_vars_inter -= folding;
@@ -874,7 +882,7 @@ fn run_sumcheck_test_svo(
             &mut sum,
             final_rounds,
             0,
-            SumcheckOptimization::Svo,
+            InitialPhaseConfig::WithStatementSvo,
         )
         .unwrap(),
     );

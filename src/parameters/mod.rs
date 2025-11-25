@@ -3,7 +3,7 @@ use core::fmt::Display;
 use errors::SecurityAssumption;
 use thiserror::Error;
 
-use crate::whir::parameters::SumcheckOptimization;
+use crate::whir::parameters::InitialPhaseConfig;
 
 pub mod errors;
 
@@ -147,8 +147,11 @@ impl FoldingFactor {
 /// Configuration parameters for WHIR proofs.
 #[derive(Clone, Debug)]
 pub struct ProtocolParameters<H, C> {
-    /// Whether the initial statement is included in the proof.
-    pub initial_statement: bool,
+    /// Configuration for the initial phase of the protocol.
+    ///
+    /// This determines whether an initial statement is included and which optimization
+    /// strategy to use for the sumcheck protocol.
+    pub initial_phase_config: InitialPhaseConfig,
     /// The logarithmic inverse rate for sampling.
     pub starting_log_inv_rate: usize,
     /// The value v such that that the size of the Reed Solomon domain on which
@@ -169,8 +172,6 @@ pub struct ProtocolParameters<H, C> {
     pub merkle_hash: H,
     /// Compression method used in the Merkle tree.
     pub merkle_compress: C,
-    /// Sumcheck optimization strategy for the protocol.
-    pub sumcheck_optimization: SumcheckOptimization,
 }
 
 impl<H, C> Display for ProtocolParameters<H, C> {

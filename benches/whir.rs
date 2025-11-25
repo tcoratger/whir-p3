@@ -13,7 +13,7 @@ use whir_p3::{
     whir::{
         committer::writer::CommitmentWriter,
         constraints::statement::EqStatement,
-        parameters::{SumcheckOptimization, WhirConfig},
+        parameters::{InitialPhaseConfig, WhirConfig},
         proof::WhirProof,
         prover::Prover,
     },
@@ -76,7 +76,7 @@ fn prepare_inputs() -> (
 
     // Assemble the protocol-level parameters.
     let whir_params = ProtocolParameters {
-        initial_statement: true,
+        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
         security_level,
         pow_bits,
         folding_factor,
@@ -85,7 +85,6 @@ fn prepare_inputs() -> (
         soundness_type,
         starting_log_inv_rate: starting_rate,
         rs_domain_initial_reduction_factor,
-        sumcheck_optimization: SumcheckOptimization::Classic,
     };
 
     // Combine multivariate and protocol parameters into a unified WHIR config.
