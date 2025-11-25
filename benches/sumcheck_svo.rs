@@ -13,7 +13,7 @@ use whir_p3::{
     self as whir,
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    whir::{constraints::Constraint, parameters::SumcheckOptimization, proof::WhirProof},
+    whir::{constraints::Constraint, parameters::InitialPhaseConfig, proof::WhirProof},
 };
 
 type F = KoalaBear;
@@ -35,7 +35,7 @@ fn create_test_protocol_params_classic(
     let perm = Poseidon16::new_from_rng_128(&mut rng);
 
     ProtocolParameters {
-        initial_statement: true,
+        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
         security_level: 32,
         pow_bits: 0,
         rs_domain_initial_reduction_factor: 1,
@@ -44,7 +44,6 @@ fn create_test_protocol_params_classic(
         merkle_compress: MyCompress::new(perm),
         soundness_type: SecurityAssumption::UniqueDecoding,
         starting_log_inv_rate: 1,
-        sumcheck_optimization: SumcheckOptimization::Classic,
     }
 }
 

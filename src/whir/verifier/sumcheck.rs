@@ -10,7 +10,7 @@ use crate::{
     fiat_shamir::verifier::VerifierState,
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_polynomial::SumcheckPolynomial,
-    whir::{parameters::SumcheckOptimization, verifier::VerifierError},
+    whir::{parameters::InitialPhaseConfig, verifier::VerifierError},
 };
 
 /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
@@ -36,7 +36,7 @@ use crate::{
 /// - `verifier_state`: The verifier's Fiat–Shamir transcript state.
 /// - `rounds`: Total number of variables being folded.
 /// - `pow_bits`: Optional proof-of-work difficulty (0 disables PoW).
-/// - `sumcheck_optimization`: The optimization strategy to use for the sumcheck protocol.
+/// - `initial_phase_config`: The initial phase configuration which determines optimization strategy.
 ///
 /// # Returns
 ///
@@ -46,7 +46,7 @@ pub(crate) fn verify_sumcheck_rounds<EF, F, Challenger>(
     claimed_sum: &mut EF,
     rounds: usize,
     pow_bits: usize,
-    sumcheck_optimization: SumcheckOptimization,
+    initial_phase_config: InitialPhaseConfig,
 ) -> Result<MultilinearPoint<EF>, VerifierError>
 where
     F: TwoAdicField,
@@ -56,7 +56,7 @@ where
     // Calculate how many `(poly, rand)` pairs to expect based on optimization strategy
     //
     // If using univariate skip: we do 1 large round for the skip, and the remaining normally
-    let is_univariate_skip = matches!(sumcheck_optimization, SumcheckOptimization::UnivariateSkip);
+    let is_univariate_skip = initial_phase_config.is_univariate_skip();
     let effective_rounds = if is_univariate_skip && (rounds >= K_SKIP_SUMCHECK) {
         1 + (rounds - K_SKIP_SUMCHECK)
     } else {
@@ -112,21 +112,23 @@ where
 
     for i in start_round..rounds {
         // Extract polynomial evaluations based on optimization mode
-        let (c0, c1, c2) = match sumcheck_optimization {
-            SumcheckOptimization::Svo => {
+        let (c0, c1, c2) = match initial_phase_config {
+            InitialPhaseConfig::WithStatementSvo => {
                 // SVO: Read only c0 and c2, derive c1 from claimed_sum
                 let c0 = verifier_state.next_extension_scalar()?;
                 let c1 = *claimed_sum - c0;
                 let c2 = verifier_state.next_extension_scalar()?;
                 (c0, c1, c2)
             }
-            SumcheckOptimization::Classic | SumcheckOptimization::UnivariateSkip => {
-                // Classic/UnivariateSkip: Read all three values and verify sum
+            InitialPhaseConfig::WithStatementClassic
+            | InitialPhaseConfig::WithStatementUnivariateSkip
+            | InitialPhaseConfig::WithoutStatement => {
+                // Classic/UnivariateSkip/WithoutStatement: Read all three values and verify sum
                 let c0 = verifier_state.next_extension_scalar()?;
                 let c1 = verifier_state.next_extension_scalar()?;
                 let c2 = verifier_state.next_extension_scalar()?;
 
-                // Verify that the sum matches (only for Classic/UnivariateSkip modes)
+                // Verify that the sum matches
                 if *claimed_sum != c0 + c1 {
                     return Err(VerifierError::SumcheckFailed {
                         round: i,
@@ -145,12 +147,14 @@ where
         let rand: EF = verifier_state.sample();
 
         // Update claimed sum using the appropriate formula
-        match sumcheck_optimization {
-            SumcheckOptimization::Svo => {
+        match initial_phase_config {
+            InitialPhaseConfig::WithStatementSvo => {
                 // SVO formula: c2 * r² + (c1 - c0 - c2) * r + c0
                 *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
             }
-            SumcheckOptimization::Classic | SumcheckOptimization::UnivariateSkip => {
+            InitialPhaseConfig::WithStatementClassic
+            | InitialPhaseConfig::WithStatementUnivariateSkip
+            | InitialPhaseConfig::WithoutStatement => {
                 // Classic/UnivariateSkip formula: use SumcheckPolynomial evaluation
                 *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
                     .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
@@ -183,6 +187,7 @@ mod tests {
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
             constraints::{Constraint, statement::EqStatement},
+            parameters::InitialPhaseConfig,
             proof::WhirProof,
         },
     };
@@ -202,7 +207,7 @@ mod tests {
     fn create_proof_from_test_protocol_params(
         num_variables: usize,
         folding_factor: FoldingFactor,
-        sumcheck_optimization: SumcheckOptimization,
+        initial_phase_config: InitialPhaseConfig,
     ) -> WhirProof<F, EF4, DIGEST_ELEMS> {
         // Create hash and compression functions for the Merkle tree
         let mut rng = SmallRng::seed_from_u64(1);
@@ -213,7 +218,7 @@ mod tests {
 
         // Construct WHIR protocol parameters
         let whir_params = ProtocolParameters {
-            initial_statement: true,
+            initial_phase_config,
             security_level: 32,
             pow_bits: 0,
             rs_domain_initial_reduction_factor: 1,
@@ -222,7 +227,6 @@ mod tests {
             merkle_compress,
             soundness_type: SecurityAssumption::UniqueDecoding,
             starting_log_inv_rate: 1,
-            sumcheck_optimization,
         };
 
         // Combine protocol and polynomial parameters into a single config
@@ -361,7 +365,7 @@ mod tests {
             &mut expected_initial_sum,
             folding_factor,
             pow_bits,
-            SumcheckOptimization::Classic,
+            InitialPhaseConfig::WithStatementClassic,
         )
         .unwrap();
 
@@ -447,7 +451,7 @@ mod tests {
         let mut proof = create_proof_from_test_protocol_params(
             NUM_VARS,
             FoldingFactor::Constant(5),
-            SumcheckOptimization::UnivariateSkip,
+            InitialPhaseConfig::WithStatementUnivariateSkip,
         );
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
@@ -504,7 +508,7 @@ mod tests {
             &mut expected_sum,
             NUM_VARS,
             0,
-            SumcheckOptimization::UnivariateSkip,
+            InitialPhaseConfig::WithStatementUnivariateSkip,
         )
         .unwrap();
 
@@ -611,7 +615,7 @@ mod tests {
             &mut expected_initial_sum,
             folding_factor,
             pow_bits,
-            SumcheckOptimization::Svo,
+            InitialPhaseConfig::WithStatementSvo,
         )
         .unwrap();
 

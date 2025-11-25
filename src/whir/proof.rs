@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     constant::K_SKIP_SUMCHECK, parameters::ProtocolParameters, poly::evals::EvaluationsList,
-    whir::parameters::SumcheckOptimization,
+    whir::parameters::InitialPhaseConfig,
 };
 
 /// Complete WHIR proof
@@ -227,12 +227,12 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
         num_variables: usize,
     ) -> Self {
         // Determine which initial phase variant based on protocol configuration
-        let initial_phase = match (params.initial_statement, params.sumcheck_optimization) {
+        let initial_phase = match params.initial_phase_config {
             // No initial statement: direct folding path
-            (false, _) => InitialPhase::without_statement(),
+            InitialPhaseConfig::WithoutStatement => InitialPhase::without_statement(),
 
             // With statement + UnivariateSkip optimization
-            (true, SumcheckOptimization::UnivariateSkip)
+            InitialPhaseConfig::WithStatementUnivariateSkip
                 if K_SKIP_SUMCHECK <= params.folding_factor.at_round(0) =>
             {
                 InitialPhase::with_statement_skip(Vec::new(), None, SumcheckData::default())
@@ -241,12 +241,12 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             // With statement + SVO optimization
             // TODO: SVO optimization is not yet fully implemented
             // Fall back to classic sumcheck for now
-            (true, SumcheckOptimization::Svo) => {
+            InitialPhaseConfig::WithStatementSvo => {
                 InitialPhase::with_statement(SumcheckData::default())
             }
 
             // With statement + Classic (or UnivariateSkip with insufficient folding factor)
-            (true, _) => InitialPhase::with_statement(SumcheckData::default()),
+            _ => InitialPhase::with_statement(SumcheckData::default()),
         };
 
         // Use the actual FoldingFactor method to calculate rounds correctly
@@ -350,10 +350,7 @@ mod tests {
     use rand::SeedableRng;
 
     use super::*;
-    use crate::{
-        parameters::{FoldingFactor, errors::SecurityAssumption},
-        whir::parameters::SumcheckOptimization,
-    };
+    use crate::parameters::{FoldingFactor, errors::SecurityAssumption};
 
     /// Type alias for the base field used in tests
     type F = BabyBear;
@@ -379,22 +376,20 @@ mod tests {
     /// for testing different proof initialization scenarios.
     ///
     /// # Parameters
-    /// - `initial_statement`: Whether the protocol includes an initial statement
+    /// - `initial_phase_config`: Configuration for the initial phase
     /// - `folding_factor`: The folding strategy for the protocol
-    /// - `sumcheck_optimization`: The sumcheck optimization strategy to use
     ///
     /// # Returns
     /// A `ProtocolParameters` instance configured for testing
     fn create_test_params(
-        initial_statement: bool,
+        initial_phase_config: InitialPhaseConfig,
         folding_factor: FoldingFactor,
-        sumcheck_optimization: SumcheckOptimization,
     ) -> ProtocolParameters<MyHash, MyCompress> {
         // Create the permutation for hash and compress
         let perm = Perm::new_from_rng_128(&mut rand::rngs::SmallRng::seed_from_u64(42));
 
         ProtocolParameters {
-            initial_statement,
+            initial_phase_config,
             starting_log_inv_rate: 2,
             rs_domain_initial_reduction_factor: 1,
             folding_factor,
@@ -403,7 +398,6 @@ mod tests {
             pow_bits: 10,
             merkle_hash: PaddingFreeSponge::new(perm.clone()),
             merkle_compress: TruncatedPermutation::new(perm),
-            sumcheck_optimization,
         }
     }
 
@@ -411,22 +405,19 @@ mod tests {
     fn test_whir_proof_from_params_with_univariate_skip() {
         // Declare test parameters explicitly
 
-        // Use initial statement with univariate skip optimization
-        let initial_statement = true;
-
         // Set folding factor to 6, which is >= K_SKIP_SUMCHECK (5)
         // This ensures univariate skip optimization is enabled
         let folding_factor_value = 6;
         let folding_factor = FoldingFactor::Constant(folding_factor_value);
 
         // Enable univariate skip optimization
-        let sumcheck_optimization = SumcheckOptimization::UnivariateSkip;
+        let initial_phase_config = InitialPhaseConfig::WithStatementUnivariateSkip;
 
         // Use 20 variables for testing
         let num_variables = 20;
 
         // Create protocol parameters with univariate skip enabled
-        let params = create_test_params(initial_statement, folding_factor, sumcheck_optimization);
+        let params = create_test_params(initial_phase_config, folding_factor);
 
         // Create proof structure from parameters
         let proof: WhirProof<F, EF, DIGEST_ELEMS> =
@@ -434,8 +425,7 @@ mod tests {
 
         // Verify that initial_phase is WithStatementSkip variant
         // This should be true because:
-        // - initial_statement = true
-        // - sumcheck_optimization = UnivariateSkip
+        // - initial_phase_config = WithStatementUnivariateSkip
         // - folding_factor (6) >= K_SKIP_SUMCHECK (5)
         match proof.initial_phase {
             InitialPhase::WithStatementSkip {
@@ -468,9 +458,6 @@ mod tests {
     fn test_whir_proof_from_params_without_univariate_skip() {
         // Declare test parameters explicitly
 
-        // Use initial statement without univariate skip optimization
-        let initial_statement = true;
-
         // Set folding factor to 4, which is < K_SKIP_SUMCHECK (5)
         // This ensures univariate skip optimization is NOT enabled
         let folding_factor_value = 4;
@@ -478,13 +465,13 @@ mod tests {
 
         // Even if we request UnivariateSkip, it won't be used
         // because folding_factor < K_SKIP_SUMCHECK
-        let sumcheck_optimization = SumcheckOptimization::UnivariateSkip;
+        let initial_phase_config = InitialPhaseConfig::WithStatementUnivariateSkip;
 
         // Use 16 variables for testing
         let num_variables = 16;
 
         // Create protocol parameters (skip won't be enabled due to folding_factor < 5)
-        let params = create_test_params(initial_statement, folding_factor, sumcheck_optimization);
+        let params = create_test_params(initial_phase_config, folding_factor);
 
         // Create proof structure from parameters
         let proof: WhirProof<F, EF, DIGEST_ELEMS> =
@@ -515,28 +502,25 @@ mod tests {
     fn test_whir_proof_from_params_without_initial_statement() {
         // Declare test parameters explicitly
 
-        // Disable initial statement
-        let initial_statement = false;
-
-        // Folding factor doesn't matter for initial_phase when initial_statement=false
+        // Folding factor doesn't matter for initial_phase when WithoutStatement
         let folding_factor_value = 6;
         let folding_factor = FoldingFactor::Constant(folding_factor_value);
 
-        // Optimization doesn't matter when there's no initial statement
-        let sumcheck_optimization = SumcheckOptimization::UnivariateSkip;
+        // Configure without initial statement
+        let initial_phase_config = InitialPhaseConfig::WithoutStatement;
 
         // Use 18 variables for testing
         let num_variables = 18;
 
         // Create protocol parameters without initial statement
-        let params = create_test_params(initial_statement, folding_factor, sumcheck_optimization);
+        let params = create_test_params(initial_phase_config, folding_factor);
 
         // Create proof structure from parameters
         let proof: WhirProof<F, EF, DIGEST_ELEMS> =
             WhirProof::from_protocol_parameters(&params, num_variables);
 
         // Verify that initial_phase is WithoutStatement variant
-        // This is because initial_statement = false
+        // This is because initial_phase_config = WithoutStatement
         match proof.initial_phase {
             InitialPhase::WithoutStatement => {
                 // This is the expected variant, nothing to check inside

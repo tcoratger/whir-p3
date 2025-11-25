@@ -11,7 +11,7 @@ use crate::{
         prover::ProverState,
         verifier::VerifierState,
     },
-    whir::parameters::{SumcheckOptimization, WhirConfig},
+    whir::parameters::{InitialPhaseConfig, WhirConfig},
 };
 
 /// Configuration parameters for a sumcheck phase in the protocol.
@@ -147,7 +147,7 @@ where
         // TODO: Add params
         self.observe(DIGEST_ELEMS, Observe::MerkleDigest);
         if params.commitment_ood_samples > 0 {
-            assert!(params.initial_statement);
+            assert!(params.initial_phase_config.has_initial_statement());
             self.add_ood(params.commitment_ood_samples);
         }
     }
@@ -161,13 +161,13 @@ where
         F: TwoAdicField,
     {
         // TODO: Add statement
-        if params.initial_statement {
+        if params.initial_phase_config.has_initial_statement() {
             self.sample(1, Sample::InitialCombinationRandomness);
             self.add_sumcheck(&SumcheckParams {
                 rounds: params.folding_factor.at_round(0),
                 pow_bits: params.starting_folding_pow_bits,
-                univariate_skip: match params.sumcheck_optimization {
-                    SumcheckOptimization::UnivariateSkip => Some(K_SKIP_SUMCHECK),
+                univariate_skip: match params.initial_phase_config {
+                    InitialPhaseConfig::WithStatementUnivariateSkip => Some(K_SKIP_SUMCHECK),
                     _ => None,
                 },
             });

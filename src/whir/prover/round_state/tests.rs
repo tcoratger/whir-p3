@@ -16,7 +16,7 @@ use crate::{
         WhirConfig,
         committer::{Witness, writer::CommitmentWriter},
         constraints::statement::EqStatement,
-        parameters::SumcheckOptimization,
+        parameters::InitialPhaseConfig,
         proof::WhirProof,
         prover::{Prover, round_state::RoundState},
     },
@@ -36,7 +36,7 @@ const DIGEST_ELEMS: usize = 8;
 ///
 /// This utility function builds a `WhirConfig` using the provided parameters:
 /// - `num_variables`: Number of variables in the multilinear polynomial.
-/// - `initial_statement`: Whether to start with an initial sumcheck statement.
+/// - `initial_phase_config`: Configuration for the initial phase.
 /// - `folding_factor`: Number of variables to fold per round.
 /// - `pow_bits`: Difficulty of the proof-of-work challenge used in Fiat-Shamir.
 ///
@@ -44,7 +44,7 @@ const DIGEST_ELEMS: usize = 8;
 /// for round state construction in WHIR tests.
 fn make_test_config(
     num_variables: usize,
-    initial_statement: bool,
+    initial_phase_config: InitialPhaseConfig,
     folding_factor: usize,
     pow_bits: usize,
 ) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger> {
@@ -57,7 +57,7 @@ fn make_test_config(
     // Define the core protocol parameters for WHIR, customizing behavior based
     // on whether to start with an initial sumcheck and how to fold the polynomial.
     let protocol_params = ProtocolParameters {
-        initial_statement,
+        initial_phase_config,
         security_level: 80,
         pow_bits,
         rs_domain_initial_reduction_factor: 1,
@@ -66,7 +66,6 @@ fn make_test_config(
         merkle_compress,
         soundness_type: SecurityAssumption::CapacityBound,
         starting_log_inv_rate: 1,
-        sumcheck_optimization: SumcheckOptimization::Classic,
     };
 
     // Combine the multivariate and protocol parameters into a full WHIR config
@@ -94,7 +93,7 @@ fn setup_domain_and_commitment(
 ) {
     // Build ProtocolParameters from WhirConfig fields
     let protocol_params = ProtocolParameters {
-        initial_statement: params.initial_statement,
+        initial_phase_config: params.initial_phase_config,
         security_level: params.security_level,
         pow_bits: params.starting_folding_pow_bits,
         folding_factor: params.folding_factor,
@@ -103,7 +102,6 @@ fn setup_domain_and_commitment(
         soundness_type: params.soundness_type,
         starting_log_inv_rate: params.starting_log_inv_rate,
         rs_domain_initial_reduction_factor: 1,
-        sumcheck_optimization: SumcheckOptimization::default(),
     };
 
     // Create WhirProof structure from protocol parameters
@@ -158,7 +156,7 @@ fn test_no_initial_statement_no_sumcheck() {
     // - no initial sumcheck,
     // - folding factor 2,
     // - no PoW grinding.
-    let config = make_test_config(num_variables, false, 2, 0);
+    let config = make_test_config(num_variables, InitialPhaseConfig::WithoutStatement, 2, 0);
 
     // Define a polynomial
     let poly = EvaluationsList::new(vec![F::from_u64(3); 1 << num_variables]);
@@ -204,7 +202,12 @@ fn test_initial_statement_with_folding_factor_3() {
     // - initial statement enabled (sumcheck will run),
     // - folding factor = 3 (fold all variables in the first round),
     // - PoW disabled.
-    let config = make_test_config(num_variables, true, 3, 0);
+    let config = make_test_config(
+        num_variables,
+        InitialPhaseConfig::WithStatementClassic,
+        3,
+        0,
+    );
 
     // Define the multilinear polynomial:
     // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
@@ -299,7 +302,12 @@ fn test_zero_poly_multiple_constraints() {
     let num_variables = 3;
 
     // Build a WHIR config with an initial statement, folding factor 1, and no PoW
-    let config = make_test_config(num_variables, true, 1, 0);
+    let config = make_test_config(
+        num_variables,
+        InitialPhaseConfig::WithStatementClassic,
+        1,
+        0,
+    );
 
     // Define a zero polynomial: f(X) = 0 for all X
     let poly = EvaluationsList::new(vec![F::ZERO; 1 << num_variables]);
@@ -368,7 +376,12 @@ fn test_initialize_round_state_with_initial_statement() {
     // - initial statement enabled,
     // - folding factor of 1 (fold one variable in the first round),
     // - PoW bits enabled.
-    let config = make_test_config(num_variables, true, 1, pow_bits);
+    let config = make_test_config(
+        num_variables,
+        InitialPhaseConfig::WithStatementClassic,
+        1,
+        pow_bits,
+    );
 
     // Define a multilinear polynomial:
     // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2 + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2

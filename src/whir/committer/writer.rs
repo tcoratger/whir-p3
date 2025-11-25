@@ -162,7 +162,7 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        whir::parameters::SumcheckOptimization,
+        whir::parameters::InitialPhaseConfig,
     };
 
     type F = BabyBear;
@@ -188,7 +188,7 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_statement: true,
+            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
@@ -200,7 +200,6 @@ mod tests {
             merkle_compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
-            sumcheck_optimization: SumcheckOptimization::Classic,
         };
 
         // Define multivariate parameters for the polynomial.
@@ -278,7 +277,7 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_statement: true,
+            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
@@ -290,7 +289,6 @@ mod tests {
             merkle_compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
-            sumcheck_optimization: SumcheckOptimization::Classic,
         };
 
         let params = WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(
@@ -341,7 +339,7 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_statement: true,
+            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
@@ -353,7 +351,6 @@ mod tests {
             merkle_compress,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
-            sumcheck_optimization: SumcheckOptimization::Classic,
         };
 
         let mut params = WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(
