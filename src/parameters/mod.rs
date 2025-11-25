@@ -145,10 +145,6 @@ impl FoldingFactor {
 }
 
 /// Configuration parameters for WHIR proofs.
-///
-/// The `EF` and `F` type parameters are used for the `InitialPhase` configuration,
-/// which specifies the initial phase variant and can hold proof data. For configuration
-/// purposes (before proof generation), these are typically set to `()` or simple types.
 #[derive(Clone, Debug)]
 pub struct ProtocolParameters<H, C, EF = (), F = ()> {
     /// Configuration for the initial phase of the protocol.
