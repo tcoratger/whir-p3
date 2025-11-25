@@ -56,7 +56,6 @@ where
     // Calculate how many `(poly, rand)` pairs to expect based on optimization strategy
     //
     // If using univariate skip: we do 1 large round for the skip, and the remaining normally
-    // Note: SVO falls back to classic behavior since it's not yet fully implemented
     let is_univariate_skip = initial_phase.is_univariate_skip();
     let effective_rounds = if is_univariate_skip && (rounds >= K_SKIP_SUMCHECK) {
         1 + (rounds - K_SKIP_SUMCHECK)
