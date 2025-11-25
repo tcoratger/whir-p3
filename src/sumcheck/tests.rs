@@ -151,7 +151,11 @@ where
     // Return the constructed constraint with the alpha used for linear combination.
     let alpha = prover.sample();
     // Keep challenger_rf in sync
-    let _alpha_rf: EF = challenger.sample_algebra_element();
+    let alpha_rf: EF = challenger.sample_algebra_element();
+    assert_eq!(
+        alpha, alpha_rf,
+        "External challenger and prover_state challenger diverged"
+    );
     Constraint::new(alpha, eq_statement, sel_statement)
 }
 
@@ -180,8 +184,11 @@ where
         // Sample a univariate field element from the prover's challenger.
         let point = prover.sample();
         // Keep challenger_rf in sync
-        let _point_rf: EF = challenger.sample_algebra_element();
-
+        let point_rf: EF = challenger.sample_algebra_element();
+        assert_eq!(
+            point, point_rf,
+            "External challenger and prover_state challenger diverged"
+        );
         // Expand it into a `num_vars`-dimensional multilinear point.
         let point = MultilinearPoint::expand_from_univariate(point, num_vars);
 
@@ -204,7 +211,12 @@ where
         // Simulate stir point derivation
         let index: usize = prover.sample_bits(num_vars);
         // Keep challenger_rf in sync
-        let _index_rf: usize = challenger.sample_bits(num_vars);
+        let index_rf: usize = challenger.sample_bits(num_vars);
+        assert_eq!(
+            index, index_rf,
+            "External challenger and prover_state challenger diverged"
+        );
+
         let var = omega.exp_u64(index as u64);
 
         // Evaluate the current sumcheck polynomial as univariate at the sampled variable.
@@ -223,8 +235,11 @@ where
 
     // Return the constructed constraint with the alpha used for linear combination.
     let alpha = prover.sample();
-    // Keep challenger_rf in sync
-    let _alpha_rf: EF = challenger.sample_algebra_element();
+    let alpha_rf: EF = challenger.sample_algebra_element();
+    assert_eq!(
+        alpha, alpha_rf,
+        "External challenger and prover_state challenger diverged"
+    );
     Constraint::new(alpha, eq_statement, sel_statement)
 }
 
@@ -275,7 +290,6 @@ where
 }
 
 /// Runs an end-to-end prover-verifier test for the `SumcheckSingle` protocol with nested folding.
-///
 /// This test:
 /// - Initializes a random multilinear polynomial over `F`.
 /// - Runs the prover through several rounds of sumcheck folding.
