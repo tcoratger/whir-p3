@@ -95,8 +95,6 @@ where
             //
             // TODO: SVO optimization is not yet fully implemented in the prover,
             // so the verifier also falls back to classic behavior for SVO.
-            // We pass the initial_phase directly - the verify_sumcheck_rounds function
-            // handles the SVO fallback internally.
             let folding_randomness = verify_sumcheck_rounds(
                 verifier_state,
                 &mut claimed_eval,
