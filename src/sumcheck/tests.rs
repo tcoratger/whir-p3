@@ -23,7 +23,7 @@ use crate::{
             statement::{EqStatement, SelectStatement},
         },
         parameters::InitialPhaseConfig,
-        proof::{WhirProof, WhirRoundProof},
+        proof::{InitialPhase, WhirProof, WhirRoundProof},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -349,10 +349,14 @@ fn run_sumcheck_test(
 
     // ROUND 0
     let folding0 = folding_factor.at_round(0);
+    // Extract sumcheck data from the initial phase
+    let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
+        panic!("Expected WithStatement variant");
+    };
     let (mut sumcheck, mut prover_randomness) = SumcheckSingle::from_base_evals(
         &poly,
         prover,
-        &mut proof,
+        sumcheck,
         &mut challenger_rf,
         folding0,
         0,
@@ -563,10 +567,21 @@ fn run_sumcheck_test_skips(
     // ROUND 0
     // Initialize sumcheck with univariate skip (skips K_SKIP_SUMCHECK)
     let folding0 = folding_factor.at_round(0);
+    // Extract skip fields from the initial phase
+    let InitialPhase::WithStatementSkip {
+        ref mut skip_evaluations,
+        ref mut skip_pow,
+        ref mut sumcheck,
+    } = proof.initial_phase
+    else {
+        panic!("Expected WithStatementSkip variant");
+    };
     let (mut sumcheck, mut prover_randomness) = SumcheckSingle::with_skip(
         &poly,
         prover,
-        &mut proof,
+        skip_evaluations,
+        skip_pow,
+        sumcheck,
         &mut challenger_rf,
         folding0,
         0,

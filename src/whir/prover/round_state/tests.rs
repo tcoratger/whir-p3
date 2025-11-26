@@ -165,15 +165,11 @@ fn test_no_initial_statement_no_sumcheck() {
     // - domain separator for Fiat-Shamir transcript,
     // - prover state,
     // - witness containing Merkle tree for `poly`.
-    let (_, _, mut prover_state, witness) = setup_domain_and_commitment(&config, poly);
+    let (mut proof, mut challenger, mut prover_state, witness) =
+        setup_domain_and_commitment(&config, poly);
 
     // Create an empty public statement (no constraints)
     let statement = EqStatement::<EF4>::initialize(num_variables);
-
-    // Initialize proof and challenger
-    let mut proof = WhirProof::<F, EF4, DIGEST_ELEMS>::default();
-    let mut rng = SmallRng::seed_from_u64(1);
-    let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
     // Initialize the round state using the setup configuration and witness
     let state = RoundState::initialize_first_round_state(
