@@ -12,7 +12,7 @@ use whir_p3::{
     whir::{
         constraints::{Constraint, statement::EqStatement},
         parameters::InitialPhaseConfig,
-        proof::WhirProof,
+        proof::{InitialPhase, WhirProof},
     },
 };
 
@@ -112,11 +112,16 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
                 // Keep challenger_rf in sync
                 let _alpha_rf: EF = challenger_rf.sample_algebra_element();
 
+                // Extract sumcheck data from the initial phase
+                let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
+                    panic!("Expected WithStatement variant");
+                };
+
                 // First round - fold first half of variables
                 let (mut sumcheck, _) = SumcheckSingle::from_base_evals(
                     poly,
                     &mut prover,
-                    &mut proof,
+                    sumcheck,
                     &mut challenger_rf,
                     classic_folding_schedule[0],
                     0,

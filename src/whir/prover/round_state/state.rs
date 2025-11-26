@@ -18,8 +18,7 @@ use crate::{
     whir::{
         committer::{RoundMerkleTree, Witness},
         constraints::{Constraint, statement::EqStatement},
-        parameters::InitialPhaseConfig,
-        proof::WhirProof,
+        proof::{InitialPhase, WhirProof},
         prover::Prover,
     },
 };
@@ -152,66 +151,83 @@ where
         // Append OOD constraints to statement for Reed-Solomon proximity testing
         statement.concatenate(&witness.ood_statement);
 
-        // Protocol branching based on initial statement configuration
-        let (sumcheck_prover, folding_randomness) =
-            if prover.initial_phase_config.has_initial_statement() {
-                // Branch A: Initial statement exists - run sumcheck for constraint batching
+        // Protocol branching based on initial phase variant in proof
+        let (sumcheck_prover, folding_randomness) = match &mut proof.initial_phase {
+            // Branch: WithStatementSkip - use univariate skip optimization
+            InitialPhase::WithStatementSkip {
+                skip_evaluations,
+                skip_pow,
+                sumcheck,
+            } if K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0) => {
+                // Build constraint with random linear combination
                 let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
-                // Temporary: to sync the refactoring fiat-shamir and the curent
+                // Sync external challenger
                 let _constraint_rf =
                     Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
 
-                // Choose sumcheck strategy based on configured optimization
-                let (sumcheck, folding_randomness) = match prover.initial_phase_config {
-                    InitialPhaseConfig::WithStatementUnivariateSkip
-                        if K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0) =>
-                    {
-                        // Use univariate skip by skipping k variables
-                        SumcheckSingle::with_skip(
-                            &witness.polynomial,
-                            prover_state,
-                            proof,
-                            challenger,
-                            prover.folding_factor.at_round(0),
-                            prover.starting_folding_pow_bits,
-                            K_SKIP_SUMCHECK,
-                            &constraint,
-                        )
-                    }
-                    InitialPhaseConfig::WithStatementSvo => {
-                        // TODO: SVO optimization is not yet fully implemented
-                        //
-                        // Fall back to classic sumcheck
-                        SumcheckSingle::from_base_evals(
-                            &witness.polynomial,
-                            prover_state,
-                            proof,
-                            challenger,
-                            prover.folding_factor.at_round(0),
-                            prover.starting_folding_pow_bits,
-                            &constraint,
-                        )
-                    }
-                    _ => {
-                        // Standard sumcheck protocol without optimization
-                        SumcheckSingle::from_base_evals(
-                            &witness.polynomial,
-                            prover_state,
-                            proof,
-                            challenger,
-                            prover.folding_factor.at_round(0),
-                            prover.starting_folding_pow_bits,
-                            &constraint,
-                        )
-                    }
-                };
+                // Use univariate skip by skipping k variables
+                SumcheckSingle::with_skip(
+                    &witness.polynomial,
+                    prover_state,
+                    skip_evaluations,
+                    skip_pow,
+                    sumcheck,
+                    challenger,
+                    prover.folding_factor.at_round(0),
+                    prover.starting_folding_pow_bits,
+                    K_SKIP_SUMCHECK,
+                    &constraint,
+                )
+            }
 
-                (sumcheck, folding_randomness)
-            } else {
-                // Branch B: No initial statement - direct polynomial folding path
+            // Branch: WithStatementSvo - SVO optimization (currently falls back to classic)
+            InitialPhase::WithStatementSvo { sumcheck } => {
+                // Build constraint with random linear combination
+                let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
+                // Sync external challenger
+                let _constraint_rf =
+                    Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
+
+                // TODO: SVO optimization is not yet fully implemented
+                // Fall back to classic sumcheck
+                SumcheckSingle::from_base_evals(
+                    &witness.polynomial,
+                    prover_state,
+                    sumcheck,
+                    challenger,
+                    prover.folding_factor.at_round(0),
+                    prover.starting_folding_pow_bits,
+                    &constraint,
+                )
+            }
+
+            // Branch: WithStatement or WithStatementSkip (fallback when folding_factor < K_SKIP)
+            InitialPhase::WithStatement { sumcheck }
+            | InitialPhase::WithStatementSkip { sumcheck, .. } => {
+                // Build constraint with random linear combination
+                let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
+                // Sync external challenger
+                let _constraint_rf =
+                    Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
+
+                // Standard sumcheck protocol without optimization
+                SumcheckSingle::from_base_evals(
+                    &witness.polynomial,
+                    prover_state,
+                    sumcheck,
+                    challenger,
+                    prover.folding_factor.at_round(0),
+                    prover.starting_folding_pow_bits,
+                    &constraint,
+                )
+            }
+
+            // Branch: WithoutStatement - direct polynomial folding path
+            InitialPhase::WithoutStatement => {
+                // Sample folding challenges α_1, ..., α_k
                 let folding_randomness = MultilinearPoint::new(
                     (0..prover.folding_factor.at_round(0))
-                        .map(|_| prover_state.sample()) // Sample folding challenges α_1, ..., α_k
+                        .map(|_| prover_state.sample())
                         .collect::<Vec<_>>(),
                 );
 
@@ -230,7 +246,8 @@ where
                 prover_state.pow_grinding(prover.starting_folding_pow_bits);
 
                 (sumcheck, folding_randomness)
-            };
+            }
+        };
 
         // Initialize complete round state for first WHIR protocol round
         Ok(Self {

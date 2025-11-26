@@ -188,7 +188,7 @@ mod tests {
         whir::{
             constraints::{Constraint, statement::EqStatement},
             parameters::InitialPhaseConfig,
-            proof::WhirProof,
+            proof::{InitialPhase, WhirProof},
         },
     };
 
@@ -312,11 +312,16 @@ mod tests {
         let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         domsep.observe_domain_separator(&mut challenger_rf);
 
+        // Extract sumcheck data from the initial phase
+        let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
+            panic!("Expected WithStatement variant");
+        };
+
         // Instantiate the prover with base field coefficients
         let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals(
             &coeffs.to_evaluations(),
             &mut prover_state,
-            &mut proof,
+            sumcheck,
             &mut challenger_rf,
             folding_factor,
             pow_bits,
@@ -457,10 +462,22 @@ mod tests {
         let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         domsep.observe_domain_separator(&mut challenger_rf);
 
+        // Extract skip fields from the initial phase
+        let InitialPhase::WithStatementSkip {
+            ref mut skip_evaluations,
+            ref mut skip_pow,
+            ref mut sumcheck,
+        } = proof.initial_phase
+        else {
+            panic!("Expected WithStatementSkip variant");
+        };
+
         let (_, _) = SumcheckSingle::<F, EF4>::with_skip(
             &coeffs.to_evaluations(),
             &mut prover_state,
-            &mut proof,
+            skip_evaluations,
+            skip_pow,
+            sumcheck,
             &mut challenger_rf,
             NUM_VARS,
             0,

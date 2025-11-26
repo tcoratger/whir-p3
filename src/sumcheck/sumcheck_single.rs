@@ -14,7 +14,7 @@ use crate::{
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
     whir::{
         constraints::{Constraint, statement::EqStatement},
-        proof::{InitialPhase, SumcheckData, SumcheckRoundData::Classic, WhirProof},
+        proof::{SumcheckData, SumcheckRoundData::Classic, WhirProof},
     },
 };
 
@@ -39,7 +39,7 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// * The verifier's challenge `r` as an `EF` element.
 /// * The new, compressed polynomial evaluations as an `EvaluationsList<EF>`.
 #[instrument(skip_all)]
-fn initial_round<Challenger, F: Field, EF: ExtensionField<F>, const DIGEST_ELEMS: usize>(
+fn initial_round<Challenger, F: Field, EF: ExtensionField<F>>(
     prover_state: &mut ProverState<F, EF, Challenger>,
     sumcheck_data: &mut SumcheckData<EF, F>,
     challenger: &mut Challenger,
@@ -319,10 +319,10 @@ where
     /// - Initializes internal sumcheck state with weights and expected sum.
     /// - Applies first set of sumcheck rounds
     #[instrument(skip_all)]
-    pub fn from_base_evals<Challenger, const DIGEST_ELEMS: usize>(
+    pub fn from_base_evals<Challenger>(
         evals: &EvaluationsList<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        sumcheck: &mut SumcheckData<EF, F>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
@@ -335,13 +335,9 @@ where
     {
         assert_ne!(folding_factor, 0);
 
-        let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
-            panic!("initial_round called with incorrect InitialPhase variant");
-        };
-
         let (mut weights, mut sum) = constraint.combine_new();
 
-        let (first_round, mut evals) = initial_round::<Challenger, F, EF, DIGEST_ELEMS>(
+        let (first_round, mut evals) = initial_round(
             prover_state,
             sumcheck,
             challenger,
@@ -384,10 +380,12 @@ where
     /// - Applies first set of sumcheck rounds with univariate skip optimization.
     #[instrument(skip_all)]
     #[allow(clippy::too_many_arguments)]
-    pub fn with_skip<Challenger, const DIGEST_ELEMS: usize>(
+    pub fn with_skip<Challenger>(
         evals: &EvaluationsList<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        skip_evaluations: &mut Vec<EF>,
+        skip_pow: &mut Option<F>,
+        sumcheck: &mut SumcheckData<EF, F>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
@@ -436,16 +434,7 @@ where
         let flattened = EF::flatten_to_base(polynomial_skip_evaluation.to_vec());
         challenger.observe_slice(&flattened);
 
-        // Update the WhirProof structure
-        let InitialPhase::WithStatementSkip {
-            ref mut skip_evaluations,
-            ref mut skip_pow,
-            ref mut sumcheck,
-        } = proof.initial_phase
-        else {
-            panic!("initial_round called with incorrect InitialPhase variant");
-        };
-
+        // Store skip evaluations
         skip_evaluations.extend_from_slice(polynomial_skip_evaluation);
 
         // Proof-of-work challenge to delay prover.
