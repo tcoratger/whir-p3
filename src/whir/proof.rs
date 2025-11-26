@@ -774,4 +774,49 @@ mod tests {
             QueryOpening::Base { .. } => panic!("Expected Extension variant"),
         }
     }
+
+    #[test]
+    fn test_push_pow_witness_none_does_nothing() {
+        let mut sumcheck: SumcheckData<EF, F> = SumcheckData::default();
+
+        // Pushing None should not initialize the vector
+        sumcheck.push_pow_witness(None);
+
+        assert!(sumcheck.pow_witnesses.is_none());
+    }
+
+    #[test]
+    fn test_push_pow_witness_some_initializes_and_pushes() {
+        let mut sumcheck: SumcheckData<EF, F> = SumcheckData::default();
+
+        // First push should initialize the vector
+        let witness1 = F::from_u64(42);
+        sumcheck.push_pow_witness(Some(witness1));
+
+        assert!(sumcheck.pow_witnesses.is_some());
+        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap().len(), 1);
+        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap()[0], witness1);
+
+        // Second push should append to existing vector
+        let witness2 = F::from_u64(123);
+        sumcheck.push_pow_witness(Some(witness2));
+
+        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap().len(), 2);
+        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap()[1], witness2);
+    }
+
+    #[test]
+    fn test_push_pow_witness_mixed() {
+        let mut sumcheck: SumcheckData<EF, F> = SumcheckData::default();
+
+        // Push Some, then None, then Some
+        sumcheck.push_pow_witness(Some(F::from_u64(1)));
+        sumcheck.push_pow_witness(None); // Should not add anything
+        sumcheck.push_pow_witness(Some(F::from_u64(2)));
+
+        // Should only have 2 witnesses
+        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap().len(), 2);
+        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap()[0], F::from_u64(1));
+        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap()[1], F::from_u64(2));
+    }
 }
