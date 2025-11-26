@@ -147,9 +147,9 @@ where
 
     // Sample verifier challenge.
     let r: EF = prover_state.sample();
-    let _r_rf: EF = challenger.sample_algebra_element();
+    let r_rf: EF = challenger.sample_algebra_element();
     // todo!() currently fails
-    //assert_eq!(r, r_rf, "External challenger and prover_state challenger diverged");
+    assert_eq!(r, r_rf, "External challenger and prover_state challenger diverged DIO");
 
     // Compress polynomials and update the sum.
     join(|| evals.compress(r), || weights.compress(r));

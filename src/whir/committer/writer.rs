@@ -1,4 +1,5 @@
 use alloc::sync::Arc;
+use alloc::vec;
 use core::ops::Deref;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
@@ -117,13 +118,11 @@ where
                 info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point));
             prover_state.add_extension_scalar(eval);
 
-            let point_rf: EF = challenger.sample_algebra_element();
-            let point_rf = MultilinearPoint::expand_from_univariate(point_rf, self.num_variables);
+            let point_rf = MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), self.num_variables);
             let eval_rf =
                 info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point_rf));
             proof.initial_ood_answers.push(eval_rf);
-            challenger.observe_algebra_element(eval_rf);
-
+            challenger.observe_slice(&EF::flatten_to_base(vec![eval_rf]));
             ood_statement.add_evaluated_constraint(point, eval);
         });
 
