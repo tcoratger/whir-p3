@@ -18,7 +18,7 @@ use crate::{
     whir::{
         committer::{RoundMerkleTree, Witness},
         constraints::{Constraint, statement::EqStatement},
-        proof::{InitialPhase, WhirProof},
+        proof::{InitialPhase, SumcheckSkipData, WhirProof},
         prover::Prover,
     },
 };
@@ -154,11 +154,9 @@ where
         // Protocol branching based on initial phase variant in proof
         let (sumcheck_prover, folding_randomness) = match &mut proof.initial_phase {
             // Branch: WithStatementSkip - use univariate skip optimization
-            InitialPhase::WithStatementSkip {
-                skip_evaluations,
-                skip_pow,
-                sumcheck,
-            } if K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0) => {
+            InitialPhase::WithStatementSkip(skip_data)
+                if K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0) =>
+            {
                 // Build constraint with random linear combination
                 let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
                 // Sync external challenger
@@ -169,9 +167,7 @@ where
                 SumcheckSingle::with_skip(
                     &witness.polynomial,
                     prover_state,
-                    skip_evaluations,
-                    skip_pow,
-                    sumcheck,
+                    skip_data,
                     challenger,
                     prover.folding_factor.at_round(0),
                     prover.starting_folding_pow_bits,
@@ -203,7 +199,7 @@ where
 
             // Branch: WithStatement or WithStatementSkip (fallback when folding_factor < K_SKIP)
             InitialPhase::WithStatement { sumcheck }
-            | InitialPhase::WithStatementSkip { sumcheck, .. } => {
+            | InitialPhase::WithStatementSkip(SumcheckSkipData { sumcheck, .. }) => {
                 // Build constraint with random linear combination
                 let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
                 // Sync external challenger

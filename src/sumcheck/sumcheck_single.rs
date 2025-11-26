@@ -14,7 +14,7 @@ use crate::{
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
     whir::{
         constraints::{Constraint, statement::EqStatement},
-        proof::{SumcheckData, SumcheckRoundData::Classic, WhirProof},
+        proof::{SumcheckData, SumcheckRoundData::Classic, SumcheckSkipData, WhirProof},
     },
 };
 
@@ -383,9 +383,7 @@ where
     pub fn with_skip<Challenger>(
         evals: &EvaluationsList<F>,
         prover_state: &mut ProverState<F, EF, Challenger>,
-        skip_evaluations: &mut Vec<EF>,
-        skip_pow: &mut Option<F>,
-        sumcheck: &mut SumcheckData<EF, F>,
+        skip_data: &mut SumcheckSkipData<EF, F>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
@@ -435,11 +433,13 @@ where
         challenger.observe_slice(&flattened);
 
         // Store skip evaluations
-        skip_evaluations.extend_from_slice(polynomial_skip_evaluation);
+        skip_data
+            .evaluations
+            .extend_from_slice(polynomial_skip_evaluation);
 
         // Proof-of-work challenge to delay prover.
         prover_state.pow_grinding(pow_bits);
-        *skip_pow = pow_grinding(challenger, pow_bits);
+        skip_data.pow = pow_grinding(challenger, pow_bits);
 
         // Receive the verifier challenge for this entire collapsed round.
         let r: EF = prover_state.sample();
@@ -467,7 +467,7 @@ where
         res.push(r);
         for _ in k_skip..folding_factor {
             res.push(round(
-                sumcheck,
+                &mut skip_data.sumcheck,
                 challenger,
                 prover_state,
                 &mut evals,

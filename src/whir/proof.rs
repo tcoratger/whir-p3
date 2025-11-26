@@ -67,16 +67,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default
 pub enum InitialPhase<EF, F> {
     /// Protocol with statement and univariate skip optimization
     #[serde(rename = "with_statement_skip")]
-    WithStatementSkip {
-        /// Skip round polynomial evaluations
-        skip_evaluations: Vec<EF>,
-
-        /// PoW witness after skip round
-        skip_pow: Option<F>,
-
-        /// Remaining sumcheck rounds after the skip (for folding_factor > k_skip)
-        sumcheck: SumcheckData<EF, F>,
-    },
+    WithStatementSkip(SumcheckSkipData<EF, F>),
 
     /// Protocol with statement and svo optimization.
     /// First `l` rounds of svo optimization, the remaining rounds from algorithm 5 of the paper
@@ -209,6 +200,13 @@ impl<EF, F> SumcheckData<EF, F> {
     }
 }
 
+#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+pub struct SumcheckSkipData<EF, F> {
+    pub evaluations: Vec<EF>,
+    pub pow: Option<F>,
+    pub sumcheck: SumcheckData<EF, F>,
+}
+
 impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
     /// Create a new WhirProof from protocol parameters and configuration
     ///
@@ -235,7 +233,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             InitialPhaseConfig::WithStatementUnivariateSkip
                 if K_SKIP_SUMCHECK <= params.folding_factor.at_round(0) =>
             {
-                InitialPhase::with_statement_skip(Vec::new(), None, SumcheckData::default())
+                InitialPhase::with_statement_skip(SumcheckSkipData::default())
             }
 
             // With statement + SVO optimization
@@ -309,16 +307,8 @@ impl<F: Clone, EF, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
 
 impl<EF, F> InitialPhase<EF, F> {
     /// Create initial phase with statement and skip optimization
-    pub const fn with_statement_skip(
-        skip_evaluations: Vec<EF>,
-        skip_pow: Option<F>,
-        sumcheck: SumcheckData<EF, F>,
-    ) -> Self {
-        Self::WithStatementSkip {
-            skip_evaluations,
-            skip_pow,
-            sumcheck,
-        }
+    pub const fn with_statement_skip(skip_data: SumcheckSkipData<EF, F>) -> Self {
+        Self::WithStatementSkip(skip_data)
     }
 
     /// Create initial phase with statement and SVO optimization
@@ -428,19 +418,15 @@ mod tests {
         // - initial_phase_config = WithStatementUnivariateSkip
         // - folding_factor (6) >= K_SKIP_SUMCHECK (5)
         match proof.initial_phase {
-            InitialPhase::WithStatementSkip {
-                skip_evaluations,
-                skip_pow,
-                sumcheck,
-            } => {
-                // skip_evaluations should be empty (not populated yet)
-                assert_eq!(skip_evaluations.len(), 0);
-                // skip_pow should be None (not populated yet)
-                assert!(skip_pow.is_none());
+            InitialPhase::WithStatementSkip(skip_data) => {
+                // evaluations should be empty (not populated yet)
+                assert_eq!(skip_data.evaluations.len(), 0);
+                // pow should be None (not populated yet)
+                assert!(skip_data.pow.is_none());
                 // sumcheck should have empty polynomial_evaluations
-                assert_eq!(sumcheck.polynomial_evaluations.len(), 0);
+                assert_eq!(skip_data.sumcheck.polynomial_evaluations.len(), 0);
                 // sumcheck should have no PoW witnesses
-                assert!(sumcheck.pow_witnesses.is_none());
+                assert!(skip_data.sumcheck.pow_witnesses.is_none());
             }
             _ => panic!("Expected WithStatementSkip variant"),
         }
@@ -637,29 +623,25 @@ mod tests {
     fn test_initial_phase_constructors() {
         // Test with_statement_skip constructor
 
-        // Create empty skip evaluations
-        let skip_evaluations: Vec<EF> = Vec::new();
-
         // Create skip PoW witness
         let skip_pow_value = F::from_u64(123);
-        let skip_pow = Some(skip_pow_value);
 
-        // Create empty sumcheck data
-        let sumcheck: SumcheckData<EF, F> = SumcheckData::default();
+        // Create SumcheckSkipData
+        let skip_data: SumcheckSkipData<EF, F> = SumcheckSkipData {
+            evaluations: Vec::new(),
+            pow: Some(skip_pow_value),
+            sumcheck: SumcheckData::default(),
+        };
 
         // Construct WithStatementSkip variant
-        let phase_skip = InitialPhase::with_statement_skip(skip_evaluations, skip_pow, sumcheck);
+        let phase_skip = InitialPhase::with_statement_skip(skip_data);
 
         // Verify it's the correct variant
         match phase_skip {
-            InitialPhase::WithStatementSkip {
-                skip_evaluations,
-                skip_pow,
-                sumcheck,
-            } => {
-                assert_eq!(skip_evaluations.len(), 0);
-                assert_eq!(skip_pow, Some(skip_pow_value));
-                assert_eq!(sumcheck.polynomial_evaluations.len(), 0);
+            InitialPhase::WithStatementSkip(skip_data) => {
+                assert_eq!(skip_data.evaluations.len(), 0);
+                assert_eq!(skip_data.pow, Some(skip_pow_value));
+                assert_eq!(skip_data.sumcheck.polynomial_evaluations.len(), 0);
             }
             _ => panic!("Expected WithStatementSkip variant"),
         }
