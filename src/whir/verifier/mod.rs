@@ -142,6 +142,7 @@ where
                 &prev_commitment,
                 round_folding_randomness.last().unwrap(),
                 round_index,
+                challenger
             )?;
 
             let constraint = Constraint::new(
@@ -180,6 +181,7 @@ where
             &prev_commitment,
             round_folding_randomness.last().unwrap(),
             self.n_rounds(),
+            challenger
         )?;
 
         // Verify stir constraints directly on final polynomial
@@ -273,6 +275,7 @@ where
         commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
+        challenger: &mut Challenger,
     ) -> Result<SelectStatement<F, EF>, VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
@@ -302,6 +305,7 @@ where
             params.folding_factor,
             params.num_queries,
             verifier_state,
+            challenger
         )?;
 
         let dimensions = vec![Dimensions {

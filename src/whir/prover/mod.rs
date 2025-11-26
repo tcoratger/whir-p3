@@ -1,3 +1,4 @@
+use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Deref;
 
@@ -265,8 +266,9 @@ where
             let eval = folded_evaluations.evaluate_hypercube(&point);
             prover_state.add_extension_scalar(eval);
             // Sync: sample and observe on external challenger
-            let _point_rf: EF = challenger.sample_algebra_element();
-            challenger.observe_algebra_element(eval);
+            let point_rf = MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), num_variables);
+            let eval_rf = folded_evaluations.evaluate_hypercube(&point_rf);
+            challenger.observe_slice(&EF::flatten_to_base(vec![eval_rf]));
 
             ood_statement.add_evaluated_constraint(point, eval);
         });
@@ -294,6 +296,7 @@ where
             self.folding_factor.at_round(round_index),
             round_params.num_queries,
             prover_state,
+            challenger
         )?;
 
         let stir_vars = stir_challenges_indexes
@@ -491,6 +494,7 @@ where
             // Number of final verification queries
             self.final_queries,
             prover_state,
+            challenger
         )?;
 
         // Every query requires opening these many in the previous Merkle tree

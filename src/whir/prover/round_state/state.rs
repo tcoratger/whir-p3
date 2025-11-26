@@ -22,6 +22,7 @@ use crate::{
         prover::Prover,
     },
 };
+use crate::fiat_shamir::grinding::pow_grinding;
 
 /// Holds all per-round prover state required during the execution of the WHIR protocol.
 ///
@@ -240,6 +241,7 @@ where
 
                 // Apply proof-of-work grinding for transcript security
                 prover_state.pow_grinding(prover.starting_folding_pow_bits);
+                pow_grinding(challenger, prover.starting_folding_pow_bits);
 
                 (sumcheck, folding_randomness)
             }

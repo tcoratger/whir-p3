@@ -3,7 +3,7 @@ use alloc::{vec, vec::Vec};
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use constraints::statement::EqStatement;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::DuplexChallenger;
+use p3_challenger::{CanSample, DuplexChallenger, FieldChallenger};
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -160,7 +160,8 @@ pub fn make_whir_things(
     let verifier = Verifier::new(&params);
 
     // Reconstruct verifier's transcript from proof data and domain separator
-    let mut verifier_challenger = challenger.clone();
+    let mut rng = SmallRng::seed_from_u64(1);
+    let mut verifier_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
     let mut verifier_state =
         domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
