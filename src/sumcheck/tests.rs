@@ -567,21 +567,14 @@ fn run_sumcheck_test_skips(
     // ROUND 0
     // Initialize sumcheck with univariate skip (skips K_SKIP_SUMCHECK)
     let folding0 = folding_factor.at_round(0);
-    // Extract skip fields from the initial phase
-    let InitialPhase::WithStatementSkip {
-        ref mut skip_evaluations,
-        ref mut skip_pow,
-        ref mut sumcheck,
-    } = proof.initial_phase
-    else {
+    // Extract skip data from the initial phase
+    let InitialPhase::WithStatementSkip(ref mut skip_data) = proof.initial_phase else {
         panic!("Expected WithStatementSkip variant");
     };
     let (mut sumcheck, mut prover_randomness) = SumcheckSingle::with_skip(
         &poly,
         prover,
-        skip_evaluations,
-        skip_pow,
-        sumcheck,
+        skip_data,
         &mut challenger_rf,
         folding0,
         0,
