@@ -11,6 +11,9 @@ use crate::{
     poly::multilinear::MultilinearPoint,
     whir::{parameters::InitialPhaseConfig, verifier::VerifierError},
 };
+use crate::fiat_shamir::grinding::check_pow_grinding;
+use crate::whir::proof::WhirProof;
+use crate::whir::prover::Proof;
 
 /// Extracts a sequence of `(SumcheckPolynomial, folding_randomness)` pairs from the verifier transcript,
 /// and computes the corresponding `MultilinearPoint` folding randomness in reverse order.
@@ -40,8 +43,9 @@ use crate::{
 /// # Returns
 ///
 /// - A `MultilinearPoint` of folding randomness values in reverse order.
-pub(crate) fn verify_sumcheck_rounds<EF, F, Challenger>(
+pub(crate) fn verify_sumcheck_rounds<EF, F, Challenger, const DIGEST_ELEMS: usize>(
     verifier_state: &mut VerifierState<F, EF, Challenger>,
+    proof: &WhirProof<F, EF, DIGEST_ELEMS>,
     claimed_sum: &mut EF,
     rounds: usize,
     pow_bits: usize,
@@ -70,6 +74,9 @@ where
         // Read `2^{k+1}` evaluations (size of coset domain) for the skipping polynomial
         let evals: [EF; 1 << (K_SKIP_SUMCHECK + 1)] =
             verifier_state.next_extension_scalars_const()?;
+        proof.initial_phase
+
+
 
         // Interpolate into a univariate polynomial (over the coset domain)
         let poly = evals.to_vec();
@@ -88,7 +95,7 @@ where
         }
 
         // Optional: apply proof-of-work query
-        verifier_state.check_pow_grinding(pow_bits)?;
+        check_pow_grinding(pow_bits)?;
 
         // Sample the challenge scalar r₀ ∈ 𝔽 for this round
         let rand = verifier_state.sample();

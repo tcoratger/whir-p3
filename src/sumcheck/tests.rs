@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
+use p3_challenger::{CanObserve, DuplexChallenger, FieldChallenger, GrindingChallenger};
 use p3_field::{
     BasedVectorSpace, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
 };
@@ -208,8 +208,10 @@ where
     Constraint::new(alpha, eq_statement, sel_statement)
 }
 
-fn read_constraint<Challenger>(
-    verifier: &mut VerifierState<F, EF, Challenger>,
+fn read_constraint<Challenger, const DIGEST_ELEMS: usize>(
+    challenger: &mut Challenger,
+    proof: &WhirProof<F, EF, DIGEST_ELEMS>,
+    round_idx: usize,
     num_vars: usize,
     num_eqs: usize,
     num_sels: usize,
@@ -217,16 +219,28 @@ fn read_constraint<Challenger>(
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
+    // Get the evaluations from the appropriate location in the proof based on round index.
+    // Round 0 uses initial_ood_answers, subsequent rounds use rounds[round_idx - 1].ood_answers.
+    let ood_answers: &[EF] = if round_idx == 0 {
+        &proof.initial_ood_answers
+    } else {
+        &proof.rounds[round_idx - 1].ood_answers
+    };
+
     // Create a new statement that will hold all reconstructed constraints.
     let mut eq_statement = EqStatement::initialize(num_vars);
 
-    // For each point, sample a challenge and read its corresponding evaluation from the transcript.
-    for _ in 0..num_eqs {
+    // For each point, sample a challenge and read its corresponding evaluation from the proof.
+    for i in 0..num_eqs {
         // Sample a univariate challenge and expand to a multilinear point.
-        let point = MultilinearPoint::expand_from_univariate(verifier.sample(), num_vars);
+        let point =
+            MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), num_vars);
 
         // Read the committed evaluation corresponding to this point from the proof data.
-        let eval = verifier.next_extension_scalar().unwrap();
+        let eval = ood_answers[i];
+
+        // Observe the evaluation to keep the challenger synchronized (must match prover)
+        challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
 
         // Add the constraint: poly(point) == eval.
         eq_statement.add_evaluated_constraint(point, eval);
@@ -238,20 +252,24 @@ where
     // To simulate stir point derivation derive domain generator
     let omega = F::two_adic_generator(num_vars);
 
-    // For each point, sample a challenge and read its corresponding evaluation from the transcript.
-    for _ in 0..num_sels {
+    // For each point, sample a challenge and read its corresponding evaluation from the proof.
+    for i in 0..num_sels {
         // Simulate stir point derivation
-        let index: usize = verifier.sample_bits(num_vars);
+        let index: usize = challenger.sample_bits(num_vars);
         let var = omega.exp_u64(index as u64);
 
         // Read the committed evaluation corresponding to this point from the proof data.
-        let eval = verifier.next_extension_scalar().unwrap();
+        // Sel evaluations are stored after eq evaluations in the ood_answers array.
+        let eval = ood_answers[num_eqs + i];
+
+        // Observe the evaluation to keep the challenger synchronized (must match prover)
+        challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
 
         // Add the constraint: poly(point) == eval.
         sel_statement.add_constraint(var, eval);
     }
 
-    Constraint::new(verifier.sample(), eq_statement, sel_statement)
+    Constraint::new(challenger.sample_algebra_element(), eq_statement, sel_statement)
 }
 
 /// Runs an end-to-end prover-verifier test for the `SumcheckSingle` protocol with nested folding.
@@ -293,18 +311,18 @@ fn run_sumcheck_test(
     let poly = EvaluationsList::new((0..1 << num_vars).map(|_| rng.random()).collect());
 
     // PROVER
-    let (domsep, mut challenger) = domainsep_and_challenger();
+    let (domsep, challenger) = domainsep_and_challenger();
+    let mut prover_challenger = challenger.clone();
 
     // Initialize proof and challenger
     let params =
         create_test_protocol_params(folding_factor, InitialPhaseConfig::WithStatementClassic);
     let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, num_vars);
-
-    domsep.observe_domain_separator(&mut challenger);
+    domsep.observe_domain_separator(&mut prover_challenger);
 
     // Create the initial constraint statement
     let constraint = make_constraint(
-        &mut challenger,
+        &mut prover_challenger,
         num_vars,
         num_eqs[0],
         num_sels[0],
@@ -320,7 +338,7 @@ fn run_sumcheck_test(
     let (mut sumcheck, mut prover_randomness) = SumcheckSingle::from_base_evals(
         &poly,
         sumcheck,
-        &mut challenger,
+        &mut prover_challenger,
         folding0,
         0,
         &constraint,
@@ -336,7 +354,7 @@ fn run_sumcheck_test(
         let folding = folding_factor.at_round(round);
         // Sample new evaluation constraints and combine them into the sumcheck state
         let constraint = make_constraint_ext(
-            &mut challenger,
+            &mut prover_challenger,
             num_vars_inter,
             num_eq_points,
             num_sel_points,
@@ -349,7 +367,7 @@ fn run_sumcheck_test(
         let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
             &mut sumcheck_data,
-            &mut challenger,
+            &mut prover_challenger,
             folding,
             0,
             Some(constraint),
@@ -370,7 +388,7 @@ fn run_sumcheck_test(
     let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
     prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
         &mut sumcheck_data,
-        &mut challenger,
+        &mut prover_challenger,
         final_rounds,
         0,
         None,
@@ -387,13 +405,10 @@ fn run_sumcheck_test(
         final_folded_value
     );
     // Commit final result to Fiat-Shamir transcript
-    prover.add_extension_scalar(final_folded_value);
-
-    // Save proof data to pass to verifier
-    let proof = prover.proof_data().to_vec();
+    prover_challenger.observe_slice(&EF::flatten_to_base(vec![final_folded_value]));
 
     // VERIFIER
-    let verifier = &mut verifier(proof);
+    let mut verifer_challenger = challenger.clone();
 
     // Running total for the verifier’s sum of constraint combinations
     let mut sum = EF::ZERO;
@@ -412,7 +427,7 @@ fn run_sumcheck_test(
         num_eqs.iter().zip(num_sels.iter()).enumerate()
     {
         // Reconstruct round constraint from transcript
-        let constraint = read_constraint(verifier, num_vars_inter, num_eq_points, num_sel_points);
+        let constraint = read_constraint(&mut verifer_challenger, &proof, round_idx, num_vars_inter, num_eq_points, num_sel_points);
         // Accumulate the weighted sum of constraint values
         constraint.combine_evals(&mut sum);
         // Save constraints for later equality check

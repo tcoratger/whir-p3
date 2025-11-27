@@ -399,7 +399,6 @@ where
 
         let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         let folding_randomness = round_state.sumcheck_prover.compute_sumcheck_polynomials(
-            proof,
             &mut sumcheck_data,
             challenger,
             folding_factor_next,
