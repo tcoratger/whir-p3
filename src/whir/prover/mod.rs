@@ -23,12 +23,12 @@ use super::{
 };
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::FiatShamirError, grinding::pow_grinding, prover::ProverState},
+    fiat_shamir::{errors::FiatShamirError, grinding::sync_pow_grinding, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::{Constraint, statement::SelectStatement},
         proof::WhirProof,
-        utils::get_challenge_stir_queries,
+        utils::{get_challenge_stir_queries, sync_stir_queries},
     },
 };
 
@@ -260,12 +260,16 @@ where
         // Handle OOD (Out-Of-Domain) samples
         let mut ood_statement = EqStatement::initialize(num_variables);
         (0..round_params.ood_samples).for_each(|_| {
-            let point =
-                MultilinearPoint::expand_from_univariate(prover_state.sample(), num_variables);
+            let point_scalar: EF = prover_state.sample();
+            let point = MultilinearPoint::expand_from_univariate(point_scalar, num_variables);
             let eval = folded_evaluations.evaluate_hypercube(&point);
             prover_state.add_extension_scalar(eval);
-            // Sync: sample and observe on external challenger
-            let _point_rf: EF = challenger.sample_algebra_element();
+            // Sync: sample from external challenger and verify consistency
+            let point_rf: EF = challenger.sample_algebra_element();
+            assert_eq!(
+                point_scalar, point_rf,
+                "External challenger and prover_state diverged during round OOD point sampling"
+            );
             challenger.observe_algebra_element(eval);
 
             ood_statement.add_evaluated_constraint(point, eval);
@@ -284,9 +288,9 @@ where
         // By forcing the prover to perform this expensive proof-of-work *after* committing but
         // *before* receiving the queries, we make it computationally infeasible to "shop" for
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
-        prover_state.pow_grinding(round_params.pow_bits);
-        // Sync: grind on external challenger
-        pow_grinding(challenger, round_params.pow_bits);
+        let witness = prover_state.pow_grinding(round_params.pow_bits);
+        // Sync: verify the same witness on external challenger
+        sync_pow_grinding(challenger, witness, round_params.pow_bits);
 
         // STIR Queries
         let stir_challenges_indexes = get_challenge_stir_queries(
@@ -295,6 +299,17 @@ where
             round_params.num_queries,
             prover_state,
         )?;
+        // Sync: sample STIR queries on external challenger and verify consistency
+        let stir_challenges_indexes_rf = sync_stir_queries(
+            round_state.domain_size,
+            self.folding_factor.at_round(round_index),
+            round_params.num_queries,
+            challenger,
+        );
+        assert_eq!(
+            stir_challenges_indexes, stir_challenges_indexes_rf,
+            "External challenger and prover_state diverged during round STIR query sampling"
+        );
 
         let stir_vars = stir_challenges_indexes
             .iter()
@@ -415,9 +430,14 @@ where
             }
         }
 
-        let constraint = Constraint::new(prover_state.sample(), ood_statement, stir_statement);
-        // Temporary: to sync the refactoring fiat-shamir and the current
-        let _constraint_rf: EF = challenger.sample_algebra_element();
+        let constraint_challenge: EF = prover_state.sample();
+        let constraint = Constraint::new(constraint_challenge, ood_statement, stir_statement);
+        // Sync: sample from external challenger and verify consistency
+        let constraint_challenge_rf: EF = challenger.sample_algebra_element();
+        assert_eq!(
+            constraint_challenge, constraint_challenge_rf,
+            "External challenger and prover_state diverged during round constraint challenge sampling"
+        );
 
         let folding_randomness = round_state.sumcheck_prover.compute_sumcheck_polynomials(
             prover_state,
@@ -458,11 +478,10 @@ where
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        prover_state.add_extension_scalars(round_state.sumcheck_prover.evals.as_slice());
+        let evals_to_observe = round_state.sumcheck_prover.evals.as_slice();
+        prover_state.add_extension_scalars(evals_to_observe);
         // Sync: observe on external challenger
-        challenger.observe_slice(&EF::flatten_to_base(
-            round_state.sumcheck_prover.evals.as_slice().to_vec(),
-        ));
+        challenger.observe_slice(&EF::flatten_to_base(evals_to_observe.to_vec()));
 
         // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
         //
@@ -477,9 +496,9 @@ where
         // By forcing the prover to perform this expensive proof-of-work *after* committing but
         // *before* receiving the queries, we make it computationally infeasible to "shop" for
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
-        prover_state.pow_grinding(self.final_pow_bits);
-        // Sync: grind on external challenger
-        pow_grinding(challenger, self.final_pow_bits);
+        let witness = prover_state.pow_grinding(self.final_pow_bits);
+        // Sync: verify the same witness on external challenger
+        sync_pow_grinding(challenger, witness, self.final_pow_bits);
 
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
@@ -491,6 +510,17 @@ where
             self.final_queries,
             prover_state,
         )?;
+        // Sync: sample final STIR queries on external challenger and verify consistency
+        let final_challenge_indexes_rf = sync_stir_queries(
+            round_state.domain_size,
+            self.folding_factor.at_round(round_index),
+            self.final_queries,
+            challenger,
+        );
+        assert_eq!(
+            final_challenge_indexes, final_challenge_indexes_rf,
+            "External challenger and prover_state diverged during final round STIR query sampling"
+        );
 
         // Every query requires opening these many in the previous Merkle tree
         let mmcs = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(

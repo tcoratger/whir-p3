@@ -8,7 +8,7 @@ use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
-    fiat_shamir::{grinding::pow_grinding, prover::ProverState},
+    fiat_shamir::{grinding::sync_pow_grinding, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
     whir::{
@@ -67,8 +67,9 @@ where
     challenger.observe_slice(&flattened);
 
     // Proof-of-work challenge to delay prover
-    prover_state.pow_grinding(pow_bits);
-    let witness = pow_grinding(challenger, pow_bits);
+    let witness = prover_state.pow_grinding(pow_bits);
+    // Sync: verify the same witness on external challenger
+    sync_pow_grinding(challenger, witness, pow_bits);
 
     // Store PoW witness if present
     sumcheck_data.push_pow_witness(witness);
@@ -139,17 +140,20 @@ where
     challenger.observe_slice(&flattened);
 
     // Proof-of-work challenge to delay prover
-    prover_state.pow_grinding(pow_bits);
-    let witness = pow_grinding(challenger, pow_bits);
+    let witness = prover_state.pow_grinding(pow_bits);
+    // Sync: verify the same witness on external challenger
+    sync_pow_grinding(challenger, witness, pow_bits);
 
     // Store PoW witness if present
     sumcheck_data.push_pow_witness(witness);
 
-    // Sample verifier challenge.
+    // Sample verifier challenge from both and verify consistency
     let r: EF = prover_state.sample();
-    let _r_rf: EF = challenger.sample_algebra_element();
-    // todo!() currently fails
-    //assert_eq!(r, r_rf, "External challenger and prover_state challenger diverged");
+    let r_rf: EF = challenger.sample_algebra_element();
+    assert_eq!(
+        r, r_rf,
+        "External challenger and prover_state challenger diverged in round()"
+    );
 
     // Compress polynomials and update the sum.
     join(|| evals.compress(r), || weights.compress(r));
@@ -463,8 +467,10 @@ where
             .extend_from_slice(polynomial_skip_evaluation);
 
         // Proof-of-work challenge to delay prover.
-        prover_state.pow_grinding(pow_bits);
-        skip_data.pow = pow_grinding(challenger, pow_bits);
+        let witness = prover_state.pow_grinding(pow_bits);
+        // Sync: verify the same witness on external challenger
+        sync_pow_grinding(challenger, witness, pow_bits);
+        skip_data.pow = witness;
 
         // Receive the verifier challenge for this entire collapsed round.
         let r: EF = prover_state.sample();

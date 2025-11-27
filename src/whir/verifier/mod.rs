@@ -24,6 +24,7 @@ use crate::{
         EqStatement,
         constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
         parameters::{InitialPhaseConfig, WhirConfig},
+        proof::WhirProof,
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -61,7 +62,7 @@ where
         verifier_state: &mut VerifierState<F, EF, Challenger>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         mut statement: EqStatement<EF>,
-        proof: &crate::whir::proof::WhirProof<F, EF, DIGEST_ELEMS>,
+        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
         challenger: &mut Challenger,
     ) -> Result<MultilinearPoint<EF>, VerifierError>
     where

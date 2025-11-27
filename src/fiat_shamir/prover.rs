@@ -141,10 +141,14 @@ where
     ///
     /// # Arguments
     /// - `bits`: Number of bits of grinding difficulty. If zero, no grinding is performed.
-    pub fn pow_grinding(&mut self, bits: usize) {
+    ///
+    /// # Returns
+    /// - `Some(witness)` if bits > 0, containing the witness that satisfies the PoW requirement
+    /// - `None` if bits == 0 (no grinding required)
+    pub fn pow_grinding(&mut self, bits: usize) -> Option<F> {
         // Skip grinding entirely if difficulty is zero.
         if bits == 0 {
-            return;
+            return None;
         }
 
         // Perform grinding and obtain a witness element in the base field.
@@ -152,6 +156,8 @@ where
 
         // Append the witness to the proof data.
         self.proof_data.push(witness);
+
+        Some(witness)
     }
 }
 

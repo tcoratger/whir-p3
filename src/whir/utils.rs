@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 
+use p3_challenger::FieldChallenger;
 use p3_field::{ExtensionField, Field};
 use p3_util::log2_strict_usize;
 
@@ -168,4 +169,73 @@ where
     queries.dedup();
 
     Ok(queries)
+}
+
+/// Syncs the external challenger by sampling the same bits as `get_challenge_stir_queries`.
+///
+/// This function should be called after `get_challenge_stir_queries` to keep the external
+/// challenger in sync with the prover_state. It samples the same bits but discards the result.
+///
+/// Returns the same query indices that would be produced by `get_challenge_stir_queries`
+/// when called with a challenger in the same state.
+pub fn sync_stir_queries<F>(
+    domain_size: usize,
+    folding_factor: usize,
+    num_queries: usize,
+    challenger: &mut impl FieldChallenger<F>,
+) -> Vec<usize>
+where
+    F: Field,
+{
+    let folded_domain_size = domain_size >> folding_factor;
+    let domain_size_bits = log2_strict_usize(folded_domain_size);
+    let max_bits_per_call = (F::bits() - 1).min(20);
+    let total_bits_needed = num_queries * domain_size_bits;
+
+    let mut queries = Vec::with_capacity(num_queries);
+
+    if total_bits_needed <= max_bits_per_call {
+        // STRATEGY 1: SINGLE BATCH
+        let mut all_bits = challenger.sample_bits(total_bits_needed);
+        let mask = (1 << domain_size_bits) - 1;
+
+        for _ in 0..num_queries {
+            let query_bits = all_bits & mask;
+            queries.push(query_bits % folded_domain_size);
+            all_bits >>= domain_size_bits;
+        }
+    } else {
+        let queries_per_batch = max_bits_per_call / domain_size_bits;
+
+        if queries_per_batch >= 2 {
+            // STRATEGY 2: MULTI-BATCH
+            let mut remaining = num_queries;
+            let mask = (1 << domain_size_bits) - 1;
+
+            while remaining > 0 {
+                let batch_size = remaining.min(queries_per_batch);
+                let batch_bits = batch_size * domain_size_bits;
+                let mut all_bits = challenger.sample_bits(batch_bits);
+
+                for _ in 0..batch_size {
+                    let query_index = (all_bits & mask) % folded_domain_size;
+                    queries.push(query_index);
+                    all_bits >>= domain_size_bits;
+                }
+
+                remaining -= batch_size;
+            }
+        } else {
+            // STRATEGY 3: SIMPLE FALLBACK
+            queries.extend(
+                (0..num_queries)
+                    .map(|_| challenger.sample_bits(domain_size_bits) % folded_domain_size),
+            );
+        }
+    }
+
+    queries.sort_unstable();
+    queries.dedup();
+
+    queries
 }
