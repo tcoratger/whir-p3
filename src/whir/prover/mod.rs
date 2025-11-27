@@ -298,7 +298,7 @@ where
             self.folding_factor.at_round(round_index),
             round_params.num_queries,
             prover_state,
-            challenger,
+            Some(challenger),
         )?;
 
         let stir_vars = stir_challenges_indexes
@@ -499,7 +499,7 @@ where
             // Number of final verification queries
             self.final_queries,
             prover_state,
-            challenger,
+            Some(challenger),
         )?;
 
         // Every query requires opening these many in the previous Merkle tree

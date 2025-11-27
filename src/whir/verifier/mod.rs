@@ -23,7 +23,7 @@ use crate::{
         constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
         parameters::{InitialPhaseConfig, WhirConfig},
         proof::WhirProof,
-        utils::get_challenge_stir_queries_verifier,
+        utils::get_challenge_stir_queries,
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -297,11 +297,12 @@ where
         // challenges we generate are unpredictable and unbiased by a cheating prover.
         verifier_state.check_pow_grinding(params.pow_bits)?;
 
-        let stir_challenges_indexes = get_challenge_stir_queries_verifier(
+        let stir_challenges_indexes = get_challenge_stir_queries::<_, Challenger, _, _>(
             params.domain_size,
             params.folding_factor,
             params.num_queries,
             verifier_state,
+            None,
         )?;
 
         let dimensions = vec![Dimensions {
