@@ -12,9 +12,7 @@ use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use super::{
-    committer::reader::ParsedCommitment, parameters::RoundConfig, utils::get_challenge_stir_queries,
-};
+use super::{committer::reader::ParsedCommitment, parameters::RoundConfig};
 use crate::{
     alloc::string::ToString,
     constant::K_SKIP_SUMCHECK,
@@ -24,6 +22,8 @@ use crate::{
         EqStatement,
         constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
         parameters::{InitialPhaseConfig, WhirConfig},
+        proof::WhirProof,
+        utils::get_challenge_stir_queries,
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -61,7 +61,7 @@ where
         verifier_state: &mut VerifierState<F, EF, Challenger>,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         mut statement: EqStatement<EF>,
-        proof: &crate::whir::proof::WhirProof<F, EF, DIGEST_ELEMS>,
+        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
         challenger: &mut Challenger,
     ) -> Result<MultilinearPoint<EF>, VerifierError>
     where
@@ -297,11 +297,12 @@ where
         // challenges we generate are unpredictable and unbiased by a cheating prover.
         verifier_state.check_pow_grinding(params.pow_bits)?;
 
-        let stir_challenges_indexes = get_challenge_stir_queries(
+        let stir_challenges_indexes = get_challenge_stir_queries::<_, Challenger, _, _>(
             params.domain_size,
             params.folding_factor,
             params.num_queries,
             verifier_state,
+            None,
         )?;
 
         let dimensions = vec![Dimensions {

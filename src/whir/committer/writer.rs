@@ -111,18 +111,23 @@ where
         let mut ood_statement = EqStatement::initialize(self.num_variables);
         (0..self.0.commitment_ood_samples).for_each(|_| {
             // Generate OOD points from ProverState randomness
-            let point =
-                MultilinearPoint::expand_from_univariate(prover_state.sample(), self.num_variables);
+            let point_scalar: EF = prover_state.sample();
+            // Sync: sample from external challenger and verify consistency
+            let point_rf: EF = challenger.sample_algebra_element();
+            assert_eq!(
+                point_scalar, point_rf,
+                "External challenger and prover_state challenger diverged during OOD point sampling"
+            );
+
+            let point = MultilinearPoint::expand_from_univariate(point_scalar, self.num_variables);
             let eval =
                 info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point));
             prover_state.add_extension_scalar(eval);
+            // Observe the same evaluation on external challenger
+            challenger.observe_algebra_element(eval);
 
-            let point_rf: EF = challenger.sample_algebra_element();
-            let point_rf = MultilinearPoint::expand_from_univariate(point_rf, self.num_variables);
-            let eval_rf =
-                info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point_rf));
-            proof.initial_ood_answers.push(eval_rf);
-            challenger.observe_algebra_element(eval_rf);
+            // Also store in proof for the RF flow (using the same eval since points match)
+            proof.initial_ood_answers.push(eval);
 
             ood_statement.add_evaluated_constraint(point, eval);
         });

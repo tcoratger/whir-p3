@@ -268,6 +268,8 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         let mut prover_challenger = challenger.clone();
+        // Sync: observe domain separator on external challenger to match prover_state
+        ds.observe_domain_separator(&mut prover_challenger);
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
@@ -320,6 +322,8 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         let mut prover_challenger = challenger.clone();
+        // Sync: observe domain separator on external challenger to match prover_state
+        ds.observe_domain_separator(&mut prover_challenger);
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
         // Commit the polynomial to obtain the witness.
@@ -371,6 +375,8 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         let mut prover_challenger = challenger.clone();
+        // Sync: observe domain separator on external challenger to match prover_state
+        ds.observe_domain_separator(&mut prover_challenger);
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
 
@@ -421,6 +427,8 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         let mut prover_challenger = challenger.clone();
+        // Sync: observe domain separator on external challenger to match prover_state
+        ds.observe_domain_separator(&mut prover_challenger);
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
         let witness = committer
