@@ -1,4 +1,4 @@
-use alloc::{string::ToString, vec, vec::Vec};
+use alloc::{string::ToString, vec::Vec};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
@@ -9,7 +9,6 @@ use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::verifier::VerifierState,
     poly::multilinear::MultilinearPoint,
-    sumcheck::sumcheck_polynomial::SumcheckPolynomial,
     whir::{parameters::InitialPhaseConfig, verifier::VerifierError},
 };
 
@@ -110,56 +109,22 @@ where
         0
     };
 
-    for i in start_round..rounds {
-        // Extract polynomial evaluations based on optimization mode
-        let (c0, c1, c2) = match initial_phase_config {
-            InitialPhaseConfig::WithStatementSvo => {
-                // SVO: Read only c0 and c2, derive c1 from claimed_sum
-                let c0 = verifier_state.next_extension_scalar()?;
-                let c1 = *claimed_sum - c0;
-                let c2 = verifier_state.next_extension_scalar()?;
-                (c0, c1, c2)
-            }
-            InitialPhaseConfig::WithStatementClassic
-            | InitialPhaseConfig::WithStatementUnivariateSkip
-            | InitialPhaseConfig::WithoutStatement => {
-                // Classic/UnivariateSkip/WithoutStatement: Read all three values and verify sum
-                let c0 = verifier_state.next_extension_scalar()?;
-                let c1 = verifier_state.next_extension_scalar()?;
-                let c2 = verifier_state.next_extension_scalar()?;
-
-                // Verify that the sum matches
-                if *claimed_sum != c0 + c1 {
-                    return Err(VerifierError::SumcheckFailed {
-                        round: i,
-                        expected: claimed_sum.to_string(),
-                        actual: (c0 + c1).to_string(),
-                    });
-                }
-                (c0, c1, c2)
-            }
-        };
+    for _i in start_round..rounds {
+        // Read c_0 = h(0) and c_2 (quadratic coefficient), derive h(1) = claimed_sum - c_0
+        // The prover sends [c_0, c_2] and the verifier computes the linear coefficient
+        let c_0 = verifier_state.next_extension_scalar()?;
+        let h_1 = *claimed_sum - c_0;
+        let c_2 = verifier_state.next_extension_scalar()?;
 
         // Optional PoW interaction (grinding resistance)
         verifier_state.check_pow_grinding(pow_bits)?;
 
-        // Sample the next verifier folding randomness rᵢ
+        // Sample the next verifier folding randomness r
         let rand: EF = verifier_state.sample();
 
-        // Update claimed sum using the appropriate formula
-        match initial_phase_config {
-            InitialPhaseConfig::WithStatementSvo => {
-                // SVO formula: c2 * r² + (c1 - c0 - c2) * r + c0
-                *claimed_sum = c2 * rand.square() + (c1 - c0 - c2) * rand + c0;
-            }
-            InitialPhaseConfig::WithStatementClassic
-            | InitialPhaseConfig::WithStatementUnivariateSkip
-            | InitialPhaseConfig::WithoutStatement => {
-                // Classic/UnivariateSkip formula: use SumcheckPolynomial evaluation
-                *claimed_sum = SumcheckPolynomial::new(vec![c0, c1, c2])
-                    .evaluate_on_standard_domain(&MultilinearPoint::new(vec![rand]));
-            }
-        }
+        // Update claimed sum: h(r) = c_0 + c_1 * r + c_2 * r^2
+        // where c_1 = h(1) - c_0 - c_2, so h(r) = c_2 * r^2 + (h(1) - c_0 - c_2) * r + c_0
+        *claimed_sum = c_2 * rand.square() + (h_1 - c_0 - c_2) * rand + c_0;
 
         // Store this round's randomness
         randomness.push(rand);
@@ -170,6 +135,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
@@ -341,24 +308,21 @@ mod tests {
         let mut expected = Vec::with_capacity(folding_factor);
 
         for _ in 0..folding_factor {
-            // Get the 3 evaluations of sumcheck polynomial h_i(X) at X = 0, 1, 2
-            let c0 = verifier_state.next_extension_scalar().unwrap();
-            let c1 = verifier_state.next_extension_scalar().unwrap();
-            let c2 = verifier_state.next_extension_scalar().unwrap();
+            // Read c_0 = h(0) and c_2 (quadratic coefficient), derive h(1) = claimed_sum - c_0
+            let c_0 = verifier_state.next_extension_scalar().unwrap();
+            let h_1 = current_sum - c_0;
+            let c_2 = verifier_state.next_extension_scalar().unwrap();
 
-            assert_eq!(current_sum, c0 + c1);
-
-            let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
-
-            // Sample random challenge r_i ∈ F and evaluate h_i(r_i)
+            // Sample random challenge r
             let r: EF4 = verifier_state.sample();
-            current_sum = poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
+            // h(r) = c_2 * r^2 + (h(1) - c_0 - c_2) * r + c_0
+            current_sum = c_2 * r.square() + (h_1 - c_0 - c_2) * r + c_0;
 
             if pow_bits > 0 {
                 // verifier_state.challenge_pow::<Blake3PoW>(pow_bits).unwrap();
             }
 
-            expected.push((poly, r));
+            expected.push(r);
         }
 
         // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
@@ -377,8 +341,8 @@ mod tests {
         // Check that number of parsed rounds is correct
         assert_eq!(randomness.num_variables(), folding_factor);
 
-        // Reconstruct the expected MultilinearPoint from reversed order of expected randomness
-        let expected_randomness = MultilinearPoint::new(expected.iter().map(|&(_, r)| r).collect());
+        // Reconstruct the expected MultilinearPoint from expected randomness
+        let expected_randomness = MultilinearPoint::new(expected);
         assert_eq!(
             randomness, expected_randomness,
             "Mismatch in full MultilinearPoint folding randomness"
@@ -433,7 +397,7 @@ mod tests {
         domsep.sample(1, Sample::Mock);
 
         for _ in 0..(NUM_VARS - K_SKIP) {
-            domsep.observe(3, Observe::Mock);
+            domsep.observe(2, Observe::Mock); // Only c0 and c2 sent
             domsep.sample(1, Sample::Mock);
         }
 
@@ -487,25 +451,23 @@ mod tests {
 
         // First skipped round (wide DFT LDE)
         let evals: [_; 1 << (K_SKIP + 1)] = verifier_state.next_extension_scalars_const().unwrap();
-        let poly = SumcheckPolynomial::new(evals.to_vec());
         let r0: EF4 = verifier_state.sample();
-        expected.push((poly, r0));
+        expected.push(r0);
 
         let mat = RowMajorMatrix::new(evals.to_vec(), 1);
         let mut current_sum = interpolate_subgroup(&mat, r0)[0];
 
         // Remaining quadratic rounds
         for _ in 0..(NUM_VARS - K_SKIP) {
-            let c0 = verifier_state.next_extension_scalar().unwrap();
-            let c1 = verifier_state.next_extension_scalar().unwrap();
-            let c2 = verifier_state.next_extension_scalar().unwrap();
+            // Read c_0 = h(0) and c_2 (quadratic coefficient), derive h(1) = claimed_sum - c_0
+            let c_0 = verifier_state.next_extension_scalar().unwrap();
+            let h_1 = current_sum - c_0;
+            let c_2 = verifier_state.next_extension_scalar().unwrap();
 
-            assert_eq!(current_sum, c0 + c1);
-
-            let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
             let r: EF4 = verifier_state.sample();
-            current_sum = poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
-            expected.push((poly, r));
+            // h(r) = c_2 * r^2 + (h(1) - c_0 - c_2) * r + c_0
+            current_sum = c_2 * r.square() + (h_1 - c_0 - c_2) * r + c_0;
+            expected.push(r);
         }
 
         // -------------------------------------------------------------
@@ -528,7 +490,7 @@ mod tests {
         assert_eq!(randomness.num_variables(), NUM_VARS - K_SKIP + 1);
 
         // Reconstruct the expected MultilinearPoint from the expected randomness
-        let expected_randomness = MultilinearPoint::new(expected.iter().map(|&(_, r)| r).collect());
+        let expected_randomness = MultilinearPoint::new(expected);
         assert_eq!(
             randomness, expected_randomness,
             "Mismatch in full MultilinearPoint folding randomness"
@@ -539,7 +501,6 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     fn test_read_sumcheck_rounds_svo() {
         // Multilinear polynomial in 6 variables
-        // All rounds use SVO formula
         const NUM_VARS: usize = 6;
         let num_points = 1 << NUM_VARS;
 
@@ -597,23 +558,21 @@ mod tests {
         let mut expected = Vec::with_capacity(folding_factor);
 
         for _ in 0..folding_factor {
-            // Get the 2 evaluations: S(0) and S(inf)
-            let c0 = verifier_state.next_extension_scalar().unwrap();
-            let c1 = current_sum - c0;
-            let c2 = verifier_state.next_extension_scalar().unwrap();
+            // Read c_0 = h(0) and c_2 (quadratic coefficient), derive h(1) = claimed_sum - c_0
+            let c_0 = verifier_state.next_extension_scalar().unwrap();
+            let h_1 = current_sum - c_0;
+            let c_2 = verifier_state.next_extension_scalar().unwrap();
 
-            let poly = SumcheckPolynomial::new(vec![c0, c1, c2]);
-
-            // Sample random challenge r_i ∈ F and evaluate h_i(r_i)
+            // Sample random challenge r
             let r: EF4 = verifier_state.sample();
-            // verify_sumcheck_rounds_svo uses SVO formula for all rounds
-            current_sum = c2 * r.square() + (c1 - c0 - c2) * r + c0;
+            // h(r) = c_2 * r^2 + (h(1) - c_0 - c_2) * r + c_0
+            current_sum = c_2 * r.square() + (h_1 - c_0 - c_2) * r + c_0;
 
             if pow_bits > 0 {
                 // verifier_state.challenge_pow::<Blake3PoW>(pow_bits).unwrap();
             }
 
-            expected.push((poly, r));
+            expected.push(r);
         }
 
         // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
@@ -633,7 +592,7 @@ mod tests {
         assert_eq!(randomness.num_variables(), folding_factor);
 
         // Reconstruct the expected MultilinearPoint from expected randomness
-        let expected_randomness = MultilinearPoint::new(expected.iter().map(|&(_, r)| r).collect());
+        let expected_randomness = MultilinearPoint::new(expected);
         assert_eq!(
             randomness, expected_randomness,
             "Mismatch in full MultilinearPoint folding randomness for SVO"

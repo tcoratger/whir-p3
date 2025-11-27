@@ -1,5 +1,4 @@
 use alloc::{vec, vec::Vec};
-use core::array;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -14,7 +13,7 @@ use crate::{
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
     whir::{
         constraints::{Constraint, statement::EqStatement},
-        proof::{SumcheckData, SumcheckRoundData::Classic, SumcheckSkipData, WhirProof},
+        proof::{SumcheckData, SumcheckSkipData, WhirProof},
     },
 };
 
@@ -51,20 +50,20 @@ fn initial_round<Challenger, F: Field, EF: ExtensionField<F>>(
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    // Compute the quadratic sumcheck polynomial for the current variable.
-    let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
-    let polynomial_evaluation: [EF; 3] = array::from_fn(|i| sumcheck_poly.evaluations()[i]);
+    // Compute the constant (c_0) and quadratic (c_2) coefficients of h(X).
+    //
+    // The polynomial h(X) = c_0 + c_1 * X + c_2 * X^2
+    //
+    // We store [c_0, c_2] and derive c_1 from the sum constraint: h(1) = claimed_sum - c_0
+    let (c_0, c_2) = compute_sumcheck_coefficients(evals, weights);
+    sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
 
-    // Store polynomial evaluations in proof
-    sumcheck_data
-        .polynomial_evaluations
-        .push(Classic(polynomial_evaluation));
+    // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
+    prover_state.add_extension_scalar(c_0);
+    prover_state.add_extension_scalar(c_2);
 
-    // Observe polynomial evaluations on BOTH challengers before grinding
-    prover_state.add_extension_scalars(&polynomial_evaluation);
-
-    // Observe polynomial evaluations for Fiat-Shamir
-    let flattened = EF::flatten_to_base(polynomial_evaluation.to_vec());
+    // Observe polynomial evaluations for external challenger
+    let flattened = EF::flatten_to_base(vec![c_0, c_2]);
     challenger.observe_slice(&flattened);
 
     // Proof-of-work challenge to delay prover
@@ -85,7 +84,11 @@ where
     // Compress polynomials and update the sum.
     let evals = join(|| weights.compress(r), || evals.compress_ext(r)).1;
 
-    *sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
+    // Update sum: h(r) = c_0 + c_1 * r + c_2 * r^2 where c_1 = h(1) - c_0 - c_2
+    // Since h(1) = claimed_sum - h(0) = claimed_sum - c_0, we have c_1 = claimed_sum - 2*c_0 - c_2
+    // So h(r) = c_2 * r^2 + (claimed_sum - 2*c_0 - c_2) * r + c_0
+    let h_1 = *sum - c_0;
+    *sum = c_2 * r.square() + (h_1 - c_0 - c_2) * r + c_0;
 
     (r, evals)
 }
@@ -119,20 +122,20 @@ fn round<Challenger, F: Field, EF: ExtensionField<F>>(
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    // Compute the quadratic sumcheck polynomial for the current variable.
-    let sumcheck_poly = compute_sumcheck_polynomial(evals, weights, *sum);
-    let polynomial_evaluation: [EF; 3] = array::from_fn(|i| sumcheck_poly.evaluations()[i]);
+    // Compute the constant (c_0) and quadratic (c_2) coefficients of h(X).
+    //
+    // The polynomial h(X) = c_0 + c_1 * X + c_2 * X^2
+    //
+    // We store [c_0, c_2] and derive c_1 from the sum constraint: h(1) = claimed_sum - c_0
+    let (c_0, c_2) = compute_sumcheck_coefficients(evals, weights);
+    sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
 
-    // Store polynomial evaluations in sumcheck data
-    sumcheck_data
-        .polynomial_evaluations
-        .push(Classic(polynomial_evaluation));
+    // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
+    prover_state.add_extension_scalar(c_0);
+    prover_state.add_extension_scalar(c_2);
 
-    // Observe polynomial evaluations on BOTH challengers before grinding
-    prover_state.add_extension_scalars(&polynomial_evaluation);
-
-    // Observe polynomial evaluations for Fiat-Shamir
-    let flattened = EF::flatten_to_base(polynomial_evaluation.to_vec());
+    // Observe polynomial evaluations for external challenger
+    let flattened = EF::flatten_to_base(vec![c_0, c_2]);
     challenger.observe_slice(&flattened);
 
     // Proof-of-work challenge to delay prover
@@ -151,9 +154,46 @@ where
     // Compress polynomials and update the sum.
     join(|| evals.compress(r), || weights.compress(r));
 
-    *sum = sumcheck_poly.evaluate_on_standard_domain(&MultilinearPoint::new(vec![r]));
+    // Update sum: h(r) = c_0 + c_1 * r + c_2 * r^2 where c_1 = h(1) - c_0 - c_2
+    //
+    // Since h(1) = claimed_sum - h(0) = claimed_sum - c_0, we have c_1 = claimed_sum - 2*c_0 - c_2
+    //
+    // So h(r) = c_2 * r^2 + (claimed_sum - 2*c_0 - c_2) * r + c_0
+    let h_1 = *sum - c_0;
+    *sum = c_2 * r.square() + (h_1 - c_0 - c_2) * r + c_0;
 
     r
+}
+
+/// Computes the constant and quadratic coefficients of the sumcheck polynomial.
+///
+/// For the quadratic polynomial h(X) = c_0 + c_1 * X + c_2 * X^2, this function
+/// computes (c_0, c_2) directly:
+/// - c_0 = h(0) = constant term = Σ e0 * p0
+/// - c_2 = quadratic coefficient = Σ (e1 - e0) * (p1 - p0)
+///
+/// The linear coefficient c_1 is derived by the verifier using the sum constraint:
+/// h(0) + h(1) = claimed_sum, so h(1) = claimed_sum - c_0.
+#[instrument(skip_all, level = "debug")]
+fn compute_sumcheck_coefficients<F: Field, EF: ExtensionField<F>>(
+    evals: &EvaluationsList<F>,
+    weights: &EvaluationsList<EF>,
+) -> (EF, EF) {
+    assert!(evals.num_variables() >= 1);
+
+    let mid = evals.num_evals() / 2;
+    let (plo, phi) = evals.0.split_at(mid);
+    let (elo, ehi) = weights.0.split_at(mid);
+
+    plo.par_iter()
+        .zip(phi.par_iter())
+        .zip(elo.par_iter().zip(ehi.par_iter()))
+        .map(|((&p0, &p1), (&e0, &e1))| (e0 * p0, (e1 - e0) * (p1 - p0)))
+        .par_fold_reduce(
+            || (EF::ZERO, EF::ZERO),
+            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
+            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
+        )
 }
 
 /// Computes the sumcheck polynomial `h(X)`, a quadratic polynomial resulting from the folding step.
@@ -187,22 +227,7 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
     weights: &EvaluationsList<EF>,
     sum: EF,
 ) -> SumcheckPolynomial<EF> {
-    assert!(evals.num_variables() >= 1);
-
-    let mid = evals.num_evals() / 2;
-    let (plo, phi) = evals.0.split_at(mid);
-    let (elo, ehi) = weights.0.split_at(mid);
-
-    let (c0, c2) = plo
-        .par_iter()
-        .zip(phi.par_iter())
-        .zip(elo.par_iter().zip(ehi.par_iter()))
-        .map(|((&p0, &p1), (&e0, &e1))| (e0 * p0, (e1 - e0) * (p1 - p0)))
-        .par_fold_reduce(
-            || (EF::ZERO, EF::ZERO),
-            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-        );
+    let (c0, c2) = compute_sumcheck_coefficients(evals, weights);
 
     // Compute the middle (linear) coefficient
     //
