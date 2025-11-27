@@ -819,4 +819,88 @@ mod tests {
         assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap()[0], F::from_u64(1));
         assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap()[1], F::from_u64(2));
     }
+
+    #[test]
+    fn test_set_sumcheck_data_final() {
+        // Create a proof with no rounds
+        let mut proof: WhirProof<F, EF, DIGEST_ELEMS> = WhirProof {
+            initial_commitment: array::from_fn(|_| F::default()),
+            initial_pow_witness: None,
+            initial_ood_answers: Vec::new(),
+            initial_phase: InitialPhase::WithoutStatement,
+            rounds: Vec::new(),
+            final_poly: None,
+            final_pow_witness: F::default(),
+            final_queries: Vec::new(),
+            final_sumcheck: None,
+        };
+
+        // Verify final_sumcheck is None initially
+        assert!(proof.final_sumcheck.is_none());
+
+        // Create sumcheck data with a distinguishable value
+        let mut data: SumcheckData<EF, F> = SumcheckData::default();
+        data.push_pow_witness(Some(F::from_u64(999)));
+
+        // Set as final
+        proof.set_sumcheck_data(data, true);
+
+        // Verify it was stored in final_sumcheck
+        assert!(proof.final_sumcheck.is_some());
+        let stored = proof.final_sumcheck.as_ref().unwrap();
+        assert_eq!(stored.pow_witnesses.as_ref().unwrap()[0], F::from_u64(999));
+    }
+
+    #[test]
+    fn test_set_sumcheck_data_last_round() {
+        // Create a proof with one round
+        let mut proof: WhirProof<F, EF, DIGEST_ELEMS> = WhirProof {
+            initial_commitment: array::from_fn(|_| F::default()),
+            initial_pow_witness: None,
+            initial_ood_answers: Vec::new(),
+            initial_phase: InitialPhase::WithoutStatement,
+            rounds: vec![WhirRoundProof::default()],
+            final_poly: None,
+            final_pow_witness: F::default(),
+            final_queries: Vec::new(),
+            final_sumcheck: None,
+        };
+
+        // Verify round's sumcheck is empty initially
+        assert!(proof.rounds[0].sumcheck.pow_witnesses.is_none());
+
+        // Create sumcheck data with a distinguishable value
+        let mut data: SumcheckData<EF, F> = SumcheckData::default();
+        data.push_pow_witness(Some(F::from_u64(777)));
+
+        // Set as non-final (should go to last round)
+        proof.set_sumcheck_data(data, false);
+
+        // Verify it was stored in the last round's sumcheck
+        let stored = &proof.rounds[0].sumcheck;
+        assert_eq!(stored.pow_witnesses.as_ref().unwrap()[0], F::from_u64(777));
+
+        // Verify final_sumcheck is still None
+        assert!(proof.final_sumcheck.is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "No rounds initialized before storing sumcheck data")]
+    fn test_set_sumcheck_data_no_rounds_panics() {
+        // Create a proof with no rounds
+        let mut proof: WhirProof<F, EF, DIGEST_ELEMS> = WhirProof {
+            initial_commitment: array::from_fn(|_| F::default()),
+            initial_pow_witness: None,
+            initial_ood_answers: Vec::new(),
+            initial_phase: InitialPhase::WithoutStatement,
+            rounds: Vec::new(),
+            final_poly: None,
+            final_pow_witness: F::default(),
+            final_queries: Vec::new(),
+            final_sumcheck: None,
+        };
+
+        // Try to set sumcheck data as non-final with no rounds - should panic
+        proof.set_sumcheck_data(SumcheckData::default(), false);
+    }
 }
