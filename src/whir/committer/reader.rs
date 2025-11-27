@@ -58,7 +58,6 @@ where
     ///
     /// This is used to verify consistency of polynomial commitments in WHIR.
     pub fn parse<EF, Challenger, const DIGEST_ELEMS: usize>(
-        verifier_state: &mut VerifierState<F, EF, Challenger>,
         proof: &WhirProof<F, EF, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         num_variables: usize,
@@ -143,12 +142,10 @@ where
     /// expected for verifying the committed polynomial.
     pub fn parse_commitment<const DIGEST_ELEMS: usize>(
         &self,
-        verifier_state: &mut VerifierState<F, EF, Challenger>,
         proof: &WhirProof<F, EF, DIGEST_ELEMS>,
         challenger: &mut Challenger,
     ) -> Result<ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>, FiatShamirError> {
         ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
-            verifier_state,
             proof,
             challenger,
             self.num_variables,
@@ -267,17 +264,15 @@ mod tests {
         // Create the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-        let mut prover_challenger = challenger.clone();
-
-        let mut prover_state = ds.to_prover_state(challenger.clone());
+        let mut challenger = challenger.clone();
+        ds.observe_domain_separator(&mut challenger);
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
         let witness = committer
             .commit(
                 &dft,
-                &mut prover_state,
                 &mut proof,
-                &mut prover_challenger,
+                &mut challenger,
                 polynomial,
             )
             .unwrap();
@@ -316,19 +311,18 @@ mod tests {
         let mut ds = DomainSeparator::new(vec![]);
         ds.commit_statement::<_, _, _, 8>(&params);
 
-        // Generate the prover state from the transcript.
+        // Create the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-        let mut prover_challenger = challenger.clone();
-        let mut prover_state = ds.to_prover_state(challenger.clone());
+        let mut challenger = challenger.clone();
+        ds.observe_domain_separator(&mut challenger);
 
         // Commit the polynomial to obtain the witness.
         let witness = committer
             .commit(
                 &dft,
-                &mut prover_state,
                 &mut proof,
-                &mut prover_challenger,
+                &mut challenger,
                 polynomial,
             )
             .unwrap();
@@ -367,33 +361,31 @@ mod tests {
         let mut ds = DomainSeparator::new(vec![]);
         ds.commit_statement::<_, _, _, 8>(&params);
 
-        // Create prover state from the transcript.
+        // Create the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-        let mut prover_challenger = challenger.clone();
-
-        let mut prover_state = ds.to_prover_state(challenger.clone());
+        let mut challenger = challenger.clone();
+        ds.observe_domain_separator(&mut challenger);
 
         // Commit the polynomial and obtain the witness.
         let witness = committer
             .commit(
                 &dft,
-                &mut prover_state,
                 &mut proof,
-                &mut prover_challenger,
+                &mut challenger,
                 polynomial,
             )
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
-        let mut verifier_challenger = challenger.clone();
-        let mut verifier_state =
-            ds.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+        let mut rng = SmallRng::seed_from_u64(1);
+        let mut verifier_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+        ds.observe_domain_separator(&mut verifier_challenger);
 
         // Parse the commitment from verifier's transcript.
         let reader = CommitmentReader::new(&params);
         let parsed = reader
-            .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
+            .parse_commitment::<8>(&proof, &mut verifier_challenger)
             .unwrap();
 
         // Check Merkle root and OOD answers match.
@@ -417,18 +409,18 @@ mod tests {
         let mut ds = DomainSeparator::new(vec![]);
         ds.commit_statement::<_, _, _, 8>(&params);
 
-        // Generate prover and verifier transcript states.
+        // Create the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-        let mut prover_challenger = challenger.clone();
+        let mut challenger = challenger.clone();
+        ds.observe_domain_separator(&mut challenger);
 
         let mut prover_state = ds.to_prover_state(challenger.clone());
         let witness = committer
             .commit(
                 &dft,
-                &mut prover_state,
                 &mut proof,
-                &mut prover_challenger,
+                &mut challenger,
                 polynomial,
             )
             .unwrap();

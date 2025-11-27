@@ -3,7 +3,7 @@ use p3_challenger::FieldChallenger;
 use p3_field::{ExtensionField, Field};
 use p3_util::log2_strict_usize;
 
-use crate::fiat_shamir::{ChallengeSampler, errors::FiatShamirError};
+use crate::fiat_shamir::errors::FiatShamirError;
 
 /// Computes the optimal workload size for `T` to fit in L1 cache (32 KB).
 ///
@@ -47,15 +47,13 @@ pub const fn workload_size<T: Sized>() -> usize {
 ///
 /// ## Returns
 /// Sorted, deduplicated vector of query indices in [0, folded_domain_size)
-pub fn get_challenge_stir_queries<Challenger, ChallengerT, F, EF>(
+pub fn get_challenge_stir_queries<Challenger, F, EF>(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
-    prover_state: &mut ChallengerT,
     challenger: &mut Challenger
 ) -> Result<Vec<usize>, FiatShamirError>
 where
-    ChallengerT: ChallengeSampler<EF>,
     Challenger: FieldChallenger<F>,
     F: Field,
     EF: ExtensionField<F>,
@@ -92,8 +90,7 @@ where
         // safe call to the transcript, reducing N transcript operations to just 1.
 
         // Sample all the random bits needed for all queries in one go.
-        let mut all_bits = prover_state.sample_bits(total_bits_needed);
-        challenger.sample_bits(total_bits_needed);
+        let mut all_bits =challenger.sample_bits(total_bits_needed);
         // Create a bitmask to extract `domain_size_bits` chunks from the sampled randomness.
         //
         // Example: 16 bits -> (1 << 16) - 1 -> 0b1111_1111_1111_1111
@@ -137,8 +134,7 @@ where
                 // Sample just enough bits for the current batch.
                 //
                 // This is the expensive operation.
-                let mut all_bits = prover_state.sample_bits(batch_bits);
-                challenger.sample_bits(batch_bits);
+                let mut all_bits =challenger.sample_bits(batch_bits);
 
                 // Unpack the batch of bits into query indices, same as the single-batch path.
                 for _ in 0..batch_size {
@@ -157,8 +153,7 @@ where
             // 2 queries per call), we fall back to the naive approach of one call per query.
 
             for _ in 0..num_queries {
-                let value = prover_state.sample_bits(domain_size_bits) % folded_domain_size;
-                challenger.sample_bits(domain_size_bits);
+                let value =challenger.sample_bits(domain_size_bits);
                 queries.push(value);
             }
         }

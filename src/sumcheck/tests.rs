@@ -81,7 +81,6 @@ fn verifier(proof: Vec<F>) -> VerifierState<F, EF, MyChallenger> {
 }
 
 fn make_constraint<Challenger>(
-    prover: &mut ProverState<F, EF, Challenger>,
     challenger: &mut Challenger,
     num_vars: usize,
     num_eqs: usize,
@@ -103,9 +102,7 @@ where
     // - Collect (point, eval) pairs for use in the statement and constraint aggregation.
     (0..num_eqs).for_each(|_| {
         // Sample a univariate field element from the prover's challenger.
-        let point = prover.sample();
-        // Keep challenger_rf in sync
-        let _point_rf: EF = challenger.sample_algebra_element();
+        let point: EF = challenger.sample_algebra_element();
 
         // Expand it into a `num_vars`-dimensional multilinear point.
         let point = MultilinearPoint::expand_from_univariate(point, num_vars);
@@ -114,8 +111,6 @@ where
         let eval = poly.evaluate_hypercube(&point);
 
         // Add the evaluation result to the transcript for Fiat-Shamir soundness.
-        prover.add_extension_scalar(eval);
-        // Keep challenger_rf in sync
         challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
 
         // Add the evaluation constraint: poly(point) == eval.
@@ -127,9 +122,7 @@ where
     // - Collect (var, eval) pairs for use in the statement and constraint aggregation.
     (0..num_sels).for_each(|_| {
         // Simulate stir point derivation
-        let index: usize = prover.sample_bits(num_vars);
-        // Keep challenger_rf in sync
-        let _index_rf: usize = challenger.sample_bits(num_vars);
+        let index: usize = challenger.sample_bits(num_vars);
         let var = omega.exp_u64(index as u64);
 
         // Evaluate the current sumcheck polynomial as univariate at the sampled variable.
@@ -138,8 +131,6 @@ where
             .rfold(EF::ZERO, |result, &coeff| result * var + coeff);
 
         // Add the evaluation result to the transcript for Fiat-Shamir soundness.
-        prover.add_extension_scalar(eval);
-        // Keep challenger_rf in sync
         challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
 
         // Add the evaluation constraint: poly(point) == eval.
@@ -147,18 +138,12 @@ where
     });
 
     // Return the constructed constraint with the alpha used for linear combination.
-    let alpha = prover.sample();
-    // Keep challenger_rf in sync
-    let alpha_rf: EF = challenger.sample_algebra_element();
-    assert_eq!(
-        alpha, alpha_rf,
-        "External challenger and prover_state challenger diverged"
-    );
+    let alpha: EF = challenger.sample_algebra_element();
+
     Constraint::new(alpha, eq_statement, sel_statement)
 }
 
 fn make_constraint_ext<Challenger>(
-    prover: &mut ProverState<F, EF, Challenger>,
     challenger: &mut Challenger,
     num_vars: usize,
     num_eqs: usize,
@@ -180,13 +165,8 @@ where
     // - Collect (point, eval) pairs for use in the statement and constraint aggregation.
     (0..num_eqs).for_each(|_| {
         // Sample a univariate field element from the prover's challenger.
-        let point = prover.sample();
-        // Keep challenger_rf in sync
-        let point_rf: EF = challenger.sample_algebra_element();
-        assert_eq!(
-            point, point_rf,
-            "External challenger and prover_state challenger diverged"
-        );
+        let point: EF = challenger.sample_algebra_element();
+
         // Expand it into a `num_vars`-dimensional multilinear point.
         let point = MultilinearPoint::expand_from_univariate(point, num_vars);
 
@@ -194,8 +174,6 @@ where
         let eval = poly.evaluate_hypercube(&point);
 
         // Add the evaluation result to the transcript for Fiat-Shamir soundness.
-        prover.add_extension_scalar(eval);
-        // Keep challenger_rf in sync
         challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
 
         // Add the evaluation constraint: poly(point) == eval.
@@ -207,13 +185,8 @@ where
     // - Collect (var, eval) pairs for use in the statement and constraint aggregation.
     (0..num_sels).for_each(|_| {
         // Simulate stir point derivation
-        let index: usize = prover.sample_bits(num_vars);
         // Keep challenger_rf in sync
-        let index_rf: usize = challenger.sample_bits(num_vars);
-        assert_eq!(
-            index, index_rf,
-            "External challenger and prover_state challenger diverged"
-        );
+        let index: usize = challenger.sample_bits(num_vars);
 
         let var = omega.exp_u64(index as u64);
 
@@ -223,8 +196,6 @@ where
             .rfold(EF::ZERO, |result, &coeff| result * var + coeff);
 
         // Add the evaluation result to the transcript for Fiat-Shamir soundness.
-        prover.add_extension_scalar(eval);
-        // Keep challenger_rf in sync
         challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
 
         // Add the evaluation constraint: poly(point) == eval.
@@ -232,12 +203,8 @@ where
     });
 
     // Return the constructed constraint with the alpha used for linear combination.
-    let alpha = prover.sample();
-    let alpha_rf: EF = challenger.sample_algebra_element();
-    assert_eq!(
-        alpha, alpha_rf,
-        "External challenger and prover_state challenger diverged"
-    );
+    let alpha: EF = challenger.sample_algebra_element();
+
     Constraint::new(alpha, eq_statement, sel_statement)
 }
 
@@ -326,21 +293,18 @@ fn run_sumcheck_test(
     let poly = EvaluationsList::new((0..1 << num_vars).map(|_| rng.random()).collect());
 
     // PROVER
-    let (domsep, challenger_for_prover) = domainsep_and_challenger();
-    let prover = &mut domsep.to_prover_state(challenger_for_prover);
+    let (domsep, mut challenger) = domainsep_and_challenger();
 
     // Initialize proof and challenger
     let params =
         create_test_protocol_params(folding_factor, InitialPhaseConfig::WithStatementClassic);
     let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, num_vars);
-    let mut rng = SmallRng::seed_from_u64(1);
-    let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-    domsep.observe_domain_separator(&mut challenger_rf);
+
+    domsep.observe_domain_separator(&mut challenger);
 
     // Create the initial constraint statement
     let constraint = make_constraint(
-        prover,
-        &mut challenger_rf,
+        &mut challenger,
         num_vars,
         num_eqs[0],
         num_sels[0],
@@ -355,9 +319,8 @@ fn run_sumcheck_test(
     };
     let (mut sumcheck, mut prover_randomness) = SumcheckSingle::from_base_evals(
         &poly,
-        prover,
         sumcheck,
-        &mut challenger_rf,
+        &mut challenger,
         folding0,
         0,
         &constraint,
@@ -373,8 +336,7 @@ fn run_sumcheck_test(
         let folding = folding_factor.at_round(round);
         // Sample new evaluation constraints and combine them into the sumcheck state
         let constraint = make_constraint_ext(
-            prover,
-            &mut challenger_rf,
+            &mut challenger,
             num_vars_inter,
             num_eq_points,
             num_sel_points,
@@ -386,9 +348,8 @@ fn run_sumcheck_test(
         // Compute and apply the next folding round
         let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
-            prover,
             &mut sumcheck_data,
-            &mut challenger_rf,
+            &mut challenger,
             folding,
             0,
             Some(constraint),
@@ -408,9 +369,8 @@ fn run_sumcheck_test(
     // FINAL ROUND
     let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
     prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
-        prover,
         &mut sumcheck_data,
-        &mut challenger_rf,
+        &mut challenger,
         final_rounds,
         0,
         None,
@@ -597,7 +557,6 @@ fn run_sumcheck_test_skips(
         let folding = folding_factor.at_round(round);
         // Sample new evaluation constraints and combine them into the sumcheck state
         let constraint = make_constraint_ext(
-            prover,
             &mut challenger_rf,
             num_vars_inter,
             num_eq_points,
@@ -608,7 +567,6 @@ fn run_sumcheck_test_skips(
         // Fold the sumcheck polynomial again and extend randomness vector
         let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
-            prover,
             &mut sumcheck_data,
             &mut challenger_rf,
             folding,
@@ -630,7 +588,6 @@ fn run_sumcheck_test_skips(
     // FINAL ROUND
     let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
     prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
-        prover,
         &mut sumcheck_data,
         &mut challenger_rf,
         final_rounds,
@@ -801,7 +758,6 @@ fn run_sumcheck_test_svo(
         // Compute and apply the next folding round
         let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
-            prover,
             &mut sumcheck_data,
             &mut challenger_rf,
             folding,
@@ -823,7 +779,6 @@ fn run_sumcheck_test_svo(
     // FINAL ROUND
     let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
     prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
-        prover,
         &mut sumcheck_data,
         &mut challenger_rf,
         final_rounds,

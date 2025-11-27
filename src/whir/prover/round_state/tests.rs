@@ -9,7 +9,7 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{SeedableRng, rngs::SmallRng};
 
 use crate::{
-    fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
+    fiat_shamir::{domain_separator::DomainSeparator},
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
@@ -88,7 +88,6 @@ fn setup_domain_and_commitment(
 ) -> (
     WhirProof<F, EF4, DIGEST_ELEMS>,
     MyChallenger,
-    ProverState<F, EF4, MyChallenger>,
     Witness<EF4, F, DenseMatrix<F>, DIGEST_ELEMS>,
 ) {
     // Build ProtocolParameters from WhirConfig fields
@@ -116,12 +115,7 @@ fn setup_domain_and_commitment(
     // Reserve transcript space for WHIR proof messages.
     domsep.add_whir_proof::<_, _, _, 8>(params);
 
-    let mut rng = SmallRng::seed_from_u64(1);
-    let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-
     // Convert the domain separator into a mutable prover-side transcript.
-    let mut prover_state = domsep.to_prover_state::<_>(challenger);
-
     let mut rng = SmallRng::seed_from_u64(1);
     let mut prover_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
     domsep.observe_domain_separator(&mut prover_challenger);
@@ -136,7 +130,6 @@ fn setup_domain_and_commitment(
     let witness = committer
         .commit(
             &Radix2DFTSmallBatch::<F>::default(),
-            &mut prover_state,
             &mut proof,
             &mut prover_challenger,
             poly,
@@ -144,7 +137,7 @@ fn setup_domain_and_commitment(
         .unwrap();
 
     // Return all initialized components needed for round state setup.
-    (whir_proof, prover_challenger, prover_state, witness)
+    (whir_proof, prover_challenger, witness)
 }
 
 #[test]
@@ -165,7 +158,7 @@ fn test_no_initial_statement_no_sumcheck() {
     // - domain separator for Fiat-Shamir transcript,
     // - prover state,
     // - witness containing Merkle tree for `poly`.
-    let (mut proof, mut challenger, mut prover_state, witness) =
+    let (mut proof, mut challenger, witness) =
         setup_domain_and_commitment(&config, poly);
 
     // Create an empty public statement (no constraints)
@@ -174,7 +167,6 @@ fn test_no_initial_statement_no_sumcheck() {
     // Initialize the round state using the setup configuration and witness
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
-        &mut prover_state,
         &mut proof,
         &mut challenger,
         statement,
@@ -239,13 +231,12 @@ fn test_initial_statement_with_folding_factor_3() {
     );
 
     // Set up the domain separator, prover state, and witness for this configuration
-    let (mut proof, mut challenger_rf, mut prover_state, witness) =
+    let (mut proof, mut challenger_rf, witness) =
         setup_domain_and_commitment(&config, poly);
 
     // Run the first round state initialization (this will trigger sumcheck)
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
-        &mut prover_state,
         &mut proof,
         &mut challenger_rf,
         statement,
@@ -309,7 +300,7 @@ fn test_zero_poly_multiple_constraints() {
     let poly = EvaluationsList::new(vec![F::ZERO; 1 << num_variables]);
 
     // Generate domain separator, prover state, and Merkle commitment witness for the poly
-    let (mut proof, mut challenger_rf, mut prover_state, witness) =
+    let (mut proof, mut challenger_rf, witness) =
         setup_domain_and_commitment(&config, poly);
 
     // Create a new statement with multiple constraints
@@ -326,7 +317,6 @@ fn test_zero_poly_multiple_constraints() {
     // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
-        &mut prover_state,
         &mut proof,
         &mut challenger_rf,
         statement,
@@ -412,13 +402,12 @@ fn test_initialize_round_state_with_initial_statement() {
 
     // Set up Fiat-Shamir domain and produce commitment + witness
     // Generate domain separator, prover state, and Merkle commitment witness for the poly
-    let (mut proof, mut challenger_rf, mut prover_state, witness) =
+    let (mut proof, mut challenger_rf, witness) =
         setup_domain_and_commitment(&config, poly);
 
     // Run the first round initialization
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
-        &mut prover_state,
         &mut proof,
         &mut challenger_rf,
         statement,

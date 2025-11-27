@@ -12,7 +12,7 @@ use tracing::instrument;
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::FiatShamirError, prover::ProverState},
+    fiat_shamir::{errors::FiatShamirError},
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
@@ -138,7 +138,6 @@ where
     #[instrument(skip_all)]
     pub fn initialize_first_round_state<MyChallenger, C, Challenger>(
         prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
-        prover_state: &mut ProverState<F, EF, Challenger>,
         proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         mut statement: EqStatement<EF>,
@@ -159,15 +158,12 @@ where
                 if K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0) =>
             {
                 // Build constraint with random linear combination
-                let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
-                // Sync external challenger
-                let _constraint_rf =
+                let constraint =
                     Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
 
                 // Use univariate skip by skipping k variables
                 SumcheckSingle::with_skip(
                     &witness.polynomial,
-                    prover_state,
                     skip_data,
                     challenger,
                     prover.folding_factor.at_round(0),
@@ -180,16 +176,13 @@ where
             // Branch: WithStatementSvo - SVO optimization (currently falls back to classic)
             InitialPhase::WithStatementSvo { sumcheck } => {
                 // Build constraint with random linear combination
-                let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
-                // Sync external challenger
-                let _constraint_rf =
+                let constraint =
                     Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
 
                 // TODO: SVO optimization is not yet fully implemented
                 // Fall back to classic sumcheck
                 SumcheckSingle::from_base_evals(
                     &witness.polynomial,
-                    prover_state,
                     sumcheck,
                     challenger,
                     prover.folding_factor.at_round(0),
@@ -202,15 +195,12 @@ where
             InitialPhase::WithStatement { sumcheck }
             | InitialPhase::WithStatementSkip(SumcheckSkipData { sumcheck, .. }) => {
                 // Build constraint with random linear combination
-                let constraint = Constraint::new_eq_only(prover_state.sample(), statement.clone());
-                // Sync external challenger
-                let _constraint_rf =
+                let constraint =
                     Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
 
                 // Standard sumcheck protocol without optimization
                 SumcheckSingle::from_base_evals(
                     &witness.polynomial,
-                    prover_state,
                     sumcheck,
                     challenger,
                     prover.folding_factor.at_round(0),
@@ -224,7 +214,7 @@ where
                 // Sample folding challenges α_1, ..., α_k
                 let folding_randomness = MultilinearPoint::new(
                     (0..prover.folding_factor.at_round(0))
-                        .map(|_| prover_state.sample())
+                        .map(|_| challenger.sample_algebra_element())
                         .collect::<Vec<_>>(),
                 );
 
@@ -240,7 +230,6 @@ where
                 );
 
                 // Apply proof-of-work grinding for transcript security
-                prover_state.pow_grinding(prover.starting_folding_pow_bits);
                 pow_grinding(challenger, prover.starting_folding_pow_bits);
 
                 (sumcheck, folding_randomness)

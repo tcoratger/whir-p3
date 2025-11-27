@@ -14,7 +14,7 @@ use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
-    fiat_shamir::{errors::FiatShamirError, prover::ProverState},
+    fiat_shamir::{errors::FiatShamirError},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::DenseMatrix, constraints::statement::EqStatement, parameters::WhirConfig,
@@ -61,7 +61,6 @@ where
     pub fn commit<Dft: TwoAdicSubgroupDft<F>, const DIGEST_ELEMS: usize>(
         &self,
         dft: &Dft,
-        prover_state: &mut ProverState<F, EF, Challenger>,
         proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         polynomial: EvaluationsList<F>,
@@ -103,26 +102,18 @@ where
         );
         let (root, prover_data) =
             info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
-
-        prover_state.add_base_scalars(root.as_ref());
-
+        
         proof.initial_commitment = *root.as_ref();
         challenger.observe_slice(root.as_ref());
 
         let mut ood_statement = EqStatement::initialize(self.num_variables);
         (0..self.0.commitment_ood_samples).for_each(|_| {
             // Generate OOD points from ProverState randomness
-            let point =
-                MultilinearPoint::expand_from_univariate(prover_state.sample(), self.num_variables);
+            let point = MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), self.num_variables);
             let eval =
                 info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point));
-            prover_state.add_extension_scalar(eval);
-
-            let point_rf = MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), self.num_variables);
-            let eval_rf =
-                info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point_rf));
-            proof.initial_ood_answers.push(eval_rf);
-            challenger.observe_slice(&EF::flatten_to_base(vec![eval_rf]));
+            proof.initial_ood_answers.push(eval);
+            challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
             ood_statement.add_evaluated_constraint(point, eval);
         });
 
@@ -220,8 +211,6 @@ mod tests {
 
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-
-        let mut prover_state = domainsep.to_prover_state(challenger.clone());
         domainsep.observe_domain_separator(&mut challenger);
 
         // Run the Commitment Phase
@@ -230,7 +219,6 @@ mod tests {
         let witness = committer
             .commit(
                 &dft,
-                &mut prover_state,
                 &mut proof,
                 &mut challenger,
                 polynomial.clone(),
@@ -305,8 +293,6 @@ mod tests {
 
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-
-        let mut prover_state = domainsep.to_prover_state(challenger.clone());
         domainsep.observe_domain_separator(&mut challenger);
 
         let dft = Radix2DFTSmallBatch::<F>::default();
@@ -314,7 +300,6 @@ mod tests {
         let _ = committer
             .commit(
                 &dft,
-                &mut prover_state,
                 &mut proof,
                 &mut challenger,
                 polynomial,
@@ -379,7 +364,6 @@ mod tests {
         let witness = committer
             .commit(
                 &dft,
-                &mut prover_state,
                 &mut proof,
                 &mut challenger,
                 polynomial,
