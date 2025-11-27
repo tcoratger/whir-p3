@@ -28,7 +28,7 @@ use crate::{
     whir::{
         constraints::{Constraint, statement::SelectStatement},
         proof::WhirProof,
-        utils::{get_challenge_stir_queries, sync_stir_queries},
+        utils::get_challenge_stir_queries,
     },
 };
 
@@ -292,24 +292,14 @@ where
         // Sync: verify the same witness on external challenger
         sync_pow_grinding(challenger, witness, round_params.pow_bits);
 
-        // STIR Queries
+        // STIR Queries - sample from both prover_state and challenger with assertion
         let stir_challenges_indexes = get_challenge_stir_queries(
             round_state.domain_size,
             self.folding_factor.at_round(round_index),
             round_params.num_queries,
             prover_state,
-        )?;
-        // Sync: sample STIR queries on external challenger and verify consistency
-        let stir_challenges_indexes_rf = sync_stir_queries(
-            round_state.domain_size,
-            self.folding_factor.at_round(round_index),
-            round_params.num_queries,
             challenger,
-        );
-        assert_eq!(
-            stir_challenges_indexes, stir_challenges_indexes_rf,
-            "External challenger and prover_state diverged during round STIR query sampling"
-        );
+        )?;
 
         let stir_vars = stir_challenges_indexes
             .iter()
@@ -509,18 +499,8 @@ where
             // Number of final verification queries
             self.final_queries,
             prover_state,
-        )?;
-        // Sync: sample final STIR queries on external challenger and verify consistency
-        let final_challenge_indexes_rf = sync_stir_queries(
-            round_state.domain_size,
-            self.folding_factor.at_round(round_index),
-            self.final_queries,
             challenger,
-        );
-        assert_eq!(
-            final_challenge_indexes, final_challenge_indexes_rf,
-            "External challenger and prover_state diverged during final round STIR query sampling"
-        );
+        )?;
 
         // Every query requires opening these many in the previous Merkle tree
         let mmcs = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(

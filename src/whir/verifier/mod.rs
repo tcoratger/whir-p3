@@ -12,9 +12,7 @@ use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use super::{
-    committer::reader::ParsedCommitment, parameters::RoundConfig, utils::get_challenge_stir_queries,
-};
+use super::{committer::reader::ParsedCommitment, parameters::RoundConfig};
 use crate::{
     alloc::string::ToString,
     constant::K_SKIP_SUMCHECK,
@@ -25,6 +23,7 @@ use crate::{
         constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
         parameters::{InitialPhaseConfig, WhirConfig},
         proof::WhirProof,
+        utils::get_challenge_stir_queries_verifier,
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -298,7 +297,7 @@ where
         // challenges we generate are unpredictable and unbiased by a cheating prover.
         verifier_state.check_pow_grinding(params.pow_bits)?;
 
-        let stir_challenges_indexes = get_challenge_stir_queries(
+        let stir_challenges_indexes = get_challenge_stir_queries_verifier(
             params.domain_size,
             params.folding_factor,
             params.num_queries,
