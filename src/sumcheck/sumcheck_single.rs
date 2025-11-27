@@ -13,7 +13,7 @@ use crate::{
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
     whir::{
         constraints::{Constraint, statement::EqStatement},
-        proof::{SumcheckData, SumcheckSkipData, WhirProof},
+        proof::{SumcheckData, SumcheckSkipData},
     },
 };
 
@@ -543,15 +543,13 @@ where
     /// - If `folding_factor > num_variables()`
     /// - If univariate skip is attempted with evaluations in the extension field.
     #[instrument(skip_all)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn compute_sumcheck_polynomials<Challenger, const DIGEST_ELEMS: usize>(
+    pub fn compute_sumcheck_polynomials<Challenger>(
         &mut self,
         prover_state: &mut ProverState<F, EF, Challenger>,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        sumcheck_data: &mut SumcheckData<EF, F>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
-        is_final_round: bool,
         constraint: Option<Constraint<F, EF>>,
     ) -> MultilinearPoint<EF>
     where
@@ -563,13 +561,12 @@ where
             constraint.combine(&mut self.weights, &mut self.sum);
         }
 
-        let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         // Standard round-by-round folding
         // Proceed with one-variable-per-round folding for remaining variables.
         let res = (0..folding_factor)
             .map(|_| {
                 round(
-                    &mut sumcheck_data,
+                    sumcheck_data,
                     challenger,
                     prover_state,
                     &mut self.evals,
@@ -579,9 +576,6 @@ where
                 )
             })
             .collect();
-
-        // Store sumcheck data in the appropriate location
-        proof.set_sumcheck_data(sumcheck_data, is_final_round);
 
         // Return the full vector of verifier challenges as a multilinear point.
         MultilinearPoint::new(res)

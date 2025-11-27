@@ -23,7 +23,7 @@ use crate::{
             statement::{EqStatement, SelectStatement},
         },
         parameters::InitialPhaseConfig,
-        proof::{InitialPhase, WhirProof, WhirRoundProof},
+        proof::{InitialPhase, SumcheckData, WhirProof, WhirRoundProof},
         verifier::sumcheck::verify_sumcheck_rounds,
     },
 };
@@ -384,15 +384,16 @@ fn run_sumcheck_test(
         proof.rounds.push(WhirRoundProof::default());
 
         // Compute and apply the next folding round
+        let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
             prover,
-            &mut proof,
+            &mut sumcheck_data,
             &mut challenger_rf,
             folding,
             0,
-            false,
             Some(constraint),
         ));
+        proof.set_sumcheck_data(sumcheck_data, false);
 
         num_vars_inter -= folding;
 
@@ -405,15 +406,16 @@ fn run_sumcheck_test(
     assert_eq!(num_vars_inter, final_rounds);
 
     // FINAL ROUND
+    let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
     prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
         prover,
-        &mut proof,
+        &mut sumcheck_data,
         &mut challenger_rf,
         final_rounds,
         0,
-        true,
         None,
     ));
+    proof.set_sumcheck_data(sumcheck_data, true);
     let final_folded_value = sumcheck.evals.as_constant().unwrap();
 
     assert_eq!(sumcheck.evals.num_variables(), 0);
@@ -604,15 +606,16 @@ fn run_sumcheck_test_skips(
         );
 
         // Fold the sumcheck polynomial again and extend randomness vector
+        let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
             prover,
-            &mut proof,
+            &mut sumcheck_data,
             &mut challenger_rf,
             folding,
             0,
-            false,
             Some(constraint),
         ));
+        proof.set_sumcheck_data(sumcheck_data, false);
 
         num_vars_inter -= folding;
 
@@ -625,15 +628,16 @@ fn run_sumcheck_test_skips(
     assert_eq!(num_vars_inter, final_rounds);
 
     // FINAL ROUND
+    let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
     prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
         prover,
-        &mut proof,
+        &mut sumcheck_data,
         &mut challenger_rf,
         final_rounds,
         0,
-        true,
         None,
     ));
+    proof.set_sumcheck_data(sumcheck_data, true);
 
     // After final round, polynomial must collapse to a constant
     assert_eq!(sumcheck.evals.num_variables(), 0);
@@ -795,15 +799,16 @@ fn run_sumcheck_test_svo(
         );
 
         // Compute and apply the next folding round
+        let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
             prover,
-            &mut proof,
+            &mut sumcheck_data,
             &mut challenger_rf,
             folding,
             0,
-            false,
             Some(constraint),
         ));
+        proof.set_sumcheck_data(sumcheck_data, false);
 
         num_vars_inter -= folding;
 
@@ -816,15 +821,16 @@ fn run_sumcheck_test_svo(
     assert_eq!(num_vars_inter, final_rounds);
 
     // FINAL ROUND
+    let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
     prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
         prover,
-        &mut proof,
+        &mut sumcheck_data,
         &mut challenger_rf,
         final_rounds,
         0,
-        true,
         None,
     ));
+    proof.set_sumcheck_data(sumcheck_data, true);
 
     assert_eq!(sumcheck.evals.num_variables(), 0);
     assert_eq!(sumcheck.evals.num_evals(), 1);
