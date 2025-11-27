@@ -112,17 +112,17 @@ where
         (0..self.0.commitment_ood_samples).for_each(|_| {
             // Generate OOD points from ProverState randomness
             let point_scalar: EF = prover_state.sample();
-            let point = MultilinearPoint::expand_from_univariate(point_scalar, self.num_variables);
-            let eval =
-                info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point));
-            prover_state.add_extension_scalar(eval);
-
             // Sync: sample from external challenger and verify consistency
             let point_rf: EF = challenger.sample_algebra_element();
             assert_eq!(
                 point_scalar, point_rf,
                 "External challenger and prover_state challenger diverged during OOD point sampling"
             );
+
+            let point = MultilinearPoint::expand_from_univariate(point_scalar, self.num_variables);
+            let eval =
+                info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point));
+            prover_state.add_extension_scalar(eval);
             // Observe the same evaluation on external challenger
             challenger.observe_algebra_element(eval);
 
