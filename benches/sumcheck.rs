@@ -12,7 +12,7 @@ use whir_p3::{
     whir::{
         constraints::{Constraint, statement::EqStatement},
         parameters::InitialPhaseConfig,
-        proof::{InitialPhase, WhirProof},
+        proof::{InitialPhase, SumcheckData, WhirProof},
     },
 };
 
@@ -130,15 +130,16 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
 
                 // Second round - fold remaining variables
                 if classic_folding_schedule.len() > 1 && classic_folding_schedule[1] > 0 {
+                    let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
                     sumcheck.compute_sumcheck_polynomials(
                         &mut prover,
-                        &mut proof,
+                        &mut sumcheck_data,
                         &mut challenger_rf,
                         classic_folding_schedule[1],
                         0,
-                        true, // final round
                         None,
                     );
+                    proof.set_sumcheck_data(sumcheck_data, true);
                 }
             });
         });

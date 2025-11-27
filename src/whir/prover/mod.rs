@@ -27,7 +27,7 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::{Constraint, statement::SelectStatement},
-        proof::WhirProof,
+        proof::{SumcheckData, WhirProof},
         utils::get_challenge_stir_queries,
     },
 };
@@ -419,15 +419,16 @@ where
         // Temporary: to sync the refactoring fiat-shamir and the current
         let _constraint_rf: EF = challenger.sample_algebra_element();
 
+        let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         let folding_randomness = round_state.sumcheck_prover.compute_sumcheck_polynomials(
             prover_state,
-            proof,
+            &mut sumcheck_data,
             challenger,
             folding_factor_next,
             round_params.folding_pow_bits,
-            false,
             Some(constraint),
         );
+        proof.set_sumcheck_data(sumcheck_data, false);
 
         // Update round state
         round_state.domain_size = new_domain_size;
@@ -549,15 +550,16 @@ where
 
         // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
+            let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
             round_state.sumcheck_prover.compute_sumcheck_polynomials(
                 prover_state,
-                proof,
+                &mut sumcheck_data,
                 challenger,
                 self.final_sumcheck_rounds,
                 self.final_folding_pow_bits,
-                true,
                 None,
             );
+            proof.set_sumcheck_data(sumcheck_data, true);
         }
 
         Ok(())
