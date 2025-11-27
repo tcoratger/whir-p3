@@ -163,27 +163,20 @@ pub enum QueryOpening<F, EF, const DIGEST_ELEMS: usize> {
     },
 }
 
-/// Sumcheck round data that can represent different optimization formats
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "format")]
-pub enum SumcheckRoundData<EF> {
-    /// Classic format: h(0), h(1), h(2)
-    #[serde(rename = "classic")]
-    Classic([EF; 3]),
-
-    /// SVO format: S(0), S(inf)
-    /// S(1) is derived as claimed_sum - S(0)
-    #[serde(rename = "svo")]
-    Svo([EF; 2]),
-}
-
 /// Sumcheck polynomial data
+///
+/// Stores the polynomial evaluations for sumcheck rounds in a compact format.
+/// Each round stores `[h(0), h(2)]` where `h(1)` is derived as `claimed_sum - h(0)`.
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct SumcheckData<EF, F> {
     /// Polynomial evaluations for each sumcheck round
-    /// Format depends on optimization used
+    ///
+    /// Each entry is `[h(0), h(2)]` - the evaluations at 0 and 2
+    ///
+    /// `h(1)` is derived as `claimed_sum - h(0)` by the verifier
+    ///
     /// Length: folding_factor
-    pub polynomial_evaluations: Vec<SumcheckRoundData<EF>>,
+    pub polynomial_evaluations: Vec<[EF; 2]>,
 
     /// PoW witnesses for each sumcheck round (optional)
     /// Length: folding_factor
