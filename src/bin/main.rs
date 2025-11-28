@@ -391,11 +391,8 @@ fn run_fri(ctx: &mut Context) {
     let points = vec![open_points.clone(); num_chunks];
     // Generate the opening proof
     let open_time = Instant::now();
-    let (opened_values, proof) = Pcs::<EF, MyChallenger>::open(
-        &pcs,
-        vec![(&prover_data, points)],
-        &mut ctx.challenger.clone(),
-    );
+    let (opened_values, proof) =
+        pcs.open(vec![(&prover_data, points)], &mut ctx.challenger.clone());
     let opening_time = open_time.elapsed();
 
     // Construct the points needed for the verifier
@@ -413,8 +410,7 @@ fn run_fri(ctx: &mut Context) {
 
     // Verify the opening proof
     let verif_time = Instant::now();
-    let res = Pcs::<EF, MyChallenger>::verify(
-        &pcs,
+    let res = pcs.verify(
         vec![(commitment, verifier_points)],
         &proof,
         &mut ctx.challenger.clone(),
