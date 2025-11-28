@@ -434,7 +434,6 @@ fn run_fri(ctx: &mut Context) {
     println!("Verification time: {} μs", verify_time.as_micros());
 }
 
-#[allow(clippy::too_many_lines)]
 fn main() {
     let mut ctx = init_context();
 
