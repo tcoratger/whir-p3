@@ -98,7 +98,7 @@ where
         let point = MultilinearPoint::expand_from_univariate(point, num_vars);
 
         // Evaluate the current sumcheck polynomial at the sampled point.
-        let eval = poly.evaluate_hypercube(&point);
+        let eval = poly.evaluate_hypercube_base(&point);
 
         // Store evaluation for verifier to read later.
         constraint_evals.push(eval);
@@ -168,7 +168,7 @@ where
         let point = MultilinearPoint::expand_from_univariate(point, num_vars);
 
         // Evaluate the current sumcheck polynomial at the sampled point.
-        let eval = poly.evaluate_hypercube(&point);
+        let eval = poly.evaluate_hypercube_ext::<F>(&point);
 
         // Store evaluation for verifier to read later.
         constraint_evals.push(eval);
@@ -402,7 +402,7 @@ fn run_sumcheck_test(
 
     // Final folded value must match f(r)
     assert_eq!(
-        poly.evaluate_hypercube(&prover_randomness),
+        poly.evaluate_hypercube_base(&prover_randomness),
         final_folded_value
     );
     // Commit final result to Fiat-Shamir transcript
@@ -899,7 +899,7 @@ fn run_sumcheck_test_svo(
     // Final folded value must match f(r)
     let final_folded_value = sumcheck.evals.as_constant().unwrap();
     assert_eq!(
-        poly.evaluate_hypercube(&prover_randomness),
+        poly.evaluate_hypercube_base(&prover_randomness),
         final_folded_value
     );
     // Commit final result to Fiat-Shamir transcript

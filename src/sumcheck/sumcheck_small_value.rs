@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn test_evals_eq_in_hypercube_three_vars_matches_new_from_point() {
-        let p = vec![F::from_u64(2), F::from_u64(3), F::from_u64(5)];
+        let p = vec![F::from_u64(2), F::from_u64(3), F::from_u64(5)].into();
         let value = F::from_u64(1);
 
         let expected = EvaluationsList::new_from_point(&p, value)
@@ -477,7 +477,7 @@ mod tests {
             p0 * p1 * p2,                                  // 111 v[7]
         ];
 
-        let out = EvaluationsList::new_from_point(&[p0, p1, p2], F::ONE).0;
+        let out = EvaluationsList::new_from_point(&vec![p0, p1, p2].into(), F::ONE).0;
         assert_eq!(out, expected);
     }
 

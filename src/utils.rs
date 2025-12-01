@@ -1,44 +1,7 @@
 use alloc::vec::Vec;
 
+use p3_field::{BasedVectorSpace, ExtensionField, Field, PackedFieldExtension, PackedValue};
 use p3_maybe_rayon::prelude::*;
-
-pub fn parallel_clone<A>(src: &[A], dst: &mut [A])
-where
-    A: Clone + Send + Sync,
-{
-    assert_eq!(src.len(), dst.len());
-    if src.len() < 1 << 15 {
-        // sequential copy
-        dst.clone_from_slice(src);
-    } else {
-        let chunk_size = src.len() / current_num_threads().max(1);
-        dst.par_chunks_mut(chunk_size)
-            .zip(src.par_chunks(chunk_size))
-            .for_each(|(d, s)| {
-                d.clone_from_slice(s);
-            });
-    }
-}
-
-pub fn parallel_repeat<A>(src: &[A], n: usize) -> Vec<A>
-where
-    A: Copy + Send + Sync,
-{
-    if src.len() * n < 1 << 15 {
-        // sequential repeat
-        src.repeat(n)
-    } else {
-        let res = unsafe { uninitialized_vec::<A>(src.len() * n) };
-        src.par_iter().enumerate().for_each(|(i, &v)| {
-            for j in 0..n {
-                unsafe {
-                    core::ptr::write(res.as_ptr().cast_mut().add(i + j * src.len()), v);
-                }
-            }
-        });
-        res
-    }
-}
 
 /// Returns a vector of uninitialized elements of type `A` with the specified length.
 /// # Safety
@@ -53,33 +16,92 @@ pub unsafe fn uninitialized_vec<A>(len: usize) -> Vec<A> {
     }
 }
 
+/// Unpack packed extension field elements into the standard representation.
+#[inline]
+pub fn unpack_slice_into<F: Field, Ext: ExtensionField<F>>(
+    out: &mut [Ext],
+    packed: &[Ext::ExtensionPacking],
+) {
+    const PARALLEL_THRESHOLD: usize = 4096;
+    assert_eq!(out.len(), packed.len() * F::Packing::WIDTH);
+    if packed.len() < PARALLEL_THRESHOLD {
+        packed
+            .iter()
+            .zip(out.chunks_mut(F::Packing::WIDTH))
+            .for_each(|(packed, out_chunk)| {
+                let packed_coeffs = packed.as_basis_coefficients_slice();
+                for (i, out) in out_chunk.iter_mut().enumerate().take(F::Packing::WIDTH) {
+                    *out = Ext::from_basis_coefficients_fn(|j| packed_coeffs[j].as_slice()[i]);
+                }
+            });
+    } else {
+        packed
+            .par_iter()
+            .zip(out.par_chunks_mut(F::Packing::WIDTH))
+            .for_each(|(packed, out_chunk)| {
+                let packed_coeffs = packed.as_basis_coefficients_slice();
+                for (i, out) in out_chunk.iter_mut().enumerate().take(F::Packing::WIDTH) {
+                    *out = Ext::from_basis_coefficients_fn(|j| packed_coeffs[j].as_slice()[i]);
+                }
+            });
+    }
+}
+
+/// Unpack packed extension field elements to the standard representation.
+#[inline]
+pub fn unpack_slice<F: Field, Ext: ExtensionField<F>>(
+    packed: &[Ext::ExtensionPacking],
+) -> Vec<Ext> {
+    let mut out = Ext::zero_vec(packed.len() * F::Packing::WIDTH);
+    unpack_slice_into(&mut out, packed);
+    out
+}
+
+#[inline]
+/// Pack extension field elements into their packed representation.
+pub fn pack_slice<F: Field, Ext: ExtensionField<F>>(packed: &[Ext]) -> Vec<Ext::ExtensionPacking> {
+    const PARALLEL_THRESHOLD: usize = 4096;
+    if packed.len() < PARALLEL_THRESHOLD {
+        packed
+            .chunks(F::Packing::WIDTH)
+            .map(|ext| Ext::ExtensionPacking::from_ext_slice(ext))
+            .collect()
+    } else {
+        packed
+            .par_chunks(F::Packing::WIDTH)
+            .map(|ext| Ext::ExtensionPacking::from_ext_slice(ext))
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_util::log2_strict_usize;
+    use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
 
     type F = BabyBear;
-    type EF4 = BinomialExtensionField<F, 4>;
+    type PackedF = <F as Field>::Packing;
+    type EF = BinomialExtensionField<F, 4>;
+    type PackedEF = <EF as ExtensionField<F>>::ExtensionPacking;
 
     #[test]
-    fn test_parallel_clone() {
-        let src = (0..(1 << 23) + 7).map(F::from_u64).collect::<Vec<_>>();
-        let mut dst_seq = F::zero_vec(src.len());
-        dst_seq.copy_from_slice(&src);
-
-        let mut dst_parallel = F::zero_vec(src.len());
-        parallel_clone(&src, &mut dst_parallel);
-        assert_eq!(dst_seq, dst_parallel);
-    }
-
-    #[test]
-    fn test_parallel_repeat() {
-        let src = (0..(1 << 23) + 7).map(F::from_u64).collect::<Vec<_>>();
-        let n = 3;
-        let dst_seq = src.repeat(n);
-        let dst_parallel = parallel_repeat(&src, n);
-        assert_eq!(dst_seq, dst_parallel);
+    fn test_packing_roundtrip() {
+        let mut rng = SmallRng::seed_from_u64(1);
+        let width = PackedF::WIDTH;
+        let k_packed = log2_strict_usize(width);
+        for k in log2_strict_usize(PackedF::WIDTH)..10 {
+            let unpacked0 = (0..1 << k).map(|_| rng.random()).collect::<Vec<_>>();
+            let packed0 = pack_slice::<F, EF>(&unpacked0);
+            assert_eq!(log2_strict_usize(packed0.len()), k - k_packed);
+            let unpacked1 = unpack_slice::<F, EF>(&packed0);
+            assert_eq!(unpacked0, unpacked1);
+            let mut unpacked1 = EF::zero_vec(1 << k);
+            unpack_slice_into::<F, EF>(&mut unpacked1, &packed0);
+            assert_eq!(unpacked0, unpacked1);
+        }
     }
 }

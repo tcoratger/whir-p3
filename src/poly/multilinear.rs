@@ -1,5 +1,8 @@
 use alloc::vec::Vec;
-use core::ops::{Index, Range};
+use core::{
+    ops::{Index, RangeBounds},
+    slice::SliceIndex,
+};
 
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
@@ -13,6 +16,18 @@ use crate::poly::evals::EvaluationsList;
 /// A point `(x_1, ..., x_n)` in `F^n` for some field `F`.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct MultilinearPoint<F>(pub(crate) Vec<F>);
+
+impl<F: Field> From<Vec<F>> for MultilinearPoint<F> {
+    fn from(vars: Vec<F>) -> Self {
+        Self::new(vars)
+    }
+}
+
+impl<F: Field> From<&[F]> for MultilinearPoint<F> {
+    fn from(vars: &[F]) -> Self {
+        Self::new(vars.to_vec())
+    }
+}
 
 impl<F> MultilinearPoint<F>
 where
@@ -48,8 +63,11 @@ where
     /// Return a sub-point over the specified range of variables.
     #[inline]
     #[must_use]
-    pub fn get_subpoint_over_range(&self, idx: Range<usize>) -> Self {
-        Self(self.0[idx].to_vec())
+    pub fn get_subpoint_over_range<R: RangeBounds<usize> + SliceIndex<[F], Output = [F]>>(
+        &self,
+        range: R,
+    ) -> Self {
+        Self(self.0[range].to_vec())
     }
 
     /// Return a reference to the last variable in the point, if it exists.
@@ -194,7 +212,10 @@ where
     /// 2.  Compute `eq(w_inner, x)` for all `x` in `{0,1}^5`.
     pub fn svo_e_in_table<const NUM_SVO_ROUNDS: usize>(&self) -> EvaluationsList<F> {
         let half_l = self.num_variables() / 2;
-        EvaluationsList::new_from_point(&self.0[NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + half_l], F::ONE)
+        EvaluationsList::new_from_point(
+            &self.get_subpoint_over_range(NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + half_l),
+            F::ONE,
+        )
     }
 
     /// Computes equality polynomial evaluations over the outer variables for each SVO round.
@@ -278,7 +299,7 @@ where
             w_out.extend_from_slice(&self.0[half_l + NUM_SVO_ROUNDS..]);
 
             // Compute eq(w_out; x) for all x in the hypercube
-            EvaluationsList::new_from_point(&w_out, F::ONE)
+            EvaluationsList::new_from_point(&w_out.into(), F::ONE)
         })
     }
 
@@ -305,7 +326,7 @@ where
 
         // Construct the evaluation table for the polynomial eq_z(X).
         // This creates a list of 2^n values, where only the entry at index `z` is ONE.
-        let evals = EvaluationsList::new_from_point(self.as_slice(), F::ONE);
+        let evals = EvaluationsList::new_from_point(self, F::ONE);
 
         // Reshape the flat list of 2^n evaluations into a `2^k_skip x 2^(n-k_skip)` matrix.
         // Rows correspond to the skipped variables (X0, ..., X_{k_skip-1}).
@@ -327,7 +348,7 @@ where
         let folded_row = interpolate_subgroup(&mat, r_skip);
 
         // Evaluate the new, smaller polynomial at the remaining challenges `r_rest`.
-        EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest)
+        EvaluationsList::new(folded_row).evaluate_hypercube_ext(&r_rest)
     }
 
     /// Returns a new `MultilinearPoint` with the variables in reversed order.
@@ -763,7 +784,7 @@ mod tests {
         let final_poly = EvaluationsList::new(folded_row);
 
         // Evaluate this final polynomial at the remaining challenge, r_rest.
-        let expected = final_poly.evaluate_hypercube(&r_rest);
+        let expected = final_poly.evaluate_hypercube_ext::<F>(&r_rest);
 
         assert_eq!(
             result, expected,
@@ -830,7 +851,7 @@ mod tests {
         let final_poly = EvaluationsList::new(folded_row);
 
         // Evaluate this constant polynomial. The point `r_rest` is empty.
-        let expected = final_poly.evaluate_hypercube(&r_rest);
+        let expected = final_poly.evaluate_hypercube_ext::<F>(&r_rest);
 
         // The result of interpolation should be a single scalar.
         assert_eq!(
@@ -970,7 +991,7 @@ mod tests {
 
         // Verify the extraction is correct for NUM_SVO_ROUNDS = 2
         let w_inner = &point.as_slice()[2..6];
-        let expected = EvaluationsList::new_from_point(w_inner, F::ONE);
+        let expected = EvaluationsList::new_from_point(&w_inner.into(), F::ONE);
         assert_eq!(evals_2.as_slice(), expected.as_slice());
     }
 
