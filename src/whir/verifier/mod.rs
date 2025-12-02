@@ -286,8 +286,6 @@ where
         // By verifying that proof-of-work *now*, we confirm that the prover "locked in" their
         // commitment at a significant computational cost. This gives us confidence that the
         // challenges we generate are unpredictable and unbiased by a cheating prover.
-        //
-        // PoW is checked unconditionally for ALL rounds (matching original repo behavior).
         let pow_witness = if round_index < self.n_rounds() {
             proof.get_pow_after_commitment(round_index)
         } else {
