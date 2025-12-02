@@ -11,12 +11,12 @@ use whir::{
 };
 use whir_p3::{
     self as whir,
-    fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
+    fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     whir::{
         constraints::Constraint,
         parameters::InitialPhaseConfig,
-        proof::{InitialPhase, WhirProof},
+        proof::{InitialPhase, SumcheckData, WhirProof},
     },
 };
 
@@ -51,12 +51,10 @@ fn create_test_protocol_params_classic(
     }
 }
 
-fn setup_domsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
+fn setup_challenger() -> MyChallenger {
     let mut rng = SmallRng::seed_from_u64(0);
     let poseidon = Poseidon16::new_from_rng_128(&mut rng);
-    let challenger = MyChallenger::new(poseidon);
-    let domsep = DomainSeparator::new(vec![]);
-    (domsep, challenger)
+    MyChallenger::new(poseidon)
 }
 
 fn generate_poly(num_vars: usize) -> EvaluationsList<F> {
@@ -66,7 +64,7 @@ fn generate_poly(num_vars: usize) -> EvaluationsList<F> {
 
 /// Helper to generate an initial statement with a few constraints.
 fn generate_statement<C>(
-    prover: &mut ProverState<F, EF, C>,
+    challenger: &mut C,
     num_vars: usize,
     poly: &EvaluationsList<F>,
     num_constraints: usize,
@@ -76,7 +74,8 @@ where
 {
     let mut statement = EqStatement::initialize(num_vars);
     for _ in 0..num_constraints {
-        let point = MultilinearPoint::expand_from_univariate(prover.sample(), num_vars);
+        let point =
+            MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), num_vars);
         statement.add_unevaluated_constraint_hypercube(point, poly);
     }
     statement
@@ -86,6 +85,9 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
     let mut group = c.benchmark_group("SumcheckProver");
     // Use a smaller sample size for long-running benchmarks
     group.sample_size(10);
+
+    // Setup domain separator
+    let domsep: DomainSeparator<EF, F> = DomainSeparator::new(vec![]);
 
     // Define the range of variable counts to benchmark.
     for num_vars in &[16, 18, 20, 22, 24] {
@@ -97,22 +99,18 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
             create_test_protocol_params_classic(FoldingFactor::Constant(*num_vars));
         group.bench_with_input(BenchmarkId::new("Classic", *num_vars), &poly, |b, poly| {
             b.iter(|| {
-                // Setup fresh for each iteration
-                let (domsep, challenger_for_prover) = setup_domsep_and_challenger();
-                let mut prover = domsep.to_prover_state(challenger_for_prover);
+                // Setup fresh challenger for each iteration
+                let mut challenger = setup_challenger();
+                domsep.observe_domain_separator(&mut challenger);
 
-                // Initialize proof and challenger (refactored approach)
+                // Initialize proof
                 let mut proof =
                     WhirProof::<F, EF, 8>::from_protocol_parameters(&params_classic, *num_vars);
-                let mut rng = SmallRng::seed_from_u64(1);
-                let mut challenger_rf = MyChallenger::new(Poseidon16::new_from_rng_128(&mut rng));
-                domsep.observe_domain_separator(&mut challenger_rf);
 
-                // Create constraint
-                let statement = generate_statement(&mut prover, *num_vars, poly, 3);
-                let constraint = Constraint::new_eq_only(prover.sample(), statement);
-                // Keep challenger_rf in sync
-                let _alpha_rf: EF = challenger_rf.sample_algebra_element();
+                // Create constraint using challenger directly
+                let statement = generate_statement(&mut challenger, *num_vars, poly, 3);
+                let alpha: EF = challenger.sample_algebra_element();
+                let constraint = Constraint::new_eq_only(alpha, statement);
 
                 // Extract sumcheck data from the initial phase
                 let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
@@ -122,9 +120,8 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
                 // Fold all variables in one round
                 SumcheckSingle::from_base_evals(
                     poly,
-                    &mut prover,
                     sumcheck,
-                    &mut challenger_rf,
+                    &mut challenger,
                     *num_vars,
                     0,
                     &constraint,
@@ -132,19 +129,30 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
             });
         });
 
-        // SVO benchmark - using SVO optimization (still uses old ProverState approach)
+        // SVO benchmark - using SVO optimization
         group.bench_with_input(BenchmarkId::new("SVO", *num_vars), &poly, |b, poly| {
             b.iter(|| {
-                // Setup fresh for each iteration (SVO still uses old approach)
-                let (domsep, challenger_for_prover) = setup_domsep_and_challenger();
-                let mut prover = domsep.to_prover_state(challenger_for_prover);
+                // Setup fresh challenger for each iteration
+                let mut challenger = setup_challenger();
+                domsep.observe_domain_separator(&mut challenger);
 
-                // Create constraint
-                let statement = generate_statement(&mut prover, *num_vars, poly, 3);
-                let constraint = Constraint::new_eq_only(prover.sample(), statement);
+                // Create constraint using challenger directly
+                let statement = generate_statement(&mut challenger, *num_vars, poly, 1);
+                let alpha: EF = challenger.sample_algebra_element();
+                let constraint = Constraint::new_eq_only(alpha, statement);
 
-                // Fold all variables using SVO optimization (old approach)
-                SumcheckSingle::from_base_evals_svo(poly, &mut prover, *num_vars, 0, &constraint);
+                // Create sumcheck data
+                let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
+
+                // Fold all variables using SVO optimization
+                SumcheckSingle::from_base_evals_svo(
+                    poly,
+                    &mut sumcheck_data,
+                    &mut challenger,
+                    *num_vars,
+                    0,
+                    &constraint,
+                );
             });
         });
     }

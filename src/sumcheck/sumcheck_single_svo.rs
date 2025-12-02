@@ -4,14 +4,13 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
-    fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
         eq_state::SumcheckEqState,
         sumcheck_single::SumcheckSingle,
         sumcheck_small_value::{algorithm_5, svo_first_rounds},
     },
-    whir::constraints::Constraint,
+    whir::{constraints::Constraint, proof::SumcheckData},
 };
 
 /// Number of SVO rounds (first 3 rounds use special optimized algorithm).
@@ -29,7 +28,8 @@ where
     /// See Algorithm 6 (page 19) in <https://eprint.iacr.org/2025/1117>.
     pub fn from_base_evals_svo<Challenger>(
         evals: &EvaluationsList<F>,
-        prover_state: &mut ProverState<F, EF, Challenger>,
+        sumcheck_data: &mut SumcheckData<EF, F>,
+        challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
         constraint: &Constraint<F, EF>,
@@ -51,7 +51,8 @@ where
         let mut eq_poly = SumcheckEqState::<_, NUM_SVO_ROUNDS>::new(w);
 
         svo_first_rounds(
-            prover_state,
+            sumcheck_data,
+            challenger,
             evals,
             w,
             &mut eq_poly,
@@ -64,7 +65,8 @@ where
         let mut folded_evals = evals.fold_batch(&challenges);
 
         algorithm_5(
-            prover_state,
+            sumcheck_data,
+            challenger,
             &mut folded_evals,
             &mut eq_poly,
             &mut challenges,

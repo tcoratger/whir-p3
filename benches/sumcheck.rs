@@ -5,7 +5,7 @@ use p3_field::extension::BinomialExtensionField;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use whir_p3::{
-    fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
+    fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
@@ -44,12 +44,10 @@ fn create_test_protocol_params(
 }
 
 /// Helper to create a fresh domain separator and challenger for each benchmark iteration.
-fn setup_domsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
+fn setup_challenger() -> MyChallenger {
     let mut rng = SmallRng::seed_from_u64(0);
     let perm = Perm::new_from_rng_128(&mut rng);
-    let challenger = MyChallenger::new(perm);
-    let domsep = DomainSeparator::new(vec![]);
-    (domsep, challenger)
+    MyChallenger::new(perm)
 }
 
 /// Helper to generate a random multilinear polynomial.
@@ -61,7 +59,7 @@ fn generate_poly(num_vars: usize) -> EvaluationsList<F> {
 
 /// Helper to generate an initial statement with a few constraints.
 fn generate_statement<C>(
-    prover: &mut ProverState<F, EF, C>,
+    challenger: &mut C,
     num_vars: usize,
     poly: &EvaluationsList<F>,
     num_constraints: usize,
@@ -71,7 +69,8 @@ where
 {
     let mut statement = EqStatement::initialize(num_vars);
     for _ in 0..num_constraints {
-        let point = MultilinearPoint::expand_from_univariate(prover.sample(), num_vars);
+        let point =
+            MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), num_vars);
         statement.add_unevaluated_constraint_hypercube(point, poly);
     }
     statement
@@ -94,23 +93,22 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
         // Create parameters with a dummy folding factor (we'll use manual schedule)
         let params = create_test_protocol_params(FoldingFactor::Constant(2));
 
+        // Setup domain separator
+        let domsep: DomainSeparator<EF, F> = DomainSeparator::new(vec![]);
+
         group.bench_with_input(BenchmarkId::new("Classic", *num_vars), &poly, |b, poly| {
             b.iter(|| {
-                // Setup fresh for each iteration
-                let (domsep, challenger_for_prover) = setup_domsep_and_challenger();
-                let mut prover = domsep.to_prover_state(challenger_for_prover);
+                // Setup fresh challenger for each iteration
+                let mut challenger = setup_challenger();
+                domsep.observe_domain_separator(&mut challenger);
 
-                // Initialize proof and challenger (refactored approach)
+                // Initialize proof
                 let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, *num_vars);
-                let mut rng = SmallRng::seed_from_u64(1);
-                let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-                domsep.observe_domain_separator(&mut challenger_rf);
 
-                // Create constraint
-                let statement = generate_statement(&mut prover, *num_vars, poly, 3);
-                let constraint = Constraint::new_eq_only(prover.sample(), statement);
-                // Keep challenger_rf in sync
-                let _alpha_rf: EF = challenger_rf.sample_algebra_element();
+                // Create constraint using challenger directly
+                let statement = generate_statement(&mut challenger, *num_vars, poly, 3);
+                let alpha: EF = challenger.sample_algebra_element();
+                let constraint = Constraint::new_eq_only(alpha, statement);
 
                 // Extract sumcheck data from the initial phase
                 let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
@@ -118,11 +116,10 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
                 };
 
                 // First round - fold first half of variables
-                let (mut sumcheck, _) = SumcheckSingle::from_base_evals(
+                let (mut sumcheck_prover, _) = SumcheckSingle::from_base_evals(
                     poly,
-                    &mut prover,
                     sumcheck,
-                    &mut challenger_rf,
+                    &mut challenger,
                     classic_folding_schedule[0],
                     0,
                     &constraint,
@@ -131,15 +128,14 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
                 // Second round - fold remaining variables
                 if classic_folding_schedule.len() > 1 && classic_folding_schedule[1] > 0 {
                     let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
-                    sumcheck.compute_sumcheck_polynomials(
-                        &mut prover,
+                    sumcheck_prover.compute_sumcheck_polynomials(
                         &mut sumcheck_data,
-                        &mut challenger_rf,
+                        &mut challenger,
                         classic_folding_schedule[1],
                         0,
                         None,
                     );
-                    proof.set_sumcheck_data(sumcheck_data, true);
+                    proof.set_final_sumcheck_data(sumcheck_data);
                 }
             });
         });

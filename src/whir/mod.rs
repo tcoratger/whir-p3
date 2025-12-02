@@ -3,7 +3,7 @@ use alloc::{vec, vec::Vec};
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use constraints::statement::EqStatement;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::{CanSample, DuplexChallenger, FieldChallenger};
+use p3_challenger::{DuplexChallenger, FieldChallenger};
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -107,12 +107,7 @@ pub fn make_whir_things(
     domainsep.add_whir_proof::<_, _, _, 32>(&params);
 
     // Create fresh RNG and challenger for transcript randomness
-    let mut rng = SmallRng::seed_from_u64(1);
-    let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-
     // Initialize prover's view of the Fiat-Shamir transcript
-    let mut prover_state = domainsep.to_prover_state(challenger.clone());
-
     let mut rng = SmallRng::seed_from_u64(1);
     let mut prover_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
     domainsep.observe_domain_separator(&mut prover_challenger);
@@ -126,13 +121,7 @@ pub fn make_whir_things(
 
     // Commit to polynomial evaluations and generate cryptographic witness
     let witness = committer
-        .commit(
-            &dft,
-            &mut prover_state,
-            &mut proof,
-            &mut prover_challenger,
-            polynomial,
-        )
+        .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
         .unwrap();
 
     // Initialize WHIR prover with the configured parameters
@@ -142,7 +131,6 @@ pub fn make_whir_things(
     prover
         .prove(
             &dft,
-            &mut prover_state,
             &mut proof,
             &mut prover_challenger,
             statement.clone(),
@@ -151,7 +139,7 @@ pub fn make_whir_things(
         .unwrap();
 
     // Sample final challenge to ensure transcript consistency between prover/verifier
-    let checkpoint_prover: EF = prover_state.sample();
+    let checkpoint_prover: EF = prover_challenger.sample_algebra_element();
 
     // Initialize commitment parser for verifier-side operations
     let commitment_reader = CommitmentReader::new(&params);
@@ -162,26 +150,23 @@ pub fn make_whir_things(
     // Reconstruct verifier's transcript from proof data and domain separator
     let mut rng = SmallRng::seed_from_u64(1);
     let mut verifier_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-    let mut verifier_state =
-        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+    domainsep.observe_domain_separator(&mut verifier_challenger);
 
     // Parse and validate the polynomial commitment from proof data
-    let parsed_commitment = commitment_reader
-        .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
-        .unwrap();
+    let parsed_commitment =
+        commitment_reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
 
     // Execute WHIR verification
     verifier
         .verify(
-            &mut verifier_state,
-            &parsed_commitment,
-            statement,
             &proof,
             &mut verifier_challenger,
+            &parsed_commitment,
+            statement,
         )
         .unwrap();
 
-    let checkpoint_verifier: EF = verifier_state.sample();
+    let checkpoint_verifier: EF = verifier_challenger.sample_algebra_element();
     assert_eq!(checkpoint_prover, checkpoint_verifier);
 }
 

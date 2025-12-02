@@ -8,7 +8,7 @@ use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
-    fiat_shamir::{grinding::pow_grinding, prover::ProverState},
+    fiat_shamir::grinding::pow_grinding,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
     whir::{

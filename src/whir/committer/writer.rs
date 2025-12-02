@@ -1,5 +1,4 @@
-use alloc::sync::Arc;
-use alloc::vec;
+use alloc::{sync::Arc, vec};
 use core::ops::Deref;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
@@ -14,7 +13,7 @@ use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
-    fiat_shamir::{errors::FiatShamirError},
+    fiat_shamir::errors::FiatShamirError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::DenseMatrix, constraints::statement::EqStatement, parameters::WhirConfig,
@@ -102,14 +101,17 @@ where
         );
         let (root, prover_data) =
             info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
-        
+
         proof.initial_commitment = *root.as_ref();
         challenger.observe_slice(root.as_ref());
 
         let mut ood_statement = EqStatement::initialize(self.num_variables);
         (0..self.0.commitment_ood_samples).for_each(|_| {
             // Generate OOD points from ProverState randomness
-            let point = MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), self.num_variables);
+            let point = MultilinearPoint::expand_from_univariate(
+                challenger.sample_algebra_element(),
+                self.num_variables,
+            );
             let eval =
                 info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point));
             proof.initial_ood_answers.push(eval);
@@ -217,12 +219,7 @@ mod tests {
         let committer = CommitmentWriter::new(&params);
         let dft = Radix2DFTSmallBatch::<F>::default();
         let witness = committer
-            .commit(
-                &dft,
-                &mut proof,
-                &mut challenger,
-                polynomial.clone(),
-            )
+            .commit(&dft, &mut proof, &mut challenger, polynomial.clone())
             .unwrap();
 
         // Ensure OOD (out-of-domain) points are generated.
@@ -298,12 +295,7 @@ mod tests {
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let _ = committer
-            .commit(
-                &dft,
-                &mut proof,
-                &mut challenger,
-                polynomial,
-            )
+            .commit(&dft, &mut proof, &mut challenger, polynomial)
             .unwrap();
     }
 
@@ -356,18 +348,12 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
 
-        let mut prover_state = domainsep.to_prover_state(challenger.clone());
         domainsep.observe_domain_separator(&mut challenger);
 
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let witness = committer
-            .commit(
-                &dft,
-                &mut proof,
-                &mut challenger,
-                polynomial,
-            )
+            .commit(&dft, &mut proof, &mut challenger, polynomial)
             .unwrap();
 
         assert!(

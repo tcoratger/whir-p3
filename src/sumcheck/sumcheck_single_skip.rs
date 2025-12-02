@@ -88,7 +88,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
+        fiat_shamir::domain_separator::DomainSeparator,
         poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
         whir::constraints::statement::EqStatement,
     };
@@ -105,11 +105,6 @@ mod tests {
         let perm = Perm::new_from_rng_128(&mut rng);
         let challenger = MyChallenger::new(perm);
         (DomainSeparator::new(vec![]), challenger)
-    }
-
-    fn prover() -> ProverState<F, EF4, MyChallenger> {
-        let (domsep, challenger) = domainsep_and_challenger();
-        domsep.to_prover_state(challenger)
     }
 
     #[test]

@@ -146,45 +146,32 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
 
     c.bench_function("commit", |b| {
         b.iter(|| {
-            let mut prover_state = domainsep.to_prover_state(challenger.clone());
             let mut challenger_clone = challenger.clone();
+            domainsep.observe_domain_separator(&mut challenger_clone);
             let mut proof =
                 WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
             let committer = CommitmentWriter::new(&params);
             let _witness = committer
-                .commit(
-                    &dft,
-                    &mut prover_state,
-                    &mut proof,
-                    &mut challenger_clone,
-                    polynomial.clone(),
-                )
+                .commit(&dft, &mut proof, &mut challenger_clone, polynomial.clone())
                 .unwrap();
         });
     });
 
     c.bench_function("prove", |b| {
         b.iter(|| {
-            let mut prover_state = domainsep.to_prover_state(challenger.clone());
             let mut challenger_clone = challenger.clone();
+            domainsep.observe_domain_separator(&mut challenger_clone);
             let mut proof =
                 WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
             let committer = CommitmentWriter::new(&params);
             let witness = committer
-                .commit(
-                    &dft,
-                    &mut prover_state,
-                    &mut proof,
-                    &mut challenger_clone,
-                    polynomial.clone(),
-                )
+                .commit(&dft, &mut proof, &mut challenger_clone, polynomial.clone())
                 .unwrap();
 
             let prover = Prover(&params);
             prover
                 .prove(
                     &dft,
-                    &mut prover_state,
                     &mut proof,
                     &mut challenger_clone,
                     statement.clone(),

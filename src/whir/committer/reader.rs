@@ -1,3 +1,4 @@
+use alloc::vec;
 use core::{fmt::Debug, ops::Deref};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
@@ -5,7 +6,6 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_symmetric::Hash;
 
 use crate::{
-    fiat_shamir::{errors::FiatShamirError, verifier::VerifierState},
     poly::multilinear::MultilinearPoint,
     whir::{constraints::statement::EqStatement, parameters::WhirConfig, proof::WhirProof},
 };
@@ -57,11 +57,9 @@ where
     /// - The prover's claimed answers at those points.
     ///
     /// This is used to verify consistency of polynomial commitments in WHIR.
-    ///
-
     pub fn parse<EF, Challenger, const DIGEST_ELEMS: usize>(
         proof: &WhirProof<F, EF, DIGEST_ELEMS>,
-        challenger:  &mut Challenger,
+        challenger: &mut Challenger,
         num_variables: usize,
         ood_samples: usize,
     ) -> ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>
@@ -85,18 +83,19 @@ where
         EF: ExtensionField<F> + TwoAdicField,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        // Read the Merkle root and OOD answers from the appropriate source
-        let (root_array, ood_answers) = if let Some(idx) = round_index {
-            let round_proof = &proof.rounds[idx];
-            // Round commitment
-            (round_proof.commitment, round_proof.ood_answers.clone())
-        } else {
-            // Initial commitment
-            (proof.initial_commitment, proof.initial_ood_answers.clone())
-        };
+        let (root_array, ood_answers) = round_index.map_or_else(
+            || (proof.initial_commitment, proof.initial_ood_answers.clone()),
+            |idx| {
+                let round_proof = &proof.rounds[idx];
+                (round_proof.commitment, round_proof.ood_answers.clone())
+            },
+        );
 
         // Convert to Hash type
         let root: Hash<F, F, DIGEST_ELEMS> = root_array.into();
+
+        // Observe the root in the challenger to match prover's transcript
+        challenger.observe_slice(&root_array);
 
         // Construct equality constraints for all out-of-domain (OOD) samples.
         // Each constraint enforces that the committed polynomial evaluates to the
@@ -107,7 +106,7 @@ where
             let point = challenger.sample_algebra_element();
             let point = MultilinearPoint::expand_from_univariate(point, num_variables);
             let eval = ood_answers[i];
-            challenger.observe_algebra_element(eval);
+            challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
             ood_statement.add_evaluated_constraint(point, eval);
         });
 
@@ -282,22 +281,16 @@ mod tests {
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
         let witness = committer
-            .commit(
-                &dft,
-                &mut proof,
-                &mut prover_challenger,
-                polynomial,
-            )
+            .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
             .unwrap();
 
         // Simulate verifier state using transcript view of prover's nonce string.
-        let mut verifier_challenger = challenger.clone();
+        let mut verifier_challenger = challenger;
         ds.observe_domain_separator(&mut verifier_challenger);
 
         // Create a commitment reader and parse the commitment from verifier state.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader
-            .parse_commitment::<8>(&proof, &mut verifier_challenger);
+        let parsed = reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
 
         // Ensure the Merkle root matches between prover and parsed result.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -330,22 +323,16 @@ mod tests {
 
         // Commit the polynomial to obtain the witness.
         let witness = committer
-            .commit(
-                &dft,
-                &mut proof,
-                &mut prover_challenger,
-                polynomial,
-            )
+            .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
             .unwrap();
 
         // Initialize the verifier view of the transcript.
-        let mut verifier_challenger = challenger.clone();
+        let mut verifier_challenger = challenger;
         ds.observe_domain_separator(&mut verifier_challenger);
 
         // Parse the commitment from verifier transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader
-            .parse_commitment::<8>(&proof, &mut verifier_challenger);
+        let parsed = reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
 
         // Validate the Merkle root matches.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -378,22 +365,16 @@ mod tests {
 
         // Commit the polynomial and obtain the witness.
         let witness = committer
-            .commit(
-                &dft,
-                &mut proof,
-                &mut prover_challenger,
-                polynomial,
-            )
+            .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
-        let mut verifier_challenger = challenger.clone();
+        let mut verifier_challenger = challenger;
         ds.observe_domain_separator(&mut verifier_challenger);
 
         // Parse the commitment from verifier's transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader
-            .parse_commitment::<8>(&proof, &mut verifier_challenger);
+        let parsed = reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
 
         // Check Merkle root and OOD answers match.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -423,22 +404,16 @@ mod tests {
         ds.observe_domain_separator(&mut prover_challenger);
 
         let witness = committer
-            .commit(
-                &dft,
-                &mut proof,
-                &mut prover_challenger,
-                polynomial,
-            )
+            .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
             .unwrap();
 
         // Initialize the verifier view of the transcript.
-        let mut verifier_challenger = challenger.clone();
+        let mut verifier_challenger = challenger;
         ds.observe_domain_separator(&mut verifier_challenger);
 
         // Parse the commitment from the verifier's state.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader
-            .parse_commitment::<8>(&proof, &mut verifier_challenger);
+        let parsed = reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
 
         // Each constraint should have correct univariate weight, sum, and flag.
         for (i, (point, &eval)) in parsed.ood_statement.iter().enumerate() {

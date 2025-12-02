@@ -1,5 +1,4 @@
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use core::ops::Deref;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
@@ -24,15 +23,14 @@ use super::{
 };
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::FiatShamirError, grinding::pow_grinding, prover::ProverState},
+    fiat_shamir::{errors::FiatShamirError, grinding::pow_grinding},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::{Constraint, statement::SelectStatement},
-        proof::{SumcheckData, WhirProof},
+        proof::{QueryOpening, SumcheckData, WhirProof},
         utils::get_challenge_stir_queries,
     },
 };
-use crate::whir::proof::QueryOpening;
 
 pub mod round_state;
 
@@ -167,23 +165,12 @@ where
         );
 
         // Initialize the round state with inputs and initial polynomial data
-        let mut round_state = RoundState::initialize_first_round_state(
-            self,
-            proof,
-            challenger,
-            statement,
-            witness,
-        )?;
+        let mut round_state =
+            RoundState::initialize_first_round_state(self, proof, challenger, statement, witness)?;
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
-            self.round(
-                dft,
-                round,
-                proof,
-                challenger,
-                &mut round_state,
-            )?;
+            self.round(dft, round, proof, challenger, &mut round_state)?;
         }
 
         Ok(())
@@ -256,16 +243,27 @@ where
         // Observe the round merkle tree commitment
         challenger.observe_slice(root.as_ref());
 
+        // Store commitment in proof
+        proof.rounds[round_index].commitment = root.into();
+
         // Handle OOD (Out-Of-Domain) samples
         let mut ood_statement = EqStatement::initialize(num_variables);
+        let mut ood_answers = Vec::with_capacity(round_params.ood_samples);
         (0..round_params.ood_samples).for_each(|_| {
             // Sync: sample and observe on external challenger
-            let point = MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), num_variables);
+            let point = MultilinearPoint::expand_from_univariate(
+                challenger.sample_algebra_element(),
+                num_variables,
+            );
             let eval = folded_evaluations.evaluate_hypercube(&point);
             challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
 
+            ood_answers.push(eval);
             ood_statement.add_evaluated_constraint(point, eval);
         });
+
+        // Store OOD answers in proof
+        proof.rounds[round_index].ood_answers = ood_answers;
 
         // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
         //
@@ -280,14 +278,17 @@ where
         // By forcing the prover to perform this expensive proof-of-work *after* committing but
         // *before* receiving the queries, we make it computationally infeasible to "shop" for
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
-        pow_grinding(challenger, round_params.pow_bits);
+        proof.rounds[round_index].pow_witness = pow_grinding(challenger, round_params.pow_bits);
+
+        // Transcript checkpoint after PoW (must match verifier's sample() call)
+        challenger.sample();
 
         // STIR Queries
         let stir_challenges_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
             round_state.domain_size,
             self.folding_factor.at_round(round_index),
             round_params.num_queries,
-            challenger
+            challenger,
         )?;
 
         let stir_vars = stir_challenges_indexes
@@ -303,7 +304,7 @@ where
         // Collect Merkle proofs for stir queries
         match &round_state.merkle_prover_data {
             None => {
-                let mut answers= Vec::with_capacity(stir_challenges_indexes.len());
+                let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
                 for challenge in &stir_challenges_indexes {
                     let commitment =
                         mmcs.open_batch(*challenge, &round_state.commitment_merkle_prover_data);
@@ -395,7 +396,14 @@ where
             }
         }
 
-        let constraint = Constraint::new(challenger.sample_algebra_element(), ood_statement, stir_statement);
+        // Store queries in proof
+        proof.rounds[round_index].queries = queries;
+
+        let constraint = Constraint::new(
+            challenger.sample_algebra_element(),
+            ood_statement,
+            stir_statement,
+        );
 
         let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         let folding_randomness = round_state.sumcheck_prover.compute_sumcheck_polynomials(
@@ -405,7 +413,7 @@ where
             round_params.folding_pow_bits,
             Some(constraint),
         );
-        proof.set_sumcheck_data(sumcheck_data, false);
+        proof.set_sumcheck_data_at(sumcheck_data, round_index);
 
         // Update round state
         round_state.domain_size = new_domain_size;
@@ -439,6 +447,9 @@ where
             round_state.sumcheck_prover.evals.as_slice().to_vec(),
         ));
 
+        // Store the final polynomial in the proof
+        proof.final_poly = Some(round_state.sumcheck_prover.evals.clone());
+
         // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
         //
         // This is a crucial security step to prevent a malicious prover from influencing the
@@ -452,7 +463,9 @@ where
         // By forcing the prover to perform this expensive proof-of-work *after* committing but
         // *before* receiving the queries, we make it computationally infeasible to "shop" for
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
-        pow_grinding(challenger, self.final_pow_bits);
+        if let Some(witness) = pow_grinding(challenger, self.final_pow_bits) {
+            proof.final_pow_witness = witness;
+        }
 
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
@@ -462,7 +475,7 @@ where
             self.folding_factor.at_round(round_index),
             // Number of final verification queries
             self.final_queries,
-            challenger
+            challenger,
         )?;
 
         // Every query requires opening these many in the previous Merkle tree
@@ -506,7 +519,7 @@ where
                 self.final_folding_pow_bits,
                 None,
             );
-            proof.set_sumcheck_data(sumcheck_data, true);
+            proof.set_final_sumcheck_data(sumcheck_data);
         }
 
         Ok(())

@@ -12,7 +12,7 @@ use tracing::instrument;
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::FiatShamirError},
+    fiat_shamir::{errors::FiatShamirError, grinding::pow_grinding},
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
@@ -22,7 +22,6 @@ use crate::{
         prover::Prover,
     },
 };
-use crate::fiat_shamir::grinding::pow_grinding;
 
 /// Holds all per-round prover state required during the execution of the WHIR protocol.
 ///
@@ -210,7 +209,7 @@ where
             }
 
             // Branch: WithoutStatement - direct polynomial folding path
-            InitialPhase::WithoutStatement => {
+            InitialPhase::WithoutStatement { pow_witnesses } => {
                 // Sample folding challenges α_1, ..., α_k
                 let folding_randomness = MultilinearPoint::new(
                     (0..prover.folding_factor.at_round(0))
@@ -229,8 +228,8 @@ where
                     EF::ONE,
                 );
 
-                // Apply proof-of-work grinding for transcript security
-                pow_grinding(challenger, prover.starting_folding_pow_bits);
+                // Apply proof-of-work grinding and store witness
+                *pow_witnesses = pow_grinding(challenger, prover.starting_folding_pow_bits);
 
                 (sumcheck, folding_randomness)
             }
