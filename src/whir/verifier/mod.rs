@@ -87,6 +87,7 @@ where
                 statement,
                 SelectStatement::initialize(self.num_variables),
             );
+            // Combine claimed evals with combination randomness
             constraint.combine_evals(&mut claimed_eval);
             constraints.push(constraint);
         } else {
@@ -297,8 +298,7 @@ where
         };
         check_pow_grinding(challenger, pow_witness, params.pow_bits)?;
 
-        // Transcript checkpoint after PoW - only for intermediate rounds
-        // (the prover only calls sample() after PoW for intermediate rounds)
+        // Transcript checkpoint after PoW
         if round_index < self.n_rounds() {
             challenger.sample();
         }

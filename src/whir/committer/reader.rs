@@ -357,7 +357,7 @@ mod tests {
         let mut ds = DomainSeparator::new(vec![]);
         ds.commit_statement::<_, _, _, 8>(&params);
 
-        // Create the prover state from the transcript.
+        // Create prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         let mut prover_challenger = challenger.clone();

@@ -68,6 +68,10 @@ impl SecurityAssumption {
         field_size_bits: usize,
         num_functions: usize,
     ) -> f64 {
+        assert!(
+            num_functions >= 2,
+            "num_functions must be >= 2 to compute proximity gaps error",
+        );
         // The error computed here is from [BCIKS20] for the combination of two functions. Then we multiply it by the folding factor.
         let log_eta = self.log_eta(log_inv_rate);
         // Note that this does not include the field_size
@@ -243,6 +247,20 @@ mod tests {
         // Invalid cases
         assert!(SecurityAssumption::from_str("InvalidType").is_err());
         assert!(SecurityAssumption::from_str("").is_err()); // Empty string
+    }
+
+    #[test]
+    #[should_panic(expected = "num_functions must be >= 2")]
+    fn prox_gaps_error_panics_when_num_functions_is_one() {
+        let assumption = SecurityAssumption::UniqueDecoding;
+        let _ = assumption.prox_gaps_error(1, 1, 64, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "num_functions must be >= 2")]
+    fn prox_gaps_error_panics_when_num_functions_is_zero() {
+        let assumption = SecurityAssumption::UniqueDecoding;
+        let _ = assumption.prox_gaps_error(1, 1, 64, 0);
     }
 
     #[test]

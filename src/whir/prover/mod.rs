@@ -251,7 +251,6 @@ where
         let mut ood_statement = EqStatement::initialize(num_variables);
         let mut ood_answers = Vec::with_capacity(round_params.ood_samples);
         (0..round_params.ood_samples).for_each(|_| {
-            // Sync: sample and observe on external challenger
             let point = MultilinearPoint::expand_from_univariate(
                 challenger.sample_algebra_element(),
                 num_variables,
@@ -281,7 +280,6 @@ where
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
         proof.rounds[round_index].pow_witness = pow_grinding(challenger, round_params.pow_bits);
 
-        // Transcript checkpoint after PoW (must match verifier's sample() call)
         challenger.sample();
 
         // STIR Queries
