@@ -250,6 +250,20 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "num_functions must be >= 2")]
+    fn prox_gaps_error_panics_when_num_functions_is_one() {
+        let assumption = SecurityAssumption::UniqueDecoding;
+        let _ = assumption.prox_gaps_error(1, 1, 64, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "num_functions must be >= 2")]
+    fn prox_gaps_error_panics_when_num_functions_is_zero() {
+        let assumption = SecurityAssumption::UniqueDecoding;
+        let _ = assumption.prox_gaps_error(1, 1, 64, 0);
+    }
+
+    #[test]
     fn test_ud_errors() {
         let assumption = SecurityAssumption::UniqueDecoding;
 
