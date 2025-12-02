@@ -68,6 +68,10 @@ impl SecurityAssumption {
         field_size_bits: usize,
         num_functions: usize,
     ) -> f64 {
+        assert!(
+            num_functions >= 2,
+            "num_functions must be >= 2 to compute proximity gaps error",
+        );
         // The error computed here is from [BCIKS20] for the combination of two functions. Then we multiply it by the folding factor.
         let log_eta = self.log_eta(log_inv_rate);
         // Note that this does not include the field_size
