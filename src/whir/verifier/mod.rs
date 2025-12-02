@@ -162,8 +162,6 @@ where
         let flatten_base_scalar = EF::flatten_to_base(final_evaluations.as_slice().to_vec());
         challenger.observe_slice(&flatten_base_scalar);
 
-        // PoW check is now done unconditionally inside verify_stir_challenges
-        // (matching the original repo's behavior)
 
         // Verify in-domain challenges on the previous commitment.
         let stir_statement = self.verify_stir_challenges(
