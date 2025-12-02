@@ -27,7 +27,8 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// and then uses that challenge to compress both the polynomial evaluations and the constraint weights.
 ///
 /// ## Arguments
-/// * `prover_state`: A mutable reference to the `ProverState`, which manages the Fiat-Shamir transcript.
+/// * `sumcheck_data`: A mutable reference to the sumcheck data structure for storing polynomial evaluations.
+/// * `challenger`: A mutable reference to the Fiat-Shamir challenger for transcript management.
 /// * `evals`: A reference to the polynomial's evaluations in the base field `F`.
 /// * `weights`: A mutable reference to the weight evaluations in the extension field `EF`.
 /// * `sum`: A mutable reference to the claimed sum, which is updated with the new value after folding.
@@ -90,7 +91,8 @@ where
 /// and then compresses both the polynomial and weight evaluations in-place.
 ///
 /// ## Arguments
-/// * `prover_state` - A mutable reference to the `ProverState`, managing the Fiat-Shamir transcript.
+/// * `sumcheck_data` - A mutable reference to the sumcheck data structure for storing polynomial evaluations.
+/// * `challenger` - A mutable reference to the Fiat-Shamir challenger for transcript management.
 /// * `evals` - A mutable reference to the polynomial's evaluations in `EF`, which will be compressed.
 /// * `weights` - A mutable reference to the weight evaluations in `EF`, which will also be compressed.
 /// * `sum` - A mutable reference to the claimed sum, updated after folding.
@@ -501,11 +503,11 @@ where
     /// computations, improving prover efficiency.
     ///
     /// # Arguments
-    /// - `prover_state`: The state of the prover, managing Fiat-Shamir transcript and PoW grinding.
+    /// - `sumcheck_data`: A mutable reference to the sumcheck data structure for storing polynomial evaluations.
+    /// - `challenger`: A mutable reference to the Fiat-Shamir challenger for transcript management and PoW grinding.
     /// - `folding_factor`: Number of variables to fold in total.
     /// - `pow_bits`: Number of PoW bits used to delay the prover (0.0 to disable).
-    /// - `k_skip`: Optional number of initial variables to skip using the univariate optimization.
-    /// - `dft`: A two-adic FFT backend used for low-degree extensions over cosets.
+    /// - `constraint`: Optional constraint to combine into the sumcheck weights.
     ///
     /// # Returns
     /// A `MultilinearPoint<EF>` representing the verifier's challenges across all folded variables.

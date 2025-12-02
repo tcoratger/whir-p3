@@ -42,7 +42,7 @@ pub const fn workload_size<T: Sized>() -> usize {
 /// - `domain_size`: Original evaluation domain size before folding
 /// - `folding_factor`: Number of folding rounds (domain reduction = 2^folding_factor)
 /// - `num_queries`: Target number of query indices to sample
-/// - `prover_state`: Fiat-Shamir transcript state for deterministic randomness
+/// - `challenger`: Fiat-Shamir challenger for deterministic randomness sampling
 ///
 /// **WARNING:** The domain size must be a power of two.
 ///

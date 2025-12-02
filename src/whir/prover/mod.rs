@@ -131,7 +131,8 @@ where
     ///
     /// # Parameters
     /// - `dft`: A DFT backend used for evaluations
-    /// - `prover_state`: Mutable prover state used across rounds (transcript, randomness, etc.)
+    /// - `proof`: Mutable proof structure to store the generated proof data
+    /// - `challenger`: Mutable Fiat-Shamir challenger for transcript management
     /// - `statement`: The public input, consisting of linear or nonlinear constraints
     /// - `witness`: The private witness satisfying the constraints, including committed values
     ///

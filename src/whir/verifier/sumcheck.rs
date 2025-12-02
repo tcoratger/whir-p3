@@ -34,10 +34,11 @@ use crate::{
 ///
 /// # Arguments
 ///
-/// - `verifier_state`: The verifier's Fiat–Shamir transcript state.
-/// - `rounds`: Total number of variables being folded.
-/// - `pow_bits`: Optional proof-of-work difficulty (0 disables PoW).
-/// - `initial_phase_config`: The initial phase configuration which determines optimization strategy.
+/// - `polynomial_evaluations`: The polynomial evaluations (c0, c2) for each round.
+/// - `pow_witnesses`: Optional PoW witnesses from the prover.
+/// - `challenger`: The Fiat-Shamir challenger for transcript management.
+/// - `claimed_sum`: Mutable reference to the claimed sum, updated each round.
+/// - `pow_bits`: Proof-of-work difficulty (0 disables PoW).
 ///
 /// # Returns
 ///
@@ -518,9 +519,7 @@ mod tests {
             "Mismatch in full MultilinearPoint folding randomness"
         );
     }
-}
 
-/*
     #[test]
     #[allow(clippy::too_many_lines)]
     fn test_read_sumcheck_rounds_with_univariate_skip() {
@@ -558,108 +557,118 @@ mod tests {
             statement.add_evaluated_constraint(ml_point, expected_val);
         }
 
-        // -------------------------------------------------------------
-        // Simulate Fiat-Shamir transcript
-        // Reserve interactions for:
-        // - 1 skipped round: 2^k_skip + 1 values
-        // - remaining rounds: 3 values each
-        // -------------------------------------------------------------
-        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
-        domsep.observe(1 << (K_SKIP + 1), Observe::Mock);
-        domsep.sample(1, Sample::Mock);
+        let folding_factor = NUM_VARS;
+        let pow_bits = 0;
 
-        for _ in 0..(NUM_VARS - K_SKIP) {
-            domsep.observe(2, Observe::Mock); // Only c0 and c2 sent
-            domsep.sample(1, Sample::Mock);
-        }
+        // Set up domain separator
+        let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
+        domsep.add_sumcheck(&SumcheckParams {
+            rounds: folding_factor,
+            pow_bits,
+            univariate_skip: Some(K_SKIP),
+        });
 
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-
-        // Convert to prover state
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
-
-        // -------------------------------------------------------------
-        // Run prover-side folding
-        // -------------------------------------------------------------
+        let mut prover_challenger = challenger.clone();
 
         let constraint = Constraint::new_eq_only(EF4::ONE, statement.clone());
-        let (_, mut expected_sum) = constraint.combine_new();
 
-        // -------------------------------------------------------------
-        // Construct prover with base coefficients
-        // -------------------------------------------------------------
+        // Initialize proof and challenger
         let mut proof = create_proof_from_test_protocol_params(
             NUM_VARS,
-            FoldingFactor::Constant(5),
+            FoldingFactor::Constant(folding_factor),
             InitialPhaseConfig::WithStatementUnivariateSkip,
         );
-        let mut rng = SmallRng::seed_from_u64(1);
-        let mut challenger_rf = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-        domsep.observe_domain_separator(&mut challenger_rf);
+        domsep.observe_domain_separator(&mut prover_challenger);
 
         // Extract skip data from the initial phase
         let InitialPhase::WithStatementSkip(ref mut skip_data) = proof.initial_phase else {
             panic!("Expected WithStatementSkip variant");
         };
 
+        // Instantiate the prover with base field coefficients and univariate skip
         let (_, _) = SumcheckSingle::<F, EF4>::with_skip(
             &coeffs.to_evaluations(),
-            &mut prover_state,
             skip_data,
-            &mut challenger_rf,
-            NUM_VARS,
-            0,
+            &mut prover_challenger,
+            folding_factor,
+            pow_bits,
             K_SKIP,
             &constraint,
         );
 
-        // -------------------------------------------------------------
-        // Manually extract expected sumcheck rounds by replaying transcript
-        // -------------------------------------------------------------
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger.clone());
+        // Reconstruct verifier state to simulate the rounds
+        let mut verifier_challenger = challenger;
+        domsep.observe_domain_separator(&mut verifier_challenger);
+
+        // Save a fresh copy for verify_initial_sumcheck_rounds
+        let mut verifier_challenger_for_verify = verifier_challenger.clone();
+
+        let mut t = EvaluationsList::zero(statement.num_variables());
+        let mut expected_initial_sum = EF4::ZERO;
+        statement.combine_hypercube::<F, false>(&mut t, &mut expected_initial_sum, EF4::ONE);
+        // Start with the claimed sum before folding
+        let mut current_sum = expected_initial_sum;
+
         let mut expected = Vec::new();
 
+        // Extract skip data from the proof for verification replay
+        let InitialPhase::WithStatementSkip(skip_data) = &proof.initial_phase else {
+            panic!("Expected WithStatementSkip variant");
+        };
+
         // First skipped round (wide DFT LDE)
-        let evals: [_; 1 << (K_SKIP + 1)] = verifier_state.next_extension_scalars_const().unwrap();
-        let r0: EF4 = verifier_state.sample();
-        expected.push(r0);
+        let skip_evaluations = &skip_data.evaluations;
 
-        let mat = RowMajorMatrix::new(evals.to_vec(), 1);
-        let mut current_sum = interpolate_subgroup(&mat, r0)[0];
+        // Verify sum over subgroup H (every other element starting from 0)
+        let actual_sum: EF4 = skip_evaluations.iter().step_by(2).copied().sum();
+        assert_eq!(actual_sum, current_sum, "Skip round sum mismatch");
 
-        // Remaining quadratic rounds
-        for _ in 0..(NUM_VARS - K_SKIP) {
+        // Observe the skip evaluations for Fiat-Shamir
+        let flattened: Vec<F> = EF4::flatten_to_base(skip_evaluations.clone());
+        verifier_challenger.observe_slice(&flattened);
+
+        // Sample challenge for the skip round
+        let r_skip: EF4 = verifier_challenger.sample_algebra_element();
+        expected.push(r_skip);
+
+        // Interpolate to get the new claimed sum after skip folding
+        let mat = RowMajorMatrix::new(skip_evaluations.clone(), 1);
+        current_sum = interpolate_subgroup(&mat, r_skip)[0];
+
+        // Remaining quadratic rounds after the skip
+        let remaining_rounds = folding_factor - K_SKIP;
+        for i in 0..remaining_rounds {
             // Read c_0 = h(0) and c_2 (quadratic coefficient), derive h(1) = claimed_sum - c_0
-            let c_0 = verifier_state.next_extension_scalar().unwrap();
+            let [c_0, c_2] = skip_data.sumcheck.polynomial_evaluations[i];
             let h_1 = current_sum - c_0;
-            let c_2 = verifier_state.next_extension_scalar().unwrap();
 
-            let r: EF4 = verifier_state.sample();
+            // Observe polynomial evaluations
+            let flattened: Vec<F> = EF4::flatten_to_base(vec![c_0, c_2]);
+            verifier_challenger.observe_slice(&flattened);
+
+            // Sample random challenge r
+            let r: EF4 = verifier_challenger.sample_algebra_element();
             // h(r) = c_2 * r^2 + (h(1) - c_0 - c_2) * r + c_0
             current_sum = c_2 * r.square() + (h_1 - c_0 - c_2) * r + c_0;
+
             expected.push(r);
         }
 
-        // -------------------------------------------------------------
-        // Use verify_sumcheck_rounds with skip enabled
-        // -------------------------------------------------------------
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
-        let randomness = verify_sumcheck_rounds(
-            &mut verifier_state,
-            &mut expected_sum,
-            NUM_VARS,
-            0,
-            InitialPhaseConfig::WithStatementUnivariateSkip,
+        let randomness = verify_initial_sumcheck_rounds(
+            &proof.initial_phase,
+            &mut verifier_challenger_for_verify,
+            &mut expected_initial_sum,
+            folding_factor,
+            pow_bits,
         )
         .unwrap();
 
         // Check length:
         // - 1 randomness for the first K skipped rounds
         // - 1 randomness for each regular round
-        assert_eq!(randomness.num_variables(), NUM_VARS - K_SKIP + 1);
+        assert_eq!(randomness.num_variables(), folding_factor - K_SKIP + 1);
 
         // Reconstruct the expected MultilinearPoint from the expected randomness
         let expected_randomness = MultilinearPoint::new(expected);
@@ -669,6 +678,7 @@ mod tests {
         );
     }
 
+    /* TODO!() UNCOMMENT THIS WHEN COMPLETING SVO IMPLEMENTATION
     #[test]
     #[allow(clippy::too_many_lines)]
     fn test_read_sumcheck_rounds_svo() {
@@ -694,7 +704,6 @@ mod tests {
         let pow_bits = 0;
 
         // Set up domain separator
-        // - Add sumcheck
         let mut domsep: DomainSeparator<EF4, F> = DomainSeparator::new(vec![]);
         domsep.add_sumcheck(&SumcheckParams {
             rounds: folding_factor,
@@ -704,24 +713,39 @@ mod tests {
 
         let mut rng = SmallRng::seed_from_u64(1);
         let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-
-        // Convert domain separator into prover state object
-        let mut prover_state = domsep.to_prover_state(challenger.clone());
+        let mut prover_challenger = challenger.clone();
 
         let constraint = Constraint::new_eq_only(EF4::ONE, statement.clone());
 
-        // Instantiate the prover with base field coefficients
+        // Initialize proof and challenger
+        let mut proof = create_proof_from_test_protocol_params(
+            NUM_VARS,
+            FoldingFactor::Constant(folding_factor),
+            InitialPhaseConfig::WithStatementSvo,
+        );
+        domsep.observe_domain_separator(&mut prover_challenger);
+
+        // Extract sumcheck data from the initial phase
+        let InitialPhase::WithStatementSvo { ref mut sumcheck } = proof.initial_phase else {
+            panic!("Expected WithStatementSvo variant");
+        };
+
+        // Instantiate the prover with base field coefficients using SVO
         let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals_svo(
             &coeffs.to_evaluations(),
-            &mut prover_state,
+            sumcheck,
+            &mut prover_challenger,
             folding_factor,
             pow_bits,
             &constraint,
         );
 
         // Reconstruct verifier state to simulate the rounds
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger.clone());
+        let mut verifier_challenger = challenger;
+        domsep.observe_domain_separator(&mut verifier_challenger);
+
+        // Save a fresh copy for verify_initial_sumcheck_rounds
+        let mut verifier_challenger_for_verify = verifier_challenger.clone();
 
         let (_, mut expected_initial_sum) = constraint.combine_new();
         // Start with the claimed sum before folding
@@ -729,34 +753,37 @@ mod tests {
 
         let mut expected = Vec::with_capacity(folding_factor);
 
-        for _ in 0..folding_factor {
+        // Extract sumcheck data from the proof for verification replay
+        let InitialPhase::WithStatementSvo {
+            sumcheck: svo_sumcheck,
+        } = &proof.initial_phase
+        else {
+            panic!("Expected WithStatementSvo variant")
+        };
+
+        for i in 0..folding_factor {
             // Read c_0 = h(0) and c_2 (quadratic coefficient), derive h(1) = claimed_sum - c_0
-            let c_0 = verifier_state.next_extension_scalar().unwrap();
+            let [c_0, c_2] = svo_sumcheck.polynomial_evaluations[i];
             let h_1 = current_sum - c_0;
-            let c_2 = verifier_state.next_extension_scalar().unwrap();
+
+            // Observe polynomial evaluations
+            let flattened: Vec<F> = EF4::flatten_to_base(vec![c_0, c_2]);
+            verifier_challenger.observe_slice(&flattened);
 
             // Sample random challenge r
-            let r: EF4 = verifier_state.sample();
+            let r: EF4 = verifier_challenger.sample_algebra_element();
             // h(r) = c_2 * r^2 + (h(1) - c_0 - c_2) * r + c_0
             current_sum = c_2 * r.square() + (h_1 - c_0 - c_2) * r + c_0;
-
-            if pow_bits > 0 {
-                // verifier_state.challenge_pow::<Blake3PoW>(pow_bits).unwrap();
-            }
 
             expected.push(r);
         }
 
-        // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-        let mut verifier_state =
-            domsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
-
-        let randomness = verify_sumcheck_rounds(
-            &mut verifier_state,
+        let randomness = verify_initial_sumcheck_rounds(
+            &proof.initial_phase,
+            &mut verifier_challenger_for_verify,
             &mut expected_initial_sum,
             folding_factor,
             pow_bits,
-            InitialPhaseConfig::WithStatementSvo,
         )
         .unwrap();
 
@@ -770,6 +797,6 @@ mod tests {
             "Mismatch in full MultilinearPoint folding randomness for SVO"
         );
     }
-}
 
      */
+}

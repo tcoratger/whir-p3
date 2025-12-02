@@ -245,11 +245,12 @@ where
     /// ready to be combined into the next round’s sumcheck.
     ///
     /// # Arguments
-    /// - `verifier_state`: The verifier’s Fiat-Shamir state.
+    /// - `proof`: The WHIR proof containing query openings and Merkle proofs.
+    /// - `challenger`: The Fiat-Shamir challenger for transcript management.
     /// - `params`: Parameters for the current STIR round (domain size, folding factor, etc.).
-    /// - `commitment`: The prover’s commitment to the folded polynomial.
+    /// - `commitment`: The prover's commitment to the folded polynomial.
     /// - `folding_randomness`: Random point for folding the evaluations.
-    /// - `leafs_base_field`: Whether the leaf data is in the base field or extension field.
+    /// - `round_index`: The current round index in the protocol.
     ///
     /// # Returns
     /// A vector of `Constraint` objects, each linking a queried domain point
@@ -397,11 +398,11 @@ where
     /// - If verification passes, it collects and returns the decoded leaf values.
     ///
     /// # Arguments
-    /// - `verifier_state`: The verifier’s Fiat-Shamir transcript state.
-    /// - `root`: The Merkle root hash the prover’s claims are verified against.
+    /// - `proof`: The WHIR proof containing query openings and Merkle proofs.
+    /// - `root`: The Merkle root hash the prover's claims are verified against.
     /// - `indices`: The list of queried leaf indices.
     /// - `dimensions`: The shape of the underlying matrix being committed (for MMCS verification).
-    /// - `leafs_base_field`: Indicates whether leafs are in the base field (`F`) or extension field (`EF`).
+    /// - `round_index`: The current round index to determine which queries to use from the proof.
     ///
     /// # Returns
     /// A vector of decoded leaf values, one `Vec<EF>` per queried index.
