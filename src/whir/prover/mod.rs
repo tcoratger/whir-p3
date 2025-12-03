@@ -196,7 +196,7 @@ where
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
-        let folded_evaluations = &round_state.sumcheck_prover.evals;
+        let folded_evaluations = &round_state.sumcheck_prover.evals();
         let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
         assert_eq!(num_variables, folded_evaluations.num_variables());
 
@@ -354,7 +354,7 @@ where
                             .last_variable()
                             .expect("skip challenge must be present");
                         // The first `n - k_skip` elements are the challenges for the remaining variables.
-                        let r_rest = r_all.get_subpoint_over_range(0..num_remaining_vars);
+                        let r_rest = r_all.get_subpoint_over_range(..num_remaining_vars);
 
                         // Perform the two-stage skip-aware evaluation:
                         //
@@ -445,10 +445,10 @@ where
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        challenger.observe_algebra_slice(round_state.sumcheck_prover.evals.as_slice());
+        challenger.observe_algebra_slice(round_state.sumcheck_prover.evals().as_slice());
 
         // Store the final polynomial in the proof
-        proof.final_poly = Some(round_state.sumcheck_prover.evals.clone());
+        proof.final_poly = Some(round_state.sumcheck_prover.evals());
 
         // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
         //

@@ -7,7 +7,7 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
         eq_state::SumcheckEqState,
-        sumcheck_single::SumcheckSingle,
+        sumcheck_single::{Quad, SumcheckSingle},
         sumcheck_small_value::{algorithm_5, svo_first_rounds},
     },
     whir::{constraints::Constraint, proof::SumcheckData},
@@ -79,8 +79,12 @@ where
         // Final weight: eq(w, r)
         let weights = EvaluationsList::new(vec![w.eq_poly(&challenge_point)]);
 
-        let sumcheck = Self::new(folded_evals, weights, sum);
-
-        (sumcheck, challenge_point)
+        (
+            Self {
+                quad: Quad::new(folded_evals, weights),
+                sum,
+            },
+            challenge_point,
+        )
     }
 }

@@ -59,15 +59,15 @@ pub fn unpack_slice<F: Field, Ext: ExtensionField<F>>(
 
 #[inline]
 /// Pack extension field elements into their packed representation.
-pub fn pack_slice<F: Field, Ext: ExtensionField<F>>(packed: &[Ext]) -> Vec<Ext::ExtensionPacking> {
+pub fn pack_slice<F: Field, Ext: ExtensionField<F>>(slice: &[Ext]) -> Vec<Ext::ExtensionPacking> {
     const PARALLEL_THRESHOLD: usize = 4096;
-    if packed.len() < PARALLEL_THRESHOLD {
-        packed
+    if slice.len() < PARALLEL_THRESHOLD {
+        slice
             .chunks(F::Packing::WIDTH)
             .map(|ext| Ext::ExtensionPacking::from_ext_slice(ext))
             .collect()
     } else {
-        packed
+        slice
             .par_chunks(F::Packing::WIDTH)
             .map(|ext| Ext::ExtensionPacking::from_ext_slice(ext))
             .collect()

@@ -1,4 +1,5 @@
-use p3_field::{ExtensionField, Field};
+use p3_field::{ExtensionField, Field, PackedValue};
+use p3_util::log2_strict_usize;
 
 use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -205,6 +206,47 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
             .combine(combined, eval, self.challenge, self.eq_statement.len());
     }
 
+    /// Combines constraint polynomials into weight polynomial and expected evaluation.
+    ///
+    /// This method accumulates both:
+    /// 1. The weight polynomial `W(X)` evaluated at all hypercube points
+    /// 2. The expected evaluation `S` as a scalar
+    ///
+    /// Both are added to the provided accumulators, allowing for incremental
+    /// combination across multiple constraints.
+    ///
+    /// # Parameters
+    ///
+    /// - `combined`: Accumulator for packed weight polynomial evaluations `W(b)` at all `b ∈ {0,1}^k`
+    /// - `eval`: Accumulator for the combined expected evaluation `S`
+    ///
+    /// # Mathematical Details
+    ///
+    /// Updates `combined[b]` for each `b ∈ {0,1}^k`:
+    /// ```text
+    /// combined[b] += Σ_i γ^i · eq(b, z_eq_i) + Σ_j γ^{n_eq+j} · select(pow(z_sel_j), b)
+    /// ```
+    ///
+    /// Updates `eval`:
+    /// ```text
+    /// eval += Σ_i γ^i · s_eq_i + Σ_j γ^{n_eq+j} · s_sel_j
+    /// ```
+    pub fn combine_packed(
+        &self,
+        combined: &mut EvaluationsList<EF::ExtensionPacking>,
+        eval: &mut EF,
+    ) {
+        // Combine equality constraints with accumulation enabled (INITIALIZED=true).
+        // This adds the equality portion of W(X) to the existing values in `combined`.
+        self.eq_statement
+            .combine_hypercube_packed::<F, true>(combined, eval, self.challenge);
+
+        // Combine select constraints, continuing from where equality left off.
+        // The shift parameter ensures select constraints use distinct challenge powers.
+        self.sel_statement
+            .combine_packed(combined, eval, self.challenge, self.eq_statement.len());
+    }
+
     /// Creates a new combined weight polynomial and expected evaluation.
     ///
     /// This is similar to [`combine`](Self::combine) but creates fresh accumulators
@@ -234,6 +276,52 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
         // Add select constraints to the weight polynomial and expected evaluation.
         // The shift ensures select constraints use distinct challenge powers.
         self.sel_statement.combine(
+            &mut combined,
+            &mut eval,
+            self.challenge,
+            self.eq_statement.len(),
+        );
+
+        // Return the completed weight polynomial and expected evaluation.
+        (combined, eval)
+    }
+
+    /// Creates a new combined weight polynomial in packed form and expected evaluation.
+    ///
+    /// This is similar to [`combine_packed`](Self::combine_packed) but creates fresh accumulators
+    /// instead of adding to existing ones.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(W, S)` where:
+    /// - `W`: Weight polynomial evaluations at all points in `{0,1}^k`
+    /// - `S`: Combined expected evaluation scalar
+    ///
+    /// # Usage
+    ///
+    /// Use this method when starting a new constraint combination.
+    /// Use [`combine_packed`](Self::combine_packed) when accumulating multiple constraints.
+    pub fn combine_new_packed(&self) -> (EvaluationsList<EF::ExtensionPacking>, EF) {
+        let k_pack = log2_strict_usize(F::Packing::WIDTH);
+        let k = self.num_variables();
+        // TODO: assert sizes
+
+        // Initialize fresh accumulators for the weight polynomial and expected evaluation.
+        // The weight polynomial needs 2^k entries for the full Boolean hypercube.
+        let mut combined = EvaluationsList::<EF::ExtensionPacking>::zero(k - k_pack);
+        let mut eval = EF::ZERO;
+
+        // Combine equality constraints without accumulation (INITIALIZED=false).
+        // This directly writes the equality portion of W(X) to `combined`.
+        self.eq_statement.combine_hypercube_packed::<F, false>(
+            &mut combined,
+            &mut eval,
+            self.challenge,
+        );
+
+        // Add select constraints to the weight polynomial and expected evaluation.
+        // The shift ensures select constraints use distinct challenge powers.
+        self.sel_statement.combine_packed(
             &mut combined,
             &mut eval,
             self.challenge,
@@ -337,11 +425,8 @@ mod tests {
         let eq_point_1 =
             MultilinearPoint::new(vec![EF::from_u64(4), EF::from_u64(5), EF::from_u64(6)]);
         let eq_eval_1 = EF::from_u64(20);
-        let eq_statement = EqStatement::new_hypercube(
-            num_variables,
-            vec![eq_point_0, eq_point_1],
-            vec![eq_eval_0, eq_eval_1],
-        );
+        let eq_statement =
+            EqStatement::new_hypercube(vec![eq_point_0, eq_point_1], vec![eq_eval_0, eq_eval_1]);
 
         // Create a select statement with 1 constraint
         let sel_var = F::from_u64(7);
@@ -364,12 +449,10 @@ mod tests {
         // Create statements with different numbers of variables
 
         // Equality statement with 3 variables
-        let num_variables_eq = 3;
         let eq_point =
             MultilinearPoint::new(vec![EF::from_u64(1), EF::from_u64(2), EF::from_u64(3)]);
         let eq_eval = EF::from_u64(10);
-        let eq_statement =
-            EqStatement::new_hypercube(num_variables_eq, vec![eq_point], vec![eq_eval]);
+        let eq_statement = EqStatement::new_hypercube(vec![eq_point], vec![eq_eval]);
 
         // Select statement with 2 variables (different!)
         let num_variables_sel = 2;
@@ -402,7 +485,6 @@ mod tests {
         let eq_point_2 = MultilinearPoint::new(vec![EF::from_u64(5), EF::from_u64(6)]);
         let eq_eval_2 = EF::from_u64(30);
         let eq_statement = EqStatement::new_hypercube(
-            num_variables,
             vec![eq_point_0, eq_point_1, eq_point_2],
             vec![eq_eval_0, eq_eval_1, eq_eval_2],
         );
@@ -463,11 +545,8 @@ mod tests {
         let eq_point_1 = MultilinearPoint::new(vec![EF::from_u64(0), EF::from_u64(1)]);
         let eq_eval_1 = EF::from_u64(7);
 
-        let eq_statement = EqStatement::new_hypercube(
-            num_variables,
-            vec![eq_point_0, eq_point_1],
-            vec![eq_eval_0, eq_eval_1],
-        );
+        let eq_statement =
+            EqStatement::new_hypercube(vec![eq_point_0, eq_point_1], vec![eq_eval_0, eq_eval_1]);
 
         // Create select statement with 1 constraint
         // Constraint 2: p(z_2) = 11, weighted by γ^2 = 4
@@ -497,16 +576,13 @@ mod tests {
     fn test_constraint_combine_evals_accumulation() {
         // Test that combine_evals adds to existing values rather than overwriting
 
-        // Number of variables
-        let num_variables = 2;
-
         // Random challenge
         let challenge = EF::from_u64(3);
 
         // Create a simple equality-only constraint
         let eq_point = MultilinearPoint::new(vec![EF::from_u64(1), EF::from_u64(1)]);
         let eq_eval = EF::from_u64(10);
-        let eq_statement = EqStatement::new_hypercube(num_variables, vec![eq_point], vec![eq_eval]);
+        let eq_statement = EqStatement::new_hypercube(vec![eq_point], vec![eq_eval]);
         let constraint: Constraint<F, EF> = Constraint::new_eq_only(challenge, eq_statement);
 
         // Start with a non-zero accumulator
@@ -533,7 +609,7 @@ mod tests {
         // Create a simple equality statement with 1 constraint
         let eq_point = MultilinearPoint::new(vec![EF::ONE, EF::ZERO]);
         let eq_eval = EF::from_u64(42);
-        let eq_statement = EqStatement::new_hypercube(num_variables, vec![eq_point], vec![eq_eval]);
+        let eq_statement = EqStatement::new_hypercube(vec![eq_point], vec![eq_eval]);
 
         // Create constraint (eq-only for simplicity)
         let constraint: Constraint<F, EF> = Constraint::new_eq_only(challenge, eq_statement);
@@ -567,7 +643,7 @@ mod tests {
         // Create a test constraint
         let eq_point = MultilinearPoint::new(vec![EF::ZERO, EF::ONE]);
         let eq_eval = EF::from_u64(15);
-        let eq_statement = EqStatement::new_hypercube(num_variables, vec![eq_point], vec![eq_eval]);
+        let eq_statement = EqStatement::new_hypercube(vec![eq_point], vec![eq_eval]);
         let constraint: Constraint<F, EF> = Constraint::new_eq_only(challenge, eq_statement);
 
         // Method 1: Use combine_new
@@ -590,9 +666,6 @@ mod tests {
     fn test_constraint_validate_for_skip_case_valid() {
         // Create a constraint suitable for univariate skip (eq-only)
 
-        // Number of variables
-        let num_variables = 3;
-
         // Random challenge
         let challenge = EF::from_u64(11);
 
@@ -600,7 +673,7 @@ mod tests {
         let eq_point =
             MultilinearPoint::new(vec![EF::from_u64(1), EF::from_u64(2), EF::from_u64(3)]);
         let eq_eval = EF::from_u64(99);
-        let eq_statement = EqStatement::new_hypercube(num_variables, vec![eq_point], vec![eq_eval]);
+        let eq_statement = EqStatement::new_hypercube(vec![eq_point], vec![eq_eval]);
         let constraint: Constraint<F, EF> = Constraint::new_eq_only(challenge, eq_statement);
 
         // This should not panic because select statement is empty
@@ -653,7 +726,6 @@ mod tests {
         let eq_eval_2 = EF::from_u64(30);
 
         let eq_statement = EqStatement::new_hypercube(
-            num_variables,
             vec![eq_point_0, eq_point_1, eq_point_2],
             vec![eq_eval_0, eq_eval_1, eq_eval_2],
         );
@@ -695,11 +767,8 @@ mod tests {
         let eq_eval_0 = EF::from_u64(10);
         let eq_point_1 = MultilinearPoint::new(vec![EF::from_u64(3), EF::from_u64(4)]);
         let eq_eval_1 = EF::from_u64(20);
-        let eq_statement = EqStatement::new_hypercube(
-            num_variables,
-            vec![eq_point_0, eq_point_1],
-            vec![eq_eval_0, eq_eval_1],
-        );
+        let eq_statement =
+            EqStatement::new_hypercube(vec![eq_point_0, eq_point_1], vec![eq_eval_0, eq_eval_1]);
 
         // Create select statement with 2 constraints
         // These should use challenge powers γ^2 and γ^3
@@ -740,16 +809,13 @@ mod tests {
     fn test_constraint_iter_sels_empty() {
         // Test that iter_sels works correctly when there are no select constraints
 
-        // Number of variables
-        let num_variables = 2;
-
         // Random challenge
         let challenge = EF::from_u64(7);
 
         // Create equality-only constraint
         let eq_point = MultilinearPoint::new(vec![EF::from_u64(1), EF::from_u64(2)]);
         let eq_eval = EF::from_u64(10);
-        let eq_statement = EqStatement::new_hypercube(num_variables, vec![eq_point], vec![eq_eval]);
+        let eq_statement = EqStatement::new_hypercube(vec![eq_point], vec![eq_eval]);
         let constraint: Constraint<F, EF> = Constraint::new_eq_only(challenge, eq_statement);
 
         // Verify that the iterator is empty

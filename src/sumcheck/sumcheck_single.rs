@@ -1,15 +1,14 @@
-use alloc::{vec, vec::Vec};
-
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{Algebra, ExtensionField, Field, PackedFieldExtension, PackedValue, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_maybe_rayon::prelude::*;
+use p3_util::log2_strict_usize;
 use tracing::instrument;
 
-use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
+    utils::{pack_slice, unpack_slice, unpack_slice_into},
     whir::{
         constraints::{Constraint, statement::EqStatement},
         proof::{SumcheckData, SumcheckSkipData},
@@ -17,6 +16,180 @@ use crate::{
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;
+pub(crate) const PACK_THRESHOLD: usize = 4;
+
+#[derive(Debug, Clone)]
+pub(crate) enum Quad<F: Field, EF: ExtensionField<F>> {
+    Packed {
+        evals: EvaluationsList<EF::ExtensionPacking>,
+        weights: EvaluationsList<EF::ExtensionPacking>,
+    },
+    Small {
+        evals: EvaluationsList<EF>,
+        weights: EvaluationsList<EF>,
+    },
+}
+
+impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
+    pub(crate) fn new(evals: EvaluationsList<EF>, weights: EvaluationsList<EF>) -> Self {
+        assert_eq!(evals.num_variables(), weights.num_variables());
+        if evals.num_variables() > PACK_THRESHOLD {
+            Self::new_packed(
+                EvaluationsList::new(pack_slice(evals.as_slice())),
+                EvaluationsList::new(pack_slice(weights.as_slice())),
+            )
+        } else {
+            Self::new_small(evals, weights)
+        }
+    }
+
+    const fn new_packed(
+        evals: EvaluationsList<EF::ExtensionPacking>,
+        weights: EvaluationsList<EF::ExtensionPacking>,
+    ) -> Self {
+        Self::Packed { evals, weights }
+    }
+
+    const fn new_small(evals: EvaluationsList<EF>, weights: EvaluationsList<EF>) -> Self {
+        Self::Small { evals, weights }
+    }
+
+    fn k(&self) -> usize {
+        let k_pack = log2_strict_usize(F::Packing::WIDTH);
+        match self {
+            Self::Packed { evals, weights } => {
+                let k = evals.num_variables();
+                assert_eq!(k, weights.num_variables());
+                k + k_pack
+            }
+            Self::Small { evals, weights } => {
+                let k = evals.num_variables();
+                assert_eq!(k, weights.num_variables());
+                k
+            }
+        }
+    }
+
+    fn eval(&self, point: &MultilinearPoint<EF>) -> EF {
+        match self {
+            Self::Packed { evals, .. } => evals.eval_hypercube_packed(point),
+            Self::Small { evals, .. } => evals.evaluate_hypercube_ext(point),
+        }
+    }
+
+    const fn num_evals(&self) -> usize {
+        match self {
+            Self::Packed { evals, .. } => evals.num_evals() * F::Packing::WIDTH,
+            Self::Small { evals, .. } => evals.num_evals(),
+        }
+    }
+
+    fn transition(&mut self) {
+        let k = self.k();
+        match self {
+            Self::Packed { evals, weights } if k < PACK_THRESHOLD => {
+                let evals = EvaluationsList::new(unpack_slice::<F, EF>(evals.as_slice()));
+                let weights = EvaluationsList::new(unpack_slice::<F, EF>(weights.as_slice()));
+                *self = Self::Small { evals, weights };
+            }
+            _ => {}
+        }
+    }
+
+    fn round<Challenger>(
+        &mut self,
+        sumcheck_data: &mut SumcheckData<EF, F>,
+        challenger: &mut Challenger,
+        sum: &mut EF,
+        pow_bits: usize,
+    ) -> EF
+    where
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
+        let r = match self {
+            Self::Packed { evals, weights } => {
+                round_packed(sumcheck_data, challenger, evals, weights, sum, pow_bits)
+            }
+            Self::Small { evals, weights } => {
+                round(sumcheck_data, challenger, evals, weights, sum, pow_bits)
+            }
+        };
+
+        #[cfg(debug_assertions)]
+        assert_eq!(*sum, self.prod());
+
+        // If remaining number of vars are small, unpack polynomials
+        self.transition();
+
+        r
+    }
+
+    fn evals(&self) -> EvaluationsList<EF> {
+        match self {
+            Self::Packed { evals, .. } => {
+                EvaluationsList::new(unpack_slice::<F, EF>(evals.as_slice()))
+            }
+            Self::Small { evals, .. } => evals.clone(),
+        }
+    }
+
+    #[tracing::instrument(skip_all)]
+    fn unpack_into(&self, unpacked: &mut [EF]) {
+        match self {
+            Self::Packed { evals, .. } => {
+                assert_eq!(unpacked.len(), evals.num_evals() * F::Packing::WIDTH);
+                unpack_slice_into::<F, EF>(unpacked, &evals.0);
+            }
+            Self::Small { evals, .. } => {
+                unpacked.copy_from_slice(&evals.0);
+            }
+        }
+    }
+
+    fn combine(&mut self, sum: &mut EF, constraint: &Constraint<F, EF>) {
+        match self {
+            Self::Packed { weights, .. } => {
+                constraint.combine_packed(weights, sum);
+            }
+            Self::Small { weights, .. } => {
+                constraint.combine(weights, sum);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn weights(&self) -> EvaluationsList<EF> {
+        match &self {
+            Self::Packed { weights, .. } => {
+                EvaluationsList::new(unpack_slice::<F, EF>(weights.as_slice()))
+            }
+            Self::Small { weights, .. } => weights.clone(),
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn eval_univariate(&self, var: EF) -> EF {
+        use crate::poly::univariate::UnivariatePolynomial;
+        let evals = UnivariatePolynomial::from_coefficients_vec(match self {
+            Self::Packed { evals, .. } => unpack_slice(evals.as_slice()),
+            Self::Small { evals, .. } => evals.0.clone(),
+        });
+        evals.evaluate(var)
+    }
+
+    pub(crate) fn prod(&self) -> EF {
+        use p3_field::{PackedFieldExtension, dot_product};
+        match self {
+            Self::Packed { evals, weights } => {
+                let sum_packed = dot_product(evals.iter().copied(), weights.iter().copied());
+                EF::ExtensionPacking::to_ext_iter([sum_packed]).sum::<EF>()
+            }
+            Self::Small { evals, weights } => {
+                dot_product(evals.iter().copied(), weights.iter().copied())
+            }
+        }
+    }
+}
 
 /// Executes the initial round of the sumcheck protocol.
 ///
@@ -54,7 +227,7 @@ where
     // The polynomial h(X) = c_0 + c_1 * X + c_2 * X^2
     //
     // We store [c_0, c_2] and derive c_1 from the sum constraint: h(1) = claimed_sum - c_0
-    let (c_0, c_2) = compute_sumcheck_coefficients(evals, weights);
+    let (c_0, c_2) = compute_sumcheck_coefficients(evals.as_slice(), weights.as_slice());
     sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
 
     // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
@@ -70,6 +243,55 @@ where
 
     // Compress polynomials and update the sum.
     let evals = join(|| weights.compress(r), || evals.compress_ext(r)).1;
+
+    // Update sum: h(r) = c_0 + c_1 * r + c_2 * r^2 where c_1 = h(1) - c_0 - c_2
+    // Since h(1) = claimed_sum - h(0) = claimed_sum - c_0, we have c_1 = claimed_sum - 2*c_0 - c_2
+    // So h(r) = c_2 * r^2 + (claimed_sum - 2*c_0 - c_2) * r + c_0
+    let h_1 = *sum - c_0;
+    *sum = c_2 * r.square() + (h_1 - c_0 - c_2) * r + c_0;
+
+    (r, evals)
+}
+
+#[instrument(skip_all)]
+fn initial_round_packed<Challenger, F: Field, EF: ExtensionField<F>>(
+    sumcheck_data: &mut SumcheckData<EF, F>,
+    challenger: &mut Challenger,
+    evals: &EvaluationsList<F>,
+    weights: &mut EvaluationsList<EF::ExtensionPacking>,
+    sum: &mut EF,
+    pow_bits: usize,
+) -> (EF, EvaluationsList<EF::ExtensionPacking>)
+where
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+{
+    let evals_packed = F::Packing::pack_slice(evals.as_slice());
+    // Compute the constant (c_0) and quadratic (c_2) coefficients of h(X).
+    //
+    // The polynomial h(X) = c_0 + c_1 * X + c_2 * X^2
+    //
+    // We store [c_0, c_2] and derive c_1 from the sum constraint: h(1) = claimed_sum - c_0
+    let (c_0, c_2) = compute_sumcheck_coefficients(evals_packed, weights.as_slice());
+    let c_0 = EF::ExtensionPacking::to_ext_iter([c_0]).sum::<EF>();
+    let c_2 = EF::ExtensionPacking::to_ext_iter([c_2]).sum::<EF>();
+    sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
+
+    // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
+    challenger.observe_algebra_element(c_0);
+    challenger.observe_algebra_element(c_2);
+
+    // Proof-of-work challenge to delay prover
+    let witness = pow_grinding(challenger, pow_bits);
+
+    // Store PoW witness if present
+    sumcheck_data.push_pow_witness(witness);
+
+    // Sample verifier challenge.
+    let r: EF = challenger.sample_algebra_element();
+
+    // Compress polynomials and update the sum.
+    weights.compress(r);
+    let evals = evals.compress_packed(r);
 
     // Update sum: h(r) = c_0 + c_1 * r + c_2 * r^2 where c_1 = h(1) - c_0 - c_2
     // Since h(1) = claimed_sum - h(0) = claimed_sum - c_0, we have c_1 = claimed_sum - 2*c_0 - c_2
@@ -114,7 +336,7 @@ where
     // The polynomial h(X) = c_0 + c_1 * X + c_2 * X^2
     //
     // We store [c_0, c_2] and derive c_1 from the sum constraint: h(1) = claimed_sum - c_0
-    let (c_0, c_2) = compute_sumcheck_coefficients(evals, weights);
+    let (c_0, c_2) = compute_sumcheck_coefficients(evals.as_slice(), weights.as_slice());
     sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
 
     // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
@@ -129,7 +351,58 @@ where
     let r: EF = challenger.sample_algebra_element();
 
     // Compress polynomials and update the sum.
-    join(|| evals.compress(r), || weights.compress(r));
+    evals.compress(r);
+    weights.compress(r);
+
+    // Update sum: h(r) = c_0 + c_1 * r + c_2 * r^2 where c_1 = h(1) - c_0 - c_2
+    //
+    // Since h(1) = claimed_sum - h(0) = claimed_sum - c_0, we have c_1 = claimed_sum - 2*c_0 - c_2
+    //
+    // So h(r) = c_2 * r^2 + (claimed_sum - 2*c_0 - c_2) * r + c_0
+    let h_1 = *sum - c_0;
+    *sum = c_2 * r.square() + (h_1 - c_0 - c_2) * r + c_0;
+
+    r
+}
+
+#[instrument(skip_all)]
+fn round_packed<Challenger, F: Field, EF: ExtensionField<F>>(
+    sumcheck_data: &mut SumcheckData<EF, F>,
+    challenger: &mut Challenger,
+    evals: &mut EvaluationsList<EF::ExtensionPacking>,
+    weights: &mut EvaluationsList<EF::ExtensionPacking>,
+    sum: &mut EF,
+    pow_bits: usize,
+) -> EF
+where
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+{
+    // Compute the constant (c_0) and quadratic (c_2) coefficients of h(X).
+    //
+    // The polynomial h(X) = c_0 + c_1 * X + c_2 * X^2
+    //
+    // We store [c_0, c_2] and derive c_1 from the sum constraint: h(1) = claimed_sum - c_0
+    let (c_0, c_2) = compute_sumcheck_coefficients(evals.as_slice(), weights.as_slice());
+    let c_0 = EF::ExtensionPacking::to_ext_iter([c_0]).sum::<EF>();
+    let c_2 = EF::ExtensionPacking::to_ext_iter([c_2]).sum::<EF>();
+    sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
+
+    // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
+    challenger.observe_algebra_element(c_0);
+    challenger.observe_algebra_element(c_2);
+
+    // Proof-of-work challenge to delay prover
+    let witness = pow_grinding(challenger, pow_bits);
+
+    // Store PoW witness if present
+    sumcheck_data.push_pow_witness(witness);
+
+    // Sample verifier challenge.
+    let r: EF = challenger.sample_algebra_element();
+
+    // Compress polynomials and update the sum.
+    evals.compress(r);
+    weights.compress(r);
 
     // Update sum: h(r) = c_0 + c_1 * r + c_2 * r^2 where c_1 = h(1) - c_0 - c_2
     //
@@ -152,95 +425,29 @@ where
 /// The linear coefficient c_1 is derived by the verifier using the sum constraint:
 /// h(0) + h(1) = claimed_sum, so h(1) = claimed_sum - c_0.
 #[instrument(skip_all, level = "debug")]
-fn compute_sumcheck_coefficients<F: Field, EF: ExtensionField<F>>(
-    evals: &EvaluationsList<F>,
-    weights: &EvaluationsList<EF>,
-) -> (EF, EF) {
-    assert!(evals.num_variables() >= 1);
+fn compute_sumcheck_coefficients<A, B>(evals: &[A], weights: &[B]) -> (B, B)
+where
+    A: Copy + Send + Sync + Algebra<A>,
+    B: Copy + Send + Sync + Algebra<A> + Algebra<B>,
+{
+    assert!(log2_strict_usize(evals.len()) >= 1);
+    assert_eq!(evals.len(), weights.len());
 
-    let mid = evals.num_evals() / 2;
-    let (plo, phi) = evals.0.split_at(mid);
-    let (elo, ehi) = weights.0.split_at(mid);
+    let mid = evals.len() / 2;
+    let (plo, phi) = evals.split_at(mid);
+    let (elo, ehi) = weights.split_at(mid);
 
-    plo.par_iter()
+    let (t0, t1) = plo
+        .par_iter()
         .zip(phi.par_iter())
         .zip(elo.par_iter().zip(ehi.par_iter()))
         .map(|((&p0, &p1), (&e0, &e1))| (e0 * p0, (e1 - e0) * (p1 - p0)))
         .par_fold_reduce(
-            || (EF::ZERO, EF::ZERO),
+            || (B::ZERO, B::ZERO),
             |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
             |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-        )
-}
-
-/// Computes the sumcheck polynomial `h(X)`, a quadratic polynomial resulting from the folding step.
-///
-/// The sumcheck polynomial is computed as:
-///
-/// \[
-/// h(X) = \sum_b p(b, X) \cdot w(b, X)
-/// \]
-///
-/// where:
-/// - `b` ranges over evaluation points in `{0,1,2}^1` (i.e., two points per fold).
-/// - `p(b, X)` is the polynomial evaluation at `b` as a function of `X`.
-/// - `w(b, X)` is the associated weight applied at `b` as a function of `X`.
-///
-/// **Mathematical model:**
-/// - Each chunk of two evaluations encodes a linear polynomial in `X`.
-/// - The product `p(X) * w(X)` is a quadratic polynomial.
-/// - We compute the constant and quadratic coefficients first, then infer the linear coefficient using:
-///
-/// \[
-/// \text{sum} = 2 \cdot c_0 + c_1 + c_2
-/// \]
-///
-/// where `sum` is the accumulated constraint sum.
-///
-/// Returns a `SumcheckPolynomial` with evaluations at `X = 0, 1, 2`.
-#[instrument(skip_all, level = "debug")]
-pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
-    evals: &EvaluationsList<F>,
-    weights: &EvaluationsList<EF>,
-    sum: EF,
-) -> SumcheckPolynomial<EF> {
-    let (c0, c2) = compute_sumcheck_coefficients(evals, weights);
-
-    // Compute the middle (linear) coefficient
-    //
-    // The quadratic polynomial h(X) has the form:
-    //     h(X) = c0 + c1 * X + c2 * X^2
-    //
-    // We already computed:
-    // - c0: the constant coefficient (contribution at X=0)
-    // - c2: the quadratic coefficient (contribution at X^2)
-    //
-    // To recover c1 (linear term), we use the known sum rule:
-    //     sum = h(0) + h(1)
-    // Expand h(0) and h(1):
-    //     h(0) = c0
-    //     h(1) = c0 + c1 + c2
-    // Therefore:
-    //     sum = c0 + (c0 + c1 + c2) = 2*c0 + c1 + c2
-    //
-    // Rearranging for c1 gives:
-    //     c1 = sum - 2*c0 - c2
-    let c1 = sum - c0.double() - c2;
-
-    // Evaluate the quadratic polynomial at points 0, 1, 2
-    //
-    // Evaluate:
-    //     h(0) = c0
-    //     h(1) = c0 + c1 + c2
-    //     h(2) = c0 + 2*c1 + 4*c2
-    //
-    // To compute h(2) efficiently, observe:
-    //     h(2) = h(1) + (c1 + 2*c2)
-    let eval_0 = c0;
-    let eval_1 = c0 + c1 + c2;
-    let eval_2 = eval_1 + c1 + c2 + c2.double();
-
-    SumcheckPolynomial::new(vec![eval_0, eval_1, eval_2])
+        );
+    (t0, t1)
 }
 
 /// Implements the single-round sumcheck protocol for verifying a multilinear polynomial evaluation.
@@ -263,15 +470,11 @@ pub(crate) fn compute_sumcheck_polynomial<F: Field, EF: ExtensionField<F>>(
 ///
 /// The sumcheck protocol ensures that the claimed sum is correct.
 #[derive(Debug, Clone)]
-pub struct SumcheckSingle<F, EF> {
-    /// Evaluations of the polynomial `p(X)`.
-    pub(crate) evals: EvaluationsList<EF>,
-    /// Evaluations of the equality polynomial used for enforcing constraints.
-    pub(crate) weights: EvaluationsList<EF>,
+pub struct SumcheckSingle<F: Field, EF: ExtensionField<F>> {
+    /// Evaluations of the polynomial `p(X)` and evaluations of the equality polynomial used for enforcing constraints.
+    pub(crate) quad: Quad<F, EF>,
     /// Accumulated sum incorporating equality constraints.
     pub(crate) sum: EF,
-    /// Marker for phantom type parameter `F`.
-    phantom: core::marker::PhantomData<F>,
 }
 
 impl<F, EF> SumcheckSingle<F, EF>
@@ -279,15 +482,7 @@ where
     F: Field + Ord,
     EF: ExtensionField<F>,
 {
-    pub const fn new(evals: EvaluationsList<EF>, weights: EvaluationsList<EF>, sum: EF) -> Self {
-        Self {
-            evals,
-            weights,
-            sum,
-            phantom: core::marker::PhantomData,
-        }
-    }
-    /// Constructs a new `SumcheckSingle` instance from evaluations in the extension field.
+    /// Constructs a new `SumcheckMingle` instance from evaluations in the extension field.
     ///
     /// This function:
     /// - Uses precomputed evaluations of the polynomial `p` over the Boolean hypercube,
@@ -298,22 +493,28 @@ where
     /// This is the entry point when the polynomial is defined directly over `EF`.
     pub fn from_extension_evals(
         evals: EvaluationsList<EF>,
-        statement: &EqStatement<EF>,
+        statement: EqStatement<EF>,
         challenge: EF,
     ) -> Self {
-        let mut weights = EvaluationsList::zero(statement.num_variables());
-        let mut sum = EF::ZERO;
-        statement.combine_hypercube::<F, false>(&mut weights, &mut sum, challenge);
+        let k = evals.num_variables();
 
-        Self {
-            evals,
-            weights,
-            sum,
-            phantom: core::marker::PhantomData,
+        let constraint = Constraint::new_eq_only(challenge, statement);
+        if k > PACK_THRESHOLD {
+            let (weights, sum) = constraint.combine_new_packed();
+            Self {
+                quad: Quad::<F, EF>::new_packed(evals.pack_ext(), weights),
+                sum,
+            }
+        } else {
+            let (weights, sum) = constraint.combine_new();
+            Self {
+                quad: Quad::<F, EF>::new_small(evals, weights),
+                sum,
+            }
         }
     }
 
-    /// Constructs a new `SumcheckSingle` instance from evaluations in the base field.
+    /// Constructs a new `SumcheckMingle` instance from evaluations in the base field.
     ///
     /// This function:
     /// - Uses precomputed evaluations of the polynomial `p` over the Boolean hypercube.
@@ -336,41 +537,53 @@ where
     {
         assert_ne!(folding_factor, 0);
 
-        let (mut weights, mut sum) = constraint.combine_new();
-
-        let (first_round, mut evals) = initial_round(
-            sumcheck,
-            challenger,
-            evals,
-            &mut weights,
-            &mut sum,
-            pow_bits,
+        let k = evals.num_variables();
+        assert!(
+            folding_factor > 0,
+            "must be initialize with at least one round for base to ext transition"
+        );
+        assert!(
+            folding_factor <= k,
+            "number of rounds must be less than or equal to instance size"
         );
 
-        let mut res = Vec::with_capacity(folding_factor);
-        res.push(first_round);
-        for _ in 1..folding_factor {
-            res.push(round::<Challenger, F, EF>(
+        let (mut quad, r, mut sum) = if k > PACK_THRESHOLD {
+            let (mut weights, mut sum) = constraint.combine_new_packed();
+            let (r, evals) = initial_round_packed(
                 sumcheck,
                 challenger,
-                &mut evals,
+                evals,
                 &mut weights,
                 &mut sum,
                 pow_bits,
-            ));
-        }
-
-        let sumcheck = Self {
-            evals,
-            weights,
-            sum,
-            phantom: core::marker::PhantomData,
+            );
+            (Quad::<F, EF>::new_packed(evals, weights), r, sum)
+        } else {
+            let (mut weights, mut sum) = constraint.combine_new();
+            let (r, evals) = initial_round(
+                sumcheck,
+                challenger,
+                evals,
+                &mut weights,
+                &mut sum,
+                pow_bits,
+            );
+            (Quad::<F, EF>::new_small(evals, weights), r, sum)
         };
 
-        (sumcheck, MultilinearPoint::new(res))
+        #[cfg(debug_assertions)]
+        assert_eq!(quad.prod(), sum);
+
+        let rs = core::iter::once(r)
+            .chain(
+                (1..folding_factor).map(|_| quad.round(sumcheck, challenger, &mut sum, pow_bits)),
+            )
+            .collect();
+
+        (Self { quad, sum }, MultilinearPoint::new(rs))
     }
 
-    /// Constructs a new `SumcheckSingle` instance from evaluations in the base field.
+    /// Constructs a new `SumcheckMingle` instance from evaluations in the base field.
     ///
     /// This function:
     /// - Uses precomputed evaluations of the polynomial `p` over the Boolean hypercube.
@@ -442,48 +655,48 @@ where
         let r: EF = challenger.sample_algebra_element();
 
         // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
-        let new_p = interpolate_subgroup(&f_mat, r);
-        let new_w = interpolate_subgroup(&w_mat, r);
+        let new_p = EvaluationsList::new(interpolate_subgroup(&f_mat, r));
+        let new_w = EvaluationsList::new(interpolate_subgroup(&w_mat, r));
+        let mut quad = Quad::new(new_p, new_w);
 
         // While we could interpolate sumcheck_poly, it's cheaper and easier to just use
         // the new_p and new_w evaluations.
-        let mut sum = new_p
-            .iter()
-            .zip(new_w.iter())
-            .map(|(&p, &w)| p * w)
-            .sum::<EF>();
-
-        // Update polynomial and weights with reduced dimensionality.
-        let mut evals = EvaluationsList::new(new_p);
-        let mut weights = EvaluationsList::new(new_w);
+        let mut sum = quad.prod();
 
         // Apply rest of sumcheck rounds
-        let mut res = Vec::with_capacity(folding_factor);
-        res.push(r);
-        for _ in k_skip..folding_factor {
-            res.push(round(
-                &mut skip_data.sumcheck,
-                challenger,
-                &mut evals,
-                &mut weights,
-                &mut sum,
-                pow_bits,
-            ));
-        }
+        let rs = core::iter::once(r)
+            .chain(
+                (k_skip..folding_factor)
+                    .map(|_| quad.round(&mut skip_data.sumcheck, challenger, &mut sum, pow_bits)),
+            )
+            .collect();
 
-        let sumcheck = Self {
-            evals,
-            weights,
-            sum,
-            phantom: core::marker::PhantomData,
-        };
-
-        (sumcheck, MultilinearPoint::new(res))
+        (Self { quad, sum }, MultilinearPoint::new(rs))
     }
 
     /// Returns the number of variables in the polynomial.
-    pub const fn num_variables(&self) -> usize {
-        self.evals.num_variables()
+    pub fn num_variables(&self) -> usize {
+        self.quad.k()
+    }
+
+    /// Returns the polynomial.
+    pub fn evals(&self) -> EvaluationsList<EF> {
+        self.quad.evals()
+    }
+
+    #[cfg(test)]
+    pub fn weights(&self) -> EvaluationsList<EF> {
+        self.quad.weights()
+    }
+
+    /// Evaluates the sumcheck polynomial at a given multilinear point.
+    pub fn eval(&self, point: &MultilinearPoint<EF>) -> EF {
+        self.quad.eval(point)
+    }
+
+    /// Returns the number of evaluations in the polynomial.
+    pub const fn num_evals(&self) -> usize {
+        self.quad.num_evals()
     }
 
     /// Executes the sumcheck protocol for a multilinear polynomial with optional **univariate skip**.
@@ -526,21 +739,39 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         if let Some(constraint) = constraint {
-            constraint.combine(&mut self.weights, &mut self.sum);
+            self.quad.combine(&mut self.sum, &constraint);
         }
 
         // Standard round-by-round folding
         // Proceed with one-variable-per-round folding for remaining variables.
         let res = (0..folding_factor)
             .map(|_| {
-                round(
-                    sumcheck_data,
-                    challenger,
-                    &mut self.evals,
-                    &mut self.weights,
-                    &mut self.sum,
-                    pow_bits,
-                )
+                let r = match &mut self.quad {
+                    Quad::Packed { evals, weights } => round_packed(
+                        sumcheck_data,
+                        challenger,
+                        evals,
+                        weights,
+                        &mut self.sum,
+                        pow_bits,
+                    ),
+                    Quad::Small { evals, weights } => round(
+                        sumcheck_data,
+                        challenger,
+                        evals,
+                        weights,
+                        &mut self.sum,
+                        pow_bits,
+                    ),
+                };
+
+                #[cfg(debug_assertions)]
+                assert_eq!(self.sum, self.quad.prod());
+
+                // If remaining number of vars are small, unpack polynomials
+                self.quad.transition();
+
+                r
             })
             .collect();
 

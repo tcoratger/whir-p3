@@ -4,8 +4,10 @@ use core::{
     slice::SliceIndex,
 };
 
+use itertools::Itertools;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
+use p3_matrix::dense::RowMajorMatrix;
 use rand::{
     Rng,
     distr::{Distribution, StandardUniform},
@@ -361,6 +363,27 @@ where
     #[cfg(test)]
     pub fn extend(&mut self, other: &Self) {
         self.0.extend_from_slice(&other.0);
+    }
+
+    /// Transposes points so same-index variables are alligned in rows.
+    pub(crate) fn transpose(points: &[Self], rev_order: bool) -> RowMajorMatrix<F> {
+        let k = points
+            .iter()
+            .map(Self::num_variables)
+            .all_equal_value()
+            .unwrap();
+        let n = points.len();
+        let mut flat = F::zero_vec(k * n);
+        points.iter().enumerate().for_each(|(i, point)| {
+            point.iter().enumerate().for_each(|(j, &cur)| {
+                if rev_order {
+                    flat[(k - 1 - j) * n + i] = cur;
+                } else {
+                    flat[j * n + i] = cur;
+                }
+            });
+        });
+        RowMajorMatrix::new(flat, n)
     }
 }
 
