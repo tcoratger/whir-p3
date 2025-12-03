@@ -2,46 +2,6 @@ use p3_challenger::GrindingChallenger;
 
 use crate::fiat_shamir::errors::FiatShamirError;
 
-/// Sync the external challenger by verifying the same witness found by the prover.
-///
-/// This function is used to keep an external challenger in sync with the prover's challenger
-/// during proof-of-work grinding. Since Plonky3's `grind()` uses parallel `find_any` which
-/// can return different valid witnesses non-deterministically, we cannot have both challengers
-/// grind independently. Instead, the prover grinds to find a witness, and the external
-/// challenger verifies that same witness.
-///
-/// # Arguments
-/// - `challenger`: The external challenger to sync
-/// - `witness`: The witness found by the prover's grinding (from `prover_state.pow_grinding()`)
-/// - `bits`: Number of bits of grinding difficulty. If zero, no sync is performed.
-///
-/// # Panics
-/// Panics if the witness does not satisfy the difficulty requirement, indicating
-/// that the prover and external challenger have diverged.
-#[allow(unreachable_pub)]
-pub fn sync_pow_grinding<C, F>(challenger: &mut C, witness: Option<F>, bits: usize)
-where
-    C: GrindingChallenger<Witness = F>,
-{
-    // If no grinding is required, nothing to sync
-    if bits == 0 {
-        return;
-    }
-
-    // If witness is None, nothing to sync
-    let Some(witness) = witness else {
-        return;
-    };
-
-    // Verify the witness using the external challenger.
-    // This calls observe(witness) and sample_bits(bits), advancing the challenger
-    // state to match the prover's challenger state after grinding.
-    assert!(
-        challenger.check_witness(bits, witness),
-        "PoW witness verification failed - challengers have diverged"
-    );
-}
-
 /// Perform proof-of-work grinding and return the witness.
 ///
 /// This function forces the prover to perform expensive computation after committing
