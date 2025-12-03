@@ -51,18 +51,13 @@ where
     EF: ExtensionField<F>,
     F: Field,
 {
+    /// Create a new DomainSeparator with the domain separator.
     #[must_use]
-    pub const fn from_pattern(pattern: Vec<F>) -> Self {
+    pub const fn new(pattern: Vec<F>) -> Self {
         Self {
             pattern,
             _extension_field: PhantomData,
         }
-    }
-
-    /// Create a new DomainSeparator with the domain separator.
-    #[must_use]
-    pub const fn new(pattern: Vec<F>) -> Self {
-        Self::from_pattern(pattern)
     }
 
     /// Observe `count` native elements.
@@ -89,17 +84,12 @@ where
             .push(pattern.as_field_element::<F>() + Pattern::Hint.as_field_element::<F>());
     }
 
-    #[must_use]
-    pub fn as_field_elements(&self) -> Vec<F> {
-        self.pattern.clone()
-    }
-
     /// Observe the domain separator into the challenger
     pub fn observe_domain_separator<Challenger>(&self, challenger: &mut Challenger)
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        challenger.observe_slice(&self.as_field_elements());
+        challenger.observe_slice(&self.pattern);
     }
 
     pub fn add_ood(&mut self, num_samples: usize) {
