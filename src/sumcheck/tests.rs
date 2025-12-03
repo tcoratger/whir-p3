@@ -366,7 +366,6 @@ fn run_sumcheck_test(
         );
         all_constraint_evals.push(constraint_evals);
 
-
         // Compute and apply the next folding round
         let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
         prover_randomness.extend(&sumcheck.compute_sumcheck_polynomials(
@@ -834,8 +833,8 @@ fn run_sumcheck_test_svo(
     // ROUND 0
     let folding0 = folding_factor.at_round(0);
     // Extract sumcheck data from the initial phase
-    let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
-        panic!("Expected WithStatement variant");
+    let InitialPhase::WithStatementSvo { ref mut sumcheck } = proof.initial_phase else {
+        panic!("Expected WithStatementSvo variant");
     };
     let (mut sumcheck, mut prover_randomness) = SumcheckSingle::from_base_evals_svo(
         &poly,
@@ -1017,6 +1016,7 @@ fn run_sumcheck_test_svo(
     // CHECK SUM == f(r) * weights(z, r)
     assert_eq!(sum, final_folded_value * weights);
 }
+
 #[test]
 fn test_sumcheck_prover_without_skip() {
     let mut rng = SmallRng::seed_from_u64(0);
@@ -1037,6 +1037,7 @@ fn test_sumcheck_prover_without_skip() {
         }
     }
 }
+
 #[test]
 fn test_sumcheck_prover_svo() {
     for num_vars in &[6, 8, 10, 12, 14, 16, 18, 20, 22, 24] {

@@ -678,7 +678,6 @@ mod tests {
         );
     }
 
-    /* TODO!() UNCOMMENT THIS WHEN COMPLETING SVO IMPLEMENTATION
     #[test]
     #[allow(clippy::too_many_lines)]
     fn test_read_sumcheck_rounds_svo() {
@@ -731,7 +730,7 @@ mod tests {
         };
 
         // Instantiate the prover with base field coefficients using SVO
-        let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals_svo(
+        let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals(
             &coeffs.to_evaluations(),
             sumcheck,
             &mut prover_challenger,
@@ -797,6 +796,4 @@ mod tests {
             "Mismatch in full MultilinearPoint folding randomness for SVO"
         );
     }
-
-     */
 }

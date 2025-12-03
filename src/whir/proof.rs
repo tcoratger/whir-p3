@@ -229,7 +229,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             // TODO: SVO optimization is not yet fully implemented
             // Fall back to classic sumcheck for now
             InitialPhaseConfig::WithStatementSvo => {
-                InitialPhase::with_statement(SumcheckData::default())
+                InitialPhase::with_statement_svo(SumcheckData::default())
             }
 
             // With statement + Classic (or UnivariateSkip with insufficient folding factor)
