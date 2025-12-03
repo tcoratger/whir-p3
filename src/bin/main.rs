@@ -224,6 +224,11 @@ fn main() {
         commit_time.as_millis(),
         opening_time.as_millis()
     );
-    // TODO: Add proof serialization to calculate proof size
+    let proof_bytes = bincode::serialize(&proof).expect("Failed to serialize proof");
+    println!(
+        "Proof size: {} bytes ({:.2} KB)",
+        proof_bytes.len(),
+        proof_bytes.len() as f64 / 1024.0
+    );
     println!("Verification time: {} μs", verify_time.as_micros());
 }
