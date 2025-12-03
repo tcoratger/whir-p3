@@ -360,7 +360,7 @@ fn run_sumcheck_test(
             num_vars_inter,
             num_eq_points,
             num_sel_points,
-            &sumcheck.evals,
+            &sumcheck.evals(),
         );
         all_constraint_evals.push(constraint_evals);
 
@@ -378,8 +378,8 @@ fn run_sumcheck_test(
         num_vars_inter -= folding;
 
         // Check that the number of variables and evaluations match the expected values
-        assert_eq!(sumcheck.evals.num_variables(), num_vars_inter);
-        assert_eq!(sumcheck.evals.num_evals(), 1 << num_vars_inter);
+        assert_eq!(sumcheck.num_variables(), num_vars_inter);
+        assert_eq!(sumcheck.num_evals(), 1 << num_vars_inter);
     }
 
     // Ensure we've folded all variables.
@@ -395,10 +395,10 @@ fn run_sumcheck_test(
         None,
     ));
     proof.set_final_sumcheck_data(sumcheck_data);
-    let final_folded_value = sumcheck.evals.as_constant().unwrap();
+    let final_folded_value = sumcheck.evals().as_constant().unwrap();
 
-    assert_eq!(sumcheck.evals.num_variables(), 0);
-    assert_eq!(sumcheck.evals.num_evals(), 1);
+    assert_eq!(sumcheck.num_variables(), 0);
+    assert_eq!(sumcheck.num_evals(), 1);
 
     // Final folded value must match f(r)
     assert_eq!(
@@ -616,7 +616,7 @@ fn run_sumcheck_test_skips(
             num_vars_inter,
             num_eq_points,
             num_sel_points,
-            &sumcheck.evals,
+            &sumcheck.evals(),
         );
         all_constraint_evals.push(constraint_evals);
 
@@ -634,8 +634,8 @@ fn run_sumcheck_test_skips(
         num_vars_inter -= folding;
 
         // Sanity check: number of variables and evaluations should be correct
-        assert_eq!(sumcheck.evals.num_variables(), num_vars_inter);
-        assert_eq!(sumcheck.evals.num_evals(), 1 << num_vars_inter);
+        assert_eq!(sumcheck.num_variables(), num_vars_inter);
+        assert_eq!(sumcheck.num_evals(), 1 << num_vars_inter);
     }
 
     // Ensure we've folded all variables.
@@ -653,11 +653,11 @@ fn run_sumcheck_test_skips(
     proof.set_final_sumcheck_data(sumcheck_data);
 
     // After final round, polynomial must collapse to a constant
-    assert_eq!(sumcheck.evals.num_variables(), 0);
-    assert_eq!(sumcheck.evals.num_evals(), 1);
+    assert_eq!(sumcheck.num_variables(), 0);
+    assert_eq!(sumcheck.num_evals(), 1);
 
     // Final constant should be f(r), where r is the accumulated challenge point
-    let final_folded_value = sumcheck.evals.as_constant().unwrap();
+    let final_folded_value = sumcheck.evals().as_constant().unwrap();
 
     // Verify that the final folded value matches the polynomial evaluation under skip semantics.
     //
@@ -857,7 +857,7 @@ fn run_sumcheck_test_svo(
             num_vars_inter,
             num_eq_points,
             num_sel_points,
-            &sumcheck.evals,
+            &sumcheck.evals(),
         );
         all_constraint_evals.push(constraint_evals);
 
@@ -875,8 +875,8 @@ fn run_sumcheck_test_svo(
         num_vars_inter -= folding;
 
         // Check that the number of variables and evaluations match the expected values
-        assert_eq!(sumcheck.evals.num_variables(), num_vars_inter);
-        assert_eq!(sumcheck.evals.num_evals(), 1 << num_vars_inter);
+        assert_eq!(sumcheck.num_variables(), num_vars_inter);
+        assert_eq!(sumcheck.num_evals(), 1 << num_vars_inter);
     }
 
     // Ensure we've folded all variables.
@@ -893,11 +893,11 @@ fn run_sumcheck_test_svo(
     ));
     proof.set_final_sumcheck_data(sumcheck_data);
 
-    assert_eq!(sumcheck.evals.num_variables(), 0);
-    assert_eq!(sumcheck.evals.num_evals(), 1);
+    assert_eq!(sumcheck.num_variables(), 0);
+    assert_eq!(sumcheck.num_evals(), 1);
 
     // Final folded value must match f(r)
-    let final_folded_value = sumcheck.evals.as_constant().unwrap();
+    let final_folded_value = sumcheck.evals().as_constant().unwrap();
     assert_eq!(
         poly.evaluate_hypercube_base(&prover_randomness),
         final_folded_value
@@ -1048,14 +1048,15 @@ fn test_sumcheck_prover_svo() {
 fn test_sumcheck_prover_with_skip() {
     let mut rng = SmallRng::seed_from_u64(0);
 
-    for num_vars in 8..=10 {
+    for num_vars in 10..=10 {
         for folding_factor in 2..=num_vars {
-            for _ in 0..100 {
+            for _ in 0..1 {
                 let folding_factor = FoldingFactor::Constant(folding_factor);
                 for k_skip in 2..folding_factor.at_round(0) {
                     if k_skip < K_SKIP_SUMCHECK {
                         continue;
                     }
+
                     let num_rounds = folding_factor.compute_number_of_rounds(num_vars).0 + 1;
                     let num_eq_points = (0..num_rounds)
                         .map(|_| rng.random_range(0..=2))

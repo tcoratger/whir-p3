@@ -17,7 +17,7 @@ use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Rad
 use crate::{
     constant::MLE_RECURSION_THRESHOLD,
     sumcheck::sumcheck_small_value::SvoAccumulators,
-    utils::{uninitialized_vec, unpack_slice},
+    utils::{pack_slice, uninitialized_vec, unpack_slice},
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;
@@ -110,6 +110,108 @@ impl<F: Copy + Clone + Send + Sync> EvaluationsList<F> {
     }
 }
 
+impl<A: Clone + Copy + Default + Send + Sync> EvaluationsList<A> {
+    /// Compresses the evaluation list by folding the **first** variable ($X_1$) with a challenge.
+    ///
+    /// This function is the core operation for the standard rounds of a sumcheck prover,
+    /// where variables are folded one by one in lexicographical order.
+    ///
+    /// ## Mathematical Formula
+    ///
+    /// Given a polynomial $p(X_1, \ldots, X_n)$ represented by its evaluations, this
+    /// function computes the evaluations of the folded
+    /// polynomial $p'(X_2, \ldots, X_n) = p(r, X_2, \ldots, X_n)$.
+    ///
+    /// It uses the multilinear extension formula for the first variable:
+    ///
+    /// ```text
+    /// p(r, x') = p(0, x') + r \cdot (p(1, x') - p(0, x'))
+    /// ```
+    ///
+    /// where $x' = (x_2, \ldots, x_n)$ represents all other variables.
+    ///
+    /// ## Memory Access Pattern
+    ///
+    /// This function relies on the **lexicographical order** of the evaluation list.
+    /// - The first half of the slice contains all evaluations where $X_1 = 0$,
+    /// - The second half contains all evaluations where $X_1 = 1$.
+    ///
+    /// ```text
+    /// Before:
+    /// [ p(0, 0..0), p(0, 0..1), ..., p(0, 1..1) | p(1, 0..0), p(1, 0..1), ..., p(1, 1..1) ]
+    ///  └────────── Left Half (p(0, x')) ──────┘   └────────── Right Half (p(1, x')) ────┘
+    ///
+    /// After: (Computed in-place into the left half)
+    /// [ p(r, 0..0), p(r, 0..1), ..., p(r, 1..1) ]
+    ///   └───────── Folded result ─────────────┘
+    /// ```
+    ///
+    /// The function computes `result[i] = left[i] + r * (right[i] - left[i])` for
+    /// all `i` in the first half, and then truncates the list.
+    pub fn compress<F: Clone + Copy + Default + Send + Sync>(&mut self, r: F)
+    where
+        A: Algebra<F>,
+    {
+        assert_ne!(self.num_variables(), 0);
+        let num_evals = self.num_evals();
+        let mid = num_evals / 2;
+
+        // Evaluations at `a_i` and `a_{i + n/2}` slots are folded with `r` into `a_i` slot
+        let (p0, p1) = self.0.split_at_mut(mid);
+        if num_evals >= PARALLEL_THRESHOLD {
+            p0.par_iter_mut()
+                .zip(p1.par_iter())
+                .for_each(|(a0, &a1)| *a0 += (a1 - *a0) * r);
+        } else {
+            p0.iter_mut()
+                .zip(p1.iter())
+                .for_each(|(a0, &a1)| *a0 += (a1 - *a0) * r);
+        }
+        // Free higher part of the evaluations
+        self.0.truncate(mid);
+    }
+
+    /// Folds a list of evaluations from a base field `F` into packed form of extension field `EF`.
+    ///
+    /// ## Arguments
+    /// * `r`: A value `r` from the extension field `EF`, used as the random challenge for folding.
+    ///
+    /// ## Returns
+    /// A new `EvaluationsList<EF>` containing the compressed evaluations in the extension field.
+    ///
+    /// The compression is achieved by applying the following formula to pairs of evaluations:
+    /// ```text
+    ///     p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)
+    /// ```
+    pub fn compress_packed<Ext>(&self, zi: Ext) -> EvaluationsList<Ext::ExtensionPacking>
+    where
+        A: Field,
+        Ext: ExtensionField<A>,
+    {
+        let zi = Ext::ExtensionPacking::from_ext_slice(&vec![zi; A::Packing::WIDTH]);
+        let poly = A::Packing::pack_slice(self.as_slice());
+        let mid = poly.len() / 2;
+        let (p0, p1) = poly.split_at(mid);
+
+        let num_evals = self.num_evals();
+        if num_evals >= PARALLEL_THRESHOLD {
+            EvaluationsList::new(
+                p0.par_iter()
+                    .zip(p1.par_iter())
+                    .map(|(&a0, &a1)| zi * (a1 - a0) + a0)
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            EvaluationsList::new(
+                p0.iter()
+                    .zip(p1.iter())
+                    .map(|(&a0, &a1)| zi * (a1 - a0) + a0)
+                    .collect::<Vec<_>>(),
+            )
+        }
+    }
+}
+
 impl<Packed: Copy + Send + Sync> EvaluationsList<Packed> {
     /// Given a point `P` (as a slice), compute the evaluation vector of the equality
     /// function `eq(P, X)` for all points `X` in the boolean hypercube, scaled by a value.
@@ -121,7 +223,7 @@ impl<Packed: Copy + Send + Sync> EvaluationsList<Packed> {
     /// ## Returns
     /// An packed `EvaluationsList` containing `value * eq(point, X)` for all `X` in `{0,1}^n`.
     #[inline]
-    fn new_packed_from_point<F, EF>(point: &MultilinearPoint<EF>, scale: EF) -> Self
+    pub(crate) fn new_packed_from_point<F, EF>(point: &MultilinearPoint<EF>, scale: EF) -> Self
     where
         F: Field,
         EF: ExtensionField<F, ExtensionPacking = Packed>,
@@ -546,64 +648,6 @@ where
         CoefficientList::new(evals)
     }
 
-    /// Compresses the evaluation list by folding the **first** variable ($X_1$) with a challenge.
-    ///
-    /// This function is the core operation for the standard rounds of a sumcheck prover,
-    /// where variables are folded one by one in lexicographical order.
-    ///
-    /// ## Mathematical Formula
-    ///
-    /// Given a polynomial $p(X_1, \ldots, X_n)$ represented by its evaluations, this
-    /// function computes the evaluations of the folded
-    /// polynomial $p'(X_2, \ldots, X_n) = p(r, X_2, \ldots, X_n)$.
-    ///
-    /// It uses the multilinear extension formula for the first variable:
-    ///
-    /// ```text
-    /// p(r, x') = p(0, x') + r \cdot (p(1, x') - p(0, x'))
-    /// ```
-    ///
-    /// where $x' = (x_2, \ldots, x_n)$ represents all other variables.
-    ///
-    /// ## Memory Access Pattern
-    ///
-    /// This function relies on the **lexicographical order** of the evaluation list.
-    /// - The first half of the slice contains all evaluations where $X_1 = 0$,
-    /// - The second half contains all evaluations where $X_1 = 1$.
-    ///
-    /// ```text
-    /// Before:
-    /// [ p(0, 0..0), p(0, 0..1), ..., p(0, 1..1) | p(1, 0..0), p(1, 0..1), ..., p(1, 1..1) ]
-    ///  └────────── Left Half (p(0, x')) ──────┘   └────────── Right Half (p(1, x')) ────┘
-    ///
-    /// After: (Computed in-place into the left half)
-    /// [ p(r, 0..0), p(r, 0..1), ..., p(r, 1..1) ]
-    ///   └───────── Folded result ─────────────┘
-    /// ```
-    ///
-    /// The function computes `result[i] = left[i] + r * (right[i] - left[i])` for
-    /// all `i` in the first half, and then truncates the list.
-    #[inline]
-    pub fn compress(&mut self, r: F) {
-        assert_ne!(self.num_variables(), 0);
-        let num_evals = self.num_evals();
-        let mid = num_evals / 2;
-
-        // Evaluations at `a_i` and `a_{i + n/2}` slots are folded with `r` into `a_i` slot
-        let (p0, p1) = self.0.split_at_mut(mid);
-        if num_evals >= PARALLEL_THRESHOLD {
-            p0.par_iter_mut()
-                .zip(p1.par_iter())
-                .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
-        } else {
-            p0.iter_mut()
-                .zip(p1.iter())
-                .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
-        }
-        // Free higher part of the evaluations
-        self.0.truncate(mid);
-    }
-
     /// Folds a list of evaluations from a base field `F` into an extension field `EF`.
     ///
     /// ## Arguments
@@ -945,6 +989,13 @@ where
             })
             // REDUCTION: Merge all thread-local accumulators
             .par_fold_reduce(SvoAccumulators::new, |a, b| a + b, |a, b| a + b)
+    }
+
+    pub(crate) fn pack_ext<Base: Field>(&self) -> EvaluationsList<F::ExtensionPacking>
+    where
+        F: ExtensionField<Base>,
+    {
+        EvaluationsList::new(pack_slice::<Base, F>(&self.0))
     }
 }
 

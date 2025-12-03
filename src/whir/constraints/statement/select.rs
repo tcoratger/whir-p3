@@ -1,11 +1,69 @@
 use alloc::{vec, vec::Vec};
 
-use p3_field::{ExtensionField, Field, dot_product};
+use itertools::Itertools;
+use p3_field::{
+    ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing, dot_product,
+};
+use p3_matrix::{Matrix, dense::RowMajorMatrixView};
 use p3_maybe_rayon::prelude::*;
+use p3_util::log2_strict_usize;
 use tracing::instrument;
 
-use crate::poly::evals::EvaluationsList;
+use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
+/// Builds the power coefficients for every point in batch.
+/// Coefficients interleaved by list index: [a0, b0, c0, ..., a1, b1, c1, ...].
+/// `flat_eqs` also weights point i by alpha^i
+fn flat_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> Vec<F> {
+    let k = points.height();
+    let n = points.width();
+    let mut acc = F::zero_vec(n * (1 << k));
+    acc[..n].copy_from_slice(&vec![F::ONE; n]);
+    points.row_slices().enumerate().for_each(|(i, vars)| {
+        let (lo, hi) = acc.split_at_mut((1 << i) * n);
+        lo.chunks_mut(n).zip(hi.chunks_mut(n)).for_each(|(lo, hi)| {
+            vars.iter()
+                .zip(lo.iter_mut().zip(hi.iter_mut()))
+                .for_each(|(&var, (lo, hi))| *hi = *lo * var);
+        });
+    });
+    acc
+}
+
+/// Builds the eq coefficients in packed form for every point in batch.
+/// Coefficients interleaved by list index: [a0, b0, c0, ..., a1, b1, c1, ...].
+/// `flat_eqs` also weights point i by alpha^i
+fn packed_flat_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> Vec<F::Packing> {
+    let k_pack = log2_strict_usize(F::Packing::WIDTH);
+    let k = points.height();
+    let n = points.width();
+
+    let (init_vars, rest_vars) = points.split_rows(k_pack);
+    let mut packed = F::Packing::zero_vec(n * (1 << (k - k_pack)));
+    if k_pack > 0 {
+        init_vars
+            .transpose()
+            .row_slices()
+            .zip(packed.iter_mut())
+            .for_each(|(vars, packed)| {
+                let point = RowMajorMatrixView::new(vars, 1);
+                *packed = *F::Packing::from_slice(&flat_pows(point));
+            });
+    } else {
+        packed[..n].copy_from_slice(&vec![F::Packing::ONE; n]);
+    }
+
+    for (i, vars) in rest_vars.row_slices().enumerate() {
+        let (lo, hi) = packed.split_at_mut((1 << i) * n);
+        lo.chunks_mut(n).zip(hi.chunks_mut(n)).for_each(|(lo, hi)| {
+            vars.iter()
+                .zip(lo.iter_mut().zip(hi.iter_mut()))
+                .for_each(|(&var, (lo, hi))| *hi = *lo * var);
+        });
+    }
+
+    packed
+}
 /// A batched system of `select`-based evaluation constraints for multilinear polynomials.
 ///
 /// This struct represents a collection of evaluation constraints of the form `p(z_i) = s_i`
@@ -226,16 +284,13 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
     /// - `shift`: Power offset for challenge. Constraint `i` uses weight `γ^{i+shift}`.
     ///   Allows multiple statement types to use non-overlapping challenge powers.
     #[instrument(skip_all, fields(num_constraints = self.len(), num_variables = self.num_variables()))]
-    pub fn combine<Base>(
+    pub fn combine(
         &self,
         acc_weights: &mut EvaluationsList<EF>,
         acc_sum: &mut EF,
         challenge: EF,
         shift: usize,
-    ) where
-        Base: Field,
-        F: ExtensionField<Base>,
-    {
+    ) {
         // Early return for empty statement:
         //
         // No constraints means no contribution to the batched claim.
@@ -359,6 +414,61 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
             dot_product::<EF, _, _>(challenges.into_iter(), self.evaluations.iter().copied());
     }
 
+    #[instrument(skip_all, fields(num_constraints = self.len(), num_variables = self.num_variables()))]
+    pub fn combine_packed(
+        &self,
+        weights: &mut EvaluationsList<EF::ExtensionPacking>,
+        sum: &mut EF,
+        challenge: EF,
+        shift: usize,
+    ) {
+        if self.vars.is_empty() {
+            return;
+        }
+
+        let n = self.len();
+        let k_pack = log2_strict_usize(F::Packing::WIDTH);
+        let k = self.num_variables();
+        assert_eq!(weights.num_variables() + k_pack, k);
+        assert!(k_pack * 2 <= k, "limitation of packed split method");
+
+        let points = self
+            .vars
+            .iter()
+            .map(|&var| MultilinearPoint::expand_from_univariate(var, k))
+            .collect::<Vec<_>>();
+        let points = MultilinearPoint::transpose(&points, true);
+
+        let (left, right) = points.split_rows(k / 2);
+        let left = packed_flat_pows(left);
+        let right = flat_pows(right);
+
+        let alphas = challenge
+            .powers()
+            .skip(shift)
+            .take(n)
+            .map(|alpha| EF::ExtensionPacking::from_ext_slice(&vec![alpha; F::Packing::WIDTH]))
+            .collect::<Vec<_>>();
+
+        weights
+            .0
+            .par_chunks_mut(left.len() / n)
+            .zip_eq(right.par_chunks(n))
+            .for_each(|(out, right)| {
+                out.iter_mut().zip(left.chunks(n)).for_each(|(out, left)| {
+                    *out += left
+                        .iter()
+                        .zip(right.iter())
+                        .zip(alphas.iter())
+                        .map(|((&left, &right), &alpha)| alpha * (left * right))
+                        .sum::<EF::ExtensionPacking>();
+                });
+            });
+
+        // Combine expected evaluations: S = ∑_i γ^i * s_i
+        self.combine_evals(sum, challenge, shift);
+    }
+
     /// Batches expected evaluation values into a single target sum using challenge powers.
     ///
     /// Computes and adds to `claimed_eval`:
@@ -392,12 +502,15 @@ mod tests {
     use alloc::vec;
 
     use p3_baby_bear::BabyBear;
-    use p3_field::PrimeCharacteristicRing;
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use proptest::prelude::*;
+    use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
+    use crate::utils::unpack_slice;
 
     type F = BabyBear;
+    type EF = BinomialExtensionField<F, 4>;
 
     #[test]
     fn test_select_statement_initialize() {
@@ -537,7 +650,7 @@ mod tests {
         let mut acc_sum = F::ZERO;
 
         // Combine the constraints.
-        statement.combine::<F>(&mut acc_weights, &mut acc_sum, gamma, shift);
+        statement.combine(&mut acc_weights, &mut acc_sum, gamma, shift);
 
         // The target sum should be S = γ^0 · s = 1 · s = s.
         let expected_sum = s;
@@ -584,7 +697,7 @@ mod tests {
         let mut acc_sum = F::ZERO;
 
         // Combine the constraints.
-        statement.combine::<F>(&mut acc_weights, &mut acc_sum, gamma, shift);
+        statement.combine(&mut acc_weights, &mut acc_sum, gamma, shift);
 
         // The target sum should be:
         // S = γ^0 · s0 + γ^1 · s1 = 1·s0 + γ·s1 = s0 + gamma*s1.
@@ -632,7 +745,7 @@ mod tests {
         let mut acc_sum = F::ZERO;
 
         // Combine the constraints.
-        statement.combine::<F>(&mut acc_weights, &mut acc_sum, gamma, shift);
+        statement.combine(&mut acc_weights, &mut acc_sum, gamma, shift);
 
         // The target sum should be S = γ^shift · s.
         let gamma_to_shift = gamma.exp_u64(shift as u64);
@@ -674,7 +787,7 @@ mod tests {
         // Combine the empty statement.
         let gamma = F::from_u64(2);
         let shift = 0;
-        statement.combine::<F>(&mut acc_weights, &mut acc_sum, gamma, shift);
+        statement.combine(&mut acc_weights, &mut acc_sum, gamma, shift);
 
         // The accumulators should remain unchanged.
         assert_eq!(acc_weights, original_weights);
@@ -709,14 +822,14 @@ mod tests {
         let mut acc_sum = F::ZERO;
 
         // Combine first statement.
-        statement1.combine::<F>(&mut acc_weights, &mut acc_sum, gamma, shift);
+        statement1.combine(&mut acc_weights, &mut acc_sum, gamma, shift);
 
         // Store intermediate values.
         let intermediate_weights = acc_weights.clone();
         let intermediate_sum = acc_sum;
 
         // Combine second statement (should add to existing values).
-        statement2.combine::<F>(&mut acc_weights, &mut acc_sum, gamma, shift);
+        statement2.combine(&mut acc_weights, &mut acc_sum, gamma, shift);
 
         // The accumulated sum should be intermediate_sum + s2.
         let expected_sum = intermediate_sum + s2;
@@ -822,7 +935,7 @@ mod tests {
         let shift = 0;
         let mut acc_weights = EvaluationsList::zero(k);
         let mut acc_sum = F::ZERO;
-        statement.combine::<F>(&mut acc_weights, &mut acc_sum, gamma, shift);
+        statement.combine(&mut acc_weights, &mut acc_sum, gamma, shift);
 
         // The sum should match the expected evaluation.
         assert_eq!(acc_sum, expected_eval);
@@ -871,7 +984,7 @@ mod tests {
             // Combine with shift=0.
             let mut acc_weights = EvaluationsList::zero(k);
             let mut acc_sum = F::ZERO;
-            statement.combine::<F>(&mut acc_weights, &mut acc_sum, gamma, 0);
+            statement.combine(&mut acc_weights, &mut acc_sum, gamma, 0);
 
             // Compute expected sum manually: S = Σ_i γ^i · s_i.
             let mut expected_sum = F::ZERO;
@@ -950,6 +1063,34 @@ mod tests {
             }
 
             prop_assert_eq!(claimed_eval1, claimed_eval2);
+        }
+    }
+
+    #[test]
+    fn test_packed_combine() {
+        type PackedExt = <EF as ExtensionField<F>>::ExtensionPacking;
+
+        let mut rng = SmallRng::seed_from_u64(1);
+        let challenge: EF = rng.random();
+        let k_pack = log2_strict_usize(<F as Field>::Packing::WIDTH);
+
+        for k in 4..10 {
+            let mut out0 = EvaluationsList::zero(k);
+            let mut out1 = EvaluationsList::<PackedExt>::zero(k - k_pack);
+            let mut sum0 = EF::ZERO;
+            let mut sum1 = EF::ZERO;
+            for n in [1, 2, 10, 11] {
+                let vars = (0..n).map(|_| rng.random()).collect::<Vec<F>>();
+                let evals = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
+
+                let statement = SelectStatement::<F, EF>::new(k, vars, evals);
+
+                statement.combine(&mut out0, &mut sum0, challenge, 0);
+                statement.combine_packed(&mut out1, &mut sum1, challenge, 0);
+
+                assert_eq!(sum0, sum1);
+                assert_eq!(out0.0, unpack_slice::<F, EF>(out1.as_slice()));
+            }
         }
     }
 }
