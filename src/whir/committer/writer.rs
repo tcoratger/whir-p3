@@ -1,4 +1,4 @@
-use alloc::{sync::Arc, vec};
+use alloc::sync::Arc;
 use core::ops::Deref;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
@@ -115,7 +115,7 @@ where
             let eval =
                 info_span!("ood evaluation").in_scope(|| polynomial.evaluate_hypercube(&point));
             proof.initial_ood_answers.push(eval);
-            challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
+            challenger.observe_algebra_element(eval);
             ood_statement.add_evaluated_constraint(point, eval);
         });
 
