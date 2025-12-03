@@ -1,6 +1,5 @@
 use alloc::{vec, vec::Vec};
 
-use itertools::Itertools;
 use p3_field::{
     ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing, dot_product,
 };
@@ -453,7 +452,7 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
         weights
             .0
             .par_chunks_mut(left.len() / n)
-            .zip_eq(right.par_chunks(n))
+            .zip(right.par_chunks(n))
             .for_each(|(out, right)| {
                 out.iter_mut().zip(left.chunks(n)).for_each(|(out, left)| {
                     *out += left

@@ -684,6 +684,7 @@ where
     }
 
     /// Returns the polynomial.
+    #[instrument(skip_all)]
     pub fn evals(&self) -> EvaluationsList<EF> {
         self.quad.evals()
     }
