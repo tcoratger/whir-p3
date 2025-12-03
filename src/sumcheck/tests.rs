@@ -366,7 +366,6 @@ fn run_sumcheck_test(
         );
         all_constraint_evals.push(constraint_evals);
 
-        //proof.rounds.push(WhirRoundProof::default());
 
         // Compute and apply the next folding round
         let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
