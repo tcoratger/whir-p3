@@ -78,12 +78,10 @@ where
     }
 
     /// Evaluates the polynomial as a constant.
+    ///
     /// This is only valid for constant polynomials (i.e., when `num_variables` is 0).
     ///
     /// Returns None in other cases.
-    ///
-    /// # Panics
-    /// Panics if `num_variables` is not 0.
     #[must_use]
     #[inline]
     pub fn as_constant(&self) -> Option<F> {
