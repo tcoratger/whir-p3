@@ -200,7 +200,7 @@ fn main() {
     let verifier = Verifier::new(&params);
 
     // Initialize the verifier's challenger with domain separator
-    let mut verifier_challenger = challenger.clone();
+    let mut verifier_challenger = challenger;
     domainsep.observe_domain_separator(&mut verifier_challenger);
 
     // Parse the commitment

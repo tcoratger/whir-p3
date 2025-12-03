@@ -1,4 +1,4 @@
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use core::ops::Deref;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
@@ -256,7 +256,7 @@ where
                 num_variables,
             );
             let eval = folded_evaluations.evaluate_hypercube(&point);
-            challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
+            challenger.observe_algebra_element(eval);
 
             ood_answers.push(eval);
             ood_statement.add_evaluated_constraint(point, eval);

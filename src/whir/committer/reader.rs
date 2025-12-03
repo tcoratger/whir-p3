@@ -1,4 +1,3 @@
-use alloc::vec;
 use core::{fmt::Debug, ops::Deref};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
@@ -106,7 +105,7 @@ where
             let point = challenger.sample_algebra_element();
             let point = MultilinearPoint::expand_from_univariate(point, num_variables);
             let eval = ood_answers[i];
-            challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
+            challenger.observe_algebra_element(eval);
             ood_statement.add_evaluated_constraint(point, eval);
         });
 

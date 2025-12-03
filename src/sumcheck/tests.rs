@@ -1,10 +1,8 @@
 use alloc::{vec, vec::Vec};
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::{CanObserve, DuplexChallenger, FieldChallenger, GrindingChallenger};
-use p3_field::{
-    BasedVectorSpace, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
-};
+use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
+use p3_field::{PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -106,7 +104,7 @@ where
         constraint_evals.push(eval);
 
         // Add the evaluation result to the transcript for Fiat-Shamir soundness.
-        challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
+        challenger.observe_algebra_element(eval);
 
         // Add the evaluation constraint: poly(point) == eval.
         eq_statement.add_evaluated_constraint(point, eval);
@@ -129,7 +127,7 @@ where
         constraint_evals.push(eval);
 
         // Add the evaluation result to the transcript for Fiat-Shamir soundness.
-        challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
+        challenger.observe_algebra_element(eval);
 
         // Add the evaluation constraint: poly(point) == eval.
         sel_statement.add_constraint(var, eval);
@@ -176,7 +174,7 @@ where
         constraint_evals.push(eval);
 
         // Add the evaluation result to the transcript for Fiat-Shamir soundness.
-        challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
+        challenger.observe_algebra_element(eval);
 
         // Add the evaluation constraint: poly(point) == eval.
         eq_statement.add_evaluated_constraint(point, eval);
@@ -200,7 +198,7 @@ where
         constraint_evals.push(eval);
 
         // Add the evaluation result to the transcript for Fiat-Shamir soundness.
-        challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
+        challenger.observe_algebra_element(eval);
 
         // Add the evaluation constraint: poly(point) == eval.
         sel_statement.add_constraint(var, eval);
@@ -232,7 +230,7 @@ where
             MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), num_vars);
 
         // Observe the evaluation to keep the challenger synchronized (must match prover)
-        challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
+        challenger.observe_algebra_element(eval);
 
         // Add the constraint: poly(point) == eval.
         eq_statement.add_evaluated_constraint(point, eval);
@@ -255,7 +253,7 @@ where
         let eval = constraint_evals[num_eqs + i];
 
         // Observe the evaluation to keep the challenger synchronized (must match prover)
-        challenger.observe_slice(&EF::flatten_to_base(vec![eval]));
+        challenger.observe_algebra_element(eval);
 
         // Add the constraint: poly(point) == eval.
         sel_statement.add_constraint(var, eval);
@@ -408,8 +406,7 @@ fn run_sumcheck_test(
         final_folded_value
     );
     // Commit final result to Fiat-Shamir transcript
-    let final_value_flat: Vec<F> = EF::flatten_to_base(vec![final_folded_value]);
-    prover_challenger.observe_slice(&final_value_flat);
+    prover_challenger.observe_algebra_element(final_folded_value);
 
     // VERIFIER
     let mut verifer_challenger = challenger;
@@ -674,8 +671,7 @@ fn run_sumcheck_test_skips(
         final_folded_value
     );
     // Commit final result to Fiat-Shamir transcript
-    let final_value_flat: Vec<F> = EF::flatten_to_base(vec![final_folded_value]);
-    prover_challenger.observe_slice(&final_value_flat);
+    prover_challenger.observe_algebra_element(final_folded_value);
 
     // VERIFIER SIDE
     let mut verifier_challenger = challenger;
@@ -907,8 +903,7 @@ fn run_sumcheck_test_svo(
         final_folded_value
     );
     // Commit final result to Fiat-Shamir transcript
-    let final_value_flat: Vec<F> = EF::flatten_to_base(vec![final_folded_value]);
-    prover_challenger.observe_slice(&final_value_flat);
+    prover_challenger.observe_algebra_element(final_folded_value);
 
     // VERIFIER
     let mut verifier_challenger = challenger;
