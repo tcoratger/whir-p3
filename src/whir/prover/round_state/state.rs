@@ -12,7 +12,7 @@ use tracing::instrument;
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::FiatShamirError, grinding::sync_pow_grinding, prover::ProverState},
+    fiat_shamir::{errors::FiatShamirError, grinding::pow_grinding},
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
@@ -137,7 +137,6 @@ where
     #[instrument(skip_all)]
     pub fn initialize_first_round_state<MyChallenger, C, Challenger>(
         prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
-        prover_state: &mut ProverState<F, EF, Challenger>,
         proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         mut statement: EqStatement<EF>,
@@ -158,19 +157,12 @@ where
                 if K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0) =>
             {
                 // Build constraint with random linear combination
-                let constraint_challenge: EF = prover_state.sample();
-                let constraint = Constraint::new_eq_only(constraint_challenge, statement.clone());
-                // Sync external challenger and verify consistency
-                let constraint_challenge_rf: EF = challenger.sample_algebra_element();
-                assert_eq!(
-                    constraint_challenge, constraint_challenge_rf,
-                    "External challenger and prover_state diverged during constraint challenge sampling (WithStatementSkip)"
-                );
+                let constraint =
+                    Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
 
                 // Use univariate skip by skipping k variables
                 SumcheckSingle::with_skip(
                     &witness.polynomial,
-                    prover_state,
                     skip_data,
                     challenger,
                     prover.folding_factor.at_round(0),
@@ -183,20 +175,13 @@ where
             // Branch: WithStatementSvo - SVO optimization (currently falls back to classic)
             InitialPhase::WithStatementSvo { sumcheck } => {
                 // Build constraint with random linear combination
-                let constraint_challenge: EF = prover_state.sample();
-                let constraint = Constraint::new_eq_only(constraint_challenge, statement.clone());
-                // Sync external challenger and verify consistency
-                let constraint_challenge_rf: EF = challenger.sample_algebra_element();
-                assert_eq!(
-                    constraint_challenge, constraint_challenge_rf,
-                    "External challenger and prover_state diverged during constraint challenge sampling (WithStatementSvo)"
-                );
+                let constraint =
+                    Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
 
                 // TODO: SVO optimization is not yet fully implemented
                 // Fall back to classic sumcheck
                 SumcheckSingle::from_base_evals(
                     &witness.polynomial,
-                    prover_state,
                     sumcheck,
                     challenger,
                     prover.folding_factor.at_round(0),
@@ -209,19 +194,12 @@ where
             InitialPhase::WithStatement { sumcheck }
             | InitialPhase::WithStatementSkip(SumcheckSkipData { sumcheck, .. }) => {
                 // Build constraint with random linear combination
-                let constraint_challenge: EF = prover_state.sample();
-                let constraint = Constraint::new_eq_only(constraint_challenge, statement.clone());
-                // Sync external challenger and verify consistency
-                let constraint_challenge_rf: EF = challenger.sample_algebra_element();
-                assert_eq!(
-                    constraint_challenge, constraint_challenge_rf,
-                    "External challenger and prover_state diverged during constraint challenge sampling (WithStatement)"
-                );
+                let constraint =
+                    Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
 
                 // Standard sumcheck protocol without optimization
                 SumcheckSingle::from_base_evals(
                     &witness.polynomial,
-                    prover_state,
                     sumcheck,
                     challenger,
                     prover.folding_factor.at_round(0),
@@ -231,19 +209,13 @@ where
             }
 
             // Branch: WithoutStatement - direct polynomial folding path
-            InitialPhase::WithoutStatement => {
+            InitialPhase::WithoutStatement { pow_witnesses } => {
                 // Sample folding challenges α_1, ..., α_k
-                let mut folding_challenges = Vec::with_capacity(prover.folding_factor.at_round(0));
-                for _ in 0..prover.folding_factor.at_round(0) {
-                    let challenge: EF = prover_state.sample();
-                    let challenge_rf: EF = challenger.sample_algebra_element();
-                    assert_eq!(
-                        challenge, challenge_rf,
-                        "External challenger and prover_state diverged during folding challenge sampling (WithoutStatement)"
-                    );
-                    folding_challenges.push(challenge);
-                }
-                let folding_randomness = MultilinearPoint::new(folding_challenges);
+                let folding_randomness = MultilinearPoint::new(
+                    (0..prover.folding_factor.at_round(0))
+                        .map(|_| challenger.sample_algebra_element())
+                        .collect::<Vec<_>>(),
+                );
 
                 // Apply folding transformation: f(X_0, ..., X_{n-1}) → f'(X_k, ..., X_{n-1})
                 let poly = witness.polynomial.fold(&folding_randomness);
@@ -256,10 +228,8 @@ where
                     EF::ONE,
                 );
 
-                // Apply proof-of-work grinding for transcript security
-                let witness_pow = prover_state.pow_grinding(prover.starting_folding_pow_bits);
-                // Sync: verify the same witness on external challenger
-                sync_pow_grinding(challenger, witness_pow, prover.starting_folding_pow_bits);
+                // Apply proof-of-work grinding and store witness
+                *pow_witnesses = pow_grinding(challenger, prover.starting_folding_pow_bits);
 
                 (sumcheck, folding_randomness)
             }

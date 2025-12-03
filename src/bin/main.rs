@@ -4,7 +4,7 @@ use clap::Parser;
 use p3_baby_bear::BabyBear;
 use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
-use p3_field::{PrimeField64, extension::BinomialExtensionField};
+use p3_field::extension::BinomialExtensionField;
 use p3_goldilocks::Goldilocks;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -158,10 +158,9 @@ fn main() {
     }
 
     let challenger = MyChallenger::new(poseidon16);
-    let mut prover_challenger = challenger.clone();
 
-    // Initialize the Merlin transcript from the IOPattern
-    let mut prover_state = domainsep.to_prover_state(challenger.clone());
+    // Initialize the prover's challenger with domain separator
+    let mut prover_challenger = challenger.clone();
     domainsep.observe_domain_separator(&mut prover_challenger);
 
     // Commit to the polynomial and produce a witness
@@ -173,13 +172,7 @@ fn main() {
 
     let time = Instant::now();
     let witness = committer
-        .commit(
-            &dft,
-            &mut prover_state,
-            &mut proof,
-            &mut prover_challenger,
-            polynomial,
-        )
+        .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
         .unwrap();
     let commit_time = time.elapsed();
 
@@ -191,7 +184,6 @@ fn main() {
     prover
         .prove(
             &dft,
-            &mut prover_state,
             &mut proof,
             &mut prover_challenger,
             statement.clone(),
@@ -207,24 +199,21 @@ fn main() {
     // Create a verifier with matching parameters
     let verifier = Verifier::new(&params);
 
-    // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
+    // Initialize the verifier's challenger with domain separator
     let mut verifier_challenger = challenger.clone();
-    let mut verifier_state =
-        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+    domainsep.observe_domain_separator(&mut verifier_challenger);
 
     // Parse the commitment
-    let parsed_commitment = commitment_reader
-        .parse_commitment::<8>(&mut verifier_state, &proof, &mut verifier_challenger)
-        .unwrap();
+    let parsed_commitment =
+        commitment_reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
 
     let verif_time = Instant::now();
     verifier
         .verify(
-            &mut verifier_state,
-            &parsed_commitment,
-            statement,
             &proof,
             &mut verifier_challenger,
+            &parsed_commitment,
+            statement,
         )
         .unwrap();
     let verify_time = verif_time.elapsed();
@@ -235,7 +224,6 @@ fn main() {
         commit_time.as_millis(),
         opening_time.as_millis()
     );
-    let proof_size = prover_state.proof_data().len() as f64 * (F::ORDER_U64 as f64).log2() / 8.0;
-    println!("proof size: {:.2} KiB", proof_size / 1024.0);
+    // TODO: Add proof serialization to calculate proof size
     println!("Verification time: {} μs", verify_time.as_micros());
 }

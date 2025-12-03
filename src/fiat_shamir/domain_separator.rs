@@ -6,11 +6,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{
-        pattern::{Hint, Observe, Pattern, Sample},
-        prover::ProverState,
-        verifier::VerifierState,
-    },
+    fiat_shamir::pattern::{Hint, Observe, Pattern, Sample},
     whir::parameters::{InitialPhaseConfig, WhirConfig},
 };
 
@@ -96,31 +92,6 @@ where
     #[must_use]
     pub fn as_field_elements(&self) -> Vec<F> {
         self.pattern.clone()
-    }
-
-    /// Create a prover state from the domain separator
-    #[must_use]
-    pub fn to_prover_state<Challenger>(
-        &self,
-        challenger: Challenger,
-    ) -> ProverState<F, EF, Challenger>
-    where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    {
-        ProverState::new(self, challenger)
-    }
-
-    /// Create a verifier state from the domain separator
-    #[must_use]
-    pub fn to_verifier_state<Challenger>(
-        &self,
-        proof_data: Vec<F>,
-        challenger: Challenger,
-    ) -> VerifierState<F, EF, Challenger>
-    where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    {
-        VerifierState::new(self, proof_data, challenger)
     }
 
     /// Observe the domain separator into the challenger

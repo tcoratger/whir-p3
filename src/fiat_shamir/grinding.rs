@@ -263,4 +263,38 @@ mod tests {
             "Witness for 4 bits should not satisfy 8 bits difficulty"
         );
     }
+
+    /// CRITICAL TEST: Verify that after pow_grinding (prover) and check_pow_grinding (verifier),
+    /// both challengers end up in the SAME state.
+    ///
+    /// If this test fails, the transcript will diverge and STIR queries will differ.
+    #[test]
+    fn test_pow_grinding_and_check_leave_same_state() {
+        use p3_challenger::CanSample;
+
+        for bits in 1..=8 {
+            // Start both from identical state
+            let mut prover_challenger = make_challenger();
+            let mut verifier_challenger = make_challenger();
+
+            // Prover grinds
+            let witness = pow_grinding(&mut prover_challenger, bits);
+
+            // Verifier checks
+            let result = check_pow_grinding(&mut verifier_challenger, witness, bits);
+            assert!(
+                result.is_ok(),
+                "Verification should succeed for bits = {bits}"
+            );
+
+            // CRITICAL: Sample from both and verify they match
+            let prover_sample: F = prover_challenger.sample();
+            let verifier_sample: F = verifier_challenger.sample();
+
+            assert_eq!(
+                prover_sample, verifier_sample,
+                "Challenger states diverged after pow_grinding/check_pow_grinding for bits = {bits}"
+            );
+        }
+    }
 }

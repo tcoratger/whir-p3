@@ -1,10 +1,10 @@
 use alloc::vec::Vec;
 
 use p3_challenger::FieldChallenger;
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 use p3_util::log2_strict_usize;
 
-use crate::fiat_shamir::{ChallengeSampler, errors::FiatShamirError};
+use crate::fiat_shamir::errors::FiatShamirError;
 
 /// Computes the optimal workload size for `T` to fit in L1 cache (32 KB).
 ///
@@ -38,31 +38,26 @@ pub const fn workload_size<T: Sized>() -> usize {
 /// This is an optimized version that batches randomness sampling when beneficial,
 /// reducing the number of expensive transcript operations.
 ///
-/// Samples from both `prover_state` and `challenger` in parallel and asserts they produce the same results,
-/// ensuring dual-system verification.
-///
 /// ## Parameters
 /// - `domain_size`: Original evaluation domain size before folding
 /// - `folding_factor`: Number of folding rounds (domain reduction = 2^folding_factor)
 /// - `num_queries`: Target number of query indices to sample
-/// - `prover_state`: Fiat-Shamir transcript state for deterministic randomness
-/// - `challenger`: External challenger to keep in sync with prover_state
+/// - `challenger`: Fiat-Shamir challenger for deterministic randomness sampling
 ///
 /// **WARNING:** The domain size must be a power of two.
 ///
 /// ## Returns
 /// Sorted, deduplicated vector of query indices in [0, folded_domain_size)
-pub fn get_challenge_stir_queries<ProverChallenger, Challenger, F, EF>(
+pub fn get_challenge_stir_queries<Challenger, F, EF>(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,
-    prover_state: &mut ProverChallenger,
-    mut challenger: Option<&mut Challenger>,
+    challenger: &mut Challenger,
 ) -> Result<Vec<usize>, FiatShamirError>
 where
-    ProverChallenger: ChallengeSampler<EF>,
     Challenger: FieldChallenger<F>,
     F: Field,
+    EF: ExtensionField<F>,
 {
     // COMPUTE DOMAIN AND BATCHING PARAMETERS
 
@@ -95,18 +90,8 @@ where
         // This path is taken when the total entropy for all queries fits within a single,
         // safe call to the transcript, reducing N transcript operations to just 1.
 
-        // Sample all the random bits needed for all queries.
-        let mut all_bits = prover_state.sample_bits(total_bits_needed);
-
-        // If challenger is provided, sample from it too and assert consistency
-        if let Some(challenger) = challenger {
-            let all_bits_rf = challenger.sample_bits(total_bits_needed);
-            assert_eq!(
-                all_bits, all_bits_rf,
-                "STIR query bits diverged between prover_state and external challenger"
-            );
-        }
-
+        // Sample all the random bits needed for all queries in one go.
+        let mut all_bits = challenger.sample_bits(total_bits_needed);
         // Create a bitmask to extract `domain_size_bits` chunks from the sampled randomness.
         //
         // Example: 16 bits -> (1 << 16) - 1 -> 0b1111_1111_1111_1111
@@ -148,16 +133,9 @@ where
                 let batch_bits = batch_size * domain_size_bits;
 
                 // Sample just enough bits for the current batch.
-                let mut all_bits = prover_state.sample_bits(batch_bits);
-
-                // If challenger is provided, sample from it too and assert consistency
-                if let Some(ref mut c) = challenger {
-                    let all_bits_rf = c.sample_bits(batch_bits);
-                    assert_eq!(
-                        all_bits, all_bits_rf,
-                        "STIR query bits diverged between prover_state and external challenger"
-                    );
-                }
+                //
+                // This is the expensive operation.
+                let mut all_bits = challenger.sample_bits(batch_bits);
 
                 // Unpack the batch of bits into query indices, same as the single-batch path.
                 for _ in 0..batch_size {
@@ -176,18 +154,8 @@ where
             // 2 queries per call), we fall back to the naive approach of one call per query.
 
             for _ in 0..num_queries {
-                let bits = prover_state.sample_bits(domain_size_bits);
-
-                // If challenger is provided, sample from it too and assert consistency
-                if let Some(ref mut c) = challenger {
-                    let bits_rf = c.sample_bits(domain_size_bits);
-                    assert_eq!(
-                        bits, bits_rf,
-                        "STIR query bits diverged between prover_state and external challenger"
-                    );
-                }
-
-                queries.push(bits % folded_domain_size);
+                let value = challenger.sample_bits(domain_size_bits);
+                queries.push(value);
             }
         }
     }

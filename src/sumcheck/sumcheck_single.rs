@@ -8,7 +8,7 @@ use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
-    fiat_shamir::{grinding::sync_pow_grinding, prover::ProverState},
+    fiat_shamir::grinding::pow_grinding,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
     whir::{
@@ -27,7 +27,8 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// and then uses that challenge to compress both the polynomial evaluations and the constraint weights.
 ///
 /// ## Arguments
-/// * `prover_state`: A mutable reference to the `ProverState`, which manages the Fiat-Shamir transcript.
+/// * `sumcheck_data`: A mutable reference to the sumcheck data structure for storing polynomial evaluations.
+/// * `challenger`: A mutable reference to the Fiat-Shamir challenger for transcript management.
 /// * `evals`: A reference to the polynomial's evaluations in the base field `F`.
 /// * `weights`: A mutable reference to the weight evaluations in the extension field `EF`.
 /// * `sum`: A mutable reference to the claimed sum, which is updated with the new value after folding.
@@ -39,7 +40,6 @@ const PARALLEL_THRESHOLD: usize = 4096;
 /// * The new, compressed polynomial evaluations as an `EvaluationsList<EF>`.
 #[instrument(skip_all)]
 fn initial_round<Challenger, F: Field, EF: ExtensionField<F>>(
-    prover_state: &mut ProverState<F, EF, Challenger>,
     sumcheck_data: &mut SumcheckData<EF, F>,
     challenger: &mut Challenger,
     evals: &EvaluationsList<F>,
@@ -59,28 +59,17 @@ where
     sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
 
     // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
-    prover_state.add_extension_scalar(c_0);
-    prover_state.add_extension_scalar(c_2);
-
-    // Observe polynomial evaluations for external challenger
     let flattened = EF::flatten_to_base(vec![c_0, c_2]);
     challenger.observe_slice(&flattened);
 
     // Proof-of-work challenge to delay prover
-    let witness = prover_state.pow_grinding(pow_bits);
-    // Sync: verify the same witness on external challenger
-    sync_pow_grinding(challenger, witness, pow_bits);
+    let witness = pow_grinding(challenger, pow_bits);
 
     // Store PoW witness if present
     sumcheck_data.push_pow_witness(witness);
 
     // Sample verifier challenge.
-    let r: EF = prover_state.sample();
-    let r_rf: EF = challenger.sample_algebra_element();
-    assert_eq!(
-        r, r_rf,
-        "External challenger and prover_state challenger diverged"
-    );
+    let r: EF = challenger.sample_algebra_element();
 
     // Compress polynomials and update the sum.
     let evals = join(|| weights.compress(r), || evals.compress_ext(r)).1;
@@ -102,7 +91,8 @@ where
 /// and then compresses both the polynomial and weight evaluations in-place.
 ///
 /// ## Arguments
-/// * `prover_state` - A mutable reference to the `ProverState`, managing the Fiat-Shamir transcript.
+/// * `sumcheck_data` - A mutable reference to the sumcheck data structure for storing polynomial evaluations.
+/// * `challenger` - A mutable reference to the Fiat-Shamir challenger for transcript management.
 /// * `evals` - A mutable reference to the polynomial's evaluations in `EF`, which will be compressed.
 /// * `weights` - A mutable reference to the weight evaluations in `EF`, which will also be compressed.
 /// * `sum` - A mutable reference to the claimed sum, updated after folding.
@@ -114,7 +104,6 @@ where
 fn round<Challenger, F: Field, EF: ExtensionField<F>>(
     sumcheck_data: &mut SumcheckData<EF, F>,
     challenger: &mut Challenger,
-    prover_state: &mut ProverState<F, EF, Challenger>,
     evals: &mut EvaluationsList<EF>,
     weights: &mut EvaluationsList<EF>,
     sum: &mut EF,
@@ -132,28 +121,17 @@ where
     sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
 
     // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
-    prover_state.add_extension_scalar(c_0);
-    prover_state.add_extension_scalar(c_2);
-
-    // Observe polynomial evaluations for external challenger
     let flattened = EF::flatten_to_base(vec![c_0, c_2]);
     challenger.observe_slice(&flattened);
 
     // Proof-of-work challenge to delay prover
-    let witness = prover_state.pow_grinding(pow_bits);
-    // Sync: verify the same witness on external challenger
-    sync_pow_grinding(challenger, witness, pow_bits);
+    let witness = pow_grinding(challenger, pow_bits);
 
     // Store PoW witness if present
     sumcheck_data.push_pow_witness(witness);
 
-    // Sample verifier challenge from both and verify consistency
-    let r: EF = prover_state.sample();
-    let r_rf: EF = challenger.sample_algebra_element();
-    assert_eq!(
-        r, r_rf,
-        "External challenger and prover_state challenger diverged in round()"
-    );
+    // Sample verifier challenge.
+    let r: EF = challenger.sample_algebra_element();
 
     // Compress polynomials and update the sum.
     join(|| evals.compress(r), || weights.compress(r));
@@ -350,7 +328,6 @@ where
     #[instrument(skip_all)]
     pub fn from_base_evals<Challenger>(
         evals: &EvaluationsList<F>,
-        prover_state: &mut ProverState<F, EF, Challenger>,
         sumcheck: &mut SumcheckData<EF, F>,
         challenger: &mut Challenger,
         folding_factor: usize,
@@ -367,7 +344,6 @@ where
         let (mut weights, mut sum) = constraint.combine_new();
 
         let (first_round, mut evals) = initial_round(
-            prover_state,
             sumcheck,
             challenger,
             evals,
@@ -382,7 +358,6 @@ where
             res.push(round::<Challenger, F, EF>(
                 sumcheck,
                 challenger,
-                prover_state,
                 &mut evals,
                 &mut weights,
                 &mut sum,
@@ -411,7 +386,6 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn with_skip<Challenger>(
         evals: &EvaluationsList<F>,
-        prover_state: &mut ProverState<F, EF, Challenger>,
         skip_data: &mut SumcheckSkipData<EF, F>,
         challenger: &mut Challenger,
         folding_factor: usize,
@@ -457,7 +431,6 @@ where
         let polynomial_skip_evaluation = sumcheck_poly.evaluations();
 
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
-        prover_state.add_extension_scalars(sumcheck_poly.evaluations());
         let flattened = EF::flatten_to_base(polynomial_skip_evaluation.to_vec());
         challenger.observe_slice(&flattened);
 
@@ -467,15 +440,10 @@ where
             .extend_from_slice(polynomial_skip_evaluation);
 
         // Proof-of-work challenge to delay prover.
-        let witness = prover_state.pow_grinding(pow_bits);
-        // Sync: verify the same witness on external challenger
-        sync_pow_grinding(challenger, witness, pow_bits);
-        skip_data.pow = witness;
+        skip_data.pow = pow_grinding(challenger, pow_bits);
 
         // Receive the verifier challenge for this entire collapsed round.
-        let r: EF = prover_state.sample();
-        let r_rf: EF = challenger.sample_algebra_element();
-        assert_eq!(r, r_rf);
+        let r: EF = challenger.sample_algebra_element();
 
         // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
         let new_p = interpolate_subgroup(&f_mat, r);
@@ -500,7 +468,6 @@ where
             res.push(round(
                 &mut skip_data.sumcheck,
                 challenger,
-                prover_state,
                 &mut evals,
                 &mut weights,
                 &mut sum,
@@ -536,11 +503,11 @@ where
     /// computations, improving prover efficiency.
     ///
     /// # Arguments
-    /// - `prover_state`: The state of the prover, managing Fiat-Shamir transcript and PoW grinding.
+    /// - `sumcheck_data`: A mutable reference to the sumcheck data structure for storing polynomial evaluations.
+    /// - `challenger`: A mutable reference to the Fiat-Shamir challenger for transcript management and PoW grinding.
     /// - `folding_factor`: Number of variables to fold in total.
     /// - `pow_bits`: Number of PoW bits used to delay the prover (0.0 to disable).
-    /// - `k_skip`: Optional number of initial variables to skip using the univariate optimization.
-    /// - `dft`: A two-adic FFT backend used for low-degree extensions over cosets.
+    /// - `constraint`: Optional constraint to combine into the sumcheck weights.
     ///
     /// # Returns
     /// A `MultilinearPoint<EF>` representing the verifier's challenges across all folded variables.
@@ -551,7 +518,6 @@ where
     #[instrument(skip_all)]
     pub fn compute_sumcheck_polynomials<Challenger>(
         &mut self,
-        prover_state: &mut ProverState<F, EF, Challenger>,
         sumcheck_data: &mut SumcheckData<EF, F>,
         challenger: &mut Challenger,
         folding_factor: usize,
@@ -574,7 +540,6 @@ where
                 round(
                     sumcheck_data,
                     challenger,
-                    prover_state,
                     &mut self.evals,
                     &mut self.weights,
                     &mut self.sum,

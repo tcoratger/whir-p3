@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use core::ops::{Add, AddAssign};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
@@ -6,9 +6,10 @@ use p3_field::{ExtensionField, Field};
 use p3_maybe_rayon::prelude::*;
 
 use crate::{
-    fiat_shamir::prover::ProverState,
+    fiat_shamir::grinding::pow_grinding,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{eq_state::SumcheckEqState, sumcheck_single_svo::NUM_SVO_ROUNDS},
+    whir::proof::SumcheckData,
 };
 
 /// A container for the SVO accumulators for a specific number of rounds `N`.
@@ -93,8 +94,10 @@ impl<F: Field, const N: usize> AddAssign for SvoAccumulators<F, N> {
 
 /// Algorithm 6. Page 19.
 /// Compute three sumcheck rounds using the small value optimization and split-eq accumulators.
+#[allow(clippy::too_many_arguments)]
 pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
-    prover_state: &mut ProverState<F, EF, Challenger>,
+    sumcheck_data: &mut SumcheckData<EF, F>,
+    challenger: &mut Challenger,
     poly: &EvaluationsList<F>,
     w: &MultilinearPoint<EF>,
     eq_poly: &mut SumcheckEqState<'_, EF, NUM_SVO_ROUNDS>,
@@ -131,12 +134,13 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     let s_inf = (t_1_evals[1] - t_1_evals[0]) * (linear_1_evals[1] - linear_1_evals[0]);
 
     // 3. Send S_1(u) to the verifier.
-    prover_state.add_extension_scalars(&[s_0, s_inf]);
+    sumcheck_data.polynomial_evaluations.push([s_0, s_inf]);
+    challenger.observe_slice(&EF::flatten_to_base(vec![s_0, s_inf]));
 
-    prover_state.pow_grinding(pow_bits);
+    sumcheck_data.push_pow_witness(pow_grinding(challenger, pow_bits));
 
     // 4. Receive the challenge r_1 from the verifier.
-    let r_1: EF = prover_state.sample();
+    let r_1: EF = challenger.sample_algebra_element();
     challenges.push(r_1);
     eq_poly.bind(r_1);
 
@@ -174,12 +178,13 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     let s_inf = (t_2_evals[1] - t_2_evals[0]) * (linear_2_evals[1] - linear_2_evals[0]);
 
     // 3. Send S_2(u) to the verifier.
-    prover_state.add_extension_scalars(&[s_0, s_inf]);
+    sumcheck_data.polynomial_evaluations.push([s_0, s_inf]);
+    challenger.observe_slice(&EF::flatten_to_base(vec![s_0, s_inf]));
 
-    prover_state.pow_grinding(pow_bits);
+    sumcheck_data.push_pow_witness(pow_grinding(challenger, pow_bits));
 
     // 4. Receive the challenge r_2 from the verifier.
-    let r_2: EF = prover_state.sample();
+    let r_2: EF = challenger.sample_algebra_element();
     challenges.push(r_2);
     eq_poly.bind(r_2);
 
@@ -238,12 +243,16 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     ];
 
     // 3. Send S_3(u) to the verifier.
-    prover_state.add_extension_scalars(&round_poly_evals);
+    sumcheck_data.polynomial_evaluations.push(round_poly_evals);
+    challenger.observe_slice(&EF::flatten_to_base(vec![
+        round_poly_evals[0],
+        round_poly_evals[1],
+    ]));
 
-    prover_state.pow_grinding(pow_bits);
+    sumcheck_data.push_pow_witness(pow_grinding(challenger, pow_bits));
 
     // 4. Receive the challenge r_3 from the verifier.
-    let r_3: EF = prover_state.sample();
+    let r_3: EF = challenger.sample_algebra_element();
     challenges.push(r_3);
     eq_poly.bind(r_3);
 
@@ -361,7 +370,8 @@ where
 /// Algorithm 5. Page 18.
 /// Compute the remaining sumcheck rounds, from round l0 + 1 to round l.
 pub fn algorithm_5<Challenger, F, EF>(
-    prover_state: &mut ProverState<F, EF, Challenger>,
+    sumcheck_data: &mut SumcheckData<EF, F>,
+    challenger: &mut Challenger,
     poly: &mut EvaluationsList<EF>,
     eq_poly: &mut SumcheckEqState<'_, EF, NUM_SVO_ROUNDS>,
     challenges: &mut Vec<EF>,
@@ -398,11 +408,12 @@ pub fn algorithm_5<Challenger, F, EF>(
         let s_inf = (t_evals[1] - t_evals[0]) * (linear_evals[1] - linear_evals[0]);
 
         // Send S_i(u) to the verifier
-        prover_state.add_extension_scalars(&[s_0, s_inf]);
-        prover_state.pow_grinding(pow_bits);
+        sumcheck_data.polynomial_evaluations.push([s_0, s_inf]);
+        challenger.observe_slice(&EF::flatten_to_base(vec![s_0, s_inf]));
+        sumcheck_data.push_pow_witness(pow_grinding(challenger, pow_bits));
 
         // Receive the challenge r_i from the verifier
-        let r_i: EF = prover_state.sample();
+        let r_i: EF = challenger.sample_algebra_element();
         challenges.push(r_i);
 
         // Update state for next round: binding updates scalar AND pops used table
