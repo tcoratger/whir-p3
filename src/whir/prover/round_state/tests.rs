@@ -247,10 +247,10 @@ fn test_initial_statement_with_folding_factor_3() {
     let sumcheck_randomness = state.folding_randomness.clone();
 
     // With a folding factor of 3, all variables are collapsed in 1 round, so we expect only 1 evaluation left
-    assert_eq!(sumcheck.evals.num_evals(), 1);
+    assert_eq!(sumcheck.num_evals(), 1);
 
     // The value of f at the folding point should match the evaluation
-    let eval_at_point = sumcheck.evals.as_slice()[0];
+    let eval_at_point = sumcheck.evals().as_slice()[0];
     let expected = f(
         sumcheck_randomness[0],
         sumcheck_randomness[1],
@@ -259,12 +259,7 @@ fn test_initial_statement_with_folding_factor_3() {
     assert_eq!(eval_at_point, expected);
 
     // Check that dot product of evaluations and weights matches the final sum
-    let dot_product: EF4 = sumcheck
-        .evals
-        .iter()
-        .zip(&sumcheck.weights)
-        .map(|(&f, &w)| f * w)
-        .sum();
+    let dot_product: EF4 = sumcheck.quad.prod();
     assert_eq!(dot_product, sumcheck.sum);
 
     // The `folding_randomness` should store values in forward order (X0, X1, X2)
@@ -325,7 +320,7 @@ fn test_zero_poly_multiple_constraints() {
     let sumcheck = &state.sumcheck_prover;
     let sumcheck_randomness = state.folding_randomness.clone();
 
-    for (f, w) in sumcheck.evals.iter().zip(&sumcheck.weights) {
+    for (f, w) in sumcheck.evals().iter().zip(&sumcheck.weights()) {
         // Each evaluation should be 0
         assert_eq!(*f, EF4::ZERO);
         // Their contribution to the weighted sum should also be 0
@@ -416,9 +411,9 @@ fn test_initialize_round_state_with_initial_statement() {
     let sumcheck_randomness = &state.folding_randomness;
 
     // Evaluate f at (32636, 9876, r0) and match it with the sumcheck's recovered evaluation
-    let evals_f = &sumcheck.evals;
+    let evals_f = &sumcheck.evals();
     assert_eq!(
-        evals_f.evaluate_hypercube(&MultilinearPoint::new(vec![
+        evals_f.evaluate_hypercube_ext::<F>(&MultilinearPoint::new(vec![
             EF4::from_u64(32636),
             EF4::from_u64(9876)
         ])),
@@ -429,15 +424,8 @@ fn test_initialize_round_state_with_initial_statement() {
         )
     );
 
-    let evals_f = evals_f.as_slice();
-    let weights = sumcheck.weights.as_slice();
-
     // Manually verify that ⟨f, w⟩ = claimed sum
-    let dot_product = evals_f[0] * weights[0]
-        + evals_f[1] * weights[1]
-        + evals_f[2] * weights[2]
-        + evals_f[3] * weights[3];
-    assert_eq!(dot_product, sumcheck.sum);
+    assert_eq!(sumcheck.quad.prod(), sumcheck.sum);
 
     // No Merkle tree data has been created for folded rounds yet
     assert!(state.merkle_prover_data.is_none());
