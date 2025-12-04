@@ -12,7 +12,7 @@ use tracing::instrument;
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::FiatShamirError, grinding::pow_grinding},
+    fiat_shamir::errors::FiatShamirError,
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
@@ -209,7 +209,7 @@ where
             }
 
             // Branch: WithoutStatement - direct polynomial folding path
-            InitialPhase::WithoutStatement { pow_witnesses } => {
+            InitialPhase::WithoutStatement { pow_witness } => {
                 // Sample folding challenges α_1, ..., α_k
                 let folding_randomness = MultilinearPoint::new(
                     (0..prover.folding_factor.at_round(0))
@@ -228,8 +228,10 @@ where
                     EF::ONE,
                 );
 
-                // Apply proof-of-work grinding and store witness
-                *pow_witnesses = pow_grinding(challenger, prover.starting_folding_pow_bits);
+                // Apply proof-of-work grinding and store witness (only if pow_bits > 0)
+                if prover.starting_folding_pow_bits > 0 {
+                    *pow_witness = challenger.grind(prover.starting_folding_pow_bits);
+                }
 
                 (sumcheck, folding_randomness)
             }

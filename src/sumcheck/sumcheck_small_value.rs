@@ -6,7 +6,6 @@ use p3_field::{ExtensionField, Field};
 use p3_maybe_rayon::prelude::*;
 
 use crate::{
-    fiat_shamir::grinding::pow_grinding,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{eq_state::SumcheckEqState, sumcheck_single_svo::NUM_SVO_ROUNDS},
     whir::proof::SumcheckData,
@@ -138,7 +137,9 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     challenger.observe_algebra_element(s_0);
     challenger.observe_algebra_element(s_inf);
 
-    sumcheck_data.push_pow_witness(pow_grinding(challenger, pow_bits));
+    if pow_bits > 0 {
+        sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
+    }
 
     // 4. Receive the challenge r_1 from the verifier.
     let r_1: EF = challenger.sample_algebra_element();
@@ -183,7 +184,9 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     challenger.observe_algebra_element(s_0);
     challenger.observe_algebra_element(s_inf);
 
-    sumcheck_data.push_pow_witness(pow_grinding(challenger, pow_bits));
+    if pow_bits > 0 {
+        sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
+    }
 
     // 4. Receive the challenge r_2 from the verifier.
     let r_2: EF = challenger.sample_algebra_element();
@@ -249,7 +252,9 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
     challenger.observe_algebra_element(round_poly_evals[0]);
     challenger.observe_algebra_element(round_poly_evals[1]);
 
-    sumcheck_data.push_pow_witness(pow_grinding(challenger, pow_bits));
+    if pow_bits > 0 {
+        sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
+    }
 
     // 4. Receive the challenge r_3 from the verifier.
     let r_3: EF = challenger.sample_algebra_element();
@@ -411,7 +416,9 @@ pub fn algorithm_5<Challenger, F, EF>(
         sumcheck_data.polynomial_evaluations.push([s_0, s_inf]);
         challenger.observe_algebra_element(s_0);
         challenger.observe_algebra_element(s_inf);
-        sumcheck_data.push_pow_witness(pow_grinding(challenger, pow_bits));
+        if pow_bits > 0 {
+            sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
+        }
 
         // Receive the challenge r_i from the verifier
         let r_i: EF = challenger.sample_algebra_element();

@@ -7,7 +7,6 @@ use p3_matrix::dense::RowMajorMatrix;
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::grinding::check_pow_grinding,
     poly::multilinear::MultilinearPoint,
     whir::{
         proof::{InitialPhase, SumcheckData, SumcheckSkipData, WhirRoundProof},
@@ -35,7 +34,7 @@ use crate::{
 /// # Arguments
 ///
 /// - `polynomial_evaluations`: The polynomial evaluations (c0, c2) for each round.
-/// - `pow_witnesses`: Optional PoW witnesses from the prover.
+/// - `pow_witnesses`: PoW witnesses from the prover.
 /// - `challenger`: The Fiat-Shamir challenger for transcript management.
 /// - `claimed_sum`: Mutable reference to the claimed sum, updated each round.
 /// - `pow_bits`: Proof-of-work difficulty (0 disables PoW).
@@ -46,7 +45,7 @@ use crate::{
 ///   Common helper function to verify standard sumcheck rounds
 fn verify_standard_sumcheck_rounds<F, EF, Challenger>(
     polynomial_evaluations: &[[EF; 2]],
-    pow_witnesses: Option<&[F]>,
+    pow_witnesses: &[F],
     challenger: &mut Challenger,
     claimed_sum: &mut EF,
     pow_bits: usize,
@@ -66,12 +65,10 @@ where
         challenger.observe_algebra_element(c0);
         challenger.observe_algebra_element(c2);
 
-        // Verify PoW if present
-        check_pow_grinding(
-            challenger,
-            pow_witnesses.and_then(|w| w.get(i).copied()),
-            pow_bits,
-        )?;
+        // Verify PoW (only if pow_bits > 0)
+        if pow_bits > 0 && !challenger.check_witness(pow_bits, pow_witnesses[i]) {
+            return Err(VerifierError::InvalidPowWitness);
+        }
 
         // Sample challenge
         let r: EF = challenger.sample_algebra_element();
@@ -137,7 +134,9 @@ where
             let flattened: Vec<F> = EF::flatten_to_base(skip_evaluations.clone());
             challenger.observe_slice(&flattened);
 
-            check_pow_grinding(challenger, *skip_pow, pow_bits)?;
+            if pow_bits > 0 && !challenger.check_witness(pow_bits, *skip_pow) {
+                return Err(VerifierError::InvalidPowWitness);
+            }
 
             // Sample challenge for the skip round
             let r_skip: EF = challenger.sample_algebra_element();
@@ -152,7 +151,7 @@ where
 
             let standard_randomness = verify_standard_sumcheck_rounds(
                 &sumcheck.polynomial_evaluations[0..remaining_rounds],
-                sumcheck.pow_witnesses.as_deref(),
+                &sumcheck.pow_witnesses,
                 challenger,
                 claimed_sum,
                 pow_bits,
@@ -166,7 +165,7 @@ where
             // Standard initial sumcheck without skip
             let randomness = verify_standard_sumcheck_rounds(
                 &sumcheck.polynomial_evaluations,
-                sumcheck.pow_witnesses.as_deref(),
+                &sumcheck.pow_witnesses,
                 challenger,
                 claimed_sum,
                 pow_bits,
@@ -175,14 +174,16 @@ where
             Ok(MultilinearPoint::new(randomness))
         }
 
-        InitialPhase::WithoutStatement { pow_witnesses } => {
+        InitialPhase::WithoutStatement { pow_witness } => {
             // No sumcheck - just sample folding randomness directly
             let randomness: Vec<EF> = (0..rounds)
                 .map(|_| challenger.sample_algebra_element())
                 .collect();
 
             // Check PoW
-            check_pow_grinding(challenger, *pow_witnesses, pow_bits)?;
+            if pow_bits > 0 && !challenger.check_witness(pow_bits, *pow_witness) {
+                return Err(VerifierError::InvalidPowWitness);
+            }
 
             Ok(MultilinearPoint::new(randomness))
         }
@@ -191,7 +192,7 @@ where
             // Fallback to WithStatement behavior (WithStatementSvo not yet implemented)
             let randomness = verify_standard_sumcheck_rounds(
                 &sumcheck.polynomial_evaluations,
-                sumcheck.pow_witnesses.as_deref(),
+                &sumcheck.pow_witnesses,
                 challenger,
                 claimed_sum,
                 pow_bits,
@@ -231,7 +232,7 @@ where
 
     let randomness = verify_standard_sumcheck_rounds(
         &sumcheck.polynomial_evaluations,
-        sumcheck.pow_witnesses.as_deref(),
+        &sumcheck.pow_witnesses,
         challenger,
         claimed_sum,
         pow_bits,
@@ -278,7 +279,7 @@ where
 
     let randomness = verify_standard_sumcheck_rounds(
         &sumcheck.polynomial_evaluations,
-        sumcheck.pow_witnesses.as_deref(),
+        &sumcheck.pow_witnesses,
         challenger,
         claimed_sum,
         pow_bits,
