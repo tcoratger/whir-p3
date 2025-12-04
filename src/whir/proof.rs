@@ -8,11 +8,18 @@ use crate::{
     whir::parameters::InitialPhaseConfig,
 };
 
+/// Helper function for serde to skip serializing default values.
+/// Used with `#[serde(skip_serializing_if = "is_default")]` to avoid
+/// serializing zero PoW witnesses when PoW is disabled.
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
+
 /// Complete WHIR proof
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(bound(
-    serialize = "F: Serialize, EF: Serialize, [F; DIGEST_ELEMS]: Serialize",
-    deserialize = "F: Deserialize<'de>, EF: Deserialize<'de>, [F; DIGEST_ELEMS]: Deserialize<'de>"
+    serialize = "F: Serialize + Default + PartialEq, EF: Serialize, [F; DIGEST_ELEMS]: Serialize",
+    deserialize = "F: Deserialize<'de> + Default, EF: Deserialize<'de>, [F; DIGEST_ELEMS]: Deserialize<'de>"
 ))]
 pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
     /// Initial polynomial commitment (Merkle root)
@@ -31,6 +38,7 @@ pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
     pub final_poly: Option<EvaluationsList<EF>>,
 
     /// Final round PoW witness
+    #[serde(default, skip_serializing_if = "is_default")]
     pub final_pow_witness: F,
 
     /// Final round query openings
@@ -59,7 +67,13 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default
 
 /// Initial phase of WHIR protocol
 #[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "type")]
+#[serde(
+    tag = "type",
+    bound(
+        serialize = "F: Serialize + Default + PartialEq, EF: Serialize",
+        deserialize = "F: Deserialize<'de> + Default, EF: Deserialize<'de>"
+    )
+)]
 pub enum InitialPhase<EF, F> {
     /// Protocol with statement and univariate skip optimization
     #[serde(rename = "with_statement_skip")]
@@ -83,7 +97,10 @@ pub enum InitialPhase<EF, F> {
 
     /// Protocol without statement (direct folding)
     #[serde(rename = "without_statement")]
-    WithoutStatement { pow_witness: F },
+    WithoutStatement {
+        #[serde(default, skip_serializing_if = "is_default")]
+        pow_witness: F,
+    },
 }
 
 impl<F: Default, EF: Default> Default for InitialPhase<EF, F> {
@@ -97,8 +114,8 @@ impl<F: Default, EF: Default> Default for InitialPhase<EF, F> {
 /// Data for a single WHIR round
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(bound(
-    serialize = "F: Serialize, EF: Serialize, [F; DIGEST_ELEMS]: Serialize",
-    deserialize = "F: Deserialize<'de>, EF: Deserialize<'de>, [F; DIGEST_ELEMS]: Deserialize<'de>"
+    serialize = "F: Serialize + Default + PartialEq, EF: Serialize, [F; DIGEST_ELEMS]: Serialize",
+    deserialize = "F: Deserialize<'de> + Default, EF: Deserialize<'de>, [F; DIGEST_ELEMS]: Deserialize<'de>"
 ))]
 pub struct WhirRoundProof<F, EF, const DIGEST_ELEMS: usize> {
     /// Round commitment (Merkle root)
@@ -108,6 +125,7 @@ pub struct WhirRoundProof<F, EF, const DIGEST_ELEMS: usize> {
     pub ood_answers: Vec<EF>,
 
     /// PoW witness after commitment
+    #[serde(default, skip_serializing_if = "is_default")]
     pub pow_witness: F,
 
     /// STIR query openings
@@ -164,6 +182,10 @@ pub enum QueryOpening<F, EF, const DIGEST_ELEMS: usize> {
 /// Stores the polynomial evaluations for sumcheck rounds in a compact format.
 /// Each round stores `[h(0), h(2)]` where `h(1)` is derived as `claimed_sum - h(0)`.
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
+#[serde(bound(
+    serialize = "F: Serialize, EF: Serialize",
+    deserialize = "F: Deserialize<'de>, EF: Deserialize<'de>"
+))]
 pub struct SumcheckData<EF, F> {
     /// Polynomial evaluations for each sumcheck round
     ///
@@ -176,6 +198,7 @@ pub struct SumcheckData<EF, F> {
 
     /// PoW witnesses for each sumcheck round
     /// Length: folding_factor
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pow_witnesses: Vec<F>,
 }
 
@@ -187,8 +210,13 @@ impl<EF, F> SumcheckData<EF, F> {
 }
 
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
+#[serde(bound(
+    serialize = "F: Serialize + Default + PartialEq, EF: Serialize",
+    deserialize = "F: Deserialize<'de> + Default, EF: Deserialize<'de>"
+))]
 pub struct SumcheckSkipData<EF, F> {
     pub evaluations: Vec<EF>,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub pow: F,
     pub sumcheck: SumcheckData<EF, F>,
 }
