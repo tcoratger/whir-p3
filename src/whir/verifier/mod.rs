@@ -18,7 +18,6 @@ use super::{
 use crate::{
     alloc::string::ToString,
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::grinding::check_pow_grinding,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         EqStatement,
@@ -286,12 +285,16 @@ where
         // commitment at a significant computational cost. This gives us confidence that the
         // challenges we generate are unpredictable and unbiased by a cheating prover.
         let pow_witness = if round_index < self.n_rounds() {
-            proof.get_pow_after_commitment(round_index)
+            proof
+                .get_pow_after_commitment(round_index)
+                .ok_or(VerifierError::InvalidRoundIndex { index: round_index })?
         } else {
             // Final round uses final_pow_witness
-            Some(proof.final_pow_witness)
+            proof.final_pow_witness
         };
-        check_pow_grinding(challenger, pow_witness, params.pow_bits)?;
+        if params.pow_bits > 0 && !challenger.check_witness(params.pow_bits, pow_witness) {
+            return Err(VerifierError::InvalidPowWitness);
+        }
 
         // Transcript checkpoint after PoW
         if round_index < self.n_rounds() {

@@ -8,7 +8,6 @@ use tracing::instrument;
 
 use super::sumcheck_polynomial::SumcheckPolynomial;
 use crate::{
-    fiat_shamir::grinding::pow_grinding,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
     whir::{
@@ -62,11 +61,10 @@ where
     challenger.observe_algebra_element(c_0);
     challenger.observe_algebra_element(c_2);
 
-    // Proof-of-work challenge to delay prover
-    let witness = pow_grinding(challenger, pow_bits);
-
-    // Store PoW witness if present
-    sumcheck_data.push_pow_witness(witness);
+    // Proof-of-work challenge to delay prover (only if pow_bits > 0)
+    if pow_bits > 0 {
+        sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
+    }
 
     // Sample verifier challenge.
     let r: EF = challenger.sample_algebra_element();
@@ -124,11 +122,10 @@ where
     challenger.observe_algebra_element(c_0);
     challenger.observe_algebra_element(c_2);
 
-    // Proof-of-work challenge to delay prover
-    let witness = pow_grinding(challenger, pow_bits);
-
-    // Store PoW witness if present
-    sumcheck_data.push_pow_witness(witness);
+    // Proof-of-work challenge to delay prover (only if pow_bits > 0)
+    if pow_bits > 0 {
+        sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
+    }
 
     // Sample verifier challenge.
     let r: EF = challenger.sample_algebra_element();
@@ -439,8 +436,10 @@ where
             .evaluations
             .extend_from_slice(polynomial_skip_evaluation);
 
-        // Proof-of-work challenge to delay prover.
-        skip_data.pow = pow_grinding(challenger, pow_bits);
+        // Proof-of-work challenge to delay prover (only if pow_bits > 0).
+        if pow_bits > 0 {
+            skip_data.pow = challenger.grind(pow_bits);
+        }
 
         // Receive the verifier challenge for this entire collapsed round.
         let r: EF = challenger.sample_algebra_element();
