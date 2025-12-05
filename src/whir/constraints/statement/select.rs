@@ -1,8 +1,6 @@
 use alloc::{vec, vec::Vec};
 
-use p3_field::{
-    ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing, dot_product,
-};
+use p3_field::{ExtensionField, Field, PackedValue, PrimeCharacteristicRing, dot_product};
 use p3_matrix::{Matrix, dense::RowMajorMatrixView};
 use p3_maybe_rayon::prelude::*;
 use p3_util::log2_strict_usize;
@@ -446,7 +444,7 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
             .powers()
             .skip(shift)
             .take(n)
-            .map(|alpha| EF::ExtensionPacking::from_ext_slice(&vec![alpha; F::Packing::WIDTH]))
+            .map(EF::ExtensionPacking::from)
             .collect::<Vec<_>>();
 
         weights

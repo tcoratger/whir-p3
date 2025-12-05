@@ -365,7 +365,7 @@ where
         self.0.extend_from_slice(&other.0);
     }
 
-    /// Transposes points so same-index variables are alligned in rows.
+    /// Transposes points so same-index variables are aligned in rows.
     pub(crate) fn transpose(points: &[Self], rev_order: bool) -> RowMajorMatrix<F> {
         let k = points
             .iter()
@@ -384,6 +384,14 @@ where
             });
         });
         RowMajorMatrix::new(flat, n)
+    }
+
+    /// Given a position splits the point into two sub-points.
+    pub(crate) fn split_at(&self, pos: usize) -> (Self, Self) {
+        (
+            Self::new(self.0.split_at(pos).0.to_vec()),
+            Self::new(self.0.split_at(pos).1.to_vec()),
+        )
     }
 }
 
