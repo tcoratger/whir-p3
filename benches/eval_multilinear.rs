@@ -3,7 +3,7 @@ use p3_baby_bear::BabyBear;
 use p3_field::extension::BinomialExtensionField;
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use whir_p3::poly::{
-    evals::{eval_multilinear, eval_multilinear_base, eval_multilinear_ext},
+    evals::{eval_multilinear_base, eval_multilinear_ext},
     multilinear::MultilinearPoint,
 };
 
@@ -29,17 +29,6 @@ fn bench_eval_multilinear_base(c: &mut Criterion) {
 
             (evals, point)
         };
-
-        let bench_id = BenchmarkId::new("old", num_vars);
-        group.bench_with_input(bench_id, &num_vars, |b, &n_vars| {
-            let routine = |(evals, point): (Vec<F>, MultilinearPoint<EF>)| {
-                let _ = std::hint::black_box(eval_multilinear(
-                    std::hint::black_box(&evals),
-                    std::hint::black_box(&point),
-                ));
-            };
-            b.iter_batched(|| setup(n_vars), routine, criterion::BatchSize::SmallInput);
-        });
 
         let bench_id = BenchmarkId::new("packed-split", num_vars);
         group.bench_with_input(bench_id, &num_vars, |b, &n_vars| {
@@ -74,17 +63,6 @@ fn bench_eval_multilinear_ext(c: &mut Criterion) {
 
             (evals, point)
         };
-
-        let bench_id = BenchmarkId::new("old", num_vars);
-        group.bench_with_input(bench_id, &num_vars, |b, &n_vars| {
-            let routine = |(evals, point): (Vec<EF>, MultilinearPoint<EF>)| {
-                let _ = std::hint::black_box(eval_multilinear(
-                    std::hint::black_box(&evals),
-                    std::hint::black_box(&point),
-                ));
-            };
-            b.iter_batched(|| setup(n_vars), routine, criterion::BatchSize::SmallInput);
-        });
 
         let bench_id = BenchmarkId::new("packed-split", num_vars);
         group.bench_with_input(bench_id, &num_vars, |b, &n_vars| {

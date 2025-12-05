@@ -49,27 +49,27 @@ pub fn unpack_slice_into<F: Field, Ext: ExtensionField<F>>(
 
 /// Unpack packed extension field elements to the standard representation.
 #[inline]
-pub fn unpack_slice<F: Field, Ext: ExtensionField<F>>(
-    packed: &[Ext::ExtensionPacking],
-) -> Vec<Ext> {
-    let mut out = Ext::zero_vec(packed.len() * F::Packing::WIDTH);
+pub fn unpack_slice<F: Field, EF: ExtensionField<F>>(
+    packed: &[EF::ExtensionPacking],
+) -> Vec<EF> {
+    let mut out = EF::zero_vec(packed.len() * F::Packing::WIDTH);
     unpack_slice_into(&mut out, packed);
     out
 }
 
 #[inline]
 /// Pack extension field elements into their packed representation.
-pub fn pack_slice<F: Field, Ext: ExtensionField<F>>(slice: &[Ext]) -> Vec<Ext::ExtensionPacking> {
+pub fn pack_slice<F: Field, EF: ExtensionField<F>>(slice: &[EF]) -> Vec<EF::ExtensionPacking> {
     const PARALLEL_THRESHOLD: usize = 4096;
     if slice.len() < PARALLEL_THRESHOLD {
         slice
             .chunks(F::Packing::WIDTH)
-            .map(|ext| Ext::ExtensionPacking::from_ext_slice(ext))
+            .map(|ext| EF::ExtensionPacking::from_ext_slice(ext))
             .collect()
     } else {
         slice
             .par_chunks(F::Packing::WIDTH)
-            .map(|ext| Ext::ExtensionPacking::from_ext_slice(ext))
+            .map(|ext| EF::ExtensionPacking::from_ext_slice(ext))
             .collect()
     }
 }
