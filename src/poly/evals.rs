@@ -331,7 +331,7 @@ where
     /// function `eq(P, X)` for all points `X` in the boolean hypercube, scaled by a value.
     ///
     /// ## Arguments
-    /// * `point`: A slice of field elements representing the point.
+    /// * `point`: A multilinear point.
     /// * `value`: A scalar value to multiply all evaluations by.
     ///
     /// ## Returns

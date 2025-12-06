@@ -304,7 +304,6 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     pub fn combine_new_packed(&self) -> (EvaluationsList<EF::ExtensionPacking>, EF) {
         let k_pack = log2_strict_usize(F::Packing::WIDTH);
         let k = self.num_variables();
-        // TODO: assert sizes
 
         // Initialize fresh accumulators for the weight polynomial and expected evaluation.
         // The weight polynomial needs 2^k entries for the full Boolean hypercube.
