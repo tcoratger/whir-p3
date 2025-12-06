@@ -1,4 +1,4 @@
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 
 use p3_field::{ExtensionField, Field, PackedValue, PrimeCharacteristicRing, dot_product};
 use p3_matrix::{Matrix, dense::RowMajorMatrixView};
@@ -15,7 +15,7 @@ fn flat_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> Vec<F> {
     let k = points.height();
     let n = points.width();
     let mut acc = F::zero_vec(n * (1 << k));
-    acc[..n].copy_from_slice(&vec![F::ONE; n]);
+    acc[..n].fill(F::ONE);
     points.row_slices().enumerate().for_each(|(i, vars)| {
         let (lo, hi) = acc.split_at_mut((1 << i) * n);
         lo.chunks_mut(n).zip(hi.chunks_mut(n)).for_each(|(lo, hi)| {
@@ -47,7 +47,7 @@ fn packed_flat_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> Vec<F::Packi
                 *packed = *F::Packing::from_slice(&flat_pows(point));
             });
     } else {
-        packed[..n].copy_from_slice(&vec![F::Packing::ONE; n]);
+        packed[..n].fill(F::Packing::ONE);
     }
 
     for (i, vars) in rest_vars.row_slices().enumerate() {
@@ -339,7 +339,7 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
         // Initialize the first row to all ones.
         //
         // This represents the base case: select(X, 0...0) = 1 for any X.
-        acc[..n].copy_from_slice(&vec![F::ONE; n]);
+        acc[..n].fill(F::ONE);
 
         // Expand the matrix one bit at a time using binary tree structure.
         //

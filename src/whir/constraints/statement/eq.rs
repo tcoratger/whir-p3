@@ -1,4 +1,4 @@
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 
 use itertools::Itertools;
 use p3_field::{
@@ -28,7 +28,7 @@ fn flat_eqs<F: Field, EF: ExtensionField<F>>(
     assert_ne!(n, 0);
 
     let mut acc = EF::zero_vec(n * (1 << k));
-    acc[..n].copy_from_slice(&alpha.powers().take(n).collect());
+    acc[..n].copy_from_slice(&alpha.powers().collect_n(n));
     points.row_slices().enumerate().for_each(|(i, vars)| {
         let (lo, hi) = acc.split_at_mut((1 << i) * n);
         lo.chunks_mut(n).zip(hi.chunks_mut(n)).for_each(|(lo, hi)| {
@@ -68,7 +68,7 @@ fn packed_flat_eqs<F: Field, EF: ExtensionField<F>>(
                 );
             });
     } else {
-        packed[..n].copy_from_slice(&vec![EF::ExtensionPacking::ONE; n]);
+        packed[..n].fill(EF::ExtensionPacking::ONE);
     }
 
     for (i, vars) in rest_vars.row_slices().enumerate() {
@@ -468,7 +468,7 @@ impl<F: Field> EqStatement<F> {
                             .iter()
                             .zip(right.iter())
                             .map(|(&left, &right)| left * right)
-                            .sum::<F::ExtensionPacking>();
+                            .sum();
                     }
                 });
             });

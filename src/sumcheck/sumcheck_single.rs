@@ -57,12 +57,11 @@ impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
     }
 
     fn k(&self) -> usize {
-        let k_pack = log2_strict_usize(F::Packing::WIDTH);
         match self {
             Self::Packed { evals, weights } => {
                 let k = evals.num_variables();
                 assert_eq!(k, weights.num_variables());
-                k + k_pack
+                k + log2_strict_usize(F::Packing::WIDTH)
             }
             Self::Small { evals, weights } => {
                 let k = evals.num_variables();

@@ -49,9 +49,7 @@ pub fn unpack_slice_into<F: Field, Ext: ExtensionField<F>>(
 
 /// Unpack packed extension field elements to the standard representation.
 #[inline]
-pub fn unpack_slice<F: Field, EF: ExtensionField<F>>(
-    packed: &[EF::ExtensionPacking],
-) -> Vec<EF> {
+pub fn unpack_slice<F: Field, EF: ExtensionField<F>>(packed: &[EF::ExtensionPacking]) -> Vec<EF> {
     let mut out = EF::zero_vec(packed.len() * F::Packing::WIDTH);
     unpack_slice_into(&mut out, packed);
     out
