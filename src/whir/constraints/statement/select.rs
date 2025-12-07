@@ -389,7 +389,7 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec;
+    use alloc::{format, vec};
 
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;

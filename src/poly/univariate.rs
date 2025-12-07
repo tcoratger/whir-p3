@@ -240,6 +240,8 @@ impl<F: Field> MulAssign<&Self> for UnivariatePolynomial<F> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
+
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use proptest::prelude::*;

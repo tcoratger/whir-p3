@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{format, vec::Vec};
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{CanObserve, CanSample, DuplexChallenger, GrindingChallenger};

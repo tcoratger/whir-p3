@@ -407,7 +407,7 @@ fn par_inverse_wavelet_kernel<F: Field>(mat: &mut RowMajorMatrix<F>, block_size:
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec;
+    use alloc::{format, vec};
 
     use p3_baby_bear::BabyBear;
     use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};

@@ -530,7 +530,7 @@ impl<F: Field> EqStatement<F> {
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec;
+    use alloc::{format, vec};
 
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;

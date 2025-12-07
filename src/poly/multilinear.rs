@@ -379,7 +379,7 @@ impl<F> Index<usize> for MultilinearPoint<F> {
 #[cfg(test)]
 #[allow(clippy::identity_op, clippy::erasing_op)]
 mod tests {
-    use alloc::vec;
+    use alloc::{format, vec};
 
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
