@@ -172,22 +172,44 @@ where
                 )
             }
 
-            // Branch: WithStatementSvo - SVO optimization (currently falls back to classic)
+            // Branch: WithStatementSvo - SVO optimization (Algorithm 6 from https://eprint.iacr.org/2025/1117)
             InitialPhase::WithStatementSvo { sumcheck } => {
                 // Build constraint with random linear combination
                 let constraint =
                     Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
 
-                // TODO: SVO optimization is not yet fully implemented
-                // Fall back to classic sumcheck
-                SumcheckSingle::from_base_evals(
-                    &witness.polynomial,
-                    sumcheck,
-                    challenger,
-                    prover.folding_factor.at_round(0),
-                    prover.starting_folding_pow_bits,
-                    &constraint,
-                )
+                let folding_factor = prover.folding_factor.at_round(0);
+
+                // SVO optimization requirements:
+                // 1. At least 2 * NUM_SVO_ROUNDS (6) variables (NUM_SVO_ROUNDS = 3)
+                // 2. Exactly one equality constraint (SVO algorithm assumes single point)
+                const MIN_SVO_FOLDING_FACTOR: usize = 6;
+                let has_single_constraint = constraint.eq_statement.len() == 1;
+
+                if folding_factor >= MIN_SVO_FOLDING_FACTOR && has_single_constraint {
+                    // Use SVO optimization: first 3 rounds use specialized algorithm,
+                    // remaining rounds use standard Algorithm 5
+                    SumcheckSingle::from_base_evals_svo(
+                        &witness.polynomial,
+                        sumcheck,
+                        challenger,
+                        folding_factor,
+                        prover.starting_folding_pow_bits,
+                        &constraint,
+                    )
+                } else {
+                    // Fall back to classic sumcheck when:
+                    // - Input is too small (folding_factor < 6)
+                    // - Multiple constraints exist (SVO only handles single constraint)
+                    SumcheckSingle::from_base_evals(
+                        &witness.polynomial,
+                        sumcheck,
+                        challenger,
+                        folding_factor,
+                        prover.starting_folding_pow_bits,
+                        &constraint,
+                    )
+                }
             }
 
             // Branch: WithStatement or WithStatementSkip (fallback when folding_factor < K_SKIP)
