@@ -19,18 +19,6 @@ use crate::poly::evals::EvaluationsList;
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct MultilinearPoint<F>(pub(crate) Vec<F>);
 
-impl<F: Field> From<Vec<F>> for MultilinearPoint<F> {
-    fn from(vars: Vec<F>) -> Self {
-        Self::new(vars)
-    }
-}
-
-impl<F: Field> From<&[F]> for MultilinearPoint<F> {
-    fn from(vars: &[F]) -> Self {
-        Self::new(vars.to_vec())
-    }
-}
-
 impl<F> MultilinearPoint<F>
 where
     F: Field,
@@ -215,7 +203,8 @@ where
     pub fn svo_e_in_table<const NUM_SVO_ROUNDS: usize>(&self) -> EvaluationsList<F> {
         let half_l = self.num_variables() / 2;
         EvaluationsList::new_from_point(
-            &self.get_subpoint_over_range(NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + half_l),
+            self.get_subpoint_over_range(NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + half_l)
+                .as_slice(),
             F::ONE,
         )
     }
@@ -299,9 +288,8 @@ where
             // Extract segment 2: w[half_l + NUM_SVO_ROUNDS..]
             // These are the variables after the inner segment (the outer suffix)
             w_out.extend_from_slice(&self.0[half_l + NUM_SVO_ROUNDS..]);
-
             // Compute eq(w_out; x) for all x in the hypercube
-            EvaluationsList::new_from_point(&w_out.into(), F::ONE)
+            EvaluationsList::new_from_point(&w_out, F::ONE)
         })
     }
 
@@ -328,7 +316,7 @@ where
 
         // Construct the evaluation table for the polynomial eq_z(X).
         // This creates a list of 2^n values, where only the entry at index `z` is ONE.
-        let evals = EvaluationsList::new_from_point(self, F::ONE);
+        let evals = EvaluationsList::new_from_point(self.as_slice(), F::ONE);
 
         // Reshape the flat list of 2^n evaluations into a `2^k_skip x 2^(n-k_skip)` matrix.
         // Rows correspond to the skipped variables (X0, ..., X_{k_skip-1}).
@@ -388,10 +376,8 @@ where
 
     /// Given a position splits the point into two sub-points.
     pub(crate) fn split_at(&self, pos: usize) -> (Self, Self) {
-        (
-            Self::new(self.0.split_at(pos).0.to_vec()),
-            Self::new(self.0.split_at(pos).1.to_vec()),
-        )
+        let (left, right) = self.0.split_at(pos);
+        (Self::new(left.to_vec()), Self::new(right.to_vec()))
     }
 }
 
@@ -1022,7 +1008,7 @@ mod tests {
 
         // Verify the extraction is correct for NUM_SVO_ROUNDS = 2
         let w_inner = &point.as_slice()[2..6];
-        let expected = EvaluationsList::new_from_point(&w_inner.into(), F::ONE);
+        let expected = EvaluationsList::new_from_point(w_inner, F::ONE);
         assert_eq!(evals_2.as_slice(), expected.as_slice());
     }
 

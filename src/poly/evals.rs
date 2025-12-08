@@ -218,18 +218,14 @@ impl<Packed: Copy + Send + Sync> EvaluationsList<Packed> {
     /// ## Returns
     /// An packed `EvaluationsList` containing `value * eq(point, X)` for all `X` in `{0,1}^n`.
     #[inline]
-    pub(crate) fn new_packed_from_point<F, EF>(point: &MultilinearPoint<EF>, scale: EF) -> Self
+    pub(crate) fn new_packed_from_point<F, EF>(point: &[EF], scale: EF) -> Self
     where
         F: Field,
         EF: ExtensionField<F, ExtensionPacking = Packed>,
         Packed: PackedFieldExtension<F, EF>,
     {
-        fn eq_serial<F: Field, A: Algebra<F> + Copy>(
-            out: &mut [A],
-            point: &MultilinearPoint<F>,
-            scale: A,
-        ) {
-            assert_eq!(out.len(), 1 << point.num_variables());
+        fn eq_serial<F: Field, A: Algebra<F> + Copy>(out: &mut [A], point: &[F], scale: A) {
+            assert_eq!(out.len(), 1 << point.len());
             out[0] = scale;
             for (i, &var) in point.iter().rev().enumerate() {
                 let (lo, hi) = out.split_at_mut(1 << i);
@@ -240,7 +236,7 @@ impl<Packed: Copy + Send + Sync> EvaluationsList<Packed> {
             }
         }
 
-        let n = point.num_variables();
+        let n = point.len();
         assert_ne!(scale, EF::ZERO);
         let n_pack = log2_strict_usize(F::Packing::WIDTH);
         assert!(n >= n_pack);
@@ -252,7 +248,7 @@ impl<Packed: Copy + Send + Sync> EvaluationsList<Packed> {
         // We compute the equality polynomial for the last `n_pack` variables.
         // This forms a single `Packed` element which acts as the "seed" for the next stage.e
         let mut init: Vec<EF> = EF::zero_vec(1 << n_pack);
-        eq_serial(&mut init, &point_init, scale);
+        eq_serial(&mut init, point_init, scale);
 
         // COMPUTE PREFIX (Vector Expansion)
         //
@@ -260,7 +256,7 @@ impl<Packed: Copy + Send + Sync> EvaluationsList<Packed> {
         let mut packed = unsafe { uninitialized_vec::<Packed>(1 << (n - n_pack)) };
         eq_serial(
             &mut packed,
-            &point_rest,
+            point_rest,
             // Initialize the first element with the seed computed above
             Packed::from_ext_slice(&init),
         );
@@ -291,8 +287,8 @@ impl<Packed: Copy + Send + Sync> EvaluationsList<Packed> {
         assert!(n >= 2 * n_pack);
 
         let (right, left) = point.split_at(n / 2);
-        let left = Self::new_packed_from_point(&left, EF::ONE);
-        let right = EvaluationsList::<EF>::new_from_point(&right, EF::ONE);
+        let left = Self::new_packed_from_point(left.as_slice(), EF::ONE);
+        let right = EvaluationsList::<EF>::new_from_point(right.as_slice(), EF::ONE);
 
         let sum = if self.num_evals() > PARALLEL_THRESHOLD {
             self.0
@@ -337,13 +333,13 @@ where
     /// ## Returns
     /// An `EvaluationsList` containing `value * eq(point, X)` for all `X` in `{0,1}^n`.
     #[inline]
-    pub fn new_from_point(point: &MultilinearPoint<F>, scale: F) -> Self {
-        let n = point.num_variables();
+    pub fn new_from_point(point: &[F], scale: F) -> Self {
+        let n = point.len();
         if n == 0 {
             return Self(vec![scale]);
         }
         let mut evals = F::zero_vec(1 << n);
-        eval_eq_batch::<_, _, false>(RowMajorMatrixView::new_col(&point.0), &mut evals, &[scale]);
+        eval_eq_batch::<_, _, false>(RowMajorMatrixView::new_col(point), &mut evals, &[scale]);
         Self(evals)
     }
 
@@ -563,7 +559,7 @@ where
         // This gives us the coefficients for the dot product in the folding formula:
         //
         //   q(x') = Σ_b eq(r, b) * p(b, x').
-        let eq_evals = EvaluationsList::new_from_point(&challenges.into(), EF::ONE);
+        let eq_evals = EvaluationsList::new_from_point(challenges, EF::ONE);
 
         // Prepare output buffer initialized with zeros so we can unconditionally accumulate.
         //
@@ -1143,8 +1139,8 @@ where
     let mid = n / 2;
 
     let (right, left) = point.split_at(mid);
-    let left = EvaluationsList::new_packed_from_point(&left, EF::ONE);
-    let right = EvaluationsList::new_from_point(&right, EF::ONE);
+    let left = EvaluationsList::new_packed_from_point(left.as_slice(), EF::ONE);
+    let right = EvaluationsList::new_from_point(right.as_slice(), EF::ONE);
 
     let evals = F::Packing::pack_slice(evals);
     let sum = if evals.len() > PARALLEL_THRESHOLD {
@@ -1189,8 +1185,8 @@ where
 
     let mid = n / 2;
     let (right, left) = point.split_at(mid);
-    let left = EvaluationsList::new_packed_from_point(&left, EF::ONE);
-    let right = EvaluationsList::new_from_point(&right, EF::ONE);
+    let left = EvaluationsList::new_packed_from_point(left.as_slice(), EF::ONE);
+    let right = EvaluationsList::new_from_point(right.as_slice(), EF::ONE);
 
     let sum = if evals.len() > PARALLEL_THRESHOLD {
         evals
@@ -1244,7 +1240,7 @@ mod tests {
         evals: &[F],
         point: &MultilinearPoint<EF>,
     ) -> EF {
-        let eq = EvaluationsList::new_from_point(point, EF::ONE);
+        let eq = EvaluationsList::new_from_point(point.as_slice(), EF::ONE);
         dot_product(eq.iter().copied(), evals.iter().copied())
     }
 
@@ -1729,7 +1725,7 @@ mod tests {
             let fold_part = randomness[0..k].to_vec();
 
             // The remaining coordinates are used as the evaluation input into the folded poly
-            let eval_part = randomness[k..randomness.len()].to_vec();
+            let eval_part = MultilinearPoint::new(randomness[k..randomness.len()].to_vec());
 
             // Convert to a MultilinearPoint (in EF) for folding
             let fold_random = MultilinearPoint::new(fold_part.clone());
@@ -1737,8 +1733,8 @@ mod tests {
             // Reconstruct the full point (x_0, ..., xₙ₋₁) = [eval_part || fold_part]
             // Used to evaluate the original uncompressed polynomial
             let eval_point1 =
-                MultilinearPoint::new([fold_part.clone(), eval_part.clone()].concat());
-            let eval_point2 = MultilinearPoint::new([eval_part.clone(), fold_part].concat());
+                MultilinearPoint::new([fold_part.clone(), eval_part.0.clone()].concat());
+            let eval_point2 = MultilinearPoint::new([eval_part.0.clone(), fold_part].concat());
 
             // Fold the evaluation list over the last `k` variables
             let folded_evals = evals_list.fold(&fold_random);
@@ -1755,13 +1751,13 @@ mod tests {
             // Verify correctness:
             // folded(e) == original([e, r]) for all k
             assert_eq!(
-                folded_evals.evaluate_hypercube_base(&eval_part.clone().into()),
+                folded_evals.evaluate_hypercube_base(&eval_part),
                 evals_list.evaluate_hypercube_base(&eval_point1)
             );
 
             // Compare with the coefficient list equivalent
             assert_eq!(
-                folded_coeffs.evaluate(&eval_part.into()),
+                folded_coeffs.evaluate(&eval_part),
                 evals_list.evaluate_hypercube_base(&eval_point2)
             );
         }
@@ -1926,7 +1922,7 @@ mod tests {
     fn test_new_from_point_zero_vars() {
         let point = MultilinearPoint::<F>::new(vec![]);
         let value = F::from_u64(42);
-        let evals_list = EvaluationsList::new_from_point(&point, value);
+        let evals_list = EvaluationsList::new_from_point(point.as_slice(), value);
 
         // For n=0, the hypercube has one point, and the `eq` polynomial is the constant 1.
         // The result should be a list with a single element: `value`.
@@ -1939,7 +1935,7 @@ mod tests {
         let p0 = F::from_u64(7);
         let point = MultilinearPoint::new(vec![p0]);
         let value = F::from_u64(3);
-        let evals_list = EvaluationsList::new_from_point(&point, value);
+        let evals_list = EvaluationsList::new_from_point(point.as_slice(), value);
 
         // For a point `p = [p0]`, the `eq` evaluations over `X={0,1}` are:
         // - eq(p, 0) = 1 - p0
@@ -1956,7 +1952,7 @@ mod tests {
     fn test_new_from_point_three_vars() {
         let p = [F::from_u64(2), F::from_u64(3), F::from_u64(5)];
         let value = F::from_u64(10);
-        let evals_list = EvaluationsList::new_from_point(&p.to_vec().into(), value);
+        let evals_list = EvaluationsList::new_from_point(&p, value);
 
         // Manually compute the expected result for eq(p, b) * value for all 8 points `b`.
         // The implementation's lexicographical order means the index `i` is formed as
