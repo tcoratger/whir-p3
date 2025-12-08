@@ -172,11 +172,17 @@ where
                 )
             }
 
-            // Branch: WithStatementSvo - SVO optimization (Algorithm 6 from https://eprint.iacr.org/2025/1117)
+            // Branch: WithStatementSvo - SVO optimization
             InitialPhase::WithStatementSvo { sumcheck } => {
-                // SVO optimization requirements:
-                // 1. At least 2 * NUM_SVO_ROUNDS variables
+                // SVO optimization requirements (see Procedure 9 in https://eprint.iacr.org/2025/1117):
+                // 1. At least 2 * NUM_SVO_ROUNDS variables - The SVO algorithm partitions
+                //    variables into Prefix (k), Inner (l/2), and Outer segments. For these
+                //    segments not to overlap, we need k + l/2 <= l, which gives l >= 2k.
                 // 2. Exactly one equality constraint (SVO algorithm assumes single point)
+                //
+                // TODO: The single constraint requirement is a current limitation.
+                // This approach should be generalized to handle multiple constraints.
+                // See: https://hackmd.io/@tcoratger/H1SNENAeZg for details.
                 const MIN_SVO_FOLDING_FACTOR: usize = 6;
 
                 // Build constraint with random linear combination
@@ -199,8 +205,8 @@ where
                     )
                 } else {
                     // Fall back to classic sumcheck when:
-                    // - Input is too small (folding_factor < 6)
-                    // - Multiple constraints exist (SVO only handles single constraint)
+                    // - Input is too small (folding_factor < MIN_SVO_FOLDING_FACTOR)
+                    // - Multiple constraints exist (SVO only handles single constraint, see TODO above)
                     SumcheckSingle::from_base_evals(
                         &witness.polynomial,
                         sumcheck,
