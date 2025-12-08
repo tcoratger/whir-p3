@@ -175,7 +175,7 @@ where
             // Branch: WithStatementSvo - SVO optimization (Algorithm 6 from https://eprint.iacr.org/2025/1117)
             InitialPhase::WithStatementSvo { sumcheck } => {
                 // SVO optimization requirements:
-                // 1. At least 2 * NUM_SVO_ROUNDS (6) variables (NUM_SVO_ROUNDS = 3)
+                // 1. At least 2 * NUM_SVO_ROUNDS variables
                 // 2. Exactly one equality constraint (SVO algorithm assumes single point)
                 const MIN_SVO_FOLDING_FACTOR: usize = 6;
 
