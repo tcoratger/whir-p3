@@ -35,7 +35,7 @@ fn bench_eval_multilinear_base(c: &mut Criterion) {
             let routine = |(evals, point): (Vec<F>, MultilinearPoint<EF>)| {
                 let _ = std::hint::black_box(eval_multilinear_base(
                     std::hint::black_box(&evals),
-                    std::hint::black_box(&point),
+                    std::hint::black_box(point.as_slice()),
                 ));
             };
             b.iter_batched(|| setup(n_vars), routine, criterion::BatchSize::SmallInput);
@@ -69,7 +69,7 @@ fn bench_eval_multilinear_ext(c: &mut Criterion) {
             let routine = |(evals, point): (Vec<EF>, MultilinearPoint<EF>)| {
                 let _ = std::hint::black_box(eval_multilinear_ext::<F, _>(
                     std::hint::black_box(&evals),
-                    std::hint::black_box(&point),
+                    std::hint::black_box(point.as_slice()),
                 ));
             };
             b.iter_batched(|| setup(n_vars), routine, criterion::BatchSize::SmallInput);
