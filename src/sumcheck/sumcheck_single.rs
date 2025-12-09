@@ -431,8 +431,7 @@ where
         let polynomial_skip_evaluation = sumcheck_poly.evaluations();
 
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
-        let flattened = EF::flatten_to_base(polynomial_skip_evaluation.to_vec());
-        challenger.observe_slice(&flattened);
+        challenger.observe_algebra_slice(polynomial_skip_evaluation);
 
         // Store skip evaluations
         skip_data

@@ -442,9 +442,7 @@ where
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        challenger.observe_slice(&EF::flatten_to_base(
-            round_state.sumcheck_prover.evals.as_slice().to_vec(),
-        ));
+        challenger.observe_algebra_slice(round_state.sumcheck_prover.evals.as_slice());
 
         // Store the final polynomial in the proof
         proof.final_poly = Some(round_state.sumcheck_prover.evals.clone());

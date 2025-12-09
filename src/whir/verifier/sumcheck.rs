@@ -134,8 +134,7 @@ where
             }
 
             // Observe the skip evaluations for Fiat-Shamir
-            let flattened: Vec<F> = EF::flatten_to_base(skip_evaluations.clone());
-            challenger.observe_slice(&flattened);
+            challenger.observe_algebra_slice(skip_evaluations);
 
             check_pow_grinding(challenger, *skip_pow, pow_bits)?;
 
@@ -290,8 +289,8 @@ mod tests {
     use alloc::vec;
 
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-    use p3_challenger::{CanObserve, DuplexChallenger};
-    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_challenger::DuplexChallenger;
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{SeedableRng, rngs::SmallRng};
 
@@ -627,8 +626,7 @@ mod tests {
         assert_eq!(actual_sum, current_sum, "Skip round sum mismatch");
 
         // Observe the skip evaluations for Fiat-Shamir
-        let flattened: Vec<F> = EF4::flatten_to_base(skip_evaluations.clone());
-        verifier_challenger.observe_slice(&flattened);
+        verifier_challenger.observe_algebra_slice(skip_evaluations);
 
         // Sample challenge for the skip round
         let r_skip: EF4 = verifier_challenger.sample_algebra_element();

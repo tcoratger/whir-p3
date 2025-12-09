@@ -158,9 +158,8 @@ where
             panic!("Expected final polynomial");
         };
 
-        // Observe the final polynomial to the challenger (flatten to base field first)
-        let flatten_base_scalar = EF::flatten_to_base(final_evaluations.as_slice().to_vec());
-        challenger.observe_slice(&flatten_base_scalar);
+        // Observe the final polynomial to the challenger
+        challenger.observe_algebra_slice(final_evaluations.as_slice());
 
         // Verify in-domain challenges on the previous commitment.
         let stir_statement = self.verify_stir_challenges(
