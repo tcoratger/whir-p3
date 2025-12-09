@@ -83,7 +83,7 @@ pub enum InitialPhase<EF, F> {
 
     /// Protocol without statement (direct folding)
     #[serde(rename = "without_statement")]
-    WithoutStatement { pow_witnesses: Option<F> },
+    WithoutStatement { pow_witness: F },
 }
 
 impl<F: Default, EF: Default> Default for InitialPhase<EF, F> {
@@ -108,7 +108,7 @@ pub struct WhirRoundProof<F, EF, const DIGEST_ELEMS: usize> {
     pub ood_answers: Vec<EF>,
 
     /// PoW witness after commitment
-    pub pow_witness: Option<F>,
+    pub pow_witness: F,
 
     /// STIR query openings
     pub queries: Vec<QueryOpening<F, EF, DIGEST_ELEMS>>,
@@ -124,7 +124,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default
         Self {
             commitment: array::from_fn(|_| F::default()),
             ood_answers: Vec::new(),
-            pow_witness: None,
+            pow_witness: F::default(),
             queries: Vec::new(),
             sumcheck: SumcheckData::default(),
         }
@@ -174,25 +174,22 @@ pub struct SumcheckData<EF, F> {
     /// Length: folding_factor
     pub polynomial_evaluations: Vec<[EF; 2]>,
 
-    /// PoW witnesses for each sumcheck round (optional)
+    /// PoW witnesses for each sumcheck round
     /// Length: folding_factor
-    pub pow_witnesses: Option<Vec<F>>,
+    pub pow_witnesses: Vec<F>,
 }
 
 impl<EF, F> SumcheckData<EF, F> {
-    /// Appends a proof-of-work witness if one exists.
-    /// Automatically handles the initialization of the internal vector.
-    pub fn push_pow_witness(&mut self, witness: Option<F>) {
-        if let Some(w) = witness {
-            self.pow_witnesses.get_or_insert_with(Vec::new).push(w);
-        }
+    /// Appends a proof-of-work witness.
+    pub fn push_pow_witness(&mut self, witness: F) {
+        self.pow_witnesses.push(witness);
     }
 }
 
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct SumcheckSkipData<EF, F> {
     pub evaluations: Vec<EF>,
-    pub pow: Option<F>,
+    pub pow: F,
     pub sumcheck: SumcheckData<EF, F>,
 }
 
@@ -270,7 +267,7 @@ impl<F: Clone, EF, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
     pub fn get_pow_after_commitment(&self, round_index: usize) -> Option<F> {
         self.rounds
             .get(round_index)
-            .and_then(|round| round.pow_witness.clone())
+            .map(|round| round.pow_witness.clone())
     }
 
     /// Stores sumcheck data at a specific round index.
@@ -314,9 +311,12 @@ impl<EF, F> InitialPhase<EF, F> {
 
     /// Create initial phase without statement
     #[must_use]
-    pub const fn without_statement() -> Self {
+    pub fn without_statement() -> Self
+    where
+        F: Default,
+    {
         Self::WithoutStatement {
-            pow_witnesses: None,
+            pow_witness: F::default(),
         }
     }
 }
@@ -412,12 +412,12 @@ mod tests {
             InitialPhase::WithStatementSkip(skip_data) => {
                 // evaluations should be empty (not populated yet)
                 assert_eq!(skip_data.evaluations.len(), 0);
-                // pow should be None (not populated yet)
-                assert!(skip_data.pow.is_none());
+                // pow should be default (not populated yet)
+                assert_eq!(skip_data.pow, F::default());
                 // sumcheck should have empty polynomial_evaluations
                 assert_eq!(skip_data.sumcheck.polynomial_evaluations.len(), 0);
-                // sumcheck should have no PoW witnesses
-                assert!(skip_data.sumcheck.pow_witnesses.is_none());
+                // sumcheck should have empty PoW witnesses
+                assert!(skip_data.sumcheck.pow_witnesses.is_empty());
             }
             _ => panic!("Expected WithStatementSkip variant"),
         }
@@ -460,8 +460,8 @@ mod tests {
             InitialPhase::WithStatement { sumcheck } => {
                 // sumcheck should have empty polynomial_evaluations
                 assert_eq!(sumcheck.polynomial_evaluations.len(), 0);
-                // sumcheck should have no PoW witnesses
-                assert!(sumcheck.pow_witnesses.is_none());
+                // sumcheck should have empty PoW witnesses
+                assert!(sumcheck.pow_witnesses.is_empty());
             }
             _ => panic!("Expected WithStatement variant, not WithStatementSkip"),
         }
@@ -499,9 +499,9 @@ mod tests {
         // Verify that initial_phase is WithoutStatement variant
         // This is because initial_phase_config = WithoutStatement
         match proof.initial_phase {
-            InitialPhase::WithoutStatement { pow_witnesses } => {
-                // pow_witnesses should be None (not populated yet)
-                assert!(pow_witnesses.is_none());
+            InitialPhase::WithoutStatement { pow_witness } => {
+                // pow_witness should be default (not populated yet)
+                assert_eq!(pow_witness, F::default());
             }
             _ => panic!("Expected WithoutStatement variant"),
         }
@@ -525,12 +525,12 @@ mod tests {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
             initial_phase: InitialPhase::WithoutStatement {
-                pow_witnesses: None,
+                pow_witness: F::default(),
             },
             rounds: vec![WhirRoundProof {
                 commitment: array::from_fn(|_| F::default()),
                 ood_answers: Vec::new(),
-                pow_witness: Some(pow_witness_value),
+                pow_witness: pow_witness_value,
                 queries: Vec::new(),
                 sumcheck: SumcheckData::default(),
             }],
@@ -551,50 +551,18 @@ mod tests {
     }
 
     #[test]
-    fn test_get_pow_after_commitment_without_witness() {
-        // Create a proof with one round but no PoW witness
-        let proof: WhirProof<F, EF, DIGEST_ELEMS> = WhirProof {
-            initial_commitment: array::from_fn(|_| F::default()),
-            initial_ood_answers: Vec::new(),
-            initial_phase: InitialPhase::WithoutStatement {
-                pow_witnesses: None,
-            },
-            rounds: vec![WhirRoundProof {
-                commitment: array::from_fn(|_| F::default()),
-                ood_answers: Vec::new(),
-                pow_witness: None,
-                queries: Vec::new(),
-                sumcheck: SumcheckData::default(),
-            }],
-            final_poly: None,
-            final_pow_witness: F::default(),
-            final_queries: Vec::new(),
-            final_sumcheck: None,
-        };
-
-        // Query round index 0, which exists but has no PoW witness
-        let round_index = 0;
-
-        // Get the PoW witness after commitment at round 0
-        let result = proof.get_pow_after_commitment(round_index);
-
-        // Verify that we get None because pow_witness is None
-        assert_eq!(result, None);
-    }
-
-    #[test]
     fn test_get_pow_after_commitment_invalid_round() {
         // Create a proof with one round
         let proof: WhirProof<F, EF, DIGEST_ELEMS> = WhirProof {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
             initial_phase: InitialPhase::WithoutStatement {
-                pow_witnesses: None,
+                pow_witness: F::default(),
             },
             rounds: vec![WhirRoundProof {
                 commitment: array::from_fn(|_| F::default()),
                 ood_answers: Vec::new(),
-                pow_witness: Some(F::from_u64(42)),
+                pow_witness: F::from_u64(42),
                 queries: Vec::new(),
                 sumcheck: SumcheckData::default(),
             }],
@@ -624,7 +592,7 @@ mod tests {
         // Create SumcheckSkipData
         let skip_data: SumcheckSkipData<EF, F> = SumcheckSkipData {
             evaluations: Vec::new(),
-            pow: Some(skip_pow_value),
+            pow: skip_pow_value,
             sumcheck: SumcheckData::default(),
         };
 
@@ -635,7 +603,7 @@ mod tests {
         match phase_skip {
             InitialPhase::WithStatementSkip(skip_data) => {
                 assert_eq!(skip_data.evaluations.len(), 0);
-                assert_eq!(skip_data.pow, Some(skip_pow_value));
+                assert_eq!(skip_data.pow, skip_pow_value);
                 assert_eq!(skip_data.sumcheck.polynomial_evaluations.len(), 0);
             }
             _ => panic!("Expected WithStatementSkip variant"),
@@ -664,9 +632,9 @@ mod tests {
 
         // Verify it's the correct variant
         match phase_without {
-            InitialPhase::WithoutStatement { pow_witnesses } => {
-                // pow_witnesses should be None from constructor
-                assert!(pow_witnesses.is_none());
+            InitialPhase::WithoutStatement { pow_witness } => {
+                // pow_witness should be default from constructor
+                assert_eq!(pow_witness, F::default());
             }
             _ => panic!("Expected WithoutStatement variant"),
         }
@@ -686,15 +654,15 @@ mod tests {
         // Verify ood_answers is empty
         assert_eq!(round.ood_answers.len(), 0);
 
-        // Verify pow_witness is None
-        assert!(round.pow_witness.is_none());
+        // Verify pow_witness is default
+        assert_eq!(round.pow_witness, F::default());
 
         // Verify queries is empty
         assert_eq!(round.queries.len(), 0);
 
         // Verify sumcheck has default values
         assert_eq!(round.sumcheck.polynomial_evaluations.len(), 0);
-        assert!(round.sumcheck.pow_witnesses.is_none());
+        assert!(round.sumcheck.pow_witnesses.is_empty());
     }
 
     #[test]
@@ -705,8 +673,8 @@ mod tests {
         // Verify polynomial_evaluations is empty
         assert_eq!(sumcheck.polynomial_evaluations.len(), 0);
 
-        // Verify pow_witnesses is None
-        assert!(sumcheck.pow_witnesses.is_none());
+        // Verify pow_witnesses is empty
+        assert!(sumcheck.pow_witnesses.is_empty());
     }
 
     #[test]
@@ -772,48 +740,22 @@ mod tests {
     }
 
     #[test]
-    fn test_push_pow_witness_none_does_nothing() {
+    fn test_push_pow_witness() {
         let mut sumcheck: SumcheckData<EF, F> = SumcheckData::default();
 
-        // Pushing None should not initialize the vector
-        sumcheck.push_pow_witness(None);
-
-        assert!(sumcheck.pow_witnesses.is_none());
-    }
-
-    #[test]
-    fn test_push_pow_witness_some_initializes_and_pushes() {
-        let mut sumcheck: SumcheckData<EF, F> = SumcheckData::default();
-
-        // First push should initialize the vector
+        // First push
         let witness1 = F::from_u64(42);
-        sumcheck.push_pow_witness(Some(witness1));
+        sumcheck.push_pow_witness(witness1);
 
-        assert!(sumcheck.pow_witnesses.is_some());
-        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap().len(), 1);
-        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap()[0], witness1);
+        assert_eq!(sumcheck.pow_witnesses.len(), 1);
+        assert_eq!(sumcheck.pow_witnesses[0], witness1);
 
         // Second push should append to existing vector
         let witness2 = F::from_u64(123);
-        sumcheck.push_pow_witness(Some(witness2));
+        sumcheck.push_pow_witness(witness2);
 
-        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap().len(), 2);
-        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap()[1], witness2);
-    }
-
-    #[test]
-    fn test_push_pow_witness_mixed() {
-        let mut sumcheck: SumcheckData<EF, F> = SumcheckData::default();
-
-        // Push Some, then None, then Some
-        sumcheck.push_pow_witness(Some(F::from_u64(1)));
-        sumcheck.push_pow_witness(None); // Should not add anything
-        sumcheck.push_pow_witness(Some(F::from_u64(2)));
-
-        // Should only have 2 witnesses
-        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap().len(), 2);
-        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap()[0], F::from_u64(1));
-        assert_eq!(sumcheck.pow_witnesses.as_ref().unwrap()[1], F::from_u64(2));
+        assert_eq!(sumcheck.pow_witnesses.len(), 2);
+        assert_eq!(sumcheck.pow_witnesses[1], witness2);
     }
 
     #[test]
@@ -823,7 +765,7 @@ mod tests {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
             initial_phase: InitialPhase::WithoutStatement {
-                pow_witnesses: None,
+                pow_witness: F::default(),
             },
             rounds: Vec::new(),
             final_poly: None,
@@ -837,7 +779,7 @@ mod tests {
 
         // Create sumcheck data with a distinguishable value
         let mut data: SumcheckData<EF, F> = SumcheckData::default();
-        data.push_pow_witness(Some(F::from_u64(999)));
+        data.push_pow_witness(F::from_u64(999));
 
         // Set as final
         proof.set_final_sumcheck_data(data);
@@ -845,7 +787,7 @@ mod tests {
         // Verify it was stored in final_sumcheck
         assert!(proof.final_sumcheck.is_some());
         let stored = proof.final_sumcheck.as_ref().unwrap();
-        assert_eq!(stored.pow_witnesses.as_ref().unwrap()[0], F::from_u64(999));
+        assert_eq!(stored.pow_witnesses[0], F::from_u64(999));
     }
 
     #[test]
@@ -855,7 +797,7 @@ mod tests {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
             initial_phase: InitialPhase::WithoutStatement {
-                pow_witnesses: None,
+                pow_witness: F::default(),
             },
             rounds: vec![WhirRoundProof::default(), WhirRoundProof::default()],
             final_poly: None,
@@ -865,28 +807,22 @@ mod tests {
         };
 
         // Verify rounds' sumcheck is empty initially
-        assert!(proof.rounds[0].sumcheck.pow_witnesses.is_none());
-        assert!(proof.rounds[1].sumcheck.pow_witnesses.is_none());
+        assert!(proof.rounds[0].sumcheck.pow_witnesses.is_empty());
+        assert!(proof.rounds[1].sumcheck.pow_witnesses.is_empty());
 
         // Create sumcheck data with a distinguishable value for round 0
         let mut data0: SumcheckData<EF, F> = SumcheckData::default();
-        data0.push_pow_witness(Some(F::from_u64(777)));
+        data0.push_pow_witness(F::from_u64(777));
         proof.set_sumcheck_data_at(data0, 0);
 
         // Create sumcheck data with a distinguishable value for round 1
         let mut data1: SumcheckData<EF, F> = SumcheckData::default();
-        data1.push_pow_witness(Some(F::from_u64(888)));
+        data1.push_pow_witness(F::from_u64(888));
         proof.set_sumcheck_data_at(data1, 1);
 
         // Verify it was stored in the correct rounds
-        assert_eq!(
-            proof.rounds[0].sumcheck.pow_witnesses.as_ref().unwrap()[0],
-            F::from_u64(777)
-        );
-        assert_eq!(
-            proof.rounds[1].sumcheck.pow_witnesses.as_ref().unwrap()[0],
-            F::from_u64(888)
-        );
+        assert_eq!(proof.rounds[0].sumcheck.pow_witnesses[0], F::from_u64(777));
+        assert_eq!(proof.rounds[1].sumcheck.pow_witnesses[0], F::from_u64(888));
 
         // Verify final_sumcheck is still None
         assert!(proof.final_sumcheck.is_none());
@@ -900,7 +836,7 @@ mod tests {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
             initial_phase: InitialPhase::WithoutStatement {
-                pow_witnesses: None,
+                pow_witness: F::default(),
             },
             rounds: Vec::new(),
             final_poly: None,

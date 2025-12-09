@@ -31,4 +31,12 @@ pub enum VerifierError {
     /// Fiat-Shamir transcript error during verification.
     #[error(transparent)]
     FiatShamir(#[from] FiatShamirError),
+
+    /// Invalid round index when accessing proof data.
+    #[error("Invalid round index: {index}")]
+    InvalidRoundIndex { index: usize },
+
+    /// Proof-of-work witness verification failed.
+    #[error("Invalid proof-of-work witness")]
+    InvalidPowWitness,
 }

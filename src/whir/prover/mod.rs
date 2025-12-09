@@ -23,7 +23,7 @@ use super::{
 };
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::FiatShamirError, grinding::pow_grinding},
+    fiat_shamir::errors::FiatShamirError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::{Constraint, statement::SelectStatement},
@@ -278,7 +278,9 @@ where
         // By forcing the prover to perform this expensive proof-of-work *after* committing but
         // *before* receiving the queries, we make it computationally infeasible to "shop" for
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
-        proof.rounds[round_index].pow_witness = pow_grinding(challenger, round_params.pow_bits);
+        if round_params.pow_bits > 0 {
+            proof.rounds[round_index].pow_witness = challenger.grind(round_params.pow_bits);
+        }
 
         challenger.sample();
 
@@ -460,8 +462,8 @@ where
         // By forcing the prover to perform this expensive proof-of-work *after* committing but
         // *before* receiving the queries, we make it computationally infeasible to "shop" for
         // favorable challenges. The grinding effectively "locks in" the prover's commitment.
-        if let Some(witness) = pow_grinding(challenger, self.final_pow_bits) {
-            proof.final_pow_witness = witness;
+        if self.final_pow_bits > 0 {
+            proof.final_pow_witness = challenger.grind(self.final_pow_bits);
         }
 
         // Final verifier queries and answers. The indices are over the folded domain.

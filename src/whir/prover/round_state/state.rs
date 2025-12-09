@@ -12,7 +12,7 @@ use tracing::instrument;
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::{errors::FiatShamirError, grinding::pow_grinding},
+    fiat_shamir::errors::FiatShamirError,
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
@@ -172,22 +172,50 @@ where
                 )
             }
 
-            // Branch: WithStatementSvo - SVO optimization (currently falls back to classic)
+            // Branch: WithStatementSvo - SVO optimization
             InitialPhase::WithStatementSvo { sumcheck } => {
+                // SVO optimization requirements (see Procedure 9 in https://eprint.iacr.org/2025/1117):
+                // 1. At least 2 * NUM_SVO_ROUNDS variables - The SVO algorithm partitions
+                //    variables into Prefix (k), Inner (l/2), and Outer segments. For these
+                //    segments not to overlap, we need k + l/2 <= l, which gives l >= 2k.
+                // 2. Exactly one equality constraint (SVO algorithm assumes single point)
+                //
+                // TODO: The single constraint requirement is a current limitation.
+                // This approach should be generalized to handle multiple constraints.
+                // See: https://hackmd.io/@tcoratger/H1SNENAeZg for details.
+                const MIN_SVO_FOLDING_FACTOR: usize = 6;
+
                 // Build constraint with random linear combination
                 let constraint =
                     Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
 
-                // TODO: SVO optimization is not yet fully implemented
-                // Fall back to classic sumcheck
-                SumcheckSingle::from_base_evals(
-                    &witness.polynomial,
-                    sumcheck,
-                    challenger,
-                    prover.folding_factor.at_round(0),
-                    prover.starting_folding_pow_bits,
-                    &constraint,
-                )
+                let folding_factor = prover.folding_factor.at_round(0);
+                let has_single_constraint = constraint.eq_statement.len() == 1;
+
+                if folding_factor >= MIN_SVO_FOLDING_FACTOR && has_single_constraint {
+                    // Use SVO optimization: first 3 rounds use specialized algorithm,
+                    // remaining rounds use standard Algorithm 5
+                    SumcheckSingle::from_base_evals_svo(
+                        &witness.polynomial,
+                        sumcheck,
+                        challenger,
+                        folding_factor,
+                        prover.starting_folding_pow_bits,
+                        &constraint,
+                    )
+                } else {
+                    // Fall back to classic sumcheck when:
+                    // - Input is too small (folding_factor < MIN_SVO_FOLDING_FACTOR)
+                    // - Multiple constraints exist (SVO only handles single constraint, see TODO above)
+                    SumcheckSingle::from_base_evals(
+                        &witness.polynomial,
+                        sumcheck,
+                        challenger,
+                        folding_factor,
+                        prover.starting_folding_pow_bits,
+                        &constraint,
+                    )
+                }
             }
 
             // Branch: WithStatement or WithStatementSkip (fallback when folding_factor < K_SKIP)
@@ -209,7 +237,7 @@ where
             }
 
             // Branch: WithoutStatement - direct polynomial folding path
-            InitialPhase::WithoutStatement { pow_witnesses } => {
+            InitialPhase::WithoutStatement { pow_witness } => {
                 // Sample folding challenges α_1, ..., α_k
                 let folding_randomness = MultilinearPoint::new(
                     (0..prover.folding_factor.at_round(0))
@@ -228,8 +256,10 @@ where
                     EF::ONE,
                 );
 
-                // Apply proof-of-work grinding and store witness
-                *pow_witnesses = pow_grinding(challenger, prover.starting_folding_pow_bits);
+                // Apply proof-of-work grinding and store witness (only if pow_bits > 0)
+                if prover.starting_folding_pow_bits > 0 {
+                    *pow_witness = challenger.grind(prover.starting_folding_pow_bits);
+                }
 
                 (sumcheck, folding_randomness)
             }
