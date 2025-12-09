@@ -499,12 +499,13 @@ mod tests {
     use alloc::vec;
 
     use p3_baby_bear::BabyBear;
-    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{
+        PackedFieldExtension, PrimeCharacteristicRing, extension::BinomialExtensionField,
+    };
     use proptest::prelude::*;
     use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
-    use crate::utils::unpack_slice;
 
     type F = BabyBear;
     type EF = BinomialExtensionField<F, 4>;
@@ -1085,8 +1086,11 @@ mod tests {
                 statement.combine(&mut out0, &mut sum0, challenge, 0);
                 statement.combine_packed(&mut out1, &mut sum1, challenge, 0);
 
+                assert_eq!(out0.0,<<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter(
+                    out1.as_slice().iter().copied(),
+                )
+                .collect::<Vec<_>>());
                 assert_eq!(sum0, sum1);
-                assert_eq!(out0.0, unpack_slice::<F, EF>(out1.as_slice()));
             }
         }
     }

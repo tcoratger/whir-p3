@@ -10,7 +10,6 @@ use tracing::instrument;
 use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
-    utils::{pack_slice, unpack_slice},
     whir::{
         constraints::{Constraint, statement::EqStatement},
         proof::{SumcheckData, SumcheckSkipData},
@@ -36,10 +35,21 @@ impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
     pub(crate) fn new(evals: EvaluationsList<EF>, weights: EvaluationsList<EF>) -> Self {
         assert_eq!(evals.num_variables(), weights.num_variables());
         if evals.num_variables() > PACK_THRESHOLD {
-            Self::new_packed(
-                EvaluationsList::new(pack_slice(evals.as_slice())),
-                EvaluationsList::new(pack_slice(weights.as_slice())),
-            )
+            let evals = EvaluationsList::new(
+                evals
+                    .0
+                    .chunks(<F as Field>::Packing::WIDTH)
+                    .map(EF::ExtensionPacking::from_ext_slice)
+                    .collect(),
+            );
+            let weights = EvaluationsList::new(
+                weights
+                    .0
+                    .chunks(<F as Field>::Packing::WIDTH)
+                    .map(EF::ExtensionPacking::from_ext_slice)
+                    .collect(),
+            );
+            Self::new_packed(evals, weights)
         } else {
             Self::new_small(evals, weights)
         }
@@ -102,9 +112,14 @@ impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
         let k = self.k();
         match self {
             Self::Packed { evals, weights } if k < PACK_THRESHOLD => {
-                let evals = EvaluationsList::new(unpack_slice::<F, EF>(evals.as_slice()));
-                let weights = EvaluationsList::new(unpack_slice::<F, EF>(weights.as_slice()));
-                *self = Self::Small { evals, weights };
+                let evals =
+                    EF::ExtensionPacking::to_ext_iter(evals.as_slice().iter().copied()).collect();
+                let weights =
+                    EF::ExtensionPacking::to_ext_iter(weights.as_slice().iter().copied()).collect();
+                *self = Self::Small {
+                    evals: EvaluationsList::new(evals),
+                    weights: EvaluationsList::new(weights),
+                };
             }
             _ => {}
         }
@@ -176,9 +191,9 @@ impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
 
     fn evals(&self) -> EvaluationsList<EF> {
         match self {
-            Self::Packed { evals, .. } => {
-                EvaluationsList::new(unpack_slice::<F, EF>(evals.as_slice()))
-            }
+            Self::Packed { evals, .. } => EvaluationsList::new(
+                EF::ExtensionPacking::to_ext_iter(evals.as_slice().iter().copied()).collect(),
+            ),
             Self::Small { evals, .. } => evals.clone(),
         }
     }
@@ -197,9 +212,9 @@ impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
     #[cfg(test)]
     pub(crate) fn weights(&self) -> EvaluationsList<EF> {
         match &self {
-            Self::Packed { weights, .. } => {
-                EvaluationsList::new(unpack_slice::<F, EF>(weights.as_slice()))
-            }
+            Self::Packed { weights, .. } => EvaluationsList::new(
+                EF::ExtensionPacking::to_ext_iter(weights.as_slice().iter().copied()).collect(),
+            ),
             Self::Small { weights, .. } => weights.clone(),
         }
     }
@@ -208,7 +223,9 @@ impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
     fn eval_univariate(&self, var: EF) -> EF {
         use crate::poly::univariate::UnivariatePolynomial;
         let evals = UnivariatePolynomial::from_coefficients_vec(match self {
-            Self::Packed { evals, .. } => unpack_slice(evals.as_slice()),
+            Self::Packed { evals, .. } => {
+                EF::ExtensionPacking::to_ext_iter(evals.as_slice().iter().copied()).collect()
+            }
             Self::Small { evals, .. } => evals.0.clone(),
         });
         evals.evaluate(var)
@@ -218,7 +235,7 @@ impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
         match self {
             Self::Packed { evals, weights } => {
                 let sum_packed = dot_product(evals.iter().copied(), weights.iter().copied());
-                EF::ExtensionPacking::to_ext_iter([sum_packed]).sum::<EF>()
+                EF::ExtensionPacking::to_ext_iter([sum_packed]).sum()
             }
             Self::Small { evals, weights } => {
                 dot_product(evals.iter().copied(), weights.iter().copied())
@@ -425,8 +442,15 @@ where
         let constraint = Constraint::new_eq_only(challenge, statement);
         if k > PACK_THRESHOLD {
             let (weights, sum) = constraint.combine_new_packed();
+            let evals = EvaluationsList::new(
+                evals
+                    .0
+                    .chunks(<F as Field>::Packing::WIDTH)
+                    .map(EF::ExtensionPacking::from_ext_slice)
+                    .collect(),
+            );
             Self {
-                quad: Quad::<F, EF>::new_packed(evals.pack_ext(), weights),
+                quad: Quad::<F, EF>::new_packed(evals, weights),
                 sum,
             }
         } else {

@@ -674,7 +674,6 @@ mod tests {
     use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
-    use crate::utils::unpack_slice;
 
     type F = BabyBear;
     type EF = BinomialExtensionField<F, 4>;
@@ -1400,15 +1399,14 @@ mod tests {
 
     #[test]
     fn test_packed_combine() {
-        type PackedExt = <EF as ExtensionField<F>>::ExtensionPacking;
-
         let mut rng = SmallRng::seed_from_u64(1);
         let challenge: EF = rng.random();
         let k_pack = log2_strict_usize(<F as Field>::Packing::WIDTH);
 
         for k in 4..10 {
             let mut out0 = EvaluationsList::zero(k);
-            let mut out1 = EvaluationsList::<PackedExt>::zero(k - k_pack);
+            let mut out1 =
+                EvaluationsList::<<EF as ExtensionField<F>>::ExtensionPacking>::zero(k - k_pack);
             let mut sum0 = EF::ZERO;
             let mut sum1 = EF::ZERO;
             let mut init = false;
@@ -1429,8 +1427,11 @@ mod tests {
                     init = true;
                 }
 
+                assert_eq!(out0.0,<<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter(
+                    out1.as_slice().iter().copied(),
+                )
+                .collect::<Vec<_>>());
                 assert_eq!(sum0, sum1);
-                assert_eq!(out0.0, unpack_slice::<F, EF>(out1.as_slice()));
             }
         }
     }

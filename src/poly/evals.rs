@@ -15,9 +15,8 @@ use tracing::instrument;
 
 use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
 use crate::{
-    constant::MLE_RECURSION_THRESHOLD,
-    sumcheck::sumcheck_small_value::SvoAccumulators,
-    utils::{pack_slice, uninitialized_vec, unpack_slice},
+    constant::MLE_RECURSION_THRESHOLD, sumcheck::sumcheck_small_value::SvoAccumulators,
+    utils::uninitialized_vec,
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;
@@ -977,13 +976,6 @@ where
             // REDUCTION: Merge all thread-local accumulators
             .par_fold_reduce(SvoAccumulators::new, |a, b| a + b, |a, b| a + b)
     }
-
-    pub(crate) fn pack_ext<Base: Field>(&self) -> EvaluationsList<F::ExtensionPacking>
-    where
-        F: ExtensionField<Base>,
-    {
-        EvaluationsList::new(pack_slice::<Base, F>(&self.0))
-    }
 }
 
 impl<'a, F> IntoIterator for &'a EvaluationsList<F> {
@@ -1168,7 +1160,7 @@ where
             })
             .sum::<EF::ExtensionPacking>()
     };
-    unpack_slice(&[sum]).into_iter().sum()
+    EF::ExtensionPacking::to_ext_iter([sum]).sum()
 }
 
 pub fn eval_multilinear_ext<F, EF>(evals: &[EF], point: &MultilinearPoint<EF>) -> EF
@@ -1213,7 +1205,7 @@ where
             })
             .sum::<EF::ExtensionPacking>()
     };
-    unpack_slice(&[sum]).into_iter().sum()
+    EF::ExtensionPacking::to_ext_iter([sum]).sum()
 }
 
 #[cfg(test)]
@@ -1230,7 +1222,7 @@ mod tests {
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
-    use crate::{poly::coeffs::CoefficientList, utils::pack_slice};
+    use crate::poly::coeffs::CoefficientList;
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
@@ -3479,7 +3471,10 @@ mod tests {
             let poly: Vec<EF4> = (0..(1 << k)).map(|_| rng.random()).collect();
             let point = MultilinearPoint::<EF4>::rand(&mut rng, k);
             let e0 = eval_multilinear_recursive(&poly, &point);
-            let packed = pack_slice::<F, _>(&poly);
+            let packed = poly
+                .par_chunks(<F as Field>::Packing::WIDTH)
+                .map(<EF4 as ExtensionField<F>>::ExtensionPacking::from_ext_slice)
+                .collect();
             let e1 = EvaluationsList::new(packed).eval_hypercube_packed::<F, _>(&point);
             assert_eq!(e0, e1);
         }
