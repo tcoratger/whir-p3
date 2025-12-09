@@ -134,8 +134,7 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
 
     // 3. Send S_1(u) to the verifier.
     sumcheck_data.polynomial_evaluations.push([s_0, s_inf]);
-    challenger.observe_algebra_element(s_0);
-    challenger.observe_algebra_element(s_inf);
+    challenger.observe_algebra_slice(&[s_0, s_inf]);
 
     if pow_bits > 0 {
         sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
@@ -181,8 +180,7 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
 
     // 3. Send S_2(u) to the verifier.
     sumcheck_data.polynomial_evaluations.push([s_0, s_inf]);
-    challenger.observe_algebra_element(s_0);
-    challenger.observe_algebra_element(s_inf);
+    challenger.observe_algebra_slice(&[s_0, s_inf]);
 
     if pow_bits > 0 {
         sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
@@ -249,8 +247,7 @@ pub fn svo_first_rounds<Challenger, F: Field, EF: ExtensionField<F>>(
 
     // 3. Send S_3(u) to the verifier.
     sumcheck_data.polynomial_evaluations.push(round_poly_evals);
-    challenger.observe_algebra_element(round_poly_evals[0]);
-    challenger.observe_algebra_element(round_poly_evals[1]);
+    challenger.observe_algebra_slice(&round_poly_evals);
 
     if pow_bits > 0 {
         sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
@@ -414,8 +411,7 @@ pub fn algorithm_5<Challenger, F, EF>(
 
         // Send S_i(u) to the verifier
         sumcheck_data.polynomial_evaluations.push([s_0, s_inf]);
-        challenger.observe_algebra_element(s_0);
-        challenger.observe_algebra_element(s_inf);
+        challenger.observe_algebra_slice(&[s_0, s_inf]);
         if pow_bits > 0 {
             sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
         }

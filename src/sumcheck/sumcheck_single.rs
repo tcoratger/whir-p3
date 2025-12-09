@@ -58,8 +58,7 @@ where
     sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
 
     // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
-    challenger.observe_algebra_element(c_0);
-    challenger.observe_algebra_element(c_2);
+    challenger.observe_algebra_slice(&[c_0, c_2]);
 
     // Proof-of-work challenge to delay prover (only if pow_bits > 0)
     if pow_bits > 0 {
@@ -119,8 +118,7 @@ where
     sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
 
     // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
-    challenger.observe_algebra_element(c_0);
-    challenger.observe_algebra_element(c_2);
+    challenger.observe_algebra_slice(&[c_0, c_2]);
 
     // Proof-of-work challenge to delay prover (only if pow_bits > 0)
     if pow_bits > 0 {
@@ -428,8 +426,7 @@ where
         let polynomial_skip_evaluation = sumcheck_poly.evaluations();
 
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
-        let flattened = EF::flatten_to_base(polynomial_skip_evaluation.to_vec());
-        challenger.observe_slice(&flattened);
+        challenger.observe_algebra_slice(polynomial_skip_evaluation);
 
         // Store skip evaluations
         skip_data

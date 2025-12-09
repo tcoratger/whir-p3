@@ -62,8 +62,7 @@ where
         let h_1 = *claimed_sum - c0;
 
         // Observe only the sent polynomial evaluations (c0 and c2)
-        challenger.observe_algebra_element(c0);
-        challenger.observe_algebra_element(c2);
+        challenger.observe_algebra_slice(&[c0, c2]);
 
         // Verify PoW (only if pow_bits > 0)
         if pow_bits > 0 && !challenger.check_witness(pow_bits, pow_witnesses[i]) {
@@ -131,8 +130,7 @@ where
             }
 
             // Observe the skip evaluations for Fiat-Shamir
-            let flattened: Vec<F> = EF::flatten_to_base(skip_evaluations.clone());
-            challenger.observe_slice(&flattened);
+            challenger.observe_algebra_slice(skip_evaluations);
 
             if pow_bits > 0 && !challenger.check_witness(pow_bits, *skip_pow) {
                 return Err(VerifierError::InvalidPowWitness);
@@ -291,8 +289,8 @@ mod tests {
     use alloc::vec;
 
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-    use p3_challenger::{CanObserve, DuplexChallenger};
-    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_challenger::DuplexChallenger;
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{SeedableRng, rngs::SmallRng};
 
@@ -472,8 +470,7 @@ mod tests {
         let h_1 = current_sum - c_0;
 
         // Observe polynomial evaluations (must match what verify_initial_sumcheck_rounds does)
-        verifier_challenger.observe_algebra_element(c_0);
-        verifier_challenger.observe_algebra_element(c_2);
+        verifier_challenger.observe_algebra_slice(&[c_0, c_2]);
 
         // Sample random challenge r_i ∈ EF4 and evaluate h_i(r_i)
         let r: EF4 = verifier_challenger.sample_algebra_element();
@@ -487,8 +484,7 @@ mod tests {
             let h_1 = current_sum - c_0;
 
             // Observe polynomial evaluations
-            verifier_challenger.observe_algebra_element(c_0);
-            verifier_challenger.observe_algebra_element(c_2);
+            verifier_challenger.observe_algebra_slice(&[c_0, c_2]);
 
             // Sample random challenge r
             let r: EF4 = verifier_challenger.sample_algebra_element();
@@ -628,8 +624,7 @@ mod tests {
         assert_eq!(actual_sum, current_sum, "Skip round sum mismatch");
 
         // Observe the skip evaluations for Fiat-Shamir
-        let flattened: Vec<F> = EF4::flatten_to_base(skip_evaluations.clone());
-        verifier_challenger.observe_slice(&flattened);
+        verifier_challenger.observe_algebra_slice(skip_evaluations);
 
         // Sample challenge for the skip round
         let r_skip: EF4 = verifier_challenger.sample_algebra_element();
@@ -647,8 +642,7 @@ mod tests {
             let h_1 = current_sum - c_0;
 
             // Observe polynomial evaluations
-            verifier_challenger.observe_algebra_element(c_0);
-            verifier_challenger.observe_algebra_element(c_2);
+            verifier_challenger.observe_algebra_slice(&[c_0, c_2]);
 
             // Sample random challenge r
             let r: EF4 = verifier_challenger.sample_algebra_element();
@@ -768,8 +762,7 @@ mod tests {
             let h_1 = current_sum - c_0;
 
             // Observe polynomial evaluations
-            verifier_challenger.observe_algebra_element(c_0);
-            verifier_challenger.observe_algebra_element(c_2);
+            verifier_challenger.observe_algebra_slice(&[c_0, c_2]);
 
             // Sample random challenge r
             let r: EF4 = verifier_challenger.sample_algebra_element();
