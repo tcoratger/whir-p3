@@ -59,8 +59,7 @@ where
     sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
 
     // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
-    challenger.observe_algebra_element(c_0);
-    challenger.observe_algebra_element(c_2);
+    challenger.observe_algebra_slice(&[c_0, c_2]);
 
     // Proof-of-work challenge to delay prover
     let witness = pow_grinding(challenger, pow_bits);
@@ -121,8 +120,7 @@ where
     sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
 
     // Observe only c_0 and c_2 for Fiat-Shamir (c_1 is derived)
-    challenger.observe_algebra_element(c_0);
-    challenger.observe_algebra_element(c_2);
+    challenger.observe_algebra_slice(&[c_0, c_2]);
 
     // Proof-of-work challenge to delay prover
     let witness = pow_grinding(challenger, pow_bits);

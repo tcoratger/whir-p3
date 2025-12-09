@@ -63,8 +63,7 @@ where
         let h_1 = *claimed_sum - c0;
 
         // Observe only the sent polynomial evaluations (c0 and c2)
-        challenger.observe_algebra_element(c0);
-        challenger.observe_algebra_element(c2);
+        challenger.observe_algebra_slice(&[c0, c2]);
 
         // Verify PoW if present
         check_pow_grinding(
@@ -470,8 +469,7 @@ mod tests {
         let h_1 = current_sum - c_0;
 
         // Observe polynomial evaluations (must match what verify_initial_sumcheck_rounds does)
-        verifier_challenger.observe_algebra_element(c_0);
-        verifier_challenger.observe_algebra_element(c_2);
+        verifier_challenger.observe_algebra_slice(&[c_0, c_2]);
 
         // Sample random challenge r_i ∈ EF4 and evaluate h_i(r_i)
         let r: EF4 = verifier_challenger.sample_algebra_element();
@@ -485,8 +483,7 @@ mod tests {
             let h_1 = current_sum - c_0;
 
             // Observe polynomial evaluations
-            verifier_challenger.observe_algebra_element(c_0);
-            verifier_challenger.observe_algebra_element(c_2);
+            verifier_challenger.observe_algebra_slice(&[c_0, c_2]);
 
             // Sample random challenge r
             let r: EF4 = verifier_challenger.sample_algebra_element();
@@ -644,8 +641,7 @@ mod tests {
             let h_1 = current_sum - c_0;
 
             // Observe polynomial evaluations
-            verifier_challenger.observe_algebra_element(c_0);
-            verifier_challenger.observe_algebra_element(c_2);
+            verifier_challenger.observe_algebra_slice(&[c_0, c_2]);
 
             // Sample random challenge r
             let r: EF4 = verifier_challenger.sample_algebra_element();
@@ -765,8 +761,7 @@ mod tests {
             let h_1 = current_sum - c_0;
 
             // Observe polynomial evaluations
-            verifier_challenger.observe_algebra_element(c_0);
-            verifier_challenger.observe_algebra_element(c_2);
+            verifier_challenger.observe_algebra_slice(&[c_0, c_2]);
 
             // Sample random challenge r
             let r: EF4 = verifier_challenger.sample_algebra_element();
