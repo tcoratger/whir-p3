@@ -486,17 +486,12 @@ impl<F: Field> EqStatement<F> {
             .for_each(|(out, right)| {
                 out.iter_mut().zip(left.chunks(n)).for_each(|(out, left)| {
                     if INITIALIZED {
-                        *out += left
-                            .iter()
-                            .zip(right.iter())
-                            .map(|(&left, &right)| left * right)
-                            .sum::<F::ExtensionPacking>();
+                        *out += dot_product::<F::ExtensionPacking, _, _>(
+                            left.iter().copied(),
+                            right.iter().copied(),
+                        );
                     } else {
-                        *out = left
-                            .iter()
-                            .zip(right.iter())
-                            .map(|(&left, &right)| left * right)
-                            .sum();
+                        *out = dot_product(left.iter().copied(), right.iter().copied());
                     }
                 });
             });
