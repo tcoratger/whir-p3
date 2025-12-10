@@ -1,8 +1,5 @@
 use alloc::vec::Vec;
 
-// use p3_field::{BasedVectorSpace, ExtensionField, Field, PackedFieldExtension, PackedValue};
-// use p3_maybe_rayon::prelude::*;
-
 /// Returns a vector of uninitialized elements of type `A` with the specified length.
 /// # Safety
 /// Entries should be overwritten before use.
