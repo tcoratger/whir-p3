@@ -145,7 +145,6 @@ impl<F: Field> EqStatement<F> {
             .map(MultilinearPoint::num_variables)
             .all_equal_value()
             .unwrap();
-        assert_ne!(num_variables, 0);
         Self {
             num_variables,
             points,
