@@ -182,7 +182,7 @@ impl<A: Clone + Copy + Default + Send + Sync> EvaluationsList<A> {
     /// ```text
     ///     p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)
     /// ```
-    pub fn compress_packed<EF>(&self, zi: EF) -> EvaluationsList<EF::ExtensionPacking>
+    pub fn compress_into_packed<EF>(&self, zi: EF) -> EvaluationsList<EF::ExtensionPacking>
     where
         A: Field,
         EF: ExtensionField<A>,

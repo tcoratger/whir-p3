@@ -255,7 +255,7 @@ where
                 challenger.sample_algebra_element(),
                 num_variables,
             );
-            let eval = folded_evaluations.evaluate_hypercube_ext(&point);
+            let eval = round_state.sumcheck_prover.eval(&point);
             challenger.observe_algebra_element(eval);
 
             ood_answers.push(eval);

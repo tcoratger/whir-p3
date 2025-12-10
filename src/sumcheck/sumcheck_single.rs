@@ -17,7 +17,6 @@ use crate::{
 };
 
 const PARALLEL_THRESHOLD: usize = 4096;
-pub(crate) const PACK_THRESHOLD: usize = 4;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Quad<F: Field, EF: ExtensionField<F>> {
@@ -34,7 +33,7 @@ pub(crate) enum Quad<F: Field, EF: ExtensionField<F>> {
 impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
     pub(crate) fn new(evals: EvaluationsList<EF>, weights: EvaluationsList<EF>) -> Self {
         assert_eq!(evals.num_variables(), weights.num_variables());
-        if evals.num_variables() > PACK_THRESHOLD {
+        if evals.num_variables() > log2_strict_usize(F::Packing::WIDTH) {
             let evals = EvaluationsList::new(
                 evals
                     .0
@@ -55,11 +54,13 @@ impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
         }
     }
 
-    const fn new_packed(
+    fn new_packed(
         evals: EvaluationsList<EF::ExtensionPacking>,
         weights: EvaluationsList<EF::ExtensionPacking>,
     ) -> Self {
-        Self::Packed { evals, weights }
+        let mut quad = Self::Packed { evals, weights };
+        quad.transition();
+        quad
     }
 
     const fn new_small(evals: EvaluationsList<EF>, weights: EvaluationsList<EF>) -> Self {
@@ -109,9 +110,10 @@ impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
     }
 
     fn transition(&mut self) {
-        let k = self.k();
-        match self {
-            Self::Packed { evals, weights } if k < PACK_THRESHOLD => {
+        if let Self::Packed { evals, weights } = self {
+            let k = evals.num_variables();
+            assert_eq!(k, weights.num_variables());
+            if k == 0 {
                 let evals =
                     EF::ExtensionPacking::to_ext_iter(evals.as_slice().iter().copied()).collect();
                 let weights =
@@ -121,7 +123,6 @@ impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
                     weights: EvaluationsList::new(weights),
                 };
             }
-            _ => {}
         }
     }
 
@@ -359,7 +360,7 @@ fn initial_round<F: Field, EF: ExtensionField<F>, Challenger>(
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    let k = evals.num_variables();
+    let num_vars = evals.num_variables();
     // Update sum: h(r) = c_0 + c_1 * r + c_2 * r^2 where c_1 = h(1) - c_0 - c_2
     //
     // Since h(1) = claimed_sum - h(0) = claimed_sum - c_0, we have c_1 = claimed_sum - 2*c_0 - c_2
@@ -370,7 +371,7 @@ where
         *sum = c2 * r.square() + (h_1 - c0 - c2) * r + c0;
     };
 
-    if k > PACK_THRESHOLD {
+    if num_vars > log2_strict_usize(F::Packing::WIDTH) {
         let (mut weights, mut sum) = constraint.combine_new_packed();
         let evals_packed = F::Packing::pack_slice(evals.as_slice());
 
@@ -380,15 +381,15 @@ where
         //
         // We store [c_0, c_2] and derive c_1 from the sum constraint: h(1) = claimed_sum - c_0
         let (c0, c2) = compute_sumcheck_coefficients(evals_packed, weights.as_slice());
-        let c0 = EF::ExtensionPacking::to_ext_iter([c0]).sum::<EF>();
-        let c2 = EF::ExtensionPacking::to_ext_iter([c2]).sum::<EF>();
+        let c0 = EF::ExtensionPacking::to_ext_iter([c0]).sum();
+        let c2 = EF::ExtensionPacking::to_ext_iter([c2]).sum();
 
         // Transcript & grinding & sample a challenge
         let r = observe_and_pow(sumcheck_data, challenger, c0, c2, pow_bits);
 
         // Compress polynomials and update the sum
         weights.compress(r);
-        let evals = evals.compress_packed(r);
+        let evals = evals.compress_into_packed(r);
         update_sum(&mut sum, c0, c2, r);
 
         let quad = Quad::<F, EF>::new_packed(evals, weights);
@@ -440,7 +441,7 @@ where
         let k = evals.num_variables();
 
         let constraint = Constraint::new_eq_only(challenge, statement);
-        if k > PACK_THRESHOLD {
+        if k > log2_strict_usize(F::Packing::WIDTH) {
             let (weights, sum) = constraint.combine_new_packed();
             let evals = EvaluationsList::new(
                 evals

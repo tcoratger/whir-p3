@@ -442,10 +442,37 @@ impl<F: Field> EqStatement<F> {
         }
 
         let n = self.len();
-        let k_pack = log2_strict_usize(Base::Packing::WIDTH);
         let k = self.num_variables();
+        let k_pack = log2_strict_usize(Base::Packing::WIDTH);
+        assert!(k >= k_pack);
         assert_eq!(weights.num_variables() + k_pack, k);
-        assert!(k_pack * 2 <= k, "limitation of packed split method");
+
+        // Combine expected evaluations: S = ∑_i γ^i * s_i
+        self.combine_evals(sum, challenge);
+
+        // Apply naive method if number of variables is too small for packed split method
+        if k_pack * 2 > k {
+            self.points
+                .iter()
+                .zip(challenge.powers())
+                .enumerate()
+                .for_each(|(i, (point, challenge))| {
+                    let eq = EvaluationsList::new_from_point(point.as_slice(), challenge);
+                    weights
+                        .0
+                        .iter_mut()
+                        .zip_eq(eq.0.chunks(Base::Packing::WIDTH))
+                        .for_each(|(out, chunk)| {
+                            let packed = F::ExtensionPacking::from_ext_slice(chunk);
+                            if INITIALIZED || i > 0 {
+                                *out += packed;
+                            } else {
+                                *out = packed;
+                            }
+                        });
+                });
+            return;
+        }
 
         let points = MultilinearPoint::transpose(&self.points, true);
         let (left, right) = points.split_rows(k / 2);
@@ -473,9 +500,6 @@ impl<F: Field> EqStatement<F> {
                     }
                 });
             });
-
-        // Combine expected evaluations: S = ∑_i γ^i * s_i
-        self.combine_evals(sum, challenge);
     }
 
     /// Combines a list of evals into a single linear combination using powers of `gamma`,
@@ -1403,7 +1427,7 @@ mod tests {
         let challenge: EF = rng.random();
         let k_pack = log2_strict_usize(<F as Field>::Packing::WIDTH);
 
-        for k in 4..10 {
+        for k in k_pack..10 {
             let mut out0 = EvaluationsList::zero(k);
             let mut out1 =
                 EvaluationsList::<<EF as ExtensionField<F>>::ExtensionPacking>::zero(k - k_pack);

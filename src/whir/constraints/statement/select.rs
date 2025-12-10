@@ -1,6 +1,9 @@
 use alloc::vec::Vec;
 
-use p3_field::{ExtensionField, Field, PackedValue, PrimeCharacteristicRing, dot_product};
+use itertools::Itertools;
+use p3_field::{
+    ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing, dot_product,
+};
 use p3_matrix::{Matrix, dense::RowMajorMatrixView};
 use p3_maybe_rayon::prelude::*;
 use p3_util::log2_strict_usize;
@@ -424,10 +427,32 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
         }
 
         let n = self.len();
-        let k_pack = log2_strict_usize(F::Packing::WIDTH);
         let k = self.num_variables();
+        let k_pack = log2_strict_usize(F::Packing::WIDTH);
+        assert!(k >= k_pack);
         assert_eq!(weights.num_variables() + k_pack, k);
-        assert!(k_pack * 2 <= k, "limitation of packed split method");
+
+        // Combine expected evaluations: S = ∑_i γ^i * s_i
+        self.combine_evals(sum, challenge, shift);
+
+        // Apply naive method if number of variables is too small for packed split method
+        if k_pack * 2 > k {
+            self.vars
+                .iter()
+                .zip(challenge.powers().skip(shift))
+                .for_each(|(&var, challenge)| {
+                    let pow = EF::from(var).shifted_powers(challenge).collect_n(1 << k);
+                    weights
+                        .0
+                        .iter_mut()
+                        .zip_eq(pow.chunks(F::Packing::WIDTH))
+                        .for_each(|(out, chunk)| {
+                            let packed = EF::ExtensionPacking::from_ext_slice(chunk);
+                            *out += packed;
+                        });
+                });
+            return;
+        }
 
         let points = self
             .vars
@@ -461,9 +486,6 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
                         .sum::<EF::ExtensionPacking>();
                 });
             });
-
-        // Combine expected evaluations: S = ∑_i γ^i * s_i
-        self.combine_evals(sum, challenge, shift);
     }
 
     /// Batches expected evaluation values into a single target sum using challenge powers.
@@ -1072,7 +1094,8 @@ mod tests {
         let challenge: EF = rng.random();
         let k_pack = log2_strict_usize(<F as Field>::Packing::WIDTH);
 
-        for k in 4..10 {
+        let mut shift = 0;
+        for k in k_pack..10 {
             let mut out0 = EvaluationsList::zero(k);
             let mut out1 = EvaluationsList::<PackedExt>::zero(k - k_pack);
             let mut sum0 = EF::ZERO;
@@ -1083,8 +1106,9 @@ mod tests {
 
                 let statement = SelectStatement::<F, EF>::new(k, vars, evals);
 
-                statement.combine(&mut out0, &mut sum0, challenge, 0);
-                statement.combine_packed(&mut out1, &mut sum1, challenge, 0);
+                statement.combine(&mut out0, &mut sum0, challenge, shift);
+                statement.combine_packed(&mut out1, &mut sum1, challenge, shift);
+                shift += statement.len();
 
                 assert_eq!(out0.0,<<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter(
                     out1.as_slice().iter().copied(),
