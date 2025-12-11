@@ -1048,9 +1048,9 @@ fn test_sumcheck_prover_svo() {
 fn test_sumcheck_prover_with_skip() {
     let mut rng = SmallRng::seed_from_u64(0);
 
-    for num_vars in 10..=10 {
+    for num_vars in 8..=10 {
         for folding_factor in 2..=num_vars {
-            for _ in 0..1 {
+            for _ in 0..100 {
                 let folding_factor = FoldingFactor::Constant(folding_factor);
                 for k_skip in 2..folding_factor.at_round(0) {
                     if k_skip < K_SKIP_SUMCHECK {

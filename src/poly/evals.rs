@@ -35,11 +35,11 @@ pub struct EvaluationsList<F>(pub(crate) Vec<F>);
 impl<F: Copy + Clone + Send + Sync> EvaluationsList<F> {
     /// Given a number of points initializes a new zero polynomial
     #[inline]
-    pub fn zero(num_evals: usize) -> Self
+    pub fn zero(num_variables: usize) -> Self
     where
         F: PrimeCharacteristicRing,
     {
-        Self(F::zero_vec(1 << num_evals))
+        Self(F::zero_vec(1 << num_variables))
     }
 
     /// Constructs an `EvaluationsList` from a vector of evaluations.
@@ -405,9 +405,10 @@ where
         point: &MultilinearPoint<EF>,
     ) -> EF {
         if point.num_variables() < MLE_RECURSION_THRESHOLD {
-            return eval_multilinear_recursive(&self.0, point.as_slice());
+            eval_multilinear_recursive(&self.0, point.as_slice())
+        } else {
+            eval_multilinear_base::<F, EF>(&self.0, point.as_slice())
         }
-        eval_multilinear_base::<F, EF>(&self.0, point.as_slice())
     }
 
     /// Evaluates the multilinear polynomial at `point ∈ F^n`.
@@ -427,9 +428,10 @@ where
         F: ExtensionField<BaseField>,
     {
         if point.num_variables() < MLE_RECURSION_THRESHOLD {
-            return eval_multilinear_recursive(&self.0, point.as_slice());
+            eval_multilinear_recursive(&self.0, point.as_slice())
+        } else {
+            eval_multilinear_ext::<BaseField, F>(&self.0, point.as_slice())
         }
-        eval_multilinear_ext::<BaseField, F>(&self.0, point.as_slice())
     }
 
     /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
@@ -998,7 +1000,9 @@ impl<F> IntoIterator for EvaluationsList<F> {
     }
 }
 
-fn eval_multilinear_small<F, EF>(evals: &[F], point: &[EF]) -> EF
+/// Evaluates a multilinear polynomial `evals` at `point` using a recursive strategy.
+/// For small numbers of variables (<=4) it switches to the unrolled strategy.
+fn eval_multilinear_recursive<F, EF>(evals: &[F], point: &[EF]) -> EF
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -1007,8 +1011,6 @@ where
     //
     // This is a critical invariant: `evals.len()` must be exactly `2^point.len()`.
     debug_assert_eq!(evals.len(), 1 << point.len());
-    // This method is only for small number of variables (<=4)
-    debug_assert!(point.len() <= 4);
 
     // Select the optimal evaluation strategy based on the number of variables.
     match point {
@@ -1065,58 +1067,39 @@ where
             let a1 = a10 + *x1 * (a11 - a10);
             a0 + (a1 - a0) * *x0
         }
-        _ => {
-            unreachable!()
+        // General Case (5+ Variables)
+        //
+        // This handles all other cases, using one of two different strategies.
+        [x, sub_point @ ..] => {
+            // Split the evaluations into two halves, corresponding to the first variable being 0 or 1.
+            let (f0, f1) = evals.split_at(evals.len() / 2);
+
+            // Recursively evaluate on the two smaller hypercubes.
+            let (f0_eval, f1_eval) = {
+                // Only spawn parallel tasks if the subproblem is large enough to overcome
+                // the overhead of threading.
+                let work_size: usize = (1 << 15) / core::mem::size_of::<F>();
+                if evals.len() > work_size {
+                    join(
+                        || eval_multilinear_recursive(f0, sub_point),
+                        || eval_multilinear_recursive(f1, sub_point),
+                    )
+                } else {
+                    // For smaller subproblems, execute sequentially.
+                    (
+                        eval_multilinear_recursive(f0, sub_point),
+                        eval_multilinear_recursive(f1, sub_point),
+                    )
+                }
+            };
+            // Perform the final linear interpolation for the first variable `x`.
+            f0_eval + (f1_eval - f0_eval) * *x
         }
     }
 }
 
-pub fn eval_multilinear_recursive<F, EF>(evals: &[F], point: &[EF]) -> EF
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    // Ensure that the number of evaluations matches the number of variables in the point.
-    //
-    // This is a critical invariant: `evals.len()` must be exactly `2^point.len()`.
-    let num_vars = point.len();
-    debug_assert_eq!(evals.len(), 1 << num_vars);
-
-    // Select the optimal evaluation strategy based on the number of variables.
-    if num_vars <= 4 {
-        return eval_multilinear_small(evals, point);
-    }
-    // Get the current variable
-    let x = &point[0];
-    // Create a new point with the remaining coordinates.
-    let sub_point = &point[1..num_vars];
-
-    // Split the evaluations into two halves, corresponding to the first variable being 0 or 1.
-    let (f0, f1) = evals.split_at(evals.len() / 2);
-
-    // Recursively evaluate on the two smaller hypercubes.
-    let (f0_eval, f1_eval) = {
-        // Only spawn parallel tasks if the subproblem is large enough to overcome
-        // the overhead of threading.
-        let work_size: usize = (1 << 15) / core::mem::size_of::<F>();
-        if evals.len() > work_size {
-            join(
-                || eval_multilinear_recursive(f0, sub_point),
-                || eval_multilinear_recursive(f1, sub_point),
-            )
-        } else {
-            // For smaller subproblems, execute sequentially.
-            (
-                eval_multilinear_recursive(f0, sub_point),
-                eval_multilinear_recursive(f1, sub_point),
-            )
-        }
-    };
-    // Perform the final linear interpolation for the first variable `x`.
-    f0_eval + (f1_eval - f0_eval) * *x
-}
-
-pub fn eval_multilinear_base<F, EF>(evals: &[F], point: &[EF]) -> EF
+/// Evaluates a multilinear polynomial `evals` at `point` where `evals` are in the base field `F` and `point` is in the extension field `EF`.
+fn eval_multilinear_base<F, EF>(evals: &[F], point: &[EF]) -> EF
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -1163,7 +1146,8 @@ where
     EF::ExtensionPacking::to_ext_iter([sum]).sum()
 }
 
-pub fn eval_multilinear_ext<F, EF>(evals: &[EF], point: &[EF]) -> EF
+/// Evaluates a multilinear polynomial `evals` at `point` where `evals` and `point` are in the extension field `EF`.
+fn eval_multilinear_ext<F, EF>(evals: &[EF], point: &[EF]) -> EF
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -1227,7 +1211,7 @@ mod tests {
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
 
-    // Naive method to evaluate multilinear polynomials for testing.
+    /// Naive method to evaluate a multilinear polynomial for testing.
     fn eval_multilinear<F: Field, EF: ExtensionField<F>>(evals: &[F], point: &[EF]) -> EF {
         let eq = EvaluationsList::new_from_point(point, EF::ONE);
         dot_product(eq.iter().copied(), evals.iter().copied())
@@ -3413,18 +3397,14 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
 
         for k in 0..=18 {
-            let list: Vec<F> = (0..(1 << k)).map(|_| rng.random()).collect();
+            let poly: Vec<F> = (0..1 << k).map(|_| rng.random()).collect();
             let point = MultilinearPoint::<EF4>::rand(&mut rng, k);
             let point = point.as_slice();
-            let e0 = eval_multilinear_recursive(&list, point);
-            let e1 = eval_multilinear(&list, point);
+            let e0 = eval_multilinear_recursive(&poly, point);
+            let e1 = eval_multilinear(&poly, point);
             assert_eq!(e0, e1);
-            let e1 = eval_multilinear_base(&list, point);
+            let e1 = eval_multilinear_base(&poly, point);
             assert_eq!(e0, e1);
-            if list.len() < 4 {
-                let e1 = eval_multilinear_small(&list, point);
-                assert_eq!(e0, e1);
-            }
         }
     }
 
@@ -3433,7 +3413,7 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
 
         for k in 0..=18 {
-            let poly: Vec<EF4> = (0..(1 << k)).map(|_| rng.random()).collect();
+            let poly: Vec<EF4> = (0..1 << k).map(|_| rng.random()).collect();
             let point = MultilinearPoint::<EF4>::rand(&mut rng, k);
             let point = point.as_slice();
             let e0 = eval_multilinear_recursive(&poly, point);
@@ -3443,10 +3423,6 @@ mod tests {
             assert_eq!(e0, e1);
             let e1 = eval_multilinear_ext::<F, _>(&poly, point);
             assert_eq!(e0, e1);
-            if poly.len() < 4 {
-                let e1 = eval_multilinear_small(&poly, point);
-                assert_eq!(e0, e1);
-            }
         }
     }
 
@@ -3454,7 +3430,7 @@ mod tests {
     fn test_ext_eval_packed_consistency() {
         let mut rng = SmallRng::seed_from_u64(1);
         for k in 4..=18 {
-            let poly: Vec<EF4> = (0..(1 << k)).map(|_| rng.random()).collect();
+            let poly: Vec<EF4> = (0..1 << k).map(|_| rng.random()).collect();
             let point = MultilinearPoint::<EF4>::rand(&mut rng, k);
             let e0 = eval_multilinear_recursive(&poly, point.as_slice());
             let packed = poly

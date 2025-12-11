@@ -1,6 +1,7 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{
-    Algebra, ExtensionField, Field, PackedFieldExtension, PackedValue, TwoAdicField, dot_product,
+    Algebra, ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing,
+    TwoAdicField, dot_product,
 };
 use p3_interpolation::interpolate_subgroup;
 use p3_maybe_rayon::prelude::*;
@@ -18,6 +19,8 @@ use crate::{
 
 const PARALLEL_THRESHOLD: usize = 4096;
 
+/// Multiplication of evaluation and weight polynomials in the quadratic sumcheck
+/// In small number of variables that can't be packed, coefficients are kept in `EF` otherwise in packed form `EF::ExtensionPacking`
 #[derive(Debug, Clone)]
 pub(crate) enum Quad<F: Field, EF: ExtensionField<F>> {
     Packed {
@@ -67,7 +70,7 @@ impl<F: Field, EF: ExtensionField<F>> Quad<F, EF> {
         Self::Small { evals, weights }
     }
 
-    fn k(&self) -> usize {
+    fn num_variables(&self) -> usize {
         match self {
             Self::Packed { evals, weights } => {
                 let k = evals.num_variables();
@@ -281,8 +284,8 @@ where
 #[instrument(skip_all, level = "debug")]
 fn compute_sumcheck_coefficients<A, B>(evals: &[A], weights: &[B]) -> (B, B)
 where
-    A: Copy + Send + Sync + Algebra<A>,
-    B: Copy + Send + Sync + Algebra<A> + Algebra<B>,
+    A: Copy + Send + Sync + PrimeCharacteristicRing,
+    B: Copy + Send + Sync + Algebra<A>,
 {
     assert!(log2_strict_usize(evals.len()) >= 1);
     assert_eq!(evals.len(), weights.len());
@@ -601,7 +604,7 @@ where
 
     /// Returns the number of variables in the polynomial.
     pub fn num_variables(&self) -> usize {
-        self.quad.k()
+        self.quad.num_variables()
     }
 
     /// Returns the polynomial.
