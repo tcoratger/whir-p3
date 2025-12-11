@@ -16,22 +16,22 @@ use tracing::instrument;
 
 use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
-/// Builds the eq coefficients for every point in batch.
-/// Coefficients interleaved by list index: [a0, b0, c0, ..., a1, b1, c1, ...].
-/// `flat_eqs` also weights point i by alpha^i
-fn flat_eqs<F: Field, EF: ExtensionField<F>>(
+/// Given multiple points in matrix form where each column is a point `P_i`,
+/// builds individual eq coefficients `eq(P_i, X)` for all points `X` in the boolean hypercube
+/// Returns a matrix where each columns is the eq coefficients of `P_i`.
+fn batch_eqs<F: Field, EF: ExtensionField<F>>(
     points: RowMajorMatrixView<'_, EF>,
     alpha: EF,
-) -> Vec<EF> {
+) -> RowMajorMatrix<EF> {
     let k = points.height();
     let n = points.width();
     assert_ne!(n, 0);
 
-    let mut acc = EF::zero_vec(n * (1 << k));
-    acc[..n].copy_from_slice(&alpha.powers().collect_n(n));
+    let mut mat = RowMajorMatrix::new(EF::zero_vec(n * (1 << k)), n);
+    mat.row_mut(0).copy_from_slice(&alpha.powers().collect_n(n));
     points.row_slices().enumerate().for_each(|(i, vars)| {
-        let (lo, hi) = acc.split_at_mut((1 << i) * n);
-        lo.chunks_mut(n).zip(hi.chunks_mut(n)).for_each(|(lo, hi)| {
+        let (mut lo, mut hi) = mat.split_rows_mut(1 << i);
+        lo.rows_mut().zip(hi.rows_mut()).for_each(|(lo, hi)| {
             vars.iter()
                 .zip(lo.iter_mut().zip(hi.iter_mut()))
                 .for_each(|(&var, (lo, hi))| {
@@ -40,41 +40,41 @@ fn flat_eqs<F: Field, EF: ExtensionField<F>>(
                 });
         });
     });
-    acc
+    mat
 }
 
-/// Builds the eq coefficients in packed form for every point in batch
-/// Coefficients interleaved by list index: [a0, b0, c0, ..., a1, b1, c1, ...].
-/// `flat_eqs` also weights point i by alpha^i
-fn packed_flat_eqs<F: Field, EF: ExtensionField<F>>(
+/// Given multiple points in matrix form where each column is a point `P_i`,
+/// builds individual eq coefficients `eq(P_i, X)` for all points `X` in the boolean hypercube
+/// Returns a matrix where each columns is the eq coefficients of `P_i` in packed form.
+fn packed_batch_eqs<F: Field, EF: ExtensionField<F>>(
     points: RowMajorMatrixView<'_, EF>,
-) -> Vec<EF::ExtensionPacking> {
+) -> RowMajorMatrix<EF::ExtensionPacking> {
     let k = points.height();
     let n = points.width();
     assert_ne!(n, 0);
     let k_pack = log2_strict_usize(F::Packing::WIDTH);
+    assert!(k >= k_pack);
 
     let (init_vars, rest_vars) = points.split_rows(k_pack);
-    let mut packed = EF::ExtensionPacking::zero_vec(n * (1 << (k - k_pack)));
+    let mut mat = RowMajorMatrix::new(EF::ExtensionPacking::zero_vec(n * (1 << (k - k_pack))), n);
     if k_pack > 0 {
         init_vars
             .transpose()
             .row_slices()
-            .zip(packed.iter_mut())
+            .zip(mat.values.iter_mut())
             .for_each(|(vars, packed)| {
-                let mut point = vars.to_vec();
-                point.reverse();
+                let point = vars.iter().rev().copied().collect::<Vec<_>>();
                 *packed = EF::ExtensionPacking::from_ext_slice(
                     EvaluationsList::new_from_point(&point, EF::ONE).as_slice(),
                 );
             });
     } else {
-        packed[..n].fill(EF::ExtensionPacking::ONE);
+        mat.row_mut(0).fill(EF::ExtensionPacking::ONE);
     }
 
-    for (i, vars) in rest_vars.row_slices().enumerate() {
-        let (lo, hi) = packed.split_at_mut((1 << i) * n);
-        lo.chunks_mut(n).zip(hi.chunks_mut(n)).for_each(|(lo, hi)| {
+    rest_vars.row_slices().enumerate().for_each(|(i, vars)| {
+        let (mut lo, mut hi) = mat.split_rows_mut(1 << i);
+        lo.rows_mut().zip(hi.rows_mut()).for_each(|(lo, hi)| {
             vars.iter()
                 .zip(lo.iter_mut().zip(hi.iter_mut()))
                 .for_each(|(&var, (lo, hi))| {
@@ -82,10 +82,10 @@ fn packed_flat_eqs<F: Field, EF: ExtensionField<F>>(
                     *lo -= *hi;
                 });
         });
-    }
-
-    packed
+    });
+    mat
 }
+
 /// A batched system of evaluation constraints $p(z_i) = s_i$ on $\{0,1\}^m$.
 ///
 /// Each entry ties a Boolean point `z_i` to an expected polynomial evaluation `s_i`.
@@ -440,7 +440,6 @@ impl<F: Field> EqStatement<F> {
             return;
         }
 
-        let n = self.len();
         let k = self.num_variables();
         let k_pack = log2_strict_usize(Base::Packing::WIDTH);
         assert!(k >= k_pack);
@@ -475,22 +474,20 @@ impl<F: Field> EqStatement<F> {
 
         let points = MultilinearPoint::transpose(&self.points, true);
         let (left, right) = points.split_rows(k / 2);
-        let left = packed_flat_eqs::<Base, F>(left);
-        let right = flat_eqs::<Base, F>(right, challenge);
+        let left = packed_batch_eqs::<Base, F>(left);
+        let right = batch_eqs::<Base, F>(right, challenge);
 
         weights
             .0
-            .par_chunks_mut(left.len() / n)
-            .zip_eq(right.par_chunks(n))
+            .par_chunks_mut(left.height())
+            .zip_eq(right.par_row_slices())
             .for_each(|(out, right)| {
-                out.iter_mut().zip(left.chunks(n)).for_each(|(out, left)| {
+                out.iter_mut().zip(left.rows()).for_each(|(out, left)| {
                     if INITIALIZED {
-                        *out += dot_product::<F::ExtensionPacking, _, _>(
-                            left.iter().copied(),
-                            right.iter().copied(),
-                        );
+                        *out +=
+                            dot_product::<F::ExtensionPacking, _, _>(left, right.iter().copied());
                     } else {
-                        *out = dot_product(left.iter().copied(), right.iter().copied());
+                        *out = dot_product(left, right.iter().copied());
                     }
                 });
             });

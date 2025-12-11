@@ -4,66 +4,75 @@ use itertools::Itertools;
 use p3_field::{
     ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing, dot_product,
 };
-use p3_matrix::{Matrix, dense::RowMajorMatrixView};
+use p3_matrix::{
+    Matrix,
+    dense::{RowMajorMatrix, RowMajorMatrixView},
+};
 use p3_maybe_rayon::prelude::*;
 use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
-/// Builds the power coefficients for every point in batch.
-/// Coefficients interleaved by list index: [a0, b0, c0, ..., a1, b1, c1, ...].
-/// `flat_eqs` also weights point i by alpha^i
-fn flat_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> Vec<F> {
+/// Expands powers-of-two of table into full power table.
+/// Each column in `points` is powers-of-two of a variable that should be layouted in reverse order as:
+/// `[v_i^{2^{k-1}}, v_i^{2^{k-2}}, …, v_i^{2^0}]` where `k` is the height of table ie. number of variables.
+/// Returns a matrix where each column is powers of `v_i`.
+fn batch_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> RowMajorMatrix<F> {
     let k = points.height();
     let n = points.width();
-    let mut acc = F::zero_vec(n * (1 << k));
-    acc[..n].fill(F::ONE);
+
+    let mut mat = RowMajorMatrix::new(F::zero_vec(n * (1 << k)), n);
+    mat.row_mut(0).fill(F::ONE);
+
     points.row_slices().enumerate().for_each(|(i, vars)| {
-        let (lo, hi) = acc.split_at_mut((1 << i) * n);
-        lo.chunks_mut(n).zip(hi.chunks_mut(n)).for_each(|(lo, hi)| {
+        let (lo, mut hi) = mat.split_rows_mut(1 << i);
+        lo.rows().zip(hi.rows_mut()).for_each(|(lo, hi)| {
             vars.iter()
-                .zip(lo.iter_mut().zip(hi.iter_mut()))
-                .for_each(|(&var, (lo, hi))| *hi = *lo * var);
+                .zip(lo.zip(hi.iter_mut()))
+                .for_each(|(&var, (lo, hi))| *hi = lo * var);
         });
     });
-    acc
+    mat
 }
 
-/// Builds the eq coefficients in packed form for every point in batch.
-/// Coefficients interleaved by list index: [a0, b0, c0, ..., a1, b1, c1, ...].
-/// `flat_eqs` also weights point i by alpha^i
-fn packed_flat_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> Vec<F::Packing> {
-    let k_pack = log2_strict_usize(F::Packing::WIDTH);
+/// Expands powers-of-two of table into full power table.
+/// Each column in `points` is powers-of-two of a variable that should be layouted in reverse order as:
+/// `[v_i^{2^{k-1}}, v_i^{2^{k-2}}, …, v_i^{2^0}]` where `k` is the height of table ie. number of variables.
+/// Returns a matrix where each column is powers of `v_i` in packed form.
+fn packed_batch_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> RowMajorMatrix<F::Packing> {
     let k = points.height();
     let n = points.width();
+    assert_ne!(n, 0);
+    let k_pack = log2_strict_usize(F::Packing::WIDTH);
+    assert!(k >= k_pack);
 
     let (init_vars, rest_vars) = points.split_rows(k_pack);
-    let mut packed = F::Packing::zero_vec(n * (1 << (k - k_pack)));
+    let mut mat = RowMajorMatrix::new(F::Packing::zero_vec(n * (1 << (k - k_pack))), n);
     if k_pack > 0 {
         init_vars
             .transpose()
             .row_slices()
-            .zip(packed.iter_mut())
+            .zip(mat.values.iter_mut())
             .for_each(|(vars, packed)| {
                 let point = RowMajorMatrixView::new(vars, 1);
-                *packed = *F::Packing::from_slice(&flat_pows(point));
+                *packed = *F::Packing::from_slice(&batch_pows(point).values);
             });
     } else {
-        packed[..n].fill(F::Packing::ONE);
+        mat.row_mut(0).fill(F::Packing::ONE);
     }
 
-    for (i, vars) in rest_vars.row_slices().enumerate() {
-        let (lo, hi) = packed.split_at_mut((1 << i) * n);
-        lo.chunks_mut(n).zip(hi.chunks_mut(n)).for_each(|(lo, hi)| {
+    rest_vars.row_slices().enumerate().for_each(|(i, vars)| {
+        let (lo, mut hi) = mat.split_rows_mut(1 << i);
+        lo.rows().zip(hi.rows_mut()).for_each(|(lo, hi)| {
             vars.iter()
-                .zip(lo.iter_mut().zip(hi.iter_mut()))
-                .for_each(|(&var, (lo, hi))| *hi = *lo * var);
+                .zip(lo.zip(hi.iter_mut()))
+                .for_each(|(&var, (lo, hi))| *hi = lo * var);
         });
-    }
-
-    packed
+    });
+    mat
 }
+
 /// A batched system of `select`-based evaluation constraints for multilinear polynomials.
 ///
 /// This struct represents a collection of evaluation constraints of the form `p(z_i) = s_i`
@@ -460,10 +469,9 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
             .map(|&var| MultilinearPoint::expand_from_univariate(var, k))
             .collect::<Vec<_>>();
         let points = MultilinearPoint::transpose(&points, true);
-
         let (left, right) = points.split_rows(k / 2);
-        let left = packed_flat_pows(left);
-        let right = flat_pows(right);
+        let left = packed_batch_pows(left);
+        let right = batch_pows(right);
 
         let alphas = challenge
             .powers()
@@ -474,15 +482,14 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
 
         weights
             .0
-            .par_chunks_mut(left.len() / n)
-            .zip(right.par_chunks(n))
+            .par_chunks_mut(left.height())
+            .zip(right.par_row_slices())
             .for_each(|(out, right)| {
-                out.iter_mut().zip(left.chunks(n)).for_each(|(out, left)| {
+                out.iter_mut().zip(left.rows()).for_each(|(out, left)| {
                     *out += left
-                        .iter()
                         .zip(right.iter())
                         .zip(alphas.iter())
-                        .map(|((&left, &right), &alpha)| alpha * (left * right))
+                        .map(|((left, &right), &alpha)| alpha * (left * right))
                         .sum::<EF::ExtensionPacking>();
                 });
             });
