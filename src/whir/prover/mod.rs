@@ -196,7 +196,7 @@ where
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
-        let folded_evaluations = &round_state.sumcheck_prover.evals;
+        let folded_evaluations = &round_state.sumcheck_prover.evals();
         let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
         assert_eq!(num_variables, folded_evaluations.num_variables());
 
@@ -255,7 +255,7 @@ where
                 challenger.sample_algebra_element(),
                 num_variables,
             );
-            let eval = folded_evaluations.evaluate_hypercube(&point);
+            let eval = round_state.sumcheck_prover.eval(&point);
             challenger.observe_algebra_element(eval);
 
             ood_answers.push(eval);
@@ -354,14 +354,15 @@ where
                             .last_variable()
                             .expect("skip challenge must be present");
                         // The first `n - k_skip` elements are the challenges for the remaining variables.
-                        let r_rest = r_all.get_subpoint_over_range(0..num_remaining_vars);
+                        let r_rest = r_all.get_subpoint_over_range(..num_remaining_vars);
 
                         // Perform the two-stage skip-aware evaluation:
                         //
                         // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
                         let folded_row = interpolate_subgroup(&mat, r_skip);
                         // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-                        let eval = EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest);
+                        let eval =
+                            EvaluationsList::new(folded_row).evaluate_hypercube_ext::<F>(&r_rest);
                         stir_statement.add_constraint(var, eval);
                     } else {
                         // Case 2: Standard Sumcheck Round
@@ -369,7 +370,7 @@ where
                         // The `answer` represents a standard multilinear polynomial.
 
                         // Perform a standard multilinear evaluation at the full challenge point `r`.
-                        let eval = evals.evaluate_hypercube(&round_state.folding_randomness);
+                        let eval = evals.evaluate_hypercube_base(&round_state.folding_randomness);
                         stir_statement.add_constraint(var, eval);
                     }
                 }
@@ -391,7 +392,7 @@ where
                     // Wrap the evaluations to represent the polynomial.
                     let evals = EvaluationsList::new(answer.clone());
                     // Perform a standard multilinear evaluation at the full challenge point `r`.
-                    let eval = evals.evaluate_hypercube(&round_state.folding_randomness);
+                    let eval = evals.evaluate_hypercube_ext::<F>(&round_state.folding_randomness);
                     stir_statement.add_constraint(var, eval);
                 }
             }
@@ -444,10 +445,10 @@ where
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Directly send coefficients of the polynomial to the verifier.
-        challenger.observe_algebra_slice(round_state.sumcheck_prover.evals.as_slice());
+        challenger.observe_algebra_slice(round_state.sumcheck_prover.evals().as_slice());
 
         // Store the final polynomial in the proof
-        proof.final_poly = Some(round_state.sumcheck_prover.evals.clone());
+        proof.final_poly = Some(round_state.sumcheck_prover.evals());
 
         // CRITICAL: Perform proof-of-work grinding to finalize the transcript before querying.
         //

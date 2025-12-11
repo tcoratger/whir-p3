@@ -1,11 +1,90 @@
 use alloc::vec::Vec;
 
-use p3_field::{ExtensionField, Field, TwoAdicField, dot_product};
-use p3_matrix::dense::RowMajorMatrix;
+use itertools::Itertools;
+use p3_field::{
+    ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing,
+    TwoAdicField, dot_product,
+};
+use p3_matrix::{
+    Matrix,
+    dense::{RowMajorMatrix, RowMajorMatrixView},
+};
+use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::eq_batch::eval_eq_batch;
+use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
+
+/// Given multiple points in matrix form where each column is a point `P_i`,
+/// builds individual eq coefficients `eq(P_i, X)` for all points `X` in the boolean hypercube
+/// Returns a matrix where each columns is the eq coefficients of `P_i`.
+fn batch_eqs<F: Field, EF: ExtensionField<F>>(
+    points: RowMajorMatrixView<'_, EF>,
+    alpha: EF,
+) -> RowMajorMatrix<EF> {
+    let k = points.height();
+    let n = points.width();
+    assert_ne!(n, 0);
+
+    let mut mat = RowMajorMatrix::new(EF::zero_vec(n * (1 << k)), n);
+    mat.row_mut(0).copy_from_slice(&alpha.powers().collect_n(n));
+    points.row_slices().enumerate().for_each(|(i, vars)| {
+        let (mut lo, mut hi) = mat.split_rows_mut(1 << i);
+        lo.rows_mut().zip(hi.rows_mut()).for_each(|(lo, hi)| {
+            vars.iter()
+                .zip(lo.iter_mut().zip(hi.iter_mut()))
+                .for_each(|(&var, (lo, hi))| {
+                    *hi = *lo * var;
+                    *lo -= *hi;
+                });
+        });
+    });
+    mat
+}
+
+/// Given multiple points in matrix form where each column is a point `P_i`,
+/// builds individual eq coefficients `eq(P_i, X)` for all points `X` in the boolean hypercube
+/// Returns a matrix where each columns is the eq coefficients of `P_i` in packed form.
+fn packed_batch_eqs<F: Field, EF: ExtensionField<F>>(
+    points: RowMajorMatrixView<'_, EF>,
+) -> RowMajorMatrix<EF::ExtensionPacking> {
+    let k = points.height();
+    let n = points.width();
+    assert_ne!(n, 0);
+    let k_pack = log2_strict_usize(F::Packing::WIDTH);
+    assert!(k >= k_pack);
+
+    let (init_vars, rest_vars) = points.split_rows(k_pack);
+    let mut mat = RowMajorMatrix::new(EF::ExtensionPacking::zero_vec(n * (1 << (k - k_pack))), n);
+    if k_pack > 0 {
+        init_vars
+            .transpose()
+            .row_slices()
+            .zip(mat.values.iter_mut())
+            .for_each(|(vars, packed)| {
+                let point = vars.iter().rev().copied().collect::<Vec<_>>();
+                *packed = EF::ExtensionPacking::from_ext_slice(
+                    EvaluationsList::new_from_point(&point, EF::ONE).as_slice(),
+                );
+            });
+    } else {
+        mat.row_mut(0).fill(EF::ExtensionPacking::ONE);
+    }
+
+    rest_vars.row_slices().enumerate().for_each(|(i, vars)| {
+        let (mut lo, mut hi) = mat.split_rows_mut(1 << i);
+        lo.rows_mut().zip(hi.rows_mut()).for_each(|(lo, hi)| {
+            vars.iter()
+                .zip(lo.iter_mut().zip(hi.iter_mut()))
+                .for_each(|(&var, (lo, hi))| {
+                    *hi = *lo * var;
+                    *lo -= *hi;
+                });
+        });
+    });
+    mat
+}
 
 /// A batched system of evaluation constraints $p(z_i) = s_i$ on $\{0,1\}^m$.
 ///
@@ -50,11 +129,7 @@ impl<F: Field> EqStatement<F> {
     /// **Note:** For the univariate skip optimization where the polynomial uses a mixed domain
     /// representation, use [`new_with_univariate_skip`](Self::new_with_univariate_skip) instead.
     #[must_use]
-    pub fn new_hypercube(
-        num_variables: usize,
-        points: Vec<MultilinearPoint<F>>,
-        evaluations: Vec<F>,
-    ) -> Self {
+    pub fn new_hypercube(points: Vec<MultilinearPoint<F>>, evaluations: Vec<F>) -> Self {
         // Validate that we have one evaluation per point.
         assert_eq!(
             points.len(),
@@ -65,10 +140,11 @@ impl<F: Field> EqStatement<F> {
         );
 
         // Validate that each point has the correct number of variables.
-        for point in &points {
-            assert_eq!(point.num_variables(), num_variables);
-        }
-
+        let num_variables = points
+            .iter()
+            .map(MultilinearPoint::num_variables)
+            .all_equal_value()
+            .unwrap();
         Self {
             num_variables,
             points,
@@ -178,7 +254,7 @@ impl<F: Field> EqStatement<F> {
     #[must_use]
     pub fn verify(&self, poly: &EvaluationsList<F>) -> bool {
         self.iter()
-            .all(|(point, &expected_eval)| poly.evaluate_hypercube(point) == expected_eval)
+            .all(|(point, &expected_eval)| poly.evaluate_hypercube_base(point) == expected_eval)
     }
 
     /// Concatenates another statement's constraints into this one.
@@ -209,7 +285,7 @@ impl<F: Field> EqStatement<F> {
         F: ExtensionField<BF>,
     {
         assert_eq!(point.num_variables(), self.num_variables());
-        let eval = poly.evaluate_hypercube(&point);
+        let eval = poly.evaluate_hypercube_base(&point);
         self.points.push(point);
         self.evaluations.push(eval);
     }
@@ -338,6 +414,83 @@ impl<F: Field> EqStatement<F> {
         // Combine expected evaluations: S = ∑_i γ^i * s_i
         *acc_sum +=
             dot_product::<F, _, _>(self.evaluations.iter().copied(), challenges.into_iter());
+    }
+
+    /// Inserts multiple constraints at the front of the system.
+    ///
+    /// Panics if any constraint's number of variables does not match the system.
+    /// Combines all constraints into a single aggregated polynomial and expected sum using a challenge.
+    ///
+    /// # Standard Hypercube Representation
+    ///
+    /// This method is for the standard case where the equality polynomial is computed over the
+    /// Boolean hypercube `{0,1}^num_variables`. It evaluates W(x) = ∑_i γ^i * eq(x, z_i) for all
+    /// x ∈ {0,1}^k, where the z_i are arbitrary constraint points.
+    #[instrument(skip_all, fields(num_constraints = self.len(), num_variables = self.num_variables()))]
+    pub fn combine_hypercube_packed<Base, const INITIALIZED: bool>(
+        &self,
+        weights: &mut EvaluationsList<F::ExtensionPacking>,
+        sum: &mut F,
+        challenge: F,
+    ) where
+        Base: Field,
+        F: ExtensionField<Base>,
+    {
+        if self.points.is_empty() {
+            return;
+        }
+
+        let k = self.num_variables();
+        let k_pack = log2_strict_usize(Base::Packing::WIDTH);
+        assert!(k >= k_pack);
+        assert_eq!(weights.num_variables() + k_pack, k);
+
+        // Combine expected evaluations: S = ∑_i γ^i * s_i
+        self.combine_evals(sum, challenge);
+
+        // Apply naive method if number of variables is too small for packed split method
+        if k_pack * 2 > k {
+            self.points
+                .iter()
+                .zip(challenge.powers())
+                .enumerate()
+                .for_each(|(i, (point, challenge))| {
+                    let eq = EvaluationsList::new_from_point(point.as_slice(), challenge);
+                    weights
+                        .0
+                        .iter_mut()
+                        .zip_eq(eq.0.chunks(Base::Packing::WIDTH))
+                        .for_each(|(out, chunk)| {
+                            let packed = F::ExtensionPacking::from_ext_slice(chunk);
+                            if INITIALIZED || i > 0 {
+                                *out += packed;
+                            } else {
+                                *out = packed;
+                            }
+                        });
+                });
+            return;
+        }
+
+        let points = MultilinearPoint::transpose(&self.points, true);
+        let (left, right) = points.split_rows(k / 2);
+        let left = packed_batch_eqs::<Base, F>(left);
+        let right = batch_eqs::<Base, F>(right, challenge);
+
+        weights
+            .0
+            .par_chunks_mut(left.height())
+            .zip_eq(right.par_row_slices())
+            .for_each(|(out, right)| {
+                out.iter_mut().zip(left.rows()).for_each(|(out, left)| {
+                    if INITIALIZED {
+                        *out +=
+                            dot_product::<F::ExtensionPacking, _, _>(left, right.iter().copied());
+                    } else {
+                        *out = dot_product(left, right.iter().copied());
+                    }
+                });
+            });
     }
 
     /// Combines a list of evals into a single linear combination using powers of `gamma`,
@@ -485,9 +638,7 @@ impl<F: Field> EqStatement<F> {
             // Pre-compute the evaluations for the "column" (hypercube) part of the equality check.
             //
             // This result is constant for all `2^k` rows, so we compute it once per constraint.
-            let suffix_point = MultilinearPoint::new(z_suffix.to_vec());
-            let suffix_evals =
-                EvaluationsList::<F>::new_from_point(suffix_point.as_slice(), F::ONE);
+            let suffix_evals = EvaluationsList::<F>::new_from_point(z_suffix, F::ONE);
 
             // Pre-compute the evaluations for the "row" (subgroup) part of the equality check.
             //
@@ -533,12 +684,14 @@ mod tests {
     use alloc::vec;
 
     use p3_baby_bear::BabyBear;
-    use p3_field::PrimeCharacteristicRing;
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use proptest::prelude::*;
+    use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
 
     type F = BabyBear;
+    type EF = BinomialExtensionField<F, 4>;
 
     #[test]
     fn test_statement_combine_single_constraint() {
@@ -610,7 +763,7 @@ mod tests {
         // Test new_hypercube constructor
         let point = MultilinearPoint::new(vec![F::ONE]);
         let eval = F::from_u64(42);
-        let statement = EqStatement::new_hypercube(1, vec![point], vec![eval]);
+        let statement = EqStatement::new_hypercube(vec![point], vec![eval]);
 
         assert_eq!(statement.num_variables(), 1);
         assert_eq!(statement.len(), 1);
@@ -669,7 +822,7 @@ mod tests {
         let mut statement2 = EqStatement::<F>::initialize(1);
 
         // Add same constraint using both methods
-        let eval = poly.evaluate_hypercube(&point);
+        let eval = poly.evaluate_hypercube_base(&point);
         statement1.add_evaluated_constraint(point.clone(), eval);
         statement2.add_unevaluated_constraint_hypercube(point, &poly);
 
@@ -964,8 +1117,8 @@ mod tests {
             ]);
 
             // Add constraints: poly(point1) = actual_eval1, poly(point2) = actual_eval2
-            let eval1 = poly.evaluate_hypercube(&point1);
-            let eval2 = poly.evaluate_hypercube(&point2);
+            let eval1 = poly.evaluate_hypercube_base(&point1);
+            let eval2 = poly.evaluate_hypercube_base(&point2);
             statement.add_evaluated_constraint(point1, eval1);
             statement.add_evaluated_constraint(point2, eval2);
 
@@ -991,7 +1144,7 @@ mod tests {
             let wrong_point = MultilinearPoint::new(vec![F::ZERO, F::ZERO, F::ZERO, F::ZERO]);
             // Obviously wrong evaluation
             let wrong_eval = F::from_u32(999);
-            let actual_eval = poly.evaluate_hypercube(&wrong_point);
+            let actual_eval = poly.evaluate_hypercube_base(&wrong_point);
             // Only test if actually different
             if wrong_eval != actual_eval {
                 statement.add_evaluated_constraint(wrong_point, wrong_eval);
@@ -1086,7 +1239,7 @@ mod tests {
         ];
         let evaluations = vec![F::from_u64(100)];
 
-        let _ = EqStatement::new_hypercube(1, points, evaluations);
+        let _ = EqStatement::new_hypercube(points, evaluations);
     }
 
     #[test]
@@ -1257,5 +1410,44 @@ mod tests {
 
         assert_eq!(statement.len(), 1);
         assert_eq!(statement.points[0], point);
+    }
+
+    #[test]
+    fn test_packed_combine() {
+        let mut rng = SmallRng::seed_from_u64(1);
+        let challenge: EF = rng.random();
+        let k_pack = log2_strict_usize(<F as Field>::Packing::WIDTH);
+
+        for k in k_pack..10 {
+            let mut out0 = EvaluationsList::zero(k);
+            let mut out1 =
+                EvaluationsList::<<EF as ExtensionField<F>>::ExtensionPacking>::zero(k - k_pack);
+            let mut sum0 = EF::ZERO;
+            let mut sum1 = EF::ZERO;
+            let mut init = false;
+            for n in [1, 2, 10, 11] {
+                let points = (0..n)
+                    .map(|_| MultilinearPoint::rand(&mut rng, k))
+                    .collect::<Vec<_>>();
+                let evals = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
+
+                let statement = EqStatement::<EF>::new_hypercube(points, evals);
+
+                if init {
+                    statement.combine_hypercube::<F, true>(&mut out0, &mut sum0, challenge);
+                    statement.combine_hypercube_packed::<F, true>(&mut out1, &mut sum1, challenge);
+                } else {
+                    statement.combine_hypercube::<F, false>(&mut out0, &mut sum0, challenge);
+                    statement.combine_hypercube_packed::<F, false>(&mut out1, &mut sum1, challenge);
+                    init = true;
+                }
+
+                assert_eq!(out0.0,<<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter(
+                    out1.as_slice().iter().copied(),
+                )
+                .collect::<Vec<_>>());
+                assert_eq!(sum0, sum1);
+            }
+        }
     }
 }

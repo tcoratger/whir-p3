@@ -1,8 +1,13 @@
 use alloc::vec::Vec;
-use core::ops::{Index, Range};
+use core::{
+    ops::{Index, RangeBounds},
+    slice::SliceIndex,
+};
 
+use itertools::Itertools;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
+use p3_matrix::dense::RowMajorMatrix;
 use rand::{
     Rng,
     distr::{Distribution, StandardUniform},
@@ -48,8 +53,11 @@ where
     /// Return a sub-point over the specified range of variables.
     #[inline]
     #[must_use]
-    pub fn get_subpoint_over_range(&self, idx: Range<usize>) -> Self {
-        Self(self.0[idx].to_vec())
+    pub fn get_subpoint_over_range<R: RangeBounds<usize> + SliceIndex<[F], Output = [F]>>(
+        &self,
+        range: R,
+    ) -> Self {
+        Self(self.0[range].to_vec())
     }
 
     /// Return a reference to the last variable in the point, if it exists.
@@ -194,7 +202,11 @@ where
     /// 2.  Compute `eq(w_inner, x)` for all `x` in `{0,1}^5`.
     pub fn svo_e_in_table<const NUM_SVO_ROUNDS: usize>(&self) -> EvaluationsList<F> {
         let half_l = self.num_variables() / 2;
-        EvaluationsList::new_from_point(&self.0[NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + half_l], F::ONE)
+        EvaluationsList::new_from_point(
+            self.get_subpoint_over_range(NUM_SVO_ROUNDS..NUM_SVO_ROUNDS + half_l)
+                .as_slice(),
+            F::ONE,
+        )
     }
 
     /// Computes equality polynomial evaluations over the outer variables for each SVO round.
@@ -276,7 +288,6 @@ where
             // Extract segment 2: w[half_l + NUM_SVO_ROUNDS..]
             // These are the variables after the inner segment (the outer suffix)
             w_out.extend_from_slice(&self.0[half_l + NUM_SVO_ROUNDS..]);
-
             // Compute eq(w_out; x) for all x in the hypercube
             EvaluationsList::new_from_point(&w_out, F::ONE)
         })
@@ -327,7 +338,7 @@ where
         let folded_row = interpolate_subgroup(&mat, r_skip);
 
         // Evaluate the new, smaller polynomial at the remaining challenges `r_rest`.
-        EvaluationsList::new(folded_row).evaluate_hypercube(&r_rest)
+        EvaluationsList::new(folded_row).evaluate_hypercube_ext(&r_rest)
     }
 
     /// Returns a new `MultilinearPoint` with the variables in reversed order.
@@ -340,6 +351,33 @@ where
     #[cfg(test)]
     pub fn extend(&mut self, other: &Self) {
         self.0.extend_from_slice(&other.0);
+    }
+
+    /// Transposes points so same-index variables are aligned in rows.
+    pub(crate) fn transpose(points: &[Self], rev_order: bool) -> RowMajorMatrix<F> {
+        let k = points
+            .iter()
+            .map(Self::num_variables)
+            .all_equal_value()
+            .unwrap();
+        let n = points.len();
+        let mut flat = F::zero_vec(k * n);
+        points.iter().enumerate().for_each(|(i, point)| {
+            point.iter().enumerate().for_each(|(j, &cur)| {
+                if rev_order {
+                    flat[(k - 1 - j) * n + i] = cur;
+                } else {
+                    flat[j * n + i] = cur;
+                }
+            });
+        });
+        RowMajorMatrix::new(flat, n)
+    }
+
+    /// Given a position splits the point into two sub-points.
+    pub(crate) fn split_at(&self, pos: usize) -> (Self, Self) {
+        let (left, right) = self.0.split_at(pos);
+        (Self::new(left.to_vec()), Self::new(right.to_vec()))
     }
 }
 
@@ -763,7 +801,7 @@ mod tests {
         let final_poly = EvaluationsList::new(folded_row);
 
         // Evaluate this final polynomial at the remaining challenge, r_rest.
-        let expected = final_poly.evaluate_hypercube(&r_rest);
+        let expected = final_poly.evaluate_hypercube_ext::<F>(&r_rest);
 
         assert_eq!(
             result, expected,
@@ -830,7 +868,7 @@ mod tests {
         let final_poly = EvaluationsList::new(folded_row);
 
         // Evaluate this constant polynomial. The point `r_rest` is empty.
-        let expected = final_poly.evaluate_hypercube(&r_rest);
+        let expected = final_poly.evaluate_hypercube_ext::<F>(&r_rest);
 
         // The result of interpolation should be a single scalar.
         assert_eq!(

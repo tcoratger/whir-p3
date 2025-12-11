@@ -159,7 +159,8 @@ impl<'a, F: Field, const START_ROUND: usize> SumcheckEqState<'a, F, START_ROUND>
         //
         // This is a multilinear equality polynomial in the x_R variables,
         // evaluated over the full hypercube of x_R.
-        let eq_r = EvaluationsList::new_from_point(&w.0[half_l..], F::ONE);
+        let eq_r =
+            EvaluationsList::new_from_point(w.get_subpoint_over_range(half_l..).as_slice(), F::ONE);
         let num_vars_x_r = eq_r.num_variables();
 
         // Left-side tables for rounds in [START_ROUND, l/2).
@@ -172,7 +173,10 @@ impl<'a, F: Field, const START_ROUND: usize> SumcheckEqState<'a, F, START_ROUND>
             .rev()
             .map(|i| {
                 let round = i + 1;
-                EvaluationsList::new_from_point(&w.0[round..half_l], F::ONE)
+                EvaluationsList::new_from_point(
+                    w.get_subpoint_over_range(round..half_l).as_slice(),
+                    F::ONE,
+                )
             })
             .collect();
 
@@ -186,7 +190,10 @@ impl<'a, F: Field, const START_ROUND: usize> SumcheckEqState<'a, F, START_ROUND>
             .rev()
             .map(|i| {
                 let round = i + 1;
-                EvaluationsList::new_from_point(&w.0[round..], F::ONE)
+                EvaluationsList::new_from_point(
+                    w.get_subpoint_over_range(round..).as_slice(),
+                    F::ONE,
+                )
             })
             .collect();
 
@@ -614,7 +621,8 @@ mod tests {
         assert_eq!(eq_l[0], F::ONE);
 
         // Verify eq_R is correctly computed
-        let expected_eq_r = EvaluationsList::new_from_point(&w.0[3..6], F::ONE);
+        let expected_eq_r =
+            EvaluationsList::new_from_point(w.get_subpoint_over_range(3..6).as_slice(), F::ONE);
         assert_eq!(eq_r, expected_eq_r.as_slice());
     }
 
@@ -661,7 +669,8 @@ mod tests {
         assert_eq!(eq_tail.len(), 4);
 
         // Verify eq_tail is correctly computed
-        let expected_eq_tail = EvaluationsList::new_from_point(&w.0[4..6], F::ONE);
+        let expected_eq_tail =
+            EvaluationsList::new_from_point(w.get_subpoint_over_range(4..6).as_slice(), F::ONE);
         assert_eq!(eq_tail, expected_eq_tail.as_slice());
     }
 

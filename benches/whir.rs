@@ -2,7 +2,6 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::extension::BinomialExtensionField;
-use p3_goldilocks::Poseidon2Goldilocks;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
@@ -21,7 +20,6 @@ use whir_p3::{
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, 4>;
-type Perm = Poseidon2Goldilocks<16>;
 
 type Poseidon16 = Poseidon2KoalaBear<16>;
 type Poseidon24 = Poseidon2KoalaBear<24>;

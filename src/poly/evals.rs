@@ -1,11 +1,15 @@
 use alloc::{vec, vec::Vec};
 
 use itertools::Itertools;
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{
+    Algebra, ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing,
+    TwoAdicField,
+};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixView};
 use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::eq_batch::{eval_eq_base_batch, eval_eq_batch};
+use p3_util::log2_strict_usize;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -28,10 +32,16 @@ const PARALLEL_THRESHOLD: usize = 4096;
 #[must_use]
 pub struct EvaluationsList<F>(pub(crate) Vec<F>);
 
-impl<F> EvaluationsList<F>
-where
-    F: Field,
-{
+impl<F: Copy + Clone + Send + Sync> EvaluationsList<F> {
+    /// Given a number of points initializes a new zero polynomial
+    #[inline]
+    pub fn zero(num_variables: usize) -> Self
+    where
+        F: PrimeCharacteristicRing,
+    {
+        Self(F::zero_vec(1 << num_variables))
+    }
+
     /// Constructs an `EvaluationsList` from a vector of evaluations.
     ///
     /// The `evals` vector must adhere to the following constraints:
@@ -52,31 +62,6 @@ where
         Self(evals)
     }
 
-    /// Given a number of points initializes a new zero polynomial
-    pub fn zero(num_evals: usize) -> Self {
-        Self(F::zero_vec(1 << num_evals))
-    }
-
-    /// Given a point `P` (as a slice), compute the evaluation vector of the equality
-    /// function `eq(P, X)` for all points `X` in the boolean hypercube, scaled by a value.
-    ///
-    /// ## Arguments
-    /// * `point`: A slice of field elements representing the point.
-    /// * `value`: A scalar value to multiply all evaluations by.
-    ///
-    /// ## Returns
-    /// An `EvaluationsList` containing `value * eq(point, X)` for all `X` in `{0,1}^n`.
-    #[inline]
-    pub fn new_from_point(point: &[F], value: F) -> Self {
-        let n = point.len();
-        if n == 0 {
-            return Self(vec![value]);
-        }
-        let mut evals = F::zero_vec(1 << n);
-        eval_eq_batch::<_, _, false>(RowMajorMatrixView::new_col(point), &mut evals, &[value]);
-        Self(evals)
-    }
-
     /// Evaluates the polynomial as a constant.
     ///
     /// This is only valid for constant polynomials (i.e., when `num_variables` is 0).
@@ -86,6 +71,275 @@ where
     #[inline]
     pub fn as_constant(&self) -> Option<F> {
         (self.num_evals() == 1).then_some(self.0[0])
+    }
+
+    /// Returns the total number of stored evaluations.
+    #[must_use]
+    #[inline]
+    pub const fn num_evals(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns the number of variables in the multilinear polynomial.
+    #[must_use]
+    #[inline]
+    pub const fn num_variables(&self) -> usize {
+        // Safety: The length is guaranteed to be a power of two.
+        self.0.len().ilog2() as usize
+    }
+
+    /// Create a matrix representation of the evaluation list.
+    #[inline]
+    #[must_use]
+    pub fn into_mat(self, width: usize) -> RowMajorMatrix<F> {
+        RowMajorMatrix::new(self.0, width)
+    }
+
+    /// Returns a reference to the underlying slice of evaluations.
+    #[inline]
+    #[must_use]
+    pub fn as_slice(&self) -> &[F] {
+        &self.0
+    }
+
+    /// Returns an iterator over the evaluations.
+    #[inline]
+    pub fn iter(&self) -> core::slice::Iter<'_, F> {
+        self.0.iter()
+    }
+}
+
+impl<A: Clone + Copy + Default + Send + Sync> EvaluationsList<A> {
+    /// Compresses the evaluation list by folding the **first** variable ($X_1$) with a challenge.
+    ///
+    /// This function is the core operation for the standard rounds of a sumcheck prover,
+    /// where variables are folded one by one in lexicographical order.
+    ///
+    /// ## Mathematical Formula
+    ///
+    /// Given a polynomial $p(X_1, \ldots, X_n)$ represented by its evaluations, this
+    /// function computes the evaluations of the folded
+    /// polynomial $p'(X_2, \ldots, X_n) = p(r, X_2, \ldots, X_n)$.
+    ///
+    /// It uses the multilinear extension formula for the first variable:
+    ///
+    /// ```text
+    /// p(r, x') = p(0, x') + r \cdot (p(1, x') - p(0, x'))
+    /// ```
+    ///
+    /// where $x' = (x_2, \ldots, x_n)$ represents all other variables.
+    ///
+    /// ## Memory Access Pattern
+    ///
+    /// This function relies on the **lexicographical order** of the evaluation list.
+    /// - The first half of the slice contains all evaluations where $X_1 = 0$,
+    /// - The second half contains all evaluations where $X_1 = 1$.
+    ///
+    /// ```text
+    /// Before:
+    /// [ p(0, 0..0), p(0, 0..1), ..., p(0, 1..1) | p(1, 0..0), p(1, 0..1), ..., p(1, 1..1) ]
+    ///  └────────── Left Half (p(0, x')) ──────┘   └────────── Right Half (p(1, x')) ────┘
+    ///
+    /// After: (Computed in-place into the left half)
+    /// [ p(r, 0..0), p(r, 0..1), ..., p(r, 1..1) ]
+    ///   └───────── Folded result ─────────────┘
+    /// ```
+    ///
+    /// The function computes `result[i] = left[i] + r * (right[i] - left[i])` for
+    /// all `i` in the first half, and then truncates the list.
+    pub fn compress<F: Clone + Copy + Default + Send + Sync>(&mut self, r: F)
+    where
+        A: Algebra<F>,
+    {
+        assert_ne!(self.num_variables(), 0);
+        let num_evals = self.num_evals();
+        let mid = num_evals / 2;
+
+        // Evaluations at `a_i` and `a_{i + n/2}` slots are folded with `r` into `a_i` slot
+        let (p0, p1) = self.0.split_at_mut(mid);
+        if num_evals >= PARALLEL_THRESHOLD {
+            p0.par_iter_mut()
+                .zip(p1.par_iter())
+                .for_each(|(a0, &a1)| *a0 += (a1 - *a0) * r);
+        } else {
+            p0.iter_mut()
+                .zip(p1.iter())
+                .for_each(|(a0, &a1)| *a0 += (a1 - *a0) * r);
+        }
+        // Free higher part of the evaluations
+        self.0.truncate(mid);
+    }
+
+    /// Folds a list of evaluations from a base field `F` into packed form of extension field `EF`.
+    ///
+    /// ## Arguments
+    /// * `r`: A value `r` from the extension field `EF`, used as the random challenge for folding.
+    ///
+    /// ## Returns
+    /// A new `EvaluationsList<EF::ExtensionPacking>` containing the compressed evaluations in the extension field.
+    ///
+    /// The compression is achieved by applying the following formula to pairs of evaluations:
+    /// ```text
+    ///     p'(X_2, ..., X_n) = (p(1, X_2, ..., X_n) - p(0, X_2, ..., X_n)) \cdot r + p(0, X_2, ..., X_n)
+    /// ```
+    pub fn compress_into_packed<EF>(&self, zi: EF) -> EvaluationsList<EF::ExtensionPacking>
+    where
+        A: Field,
+        EF: ExtensionField<A>,
+    {
+        let zi = EF::ExtensionPacking::from(zi);
+        let poly = A::Packing::pack_slice(self.as_slice());
+        let mid = poly.len() / 2;
+        let (p0, p1) = poly.split_at(mid);
+
+        let mut out = EF::ExtensionPacking::zero_vec(mid);
+        if self.num_evals() >= PARALLEL_THRESHOLD {
+            out.par_iter_mut()
+                .zip(p0.par_iter().zip(p1.par_iter()))
+                .for_each(|(out, (&a0, &a1))| *out = zi * (a1 - a0) + a0);
+        } else {
+            out.iter_mut()
+                .zip(p0.iter().zip(p1.iter()))
+                .for_each(|(out, (&a0, &a1))| *out = zi * (a1 - a0) + a0);
+        }
+        EvaluationsList(out)
+    }
+}
+
+impl<Packed: Copy + Send + Sync> EvaluationsList<Packed> {
+    /// Given a point `P` (as a slice), compute the evaluation vector of the equality
+    /// function `eq(P, X)` for all points `X` in the boolean hypercube, scaled by a value.
+    ///
+    /// ## Arguments
+    /// * `point`: A multilinear point.
+    /// * `value`: A scalar value to multiply all evaluations by.
+    ///
+    /// ## Returns
+    /// An packed `EvaluationsList` containing `value * eq(point, X)` for all `X` in `{0,1}^n`.
+    #[inline]
+    pub(crate) fn new_packed_from_point<F, EF>(point: &[EF], scale: EF) -> Self
+    where
+        F: Field,
+        EF: ExtensionField<F, ExtensionPacking = Packed>,
+        Packed: PackedFieldExtension<F, EF>,
+    {
+        fn eq_serial<F: Field, A: Algebra<F> + Copy>(out: &mut [A], point: &[F], scale: A) {
+            assert_eq!(out.len(), 1 << point.len());
+            out[0] = scale;
+            for (i, &var) in point.iter().rev().enumerate() {
+                let (lo, hi) = out.split_at_mut(1 << i);
+                lo.iter_mut().zip(hi.iter_mut()).for_each(|(lo, hi)| {
+                    *hi = *lo * var;
+                    *lo -= *hi;
+                });
+            }
+        }
+
+        let n = point.len();
+        assert_ne!(scale, EF::ZERO);
+        let n_pack = log2_strict_usize(F::Packing::WIDTH);
+        assert!(n >= n_pack);
+
+        let (point_rest, point_init) = point.split_at(n - n_pack);
+
+        // COMPUTE SUFFIX (Inside the SIMD lanes)
+        //
+        // We compute the equality polynomial for the last `n_pack` variables.
+        // This forms a single `Packed` element which acts as the "seed" for the next stage.e
+        let mut init: Vec<EF> = EF::zero_vec(1 << n_pack);
+        eq_serial(&mut init, point_init, scale);
+
+        // COMPUTE PREFIX (Vector Expansion)
+        //
+        // We expand the seed across the remaining variables using Packed arithmetic.
+        let mut packed = unsafe { uninitialized_vec::<Packed>(1 << (n - n_pack)) };
+        eq_serial(
+            &mut packed,
+            point_rest,
+            // Initialize the first element with the seed computed above
+            Packed::from_ext_slice(&init),
+        );
+
+        Self(packed)
+    }
+
+    /// Evaluates the multilinear polynomial at `point ∈ EF^n`.
+    /// Polynomial evaluations are in packed form.
+    ///
+    /// Computes
+    /// ```text
+    ///     f(point) = \sum_{x ∈ {0,1}^n} eq(x, point) * f(x),
+    /// ```
+    /// where
+    /// ```text
+    ///     eq(x, point) = \prod_{i=1}^{n} (1 - p_i + 2 p_i x_i).
+    /// ```
+    pub fn eval_hypercube_packed<F, EF>(&self, point: &MultilinearPoint<EF>) -> EF
+    where
+        F: Field,
+        EF: ExtensionField<F, ExtensionPacking = Packed>,
+        Packed: PackedFieldExtension<F, EF>,
+    {
+        let n = point.num_variables();
+        let n_pack = log2_strict_usize(F::Packing::WIDTH);
+        assert_eq!(self.num_variables() + n_pack, n);
+        assert!(n >= 2 * n_pack);
+
+        let (right, left) = point.split_at(n / 2);
+        let left = Self::new_packed_from_point(left.as_slice(), EF::ONE);
+        let right = EvaluationsList::<EF>::new_from_point(right.as_slice(), EF::ONE);
+
+        let sum = if self.num_evals() > PARALLEL_THRESHOLD {
+            self.0
+                .par_chunks(left.num_evals())
+                .zip_eq(right.0.par_iter())
+                .map(|(part, &c)| {
+                    part.iter()
+                        .zip_eq(left.iter())
+                        .map(|(&a, &b)| b * a)
+                        .sum::<Packed>()
+                        * c
+                })
+                .sum()
+        } else {
+            self.0
+                .chunks(left.num_evals())
+                .zip_eq(right.0.iter())
+                .map(|(part, &c)| {
+                    part.iter()
+                        .zip_eq(left.iter())
+                        .map(|(&a, &b)| b * a)
+                        .sum::<Packed>()
+                        * c
+                })
+                .sum()
+        };
+        EF::ExtensionPacking::to_ext_iter([sum]).sum()
+    }
+}
+
+impl<F> EvaluationsList<F>
+where
+    F: Field,
+{
+    /// Given a point `P` (as a slice), compute the evaluation vector of the equality
+    /// function `eq(P, X)` for all points `X` in the boolean hypercube, scaled by a value.
+    ///
+    /// ## Arguments
+    /// * `point`: A multilinear point.
+    /// * `value`: A scalar value to multiply all evaluations by.
+    ///
+    /// ## Returns
+    /// An `EvaluationsList` containing `value * eq(point, X)` for all `X` in `{0,1}^n`.
+    #[inline]
+    pub fn new_from_point(point: &[F], scale: F) -> Self {
+        let n = point.len();
+        if n == 0 {
+            return Self(vec![scale]);
+        }
+        let mut evals = F::zero_vec(1 << n);
+        eval_eq_batch::<_, _, false>(RowMajorMatrixView::new_col(point), &mut evals, &[scale]);
+        Self(evals)
     }
 
     /// Given multiple multilinear points, compute the evaluation vectors of the equality functions
@@ -134,22 +388,7 @@ where
         eval_eq_base_batch::<_, _, true>(points_matrix, &mut self.0, values);
     }
 
-    /// Returns the total number of stored evaluations.
-    #[must_use]
-    #[inline]
-    pub const fn num_evals(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Returns the number of variables in the multilinear polynomial.
-    #[must_use]
-    #[inline]
-    pub const fn num_variables(&self) -> usize {
-        // Safety: The length is guaranteed to be a power of two.
-        self.0.len().ilog2() as usize
-    }
-
-    /// Evaluates the multilinear polynomial at `point ∈ EF^n`.
+    /// Evaluates the multilinear polynomial at `point ∈ F^n`.
     ///
     /// Computes
     /// ```text
@@ -161,8 +400,38 @@ where
     /// ```
     #[must_use]
     #[inline]
-    pub fn evaluate_hypercube<EF: ExtensionField<F>>(&self, point: &MultilinearPoint<EF>) -> EF {
-        eval_multilinear(&self.0, point)
+    pub fn evaluate_hypercube_base<EF: ExtensionField<F>>(
+        &self,
+        point: &MultilinearPoint<EF>,
+    ) -> EF {
+        if point.num_variables() < MLE_RECURSION_THRESHOLD {
+            eval_multilinear_recursive(&self.0, point.as_slice())
+        } else {
+            eval_multilinear_base::<F, EF>(&self.0, point.as_slice())
+        }
+    }
+
+    /// Evaluates the multilinear polynomial at `point ∈ F^n`.
+    ///
+    /// Computes
+    /// ```text
+    ///     f(point) = \sum_{x ∈ {0,1}^n} eq(x, point) * f(x),
+    /// ```
+    /// where
+    /// ```text
+    ///     eq(x, point) = \prod_{i=1}^{n} (1 - p_i + 2 p_i x_i).
+    /// ```
+    #[must_use]
+    #[inline]
+    pub fn evaluate_hypercube_ext<BaseField: Field>(&self, point: &MultilinearPoint<F>) -> F
+    where
+        F: ExtensionField<BaseField>,
+    {
+        if point.num_variables() < MLE_RECURSION_THRESHOLD {
+            eval_multilinear_recursive(&self.0, point.as_slice())
+        } else {
+            eval_multilinear_ext::<BaseField, F>(&self.0, point.as_slice())
+        }
     }
 
     /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
@@ -354,26 +623,6 @@ where
         EvaluationsList::new(folded_evals_flat)
     }
 
-    /// Create a matrix representation of the evaluation list.
-    #[inline]
-    #[must_use]
-    pub fn into_mat(self, width: usize) -> RowMajorMatrix<F> {
-        RowMajorMatrix::new(self.0, width)
-    }
-
-    /// Returns a reference to the underlying slice of evaluations.
-    #[inline]
-    #[must_use]
-    pub fn as_slice(&self) -> &[F] {
-        &self.0
-    }
-
-    /// Returns an iterator over the evaluations.
-    #[inline]
-    pub fn iter(&self) -> core::slice::Iter<'_, F> {
-        self.0.iter()
-    }
-
     /// Convert from a list of evaluations to a list of multilinear coefficients.
     #[must_use]
     #[inline]
@@ -385,64 +634,6 @@ where
         let kernel = Radix2WaveletKernel::<B>::default();
         let evals = kernel.inverse_wavelet_transform_algebra(self.0);
         CoefficientList::new(evals)
-    }
-
-    /// Compresses the evaluation list by folding the **first** variable ($X_1$) with a challenge.
-    ///
-    /// This function is the core operation for the standard rounds of a sumcheck prover,
-    /// where variables are folded one by one in lexicographical order.
-    ///
-    /// ## Mathematical Formula
-    ///
-    /// Given a polynomial $p(X_1, \ldots, X_n)$ represented by its evaluations, this
-    /// function computes the evaluations of the folded
-    /// polynomial $p'(X_2, \ldots, X_n) = p(r, X_2, \ldots, X_n)$.
-    ///
-    /// It uses the multilinear extension formula for the first variable:
-    ///
-    /// ```text
-    /// p(r, x') = p(0, x') + r \cdot (p(1, x') - p(0, x'))
-    /// ```
-    ///
-    /// where $x' = (x_2, \ldots, x_n)$ represents all other variables.
-    ///
-    /// ## Memory Access Pattern
-    ///
-    /// This function relies on the **lexicographical order** of the evaluation list.
-    /// - The first half of the slice contains all evaluations where $X_1 = 0$,
-    /// - The second half contains all evaluations where $X_1 = 1$.
-    ///
-    /// ```text
-    /// Before:
-    /// [ p(0, 0..0), p(0, 0..1), ..., p(0, 1..1) | p(1, 0..0), p(1, 0..1), ..., p(1, 1..1) ]
-    ///  └────────── Left Half (p(0, x')) ──────┘   └────────── Right Half (p(1, x')) ────┘
-    ///
-    /// After: (Computed in-place into the left half)
-    /// [ p(r, 0..0), p(r, 0..1), ..., p(r, 1..1) ]
-    ///   └───────── Folded result ─────────────┘
-    /// ```
-    ///
-    /// The function computes `result[i] = left[i] + r * (right[i] - left[i])` for
-    /// all `i` in the first half, and then truncates the list.
-    #[inline]
-    pub fn compress(&mut self, r: F) {
-        assert_ne!(self.num_variables(), 0);
-        let num_evals = self.num_evals();
-        let mid = num_evals / 2;
-
-        // Evaluations at `a_i` and `a_{i + n/2}` slots are folded with `r` into `a_i` slot
-        let (p0, p1) = self.0.split_at_mut(mid);
-        if num_evals >= PARALLEL_THRESHOLD {
-            p0.par_iter_mut()
-                .zip(p1.par_iter())
-                .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
-        } else {
-            p0.iter_mut()
-                .zip(p1.iter())
-                .for_each(|(a0, &a1)| *a0 += r * (a1 - *a0));
-        }
-        // Free higher part of the evaluations
-        self.0.truncate(mid);
     }
 
     /// Folds a list of evaluations from a base field `F` into an extension field `EF`.
@@ -617,7 +808,7 @@ where
         let final_poly = EvaluationsList::new(folded_evals);
 
         // Perform standard multilinear interpolation at y and return the result.
-        final_poly.evaluate_hypercube(&y_point)
+        final_poly.evaluate_hypercube_ext::<F>(&y_point)
     }
 
     /// Computes precomputation accumulators for the Small-Value Optimization (SVO).
@@ -809,43 +1000,9 @@ impl<F> IntoIterator for EvaluationsList<F> {
     }
 }
 
-/// Evaluates a multilinear polynomial at an arbitrary point using fast interpolation.
-///
-/// It's given the polynomial's evaluations over all corners of the boolean hypercube `{0,1}^n` and
-/// can find the value at any other point `p` (even with coordinates outside of `{0,1}`).
-///
-/// ## Algorithm
-///
-/// The core idea is to recursively reduce the number of variables by one at each step.
-/// Imagine a 3D cube where we know the value at its 8 corners. To find the value at some
-/// point `p` inside the cube, we can:
-/// 1.  Find the values at the midpoints of the 4 edges along the x-axis.
-/// 2.  Use those 4 points to find the values at the midpoints of the 2 "ribs" along the y-axis.
-/// 3.  Finally, use those 2 points to find the single value at `p` along the z-axis.
-///
-/// This function implements this idea using the recurrence relation:
-/// ```text
-///     f(x_0, ..., x_{n-1}) = f_0(x_1, ..., x_{n-1}) * (1 - x_0) + f_1(x_1, ..., x_{n-1}) * x_0,
-/// ```
-/// where `f_0` is the polynomial with `x_0` fixed to `0` and `f_1` is with `x_0` fixed to `1`.
-///
-/// ## Implementation Strategies
-///
-/// To maximize performance, this function uses several strategies:
-/// - **Hardcoded Paths:** For polynomials with 0 to 4 variables, the recursion is fully unrolled
-///   into highly efficient, direct calculations.
-/// - **Recursive Method:** For 5 to 19 variables, a standard recursive approach with a `rayon::join`
-///   is used for parallelism on sufficiently large subproblems.
-/// - **Non-Recursive Method:** For 20 or more variables, the algorithm switches to a non-recursive,
-///   chunk-based method. This avoids deep recursion stacks and uses a memory access pattern
-///   that is more friendly to parallelization.
-///
-/// ## Arguments
-///
-/// - `evals`: A slice containing the `2^n` evaluations of the polynomial over the boolean
-///   hypercube, ordered lexicographically. For `n=2`, the order is `f(0,0), f(0,1), f(1,0), f(1,1)`.
-/// - `point`: A slice containing the `n` coordinates of the point `p` at which to evaluate.
-fn eval_multilinear<F, EF>(evals: &[F], point: &MultilinearPoint<EF>) -> EF
+/// Evaluates a multilinear polynomial `evals` at `point` using a recursive strategy.
+/// For small numbers of variables (<=4) it switches to the unrolled strategy.
+fn eval_multilinear_recursive<F, EF>(evals: &[F], point: &[EF]) -> EF
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -853,10 +1010,10 @@ where
     // Ensure that the number of evaluations matches the number of variables in the point.
     //
     // This is a critical invariant: `evals.len()` must be exactly `2^point.len()`.
-    debug_assert_eq!(evals.len(), 1 << point.num_variables());
+    debug_assert_eq!(evals.len(), 1 << point.len());
 
     // Select the optimal evaluation strategy based on the number of variables.
-    match point.as_slice() {
+    match point {
         // Case: 0 Variables (Constant Polynomial)
         //
         // A polynomial with zero variables is just a constant.
@@ -910,96 +1067,140 @@ where
             let a1 = a10 + *x1 * (a11 - a10);
             a0 + (a1 - a0) * *x0
         }
-
         // General Case (5+ Variables)
         //
         // This handles all other cases, using one of two different strategies.
-        [x, tail @ ..] => {
-            // For a very large number of variables we use a non-recursive algorithm better suited for wide parallelization.
-            if point.num_variables() >= MLE_RECURSION_THRESHOLD {
-                let mid = point.num_variables() / 2;
-                let (hi, lo) = point.as_slice().split_at(mid);
+        [x, sub_point @ ..] => {
+            // Split the evaluations into two halves, corresponding to the first variable being 0 or 1.
+            let (f0, f1) = evals.split_at(evals.len() / 2);
 
-                // Precomputation of Basis Polynomials
-                //
-                // The basis polynomial eq(v, p) can be split: eq(v, p) = eq(v_low, p_low) * eq(v_high, p_high).
-                //
-                // We precompute all `2^|lo|` values of eq(v_low, p_low) and store them in `left`.
-                // We precompute all `2^|hi|` values of eq(v_high, p_high) and store them in `right`.
-
-                // Allocate uninitialized memory for the polynomial evaluations.
-                let mut left = unsafe { uninitialized_vec(1 << lo.len()) };
-                let mut right = unsafe { uninitialized_vec(1 << hi.len()) };
-
-                // Compute all eq(v_low, p_low) values and fill the `left` and `right` vectors.
-                eval_eq_batch::<_, _, false>(
-                    RowMajorMatrixView::new_col(lo),
-                    &mut left,
-                    &[EF::ONE],
-                );
-                eval_eq_batch::<_, _, false>(
-                    RowMajorMatrixView::new_col(hi),
-                    &mut right,
-                    &[EF::ONE],
-                );
-
-                // Parallelized Final Summation
-                //
-                // This chain of operations computes the regrouped sum:
-                // Σ_{v_high} eq(v_high, p_high) * (Σ_{v_low} f(v_high, v_low) * eq(v_low, p_low))
-                evals
-                    .par_chunks(left.len())
-                    .zip_eq(right.par_iter())
-                    .map(|(part, &c)| {
-                        // This is the inner sum: a dot product between the evaluation chunk and the `left` basis values.
-                        part.iter()
-                            .zip_eq(left.iter())
-                            .map(|(&a, &b)| b * a)
-                            .sum::<EF>()
-                            * c
-                    })
-                    .sum()
-            } else {
-                // Create a new point with the remaining coordinates.
-                let sub_point = MultilinearPoint::new(tail.to_vec());
-
-                // For moderately sized inputs (5 to 19 variables), use the recursive strategy.
-                //
-                // Split the evaluations into two halves, corresponding to the first variable being 0 or 1.
-                let (f0, f1) = evals.split_at(evals.len() / 2);
-
-                // Recursively evaluate on the two smaller hypercubes.
-                let (f0_eval, f1_eval) = {
-                    // Only spawn parallel tasks if the subproblem is large enough to overcome
-                    // the overhead of threading.
-                    let work_size: usize = (1 << 15) / core::mem::size_of::<F>();
-                    if evals.len() > work_size {
-                        join(
-                            || eval_multilinear(f0, &sub_point),
-                            || eval_multilinear(f1, &sub_point),
-                        )
-                    } else {
-                        // For smaller subproblems, execute sequentially.
-                        (
-                            eval_multilinear(f0, &sub_point),
-                            eval_multilinear(f1, &sub_point),
-                        )
-                    }
-                };
-                // Perform the final linear interpolation for the first variable `x`.
-                f0_eval + (f1_eval - f0_eval) * *x
-            }
+            // Recursively evaluate on the two smaller hypercubes.
+            let (f0_eval, f1_eval) = {
+                // Only spawn parallel tasks if the subproblem is large enough to overcome
+                // the overhead of threading.
+                let work_size: usize = (1 << 15) / core::mem::size_of::<F>();
+                if evals.len() > work_size {
+                    join(
+                        || eval_multilinear_recursive(f0, sub_point),
+                        || eval_multilinear_recursive(f1, sub_point),
+                    )
+                } else {
+                    // For smaller subproblems, execute sequentially.
+                    (
+                        eval_multilinear_recursive(f0, sub_point),
+                        eval_multilinear_recursive(f1, sub_point),
+                    )
+                }
+            };
+            // Perform the final linear interpolation for the first variable `x`.
+            f0_eval + (f1_eval - f0_eval) * *x
         }
     }
 }
 
+/// Evaluates a multilinear polynomial `evals` at `point` where `evals` are in the base field `F` and `point` is in the extension field `EF`.
+fn eval_multilinear_base<F, EF>(evals: &[F], point: &[EF]) -> EF
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    const PARALLEL_THRESHOLD: usize = 1 << 14;
+
+    let num_vars = point.len();
+    if num_vars < 2 * log2_strict_usize(F::Packing::WIDTH) {
+        return eval_multilinear_recursive(evals, point);
+    }
+
+    let mid = num_vars / 2;
+
+    let (right, left) = point.split_at(mid);
+    let left = EvaluationsList::new_packed_from_point(left, EF::ONE);
+    let right = EvaluationsList::new_from_point(right, EF::ONE);
+
+    let evals = F::Packing::pack_slice(evals);
+    let sum = if evals.len() > PARALLEL_THRESHOLD {
+        evals
+            .par_chunks(left.num_evals())
+            .zip_eq(right.0.par_iter())
+            .map(|(part, &c)| {
+                part.iter()
+                    .zip_eq(left.iter())
+                    .map(|(&a, &b)| b * a)
+                    .sum::<EF::ExtensionPacking>()
+                    * c
+            })
+            .sum::<EF::ExtensionPacking>()
+    } else {
+        evals
+            .chunks(left.num_evals())
+            .zip_eq(right.0.iter())
+            .map(|(part, &c)| {
+                part.iter()
+                    .zip_eq(left.iter())
+                    .map(|(&a, &b)| b * a)
+                    .sum::<EF::ExtensionPacking>()
+                    * c
+            })
+            .sum::<EF::ExtensionPacking>()
+    };
+    EF::ExtensionPacking::to_ext_iter([sum]).sum()
+}
+
+/// Evaluates a multilinear polynomial `evals` at `point` where `evals` and `point` are in the extension field `EF`.
+fn eval_multilinear_ext<F, EF>(evals: &[EF], point: &[EF]) -> EF
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    const PARALLEL_THRESHOLD: usize = 1 << 14;
+
+    let num_vars = point.len();
+    if num_vars < 2 * log2_strict_usize(F::Packing::WIDTH) {
+        return eval_multilinear_recursive(evals, point);
+    }
+
+    let mid = num_vars / 2;
+    let (right, left) = point.split_at(mid);
+    let left = EvaluationsList::new_packed_from_point(left, EF::ONE);
+    let right = EvaluationsList::new_from_point(right, EF::ONE);
+
+    let sum = if evals.len() > PARALLEL_THRESHOLD {
+        evals
+            .chunks(F::Packing::WIDTH * left.num_evals())
+            .zip_eq(right.0.iter())
+            .map(|(part, &c)| {
+                part.chunks(F::Packing::WIDTH)
+                    .zip_eq(left.iter())
+                    .map(|(chunk, &b)| EF::ExtensionPacking::from_ext_slice(chunk) * b)
+                    .sum::<EF::ExtensionPacking>()
+                    * c
+            })
+            .sum::<EF::ExtensionPacking>()
+    } else {
+        evals
+            .par_chunks(F::Packing::WIDTH * left.num_evals())
+            .zip_eq(right.0.par_iter())
+            .map(|(part, &c)| {
+                part.chunks(F::Packing::WIDTH)
+                    .zip_eq(left.iter())
+                    .map(|(chunk, &b)| EF::ExtensionPacking::from_ext_slice(chunk) * b)
+                    .sum::<EF::ExtensionPacking>()
+                    * c
+            })
+            .sum::<EF::ExtensionPacking>()
+    };
+    EF::ExtensionPacking::to_ext_iter([sum]).sum()
+}
+
 #[cfg(test)]
 mod tests {
+
     use alloc::vec;
 
     use p3_baby_bear::BabyBear;
     use p3_field::{
-        PrimeCharacteristicRing, PrimeField64, TwoAdicField, extension::BinomialExtensionField,
+        PrimeCharacteristicRing, PrimeField64, TwoAdicField, dot_product,
+        extension::BinomialExtensionField,
     };
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng, rngs::SmallRng};
@@ -1009,6 +1210,12 @@ mod tests {
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
+
+    /// Naive method to evaluate a multilinear polynomial for testing.
+    fn eval_multilinear<F: Field, EF: ExtensionField<F>>(evals: &[F], point: &[EF]) -> EF {
+        let eq = EvaluationsList::new_from_point(point, EF::ONE);
+        dot_product(eq.iter().copied(), evals.iter().copied())
+    }
 
     #[test]
     fn test_new_evaluations_list() {
@@ -1074,19 +1281,19 @@ mod tests {
 
         // Evaluating at a binary hypercube point should return the direct value
         assert_eq!(
-            evals.evaluate_hypercube(&MultilinearPoint::new(vec![F::ZERO, F::ZERO])),
+            evals.evaluate_hypercube_base(&MultilinearPoint::new(vec![F::ZERO, F::ZERO])),
             e1
         );
         assert_eq!(
-            evals.evaluate_hypercube(&MultilinearPoint::new(vec![F::ZERO, F::ONE])),
+            evals.evaluate_hypercube_base(&MultilinearPoint::new(vec![F::ZERO, F::ONE])),
             e2
         );
         assert_eq!(
-            evals.evaluate_hypercube(&MultilinearPoint::new(vec![F::ONE, F::ZERO])),
+            evals.evaluate_hypercube_base(&MultilinearPoint::new(vec![F::ONE, F::ZERO])),
             e3
         );
         assert_eq!(
-            evals.evaluate_hypercube(&MultilinearPoint::new(vec![F::ONE, F::ONE])),
+            evals.evaluate_hypercube_base(&MultilinearPoint::new(vec![F::ONE, F::ONE])),
             e4
         );
     }
@@ -1114,10 +1321,10 @@ mod tests {
 
         let point = MultilinearPoint::new(vec![F::from_u64(2), F::from_u64(3)]);
 
-        let result = evals.evaluate_hypercube(&point);
+        let result = evals.evaluate_hypercube_base(&point);
 
         // Expected result using `eval_multilinear`
-        let expected = eval_multilinear(evals.as_slice(), &point);
+        let expected = eval_multilinear(evals.as_slice(), point.as_slice());
 
         assert_eq!(result, expected);
     }
@@ -1132,10 +1339,7 @@ mod tests {
         let x = F::from_u64(1) / F::from_u64(2);
         let expected = a + (b - a) * x;
 
-        assert_eq!(
-            eval_multilinear(&evals, &MultilinearPoint::new(vec![x])),
-            expected
-        );
+        assert_eq!(eval_multilinear(&evals, &[x]), expected);
     }
 
     #[test]
@@ -1160,10 +1364,7 @@ mod tests {
             + x * (F::ONE - y) * b
             + x * y * d;
 
-        assert_eq!(
-            eval_multilinear(&evals, &MultilinearPoint::new(vec![x, y])),
-            expected
-        );
+        assert_eq!(eval_multilinear(&evals, &[x, y]), expected);
     }
 
     #[test]
@@ -1196,10 +1397,7 @@ mod tests {
             + x * y * (F::ONE - z) * g
             + x * y * z * h;
 
-        assert_eq!(
-            eval_multilinear(&evals, &MultilinearPoint::new(vec![x, y, z])),
-            expected
-        );
+        assert_eq!(eval_multilinear(&evals, &[x, y, z]), expected);
     }
 
     #[test]
@@ -1248,10 +1446,7 @@ mod tests {
             + x * y * z * w * p;
 
         // Validate against the function output
-        assert_eq!(
-            eval_multilinear(&evals, &MultilinearPoint::new(vec![x, y, z, w])),
-            expected
-        );
+        assert_eq!(eval_multilinear(&evals, &[x, y, z, w]), expected);
     }
 
     proptest! {
@@ -1278,8 +1473,8 @@ mod tests {
             ]);
 
             // Evaluate using both base and extension representations
-            let eval_f = poly_f.evaluate_hypercube(&point_ef);
-            let eval_ef = poly_ef.evaluate_hypercube(&point_ef);
+            let eval_f = poly_f.evaluate_hypercube_base(&point_ef);
+            let eval_ef = poly_ef.evaluate_hypercube_ext::<F>(&point_ef);
 
             prop_assert_eq!(eval_f, eval_ef);
         }
@@ -1331,7 +1526,7 @@ mod tests {
         let expected = c0 + c1 * x2 + c2 * x1 + c3 * x1 * x2;
 
         // Now evaluate using the function under test
-        let result = evals.evaluate_hypercube(&coords);
+        let result = evals.evaluate_hypercube_base(&coords);
 
         // Check that it matches the manual computation
         assert_eq!(result, expected);
@@ -1393,7 +1588,7 @@ mod tests {
             + c6 * x0 * x1
             + c7 * x0 * x1 * x2;
 
-        let result = evals.evaluate_hypercube(&point);
+        let result = evals.evaluate_hypercube_base(&point);
         assert_eq!(result, expected);
     }
 
@@ -1460,7 +1655,7 @@ mod tests {
             + EF4::from(c7) * x0 * x1 * x2;
 
         // Evaluate via `evaluate_hypercube` method
-        let result = evals.evaluate_hypercube(&point);
+        let result = evals.evaluate_hypercube_base(&point);
 
         // Verify that result matches manual computation
         assert_eq!(result, expected);
@@ -1491,7 +1686,7 @@ mod tests {
             let fold_part = randomness[0..k].to_vec();
 
             // The remaining coordinates are used as the evaluation input into the folded poly
-            let eval_part = randomness[k..randomness.len()].to_vec();
+            let eval_part = MultilinearPoint::new(randomness[k..randomness.len()].to_vec());
 
             // Convert to a MultilinearPoint (in EF) for folding
             let fold_random = MultilinearPoint::new(fold_part.clone());
@@ -1499,8 +1694,8 @@ mod tests {
             // Reconstruct the full point (x_0, ..., xₙ₋₁) = [eval_part || fold_part]
             // Used to evaluate the original uncompressed polynomial
             let eval_point1 =
-                MultilinearPoint::new([fold_part.clone(), eval_part.clone()].concat());
-            let eval_point2 = MultilinearPoint::new([eval_part.clone(), fold_part].concat());
+                MultilinearPoint::new([fold_part.clone(), eval_part.0.clone()].concat());
+            let eval_point2 = MultilinearPoint::new([eval_part.0.clone(), fold_part].concat());
 
             // Fold the evaluation list over the last `k` variables
             let folded_evals = evals_list.fold(&fold_random);
@@ -1517,14 +1712,14 @@ mod tests {
             // Verify correctness:
             // folded(e) == original([e, r]) for all k
             assert_eq!(
-                folded_evals.evaluate_hypercube(&MultilinearPoint::new(eval_part.clone())),
-                evals_list.evaluate_hypercube(&eval_point1)
+                folded_evals.evaluate_hypercube_base(&eval_part),
+                evals_list.evaluate_hypercube_base(&eval_point1)
             );
 
             // Compare with the coefficient list equivalent
             assert_eq!(
-                folded_coeffs.evaluate(&MultilinearPoint::new(eval_part)),
-                evals_list.evaluate_hypercube(&eval_point2)
+                folded_coeffs.evaluate(&eval_part),
+                evals_list.evaluate_hypercube_base(&eval_point2)
             );
         }
     }
@@ -1565,7 +1760,7 @@ mod tests {
             let expected = poly.evaluate(&full_point);
 
             // Evaluate folded poly at x_0
-            let actual = folded.evaluate_hypercube(&folded_point);
+            let actual = folded.evaluate_hypercube_base(&folded_point);
 
             // Ensure the results agree
             assert_eq!(expected, actual);
@@ -1678,7 +1873,7 @@ mod tests {
         }
 
         // Now, run the optimized function that we want to test.
-        let actual_result = evals_list.evaluate_hypercube(&point);
+        let actual_result = evals_list.evaluate_hypercube_base(&point);
 
         // Finally, assert that the results are equal.
         assert_eq!(actual_result, expected_sum);
@@ -3196,5 +3391,54 @@ mod tests {
 
         // This should panic
         let _ = poly.fold_batch(&challenges);
+    }
+
+    fn test_base_eval_consistency() {
+        let mut rng = SmallRng::seed_from_u64(1);
+
+        for k in 0..=18 {
+            let poly: Vec<F> = (0..1 << k).map(|_| rng.random()).collect();
+            let point = MultilinearPoint::<EF4>::rand(&mut rng, k);
+            let point = point.as_slice();
+            let e0 = eval_multilinear_recursive(&poly, point);
+            let e1 = eval_multilinear(&poly, point);
+            assert_eq!(e0, e1);
+            let e1 = eval_multilinear_base(&poly, point);
+            assert_eq!(e0, e1);
+        }
+    }
+
+    #[test]
+    fn test_ext_eval_consistency() {
+        let mut rng = SmallRng::seed_from_u64(1);
+
+        for k in 0..=18 {
+            let poly: Vec<EF4> = (0..1 << k).map(|_| rng.random()).collect();
+            let point = MultilinearPoint::<EF4>::rand(&mut rng, k);
+            let point = point.as_slice();
+            let e0 = eval_multilinear_recursive(&poly, point);
+            let e1 = eval_multilinear(&poly, point);
+            assert_eq!(e0, e1);
+            let e1 = eval_multilinear_base(&poly, point);
+            assert_eq!(e0, e1);
+            let e1 = eval_multilinear_ext::<F, _>(&poly, point);
+            assert_eq!(e0, e1);
+        }
+    }
+
+    #[test]
+    fn test_ext_eval_packed_consistency() {
+        let mut rng = SmallRng::seed_from_u64(1);
+        for k in 4..=18 {
+            let poly: Vec<EF4> = (0..1 << k).map(|_| rng.random()).collect();
+            let point = MultilinearPoint::<EF4>::rand(&mut rng, k);
+            let e0 = eval_multilinear_recursive(&poly, point.as_slice());
+            let packed = poly
+                .par_chunks(<F as Field>::Packing::WIDTH)
+                .map(<EF4 as ExtensionField<F>>::ExtensionPacking::from_ext_slice)
+                .collect();
+            let e1 = EvaluationsList::new(packed).eval_hypercube_packed::<F, _>(&point);
+            assert_eq!(e0, e1);
+        }
     }
 }
