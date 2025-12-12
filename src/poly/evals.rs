@@ -1040,7 +1040,7 @@ where
 }
 
 /// Evaluates a multilinear polynomial `evals` at `point` where `evals` are in the base field `F` and `point` is in the extension field `EF`.
-pub fn eval_multilinear_base<F, EF>(evals: &[F], point: &[EF]) -> EF
+fn eval_multilinear_base<F, EF>(evals: &[F], point: &[EF]) -> EF
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -1445,12 +1445,7 @@ mod tests {
         // So concretely:
         //
         //   f(x_1, x_2) = 5 + 6·x_2 + 7·x_1 + 8·x_1·x_2
-        let evals = EvaluationsList::new(vec![
-            c0,
-            c0 + c1,
-            c0 + c2,
-            c0 + c1 + c2 + c3
-        ]);
+        let evals = EvaluationsList::new(vec![c0, c0 + c1, c0 + c2, c0 + c1 + c2 + c3]);
 
         // Choose evaluation point:
         //
@@ -1509,7 +1504,7 @@ mod tests {
             c0 + c4,
             c0 + c1 + c4 + c5,
             c0 + c2 + c4 + c6,
-            c0 + c1 + c2 + c3 + c4 + c5 + c6 + c7
+            c0 + c1 + c2 + c3 + c4 + c5 + c6 + c7,
         ]);
 
         // Pick point: (x_0,x_1,x_2) = (2, 3, 4)
@@ -1577,7 +1572,7 @@ mod tests {
             c0 + c4,
             c0 + c1 + c4 + c5,
             c0 + c2 + c4 + c6,
-            c0 + c1 + c2 + c3 + c4 + c5 + c6 + c7
+            c0 + c1 + c2 + c3 + c4 + c5 + c6 + c7,
         ]);
 
         // Choose evaluation point: (x_0, x_1, x_2) = (2, 3, 4)
