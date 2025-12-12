@@ -733,9 +733,15 @@ mod tests {
         statement.combine_hypercube::<_, false>(&mut combined_evals, &mut combined_sum, challenge);
 
         // Expected evals: W(X) = eq_z1(X) + challenge * eq_z2(X)
-        let mut expected_combined_evals_vec =
-            EvaluationsList::new_from_point(point1.as_slice(), F::ONE);
-        expected_combined_evals_vec.accumulate_batch(&[point2], &[challenge]);
+        let expected_eq1 = EvaluationsList::new_from_point(point1.as_slice(), F::ONE);
+        let expected_eq2 = EvaluationsList::new_from_point(point2.as_slice(), challenge);
+        let expected_combined_evals_vec = EvaluationsList::new(
+            expected_eq1
+                .iter()
+                .zip(expected_eq2.iter())
+                .map(|(&a, &b)| a + b)
+                .collect(),
+        );
 
         // Expected sum: S = s1 + challenge * s2
         let expected_combined_sum = eval1 + challenge * eval2;

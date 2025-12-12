@@ -8,7 +8,7 @@ use p3_field::{
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixView};
 use p3_maybe_rayon::prelude::*;
-use p3_multilinear_util::eq_batch::{eval_eq_base_batch, eval_eq_batch};
+use p3_multilinear_util::eq_batch::eval_eq_batch;
 use p3_util::log2_strict_usize;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -340,52 +340,6 @@ where
         let mut evals = F::zero_vec(1 << n);
         eval_eq_batch::<_, _, false>(RowMajorMatrixView::new_col(point), &mut evals, &[scale]);
         Self(evals)
-    }
-
-    /// Given multiple multilinear points, compute the evaluation vectors of the equality functions
-    /// and add them to the current evaluation vector in a batch.
-    #[inline]
-    pub fn accumulate_batch(&mut self, points: &[MultilinearPoint<F>], values: &[F]) {
-        assert_eq!(points.len(), values.len());
-        if points.is_empty() {
-            return;
-        }
-        let num_vars = self.num_variables();
-        assert_eq!(num_vars, points[0].num_variables());
-
-        // Convert points to a matrix where each column is a point
-        let point_data: Vec<_> = (0..num_vars)
-            .flat_map(|var_idx| points.iter().map(move |p| p.as_slice()[var_idx]))
-            .collect();
-        let points_matrix = RowMajorMatrixView::new(&point_data, points.len());
-
-        eval_eq_batch::<_, _, true>(points_matrix, &mut self.0, values);
-    }
-
-    /// Given multiple multilinear points in a base field, compute the evaluation vectors of the equality functions
-    /// and add them to the current evaluation vector in a batch.
-    #[inline]
-    pub fn accumulate_base_batch<BF: Field>(
-        &mut self,
-        points: &[MultilinearPoint<BF>],
-        values: &[F],
-    ) where
-        F: ExtensionField<BF>,
-    {
-        assert_eq!(points.len(), values.len());
-        if points.is_empty() {
-            return;
-        }
-        let num_vars = self.num_variables();
-        assert_eq!(num_vars, points[0].num_variables());
-
-        // Convert points to a matrix where each column is a point
-        let point_data: Vec<_> = (0..num_vars)
-            .flat_map(|var_idx| points.iter().map(move |p| p.as_slice()[var_idx]))
-            .collect();
-        let points_matrix = RowMajorMatrixView::new(&point_data, points.len());
-
-        eval_eq_base_batch::<_, _, true>(points_matrix, &mut self.0, values);
     }
 
     /// Evaluates the multilinear polynomial at `point ∈ F^n`.
@@ -1962,141 +1916,6 @@ mod tests {
         // For any non-constant polynomial, `as_constant` should return `None`.
         assert_ne!(evals.num_variables(), 0);
         assert_eq!(evals.as_constant(), None);
-    }
-
-    #[test]
-    #[allow(clippy::identity_op)]
-    fn test_accumulate_batch_single_point() {
-        // Set up an initial list of evaluations.
-        let n = 2;
-        let initial_values = vec![
-            F::from_u64(10),
-            F::from_u64(20),
-            F::from_u64(30),
-            F::from_u64(40),
-        ];
-        let mut evals_list = EvaluationsList::new(initial_values.clone());
-
-        // Define the point and value to accumulate.
-        let p = [F::from_u64(2), F::from_u64(3)];
-        let point = MultilinearPoint::new(p.to_vec());
-        let value = F::from_u64(5);
-
-        // Manually compute the `eq` evaluations that should be added.
-        let mut eq_evals_to_add = Vec::with_capacity(1 << n);
-        for i in 0..(1 << n) {
-            let b0 = (i >> 1) & 1; // MSB for p[0]
-            let b1 = (i >> 0) & 1; // LSB for p[1]
-            let term0 = if b0 == 1 { p[0] } else { F::ONE - p[0] };
-            let term1 = if b1 == 1 { p[1] } else { F::ONE - p[1] };
-            eq_evals_to_add.push(value * term0 * term1);
-        }
-
-        // Calculate the final expected evaluations after addition.
-        let expected: Vec<F> = initial_values
-            .iter()
-            .zip(eq_evals_to_add.iter())
-            .map(|(&initial, &to_add)| initial + to_add)
-            .collect();
-
-        // Call accumulate_batch with a single point and assert that the result matches the expected sum.
-        evals_list.accumulate_batch(&[point], &[value]);
-        assert_eq!(evals_list.as_slice(), &expected);
-    }
-
-    #[test]
-    #[allow(clippy::identity_op)]
-    fn test_accumulate_batch_multiple_points() {
-        // Set up an initial list of evaluations.
-        let n = 2;
-        let initial_values = vec![
-            F::from_u64(10),
-            F::from_u64(20),
-            F::from_u64(30),
-            F::from_u64(40),
-        ];
-        let mut evals_list = EvaluationsList::new(initial_values.clone());
-
-        // Define two points and values to accumulate.
-        let p1 = [F::from_u64(2), F::from_u64(3)];
-        let p2 = [F::from_u64(4), F::from_u64(5)];
-        let point1 = MultilinearPoint::new(p1.to_vec());
-        let point2 = MultilinearPoint::new(p2.to_vec());
-        let value1 = F::from_u64(5);
-        let value2 = F::from_u64(7);
-
-        // Manually compute the `eq` evaluations for both points.
-        let mut eq_evals_sum = vec![F::ZERO; 1 << n];
-        for (p, val) in [(p1, value1), (p2, value2)] {
-            for (i, eq_eval_sum) in eq_evals_sum.iter_mut().enumerate().take(1 << n) {
-                let b0 = (i >> 1) & 1;
-                let b1 = (i >> 0) & 1;
-                let term0 = if b0 == 1 { p[0] } else { F::ONE - p[0] };
-                let term1 = if b1 == 1 { p[1] } else { F::ONE - p[1] };
-                *eq_eval_sum += val * term0 * term1;
-            }
-        }
-
-        // Calculate the final expected evaluations after addition.
-        let expected: Vec<F> = initial_values
-            .iter()
-            .zip(eq_evals_sum.iter())
-            .map(|(&initial, &to_add)| initial + to_add)
-            .collect();
-
-        // Call accumulate_batch with multiple points.
-        evals_list.accumulate_batch(&[point1, point2], &[value1, value2]);
-        assert_eq!(evals_list.as_slice(), &expected);
-    }
-
-    #[test]
-    #[allow(clippy::identity_op)]
-    fn test_accumulate_base_batch() {
-        // Set up an initial list of evaluations.
-        let n = 2;
-        // Initial evaluations in the extension field.
-        let initial_values: Vec<EF4> = vec![
-            EF4::from_u64(10),
-            EF4::from_u64(20),
-            EF4::from_u64(30),
-            EF4::from_u64(40),
-        ];
-        let mut evals_list = EvaluationsList::new(initial_values.clone());
-
-        // Point in the base field `F`, value in the extension field `EF4`.
-        let p_base = [F::from_u64(2), F::from_u64(3)];
-        let point_base = MultilinearPoint::new(p_base.to_vec());
-        let value_ext = EF4::from_u64(5);
-
-        // Manually compute `eq` evals,
-        // lifting base field elements to extension field.
-        let mut eq_evals_to_add = Vec::with_capacity(1 << n);
-        for i in 0..(1 << n) {
-            let b0 = (i >> 1) & 1; // MSB
-            let b1 = (i >> 0) & 1; // LSB
-            let term0 = if b0 == 1 {
-                EF4::from(p_base[0])
-            } else {
-                EF4::ONE - EF4::from(p_base[0])
-            };
-            let term1 = if b1 == 1 {
-                EF4::from(p_base[1])
-            } else {
-                EF4::ONE - EF4::from(p_base[1])
-            };
-            eq_evals_to_add.push(value_ext * term0 * term1);
-        }
-
-        // Calculate the final expected sum in the extension field.
-        let expected: Vec<EF4> = initial_values
-            .iter()
-            .zip(eq_evals_to_add.iter())
-            .map(|(&initial, &to_add)| initial + to_add)
-            .collect();
-
-        // Accumulate and assert the result.
-        evals_list.accumulate_base_batch(&[point_base], &[value_ext]);
-        assert_eq!(evals_list.as_slice(), &expected);
     }
 
     #[test]
