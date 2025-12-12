@@ -533,21 +533,22 @@ mod tests {
 
     #[test]
     fn test_new_selects_small_variant_for_small_polynomials() {
-        // Create polynomials with 2 variables (4 evaluations).
+        // Create polynomials at the SIMD threshold boundary.
         //
-        // For BabyBear, SIMD width is 16, so log_2(16) = 4.
-        // Since 2 <= 4, this should use the Small variant.
-        let e0 = EF::from_u64(1);
-        let e1 = EF::from_u64(2);
-        let e2 = EF::from_u64(3);
-        let e3 = EF::from_u64(4);
-        let w0 = EF::from_u64(5);
-        let w1 = EF::from_u64(6);
-        let w2 = EF::from_u64(7);
-        let w3 = EF::from_u64(8);
+        // The Small variant is selected when: num_variables <= log_2(SIMD_WIDTH)
+        // We create a polynomial with exactly simd_log variables to ensure Small variant.
+        let simd_width = <F as Field>::Packing::WIDTH;
+        let simd_log = log2_strict_usize(simd_width);
+        let num_evals = 1 << simd_log;
 
-        let evals = EvaluationsList::new(vec![e0, e1, e2, e3]);
-        let weights = EvaluationsList::new(vec![w0, w1, w2, w3]);
+        // Create evaluation vectors at the threshold size.
+        let evals_vec: Vec<EF> = (0..num_evals).map(|i| EF::from_u64(i as u64 + 1)).collect();
+        let weights_vec: Vec<EF> = (0..num_evals)
+            .map(|i| EF::from_u64(i as u64 + num_evals as u64 + 1))
+            .collect();
+
+        let evals = EvaluationsList::new(evals_vec.clone());
+        let weights = EvaluationsList::new(weights_vec.clone());
 
         let poly = ProductPolynomial::<F, EF>::new(evals, weights);
 
@@ -555,23 +556,33 @@ mod tests {
         match &poly {
             ProductPolynomial::Small { evals, weights } => {
                 // Verify stored evaluations match input.
-                assert_eq!(evals.as_slice(), &[e0, e1, e2, e3]);
-                assert_eq!(weights.as_slice(), &[w0, w1, w2, w3]);
+                assert_eq!(evals.as_slice(), &evals_vec);
+                assert_eq!(weights.as_slice(), &weights_vec);
             }
             ProductPolynomial::Packed { .. } => {
-                panic!("Expected Small variant for 2-variable polynomial");
+                panic!(
+                    "Expected Small variant for {}-variable polynomial (SIMD threshold = {})",
+                    simd_log, simd_log
+                );
             }
         }
     }
 
     #[test]
     fn test_new_selects_packed_variant_for_large_polynomials() {
-        // Create polynomials with 6 variables (64 evaluations).
+        // Create polynomials above the SIMD threshold.
         //
-        // For BabyBear, SIMD width is 16, so log_2(16) = 4.
-        // Since 6 > 4, this should use the Packed variant.
-        let evals_vec: Vec<EF> = (0..64).map(|i| EF::from_u64(i as u64)).collect();
-        let weights_vec: Vec<EF> = (0..64).map(|i| EF::from_u64(100 + i as u64)).collect();
+        // The Packed variant is selected when: num_variables > log_2(SIMD_WIDTH)
+        // We create a polynomial with simd_log + 2 variables to ensure Packed variant.
+        let simd_width = <F as Field>::Packing::WIDTH;
+        let simd_log = log2_strict_usize(simd_width);
+        let num_vars = simd_log + 2;
+        let num_evals = 1 << num_vars;
+
+        let evals_vec: Vec<EF> = (0..num_evals).map(|i| EF::from_u64(i as u64)).collect();
+        let weights_vec: Vec<EF> = (0..num_evals)
+            .map(|i| EF::from_u64(100 + i as u64))
+            .collect();
 
         let evals = EvaluationsList::new(evals_vec.clone());
         let weights = EvaluationsList::new(weights_vec.clone());
@@ -584,14 +595,16 @@ mod tests {
                 evals: packed_evals,
                 weights: packed_weights,
             } => {
-                // With 64 elements and SIMD width 16, we should have 64/16 = 4 packed elements.
-                let simd_width = <F as Field>::Packing::WIDTH;
-                let expected_packed_len = 64 / simd_width;
+                // With num_evals elements and SIMD width, we get num_evals/simd_width packed elements.
+                let expected_packed_len = num_evals / simd_width;
                 assert_eq!(packed_evals.num_evals(), expected_packed_len);
                 assert_eq!(packed_weights.num_evals(), expected_packed_len);
             }
             ProductPolynomial::Small { .. } => {
-                panic!("Expected Packed variant for 6-variable polynomial");
+                panic!(
+                    "Expected Packed variant for {}-variable polynomial (SIMD threshold = {})",
+                    num_vars, simd_log
+                );
             }
         }
 
