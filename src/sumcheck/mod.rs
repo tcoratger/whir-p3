@@ -1,4 +1,5 @@
 pub mod eq_state;
+pub mod product_polynomial;
 pub mod sumcheck_polynomial;
 pub mod sumcheck_single;
 pub mod sumcheck_single_skip;

@@ -259,7 +259,7 @@ fn test_initial_statement_with_folding_factor_3() {
     assert_eq!(eval_at_point, expected);
 
     // Check that dot product of evaluations and weights matches the final sum
-    let dot_product: EF4 = sumcheck.quad.prod();
+    let dot_product: EF4 = sumcheck.poly.dot_product();
     assert_eq!(dot_product, sumcheck.sum);
 
     // The `folding_randomness` should store values in forward order (X0, X1, X2)
@@ -425,7 +425,7 @@ fn test_initialize_round_state_with_initial_statement() {
     );
 
     // Manually verify that ⟨f, w⟩ = claimed sum
-    assert_eq!(sumcheck.quad.prod(), sumcheck.sum);
+    assert_eq!(sumcheck.poly.dot_product(), sumcheck.sum);
 
     // No Merkle tree data has been created for folded rounds yet
     assert!(state.merkle_prover_data.is_none());

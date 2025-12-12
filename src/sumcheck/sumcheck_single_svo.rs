@@ -7,7 +7,8 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
         eq_state::SumcheckEqState,
-        sumcheck_single::{Quad, SumcheckSingle},
+        product_polynomial::ProductPolynomial,
+        sumcheck_single::SumcheckSingle,
         sumcheck_small_value::{algorithm_5, svo_first_rounds},
     },
     whir::{constraints::Constraint, proof::SumcheckData},
@@ -81,7 +82,7 @@ where
 
         (
             Self {
-                quad: Quad::new(folded_evals, weights),
+                poly: ProductPolynomial::new(folded_evals, weights),
                 sum,
             },
             challenge_point,
