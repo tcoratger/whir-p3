@@ -15,7 +15,7 @@ use verifier::Verifier;
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    poly::{coeffs::CoefficientList, multilinear::MultilinearPoint},
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::proof::WhirProof,
 };
 
@@ -82,7 +82,7 @@ pub fn make_whir_things(
     // Define test polynomial: all coefficients = 1 for simple verification
     //
     // TODO: replace with a random polynomial
-    let polynomial = CoefficientList::new(vec![F::ONE; num_coeffs]).to_evaluations();
+    let polynomial = EvaluationsList::new(vec![F::ONE; num_coeffs]);
 
     // Generate evaluation points
     let points: Vec<_> = (0..num_points)

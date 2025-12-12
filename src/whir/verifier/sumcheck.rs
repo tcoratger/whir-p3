@@ -298,7 +298,7 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::{DomainSeparator, SumcheckParams},
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::{coeffs::CoefficientList, evals::EvaluationsList},
+        poly::evals::EvaluationsList,
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
             constraints::{Constraint, statement::EqStatement},
@@ -363,7 +363,16 @@ mod tests {
         let c7 = F::from_u64(7);
         let c8 = F::from_u64(8);
 
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+        let evals = EvaluationsList::new(vec![
+            c1,
+            c1 + c2,
+            c1 + c3,
+            c1 + c2 + c3 + c4,
+            c1 + c5,
+            c1 + c2 + c5 + c6,
+            c1 + c3 + c5 + c7,
+            c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8,
+        ]);
 
         // Define the actual polynomial function over EF4
         let f = |x0: EF4, x1: EF4, x2: EF4| {
@@ -377,7 +386,7 @@ mod tests {
                 + c1
         };
 
-        let n_vars = coeffs.num_variables();
+        let n_vars = evals.num_variables();
         assert_eq!(n_vars, 3);
 
         // Create a constraint system with evaluations of f at various points
@@ -434,7 +443,7 @@ mod tests {
 
         // Instantiate the prover with base field coefficients
         let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals(
-            &coeffs.to_evaluations(),
+            &evals,
             sumcheck,
             &mut prover_challenger,
             folding_factor,
@@ -531,9 +540,9 @@ mod tests {
 
         // Construct simple deterministic coefficients f = [1, 2, ..., 2^K]
         let coeffs: Vec<F> = (1..=num_points).map(F::from_u64).collect();
-        let coeffs = CoefficientList::new(coeffs);
+        let evals = EvaluationsList::new(coeffs);
 
-        assert_eq!(coeffs.num_variables(), NUM_VARS);
+        assert_eq!(evals.num_variables(), NUM_VARS);
 
         // -------------------------------------------------------------
         // Construct a Statement by evaluating f at several Boolean points
@@ -551,7 +560,7 @@ mod tests {
                 })
                 .collect();
             let ml_point = MultilinearPoint::new(bool_point.clone());
-            let expected_val = coeffs.evaluate(&ml_point);
+            let expected_val = evals.evaluate_hypercube_base(&ml_point);
             statement.add_evaluated_constraint(ml_point, expected_val);
         }
 
@@ -587,7 +596,7 @@ mod tests {
 
         // Instantiate the prover with base field coefficients and univariate skip
         let (_, _) = SumcheckSingle::<F, EF4>::with_skip(
-            &coeffs.to_evaluations(),
+            &evals,
             skip_data,
             &mut prover_challenger,
             folding_factor,
@@ -682,9 +691,9 @@ mod tests {
         let num_points = 1 << NUM_VARS;
 
         let coeffs: Vec<F> = (1..=num_points).map(F::from_u64).collect();
-        let coeffs = CoefficientList::new(coeffs);
+        let evals = EvaluationsList::new(coeffs);
 
-        assert_eq!(coeffs.num_variables(), NUM_VARS);
+        assert_eq!(evals.num_variables(), NUM_VARS);
 
         // Create a constraint system with evaluations of f at a point
         let mut statement = EqStatement::initialize(NUM_VARS);
@@ -692,7 +701,7 @@ mod tests {
             .map(|j| if j % 2 == 0 { EF4::ONE } else { EF4::ZERO })
             .collect();
         let ml_point = MultilinearPoint::new(constraint_point);
-        let expected_val = coeffs.evaluate(&ml_point);
+        let expected_val = evals.evaluate_hypercube_base(&ml_point);
         statement.add_evaluated_constraint(ml_point, expected_val);
 
         let folding_factor = NUM_VARS;
@@ -727,7 +736,7 @@ mod tests {
 
         // Instantiate the prover with base field coefficients using SVO
         let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals(
-            &coeffs.to_evaluations(),
+            &evals,
             sumcheck,
             &mut prover_challenger,
             folding_factor,

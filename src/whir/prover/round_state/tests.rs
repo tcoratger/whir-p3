@@ -11,7 +11,7 @@ use rand::{SeedableRng, rngs::SmallRng};
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         WhirConfig,
         committer::{Witness, writer::CommitmentWriter},
@@ -208,7 +208,16 @@ fn test_initial_statement_with_folding_factor_3() {
     let c7 = F::from_u64(7);
     let c8 = F::from_u64(8);
 
-    let poly = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]).to_evaluations();
+    let poly = EvaluationsList::new(vec![
+        c1,
+        c1 + c2,
+        c1 + c3,
+        c1 + c2 + c3 + c4,
+        c1 + c5,
+        c1 + c2 + c5 + c6,
+        c1 + c3 + c5 + c7,
+        c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8,
+    ]);
 
     // Manual redefinition of the same polynomial as a function for evaluation
     let f = |x0: EF4, x1: EF4, x2: EF4| {
@@ -371,7 +380,17 @@ fn test_initialize_round_state_with_initial_statement() {
     let c6 = F::from_u64(6);
     let c7 = F::from_u64(7);
     let c8 = F::from_u64(8);
-    let poly = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]).to_evaluations();
+
+    let poly = EvaluationsList::new(vec![
+        c1,
+        c1 + c2,
+        c1 + c3,
+        c1 + c2 + c3 + c4,
+        c1 + c5,
+        c1 + c2 + c5 + c6,
+        c1 + c3 + c5 + c7,
+        c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8,
+    ]);
 
     // Equivalent function for evaluating the polynomial manually
     let f = |x0: EF4, x1: EF4, x2: EF4| {

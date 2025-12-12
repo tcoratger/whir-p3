@@ -89,7 +89,7 @@ mod tests {
     use super::*;
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
-        poly::{coeffs::CoefficientList, evals::EvaluationsList, multilinear::MultilinearPoint},
+        poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
         whir::constraints::statement::EqStatement,
     };
 
@@ -130,7 +130,7 @@ mod tests {
         //   - c7 = 0        ← X0·X1·X2
         // ----------------------------------------------------------------
 
-        let coeffs = CoefficientList::new(vec![
+        let evals = EvaluationsList::new(vec![
             F::from_u64(1), // 1
             F::from_u64(2), // X2
             F::from_u64(3), // X1
@@ -161,7 +161,6 @@ mod tests {
         // To evaluate this polynomial, we perform a low-degree extension
         // using DFT on a multiplicative coset of size 2^{k+1} = 8.
         // ----------------------------------------------------------------
-        let evals = coeffs.to_evaluations();
         let num_remaining_vars = evals.num_variables() - 2;
         let width = 1 << num_remaining_vars;
         let poly = compute_skipping_sumcheck_polynomial::<F, EF4>(
@@ -189,7 +188,7 @@ mod tests {
         // Polynomial with only 1 variable, can't skip 2 variables
         let c0 = F::from_u64(1);
         let c1 = F::from_u64(2);
-        let coeffs = CoefficientList::new(vec![c0, c1]);
+        let evals = EvaluationsList::new(vec![c0, c1]);
 
         let statement = EqStatement::<EF4>::initialize(1);
         let mut weights = EvaluationsList::zero(statement.num_variables());
@@ -199,7 +198,6 @@ mod tests {
         // This should panic because:
         // - the polynomial has only 1 variable
         // - we try to skip 2 variables
-        let evals = coeffs.to_evaluations();
         let num_remaining_vars = evals.num_variables() - 2;
         let width = 1 << num_remaining_vars;
         let _ = compute_skipping_sumcheck_polynomial::<F, EF4>(
@@ -233,7 +231,17 @@ mod tests {
         let c5 = F::from_u64(6);
         let c6 = F::from_u64(7);
         let c7 = F::from_u64(8);
-        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
+
+        let evals = EvaluationsList::new(vec![
+            c0,
+            c0 + c1,
+            c0 + c2,
+            c0 + c1 + c2 + c3,
+            c0 + c4,
+            c0 + c1 + c4 + c5,
+            c0 + c2 + c4 + c6,
+            c0 + c1 + c2 + c3 + c4 + c5 + c6 + c7,
+        ]);
 
         // ------------------------------------------------------------
         // Manually evaluate f at each binary point
@@ -276,9 +284,6 @@ mod tests {
         let mut expected_sum = EF4::ZERO;
         statement.combine_hypercube::<F, false>(&mut weights, &mut expected_sum, EF4::ONE);
 
-        // Get the f evaluations
-        let evals_f = coeffs.to_evaluations();
-
         // ------------------------------------------------------------
         // Apply univariate skip optimization with k = 2:
         // - This folds over variables X0 and X1
@@ -289,7 +294,7 @@ mod tests {
         let dft = Dft::default();
         // Skip first 2 variables (X0, X1)
         let k = 2;
-        let n = evals_f.num_variables();
+        let n = evals.num_variables();
         assert_eq!(n, 3);
         // j = 1 (remaining variables X2)
         let j = n - k;
@@ -299,11 +304,11 @@ mod tests {
         // ------------------------------------------------------------
         // Compute the polynomial using the function under test
         // ------------------------------------------------------------
-        let num_remaining_vars = evals_f.num_variables() - k;
+        let num_remaining_vars = evals.num_variables() - k;
         let width = 1 << num_remaining_vars;
 
         // Create the matrices before calling the function.
-        let f_mat = evals_f.into_mat(width);
+        let f_mat = evals.into_mat(width);
         let w_mat = weights.into_mat(width);
 
         // Compute the sumcheck polynomial.
