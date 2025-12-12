@@ -934,6 +934,85 @@ where
     }
 }
 
+impl<A: Copy + Send + Sync + PrimeCharacteristicRing> EvaluationsList<A> {
+    /// Computes the constant and quadratic coefficients of the sumcheck polynomial.
+    ///
+    /// Given evaluations `self[i]` and weights `weights[i]`, this computes the coefficients
+    /// of the univariate polynomial:
+    ///
+    /// ```text
+    /// h(X) = \sum_{b \in \{0,1\}^{n-1}} self(X, b) * weights(X, b)
+    /// ```
+    ///
+    /// which is a quadratic polynomial in `X`.
+    ///
+    /// # Coefficient Formulas
+    ///
+    /// The polynomial `h(X) = c_0 + c_1 * X + c_2 * X^2` has coefficients:
+    ///
+    /// ```text
+    /// c_0 = h(0) = \sum_b self(0, b) * weights(0, b)
+    ///
+    /// c_2 = \sum_b (self(1,b) - self(0,b)) * (weights(1,b) - weights(0,b))
+    /// ```
+    ///
+    /// The linear coefficient `c_1` is not computed here; it's derived by the verifier
+    /// from the sum constraint `h(0) + h(1) = claimed_sum`.
+    ///
+    /// # Memory Layout
+    ///
+    /// The arrays are organized such that:
+    /// - First half (`lo`): evaluations where `X = 0`
+    /// - Second half (`hi`): evaluations where `X = 1`
+    ///
+    /// # Arguments
+    ///
+    /// * `weights` - Weight polynomial evaluations (same length as `self`).
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(c_0, c_2)` of the constant and quadratic coefficients.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self.len() != weights.len()` or `self.len() < 2`.
+    #[instrument(skip_all, level = "debug")]
+    pub fn sumcheck_coefficients<B>(&self, weights: &EvaluationsList<B>) -> (B, B)
+    where
+        B: Copy + Send + Sync + Algebra<A>,
+    {
+        let evals = self.as_slice();
+        let weights = weights.as_slice();
+
+        // Validate inputs: need at least 2 elements (1 variable).
+        assert!(log2_strict_usize(evals.len()) >= 1);
+        assert_eq!(evals.len(), weights.len());
+
+        // Split arrays into lo (X=0) and hi (X=1) halves.
+        let mid = evals.len() / 2;
+        let (evals_lo, evals_hi) = evals.split_at(mid);
+        let (weights_lo, weights_hi) = weights.split_at(mid);
+
+        // Parallel computation of c_0 and c_2.
+        evals_lo
+            .par_iter()
+            .zip(evals_hi.par_iter())
+            .zip(weights_lo.par_iter().zip(weights_hi.par_iter()))
+            .map(|((&e_lo, &e_hi), (&w_lo, &w_hi))| {
+                // c_0 term: product at X=0.
+                let c0_term = w_lo * e_lo;
+                // c_2 term: cross-product of differences.
+                let c2_term = (w_hi - w_lo) * (e_hi - e_lo);
+                (c0_term, c2_term)
+            })
+            .par_fold_reduce(
+                || (B::ZERO, B::ZERO),
+                |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
+                |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
+            )
+    }
+}
+
 impl<'a, F> IntoIterator for &'a EvaluationsList<F> {
     type Item = &'a F;
     type IntoIter = core::slice::Iter<'a, F>;
@@ -3259,5 +3338,356 @@ mod tests {
             let e1 = EvaluationsList::new(packed).eval_hypercube_packed::<F, _>(&point);
             assert_eq!(e0, e1);
         }
+    }
+
+    #[test]
+    fn test_sumcheck_coefficients_one_variable() {
+        // For a 1-variable polynomial (2 evaluations):
+        //   evals   = [e0, e1] where f(0) = e0, f(1) = e1
+        //   weights = [w0, w1] where g(0) = w0, g(1) = w1
+        //
+        // The sumcheck polynomial h(X) = f(X) * g(X) where:
+        //   f(X) = e0 + (e1 - e0)*X
+        //   g(X) = w0 + (w1 - w0)*X
+        //
+        // h(X) = [e0 + (e1-e0)*X] * [w0 + (w1-w0)*X]
+        //      = e0*w0 + [e0*(w1-w0) + (e1-e0)*w0]*X + (e1-e0)*(w1-w0)*X^2
+        //      = c0 + c1*X + c2*X^2
+        //
+        // where:
+        //   c0 = e0 * w0
+        //   c2 = (e1 - e0) * (w1 - w0)
+        let e0 = EF4::from_u64(3);
+        let e1 = EF4::from_u64(7);
+        let w0 = EF4::from_u64(2);
+        let w1 = EF4::from_u64(5);
+
+        let evals = EvaluationsList::new(vec![e0, e1]);
+        let weights = EvaluationsList::new(vec![w0, w1]);
+
+        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+
+        // c0 = e0 * w0
+        let expected_c0 = e0 * w0;
+        assert_eq!(c0, expected_c0);
+
+        // c2 = (e1 - e0) * (w1 - w0)
+        let expected_c2 = (e1 - e0) * (w1 - w0);
+        assert_eq!(c2, expected_c2);
+    }
+
+    #[test]
+    fn test_sumcheck_coefficients_two_variables() {
+        // For a 2-variable polynomial (4 evaluations):
+        //   evals   = [e0, e1, e2, e3] representing f(x0, x1)
+        //   weights = [w0, w1, w2, w3] representing g(x0, x1)
+        //
+        // Memory layout (lo = X=0, hi = X=1):
+        //   f(0,0) = e0, f(0,1) = e1 (lo half)
+        //   f(1,0) = e2, f(1,1) = e3 (hi half)
+        //
+        // The sumcheck polynomial for X (first variable):
+        //   h(X) = Σ_{x1∈{0,1}} f(X, x1) * g(X, x1)
+        //
+        // At X=0: h(0) = f(0,0)*g(0,0) + f(0,1)*g(0,1) = e0*w0 + e1*w1
+        // At X=1: h(1) = f(1,0)*g(1,0) + f(1,1)*g(1,1) = e2*w2 + e3*w3
+        //
+        // Coefficients:
+        //   c0 = h(0) = e0*w0 + e1*w1
+        //   c2 = Σ_{x1} (f(1,x1) - f(0,x1)) * (g(1,x1) - g(0,x1))
+        //      = (e2-e0)*(w2-w0) + (e3-e1)*(w3-w1)
+        let e0 = EF4::from_u64(1);
+        let e1 = EF4::from_u64(2);
+        let e2 = EF4::from_u64(5);
+        let e3 = EF4::from_u64(8);
+        let w0 = EF4::from_u64(3);
+        let w1 = EF4::from_u64(4);
+        let w2 = EF4::from_u64(6);
+        let w3 = EF4::from_u64(7);
+
+        let evals = EvaluationsList::new(vec![e0, e1, e2, e3]);
+        let weights = EvaluationsList::new(vec![w0, w1, w2, w3]);
+
+        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+
+        // c0 = e0*w0 + e1*w1
+        let expected_c0 = e0 * w0 + e1 * w1;
+        assert_eq!(c0, expected_c0);
+
+        // c2 = (e2-e0)*(w2-w0) + (e3-e1)*(w3-w1)
+        let expected_c2 = (e2 - e0) * (w2 - w0) + (e3 - e1) * (w3 - w1);
+        assert_eq!(c2, expected_c2);
+    }
+
+    #[test]
+    fn test_sumcheck_coefficients_three_variables() {
+        // For a 3-variable polynomial (8 evaluations):
+        //   evals   = [e0, e1, e2, e3, e4, e5, e6, e7] representing f(x0, x1, x2)
+        //   weights = [w0, w1, w2, w3, w4, w5, w6, w7] representing g(x0, x1, x2)
+        //
+        // Memory layout (lo = X=0, hi = X=1 for first variable):
+        //   lo half: e0, e1, e2, e3 = f(0, x1, x2)
+        //   hi half: e4, e5, e6, e7 = f(1, x1, x2)
+        //
+        // c0 = h(0) = Σ_{x1,x2} f(0,x1,x2) * g(0,x1,x2)
+        //    = e0*w0 + e1*w1 + e2*w2 + e3*w3
+        //
+        // c2 = Σ_{x1,x2} (f(1,x1,x2) - f(0,x1,x2)) * (g(1,x1,x2) - g(0,x1,x2))
+        //    = (e4-e0)*(w4-w0) + (e5-e1)*(w5-w1) + (e6-e2)*(w6-w2) + (e7-e3)*(w7-w3)
+        let e0 = EF4::from_u64(1);
+        let e1 = EF4::from_u64(2);
+        let e2 = EF4::from_u64(3);
+        let e3 = EF4::from_u64(4);
+        let e4 = EF4::from_u64(5);
+        let e5 = EF4::from_u64(6);
+        let e6 = EF4::from_u64(7);
+        let e7 = EF4::from_u64(8);
+        let w0 = EF4::from_u64(10);
+        let w1 = EF4::from_u64(20);
+        let w2 = EF4::from_u64(30);
+        let w3 = EF4::from_u64(40);
+        let w4 = EF4::from_u64(50);
+        let w5 = EF4::from_u64(60);
+        let w6 = EF4::from_u64(70);
+        let w7 = EF4::from_u64(80);
+
+        let evals = EvaluationsList::new(vec![e0, e1, e2, e3, e4, e5, e6, e7]);
+        let weights = EvaluationsList::new(vec![w0, w1, w2, w3, w4, w5, w6, w7]);
+
+        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+
+        // c0 = e0*w0 + e1*w1 + e2*w2 + e3*w3
+        let expected_c0 = e0 * w0 + e1 * w1 + e2 * w2 + e3 * w3;
+        assert_eq!(c0, expected_c0);
+
+        // c2 = (e4-e0)*(w4-w0) + (e5-e1)*(w5-w1) + (e6-e2)*(w6-w2) + (e7-e3)*(w7-w3)
+        let expected_c2 = (e4 - e0) * (w4 - w0)
+            + (e5 - e1) * (w5 - w1)
+            + (e6 - e2) * (w6 - w2)
+            + (e7 - e3) * (w7 - w3);
+        assert_eq!(c2, expected_c2);
+    }
+
+    #[test]
+    fn test_sumcheck_coefficients_sum_constraint() {
+        // Verify the sumcheck constraint: h(0) + h(1) = claimed_sum
+        //
+        // For the polynomial h(X) = c0 + c1*X + c2*X^2:
+        //   h(0) = c0
+        //   h(1) = c0 + c1 + c2
+        //   h(0) + h(1) = 2*c0 + c1 + c2
+        //
+        // The claimed sum is: Σ_{x∈{0,1}^n} f(x) * g(x)
+        //   = Σ_{x1∈{0,1}^{n-1}} [f(0,x1)*g(0,x1) + f(1,x1)*g(1,x1)]
+        //   = h(0) + h(1)
+        let e0 = EF4::from_u64(3);
+        let e1 = EF4::from_u64(7);
+        let w0 = EF4::from_u64(2);
+        let w1 = EF4::from_u64(5);
+
+        let evals = EvaluationsList::new(vec![e0, e1]);
+        let weights = EvaluationsList::new(vec![w0, w1]);
+
+        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+
+        // h(0) = c0 = e0 * w0
+        let h_0 = c0;
+
+        // h(1) = e1 * w1 (direct computation)
+        let h_1 = e1 * w1;
+
+        // claimed_sum = Σ_{x∈{0,1}} f(x) * g(x) = e0*w0 + e1*w1
+        let claimed_sum = e0 * w0 + e1 * w1;
+
+        // Verify: h(0) + h(1) = claimed_sum
+        assert_eq!(h_0 + h_1, claimed_sum);
+
+        // Also verify c1 derivation: c1 = claimed_sum - 2*c0 - c2
+        //   h(0) + h(1) = 2*c0 + c1 + c2
+        //   c1 = h(0) + h(1) - 2*c0 - c2
+        let c1 = claimed_sum - c0.double() - c2;
+
+        // Verify h(1) = c0 + c1 + c2
+        let h_1_from_coeffs = c0 + c1 + c2;
+        assert_eq!(h_1_from_coeffs, h_1);
+    }
+
+    #[test]
+    fn test_sumcheck_coefficients_evaluate_at_challenge() {
+        // Verify that h(r) can be computed correctly from (c0, c2) and claimed_sum.
+        //
+        // Given:
+        //   c0 = h(0)
+        //   c2 = quadratic coefficient
+        //   claimed_sum = h(0) + h(1)
+        //
+        // We can derive:
+        //   h(1) = claimed_sum - c0
+        //   c1 = h(1) - c0 - c2 = claimed_sum - 2*c0 - c2
+        //
+        // Then: h(r) = c0 + c1*r + c2*r^2
+        let e0 = EF4::from_u64(1);
+        let e1 = EF4::from_u64(2);
+        let e2 = EF4::from_u64(5);
+        let e3 = EF4::from_u64(8);
+        let w0 = EF4::from_u64(3);
+        let w1 = EF4::from_u64(4);
+        let w2 = EF4::from_u64(6);
+        let w3 = EF4::from_u64(7);
+
+        let evals = EvaluationsList::new(vec![e0, e1, e2, e3]);
+        let weights = EvaluationsList::new(vec![w0, w1, w2, w3]);
+
+        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+
+        // h(1) = e2*w2 + e3*w3
+        let h_1 = e2 * w2 + e3 * w3;
+
+        // Derive c1 = h(1) - c0 - c2
+        let c1 = h_1 - c0 - c2;
+
+        // Evaluate at challenge r
+        let r = EF4::from_u64(7);
+        let h_r = c0 + c1 * r + c2 * r.square();
+
+        // Alternative: compute h(r) by folding and computing inner product
+        // After folding evals with challenge r:
+        //   f'(x1) = f(0,x1) + r * (f(1,x1) - f(0,x1))
+        //   g'(x1) = g(0,x1) + r * (g(1,x1) - g(0,x1))
+        // h(r) = Σ_{x1} f'(x1) * g'(x1)
+        let folded_e0 = e0 + r * (e2 - e0);
+        let folded_e1 = e1 + r * (e3 - e1);
+        let folded_w0 = w0 + r * (w2 - w0);
+        let folded_w1 = w1 + r * (w3 - w1);
+
+        let h_r_from_folding = folded_e0 * folded_w0 + folded_e1 * folded_w1;
+
+        assert_eq!(h_r, h_r_from_folding);
+    }
+
+    #[test]
+    fn test_sumcheck_coefficients_mixed_field_types() {
+        // Test with base field evaluations and extension field weights.
+        //
+        // The method signature is:
+        //   fn sumcheck_coefficients<B>(&self, weights: &EvaluationsList<B>) -> (B, B)
+        //   where B: Algebra<A>
+        //
+        // Since EF4: Algebra<F>, we use:
+        //   evals   = [e0, e1] in F (base field)
+        //   weights = [w0, w1] in EF4 (extension field)
+        //
+        // c0 = w0 * e0
+        // c2 = (w1 - w0) * (e1 - e0)
+        let e0 = F::from_u64(3);
+        let e1 = F::from_u64(7);
+        let w0 = EF4::from_u64(2);
+        let w1 = EF4::from_u64(5);
+
+        let evals = EvaluationsList::new(vec![e0, e1]);
+        let weights = EvaluationsList::new(vec![w0, w1]);
+
+        let (c0, c2): (EF4, EF4) = evals.sumcheck_coefficients(&weights);
+
+        // c0 = w0 * e0 (extension field * base field)
+        let expected_c0 = w0 * e0;
+        assert_eq!(c0, expected_c0);
+
+        // c2 = (w1 - w0) * (e1 - e0)
+        let expected_c2 = (w1 - w0) * (e1 - e0);
+        assert_eq!(c2, expected_c2);
+    }
+
+    #[test]
+    fn test_sumcheck_coefficients_all_zeros() {
+        // Edge case: all evaluations are zero.
+        //
+        // c0 = 0*0 + 0*0 = 0
+        // c2 = (0-0)*(0-0) + (0-0)*(0-0) = 0
+        let evals = EvaluationsList::new(vec![EF4::ZERO; 4]);
+        let weights = EvaluationsList::new(vec![EF4::ZERO; 4]);
+
+        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+
+        assert_eq!(c0, EF4::ZERO);
+        assert_eq!(c2, EF4::ZERO);
+    }
+
+    #[test]
+    fn test_sumcheck_coefficients_constant_polynomial() {
+        // Edge case: constant polynomial (all evaluations equal).
+        //
+        // If f(x) = c for all x, and g(x) = d for all x:
+        //   c0 = Σ_{b} c * d = 2^{n-1} * c * d (for n-variable polynomial)
+        //   c2 = Σ_{b} (c - c) * (d - d) = 0
+        let c = EF4::from_u64(5);
+        let d = EF4::from_u64(3);
+
+        // 2-variable polynomial: 4 evaluations, lo/hi halves of size 2
+        let evals = EvaluationsList::new(vec![c, c, c, c]);
+        let weights = EvaluationsList::new(vec![d, d, d, d]);
+
+        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+
+        // c0 = 2 * c * d (sum over 2 elements in lo half)
+        let expected_c0 = c * d + c * d;
+        assert_eq!(c0, expected_c0);
+
+        // c2 = 0 (all differences are zero)
+        assert_eq!(c2, EF4::ZERO);
+    }
+
+    #[test]
+    fn test_sumcheck_coefficients_linear_in_first_variable() {
+        // If f(X, b) = X for all b (linear in first variable):
+        //   f(0, b) = 0, f(1, b) = 1
+        //
+        // And g(X, b) = 1 for all b:
+        //   g(0, b) = 1, g(1, b) = 1
+        //
+        // Then h(X) = Σ_b f(X, b) * g(X, b) = Σ_b X * 1 = 2^{n-1} * X
+        //
+        // For n=2 (4 evals): h(X) = 2 * X
+        //   c0 = h(0) = 0
+        //   c2 = 0 (linear polynomial has no quadratic term)
+        //   c1 = 2
+        let zero = EF4::ZERO;
+        let one = EF4::ONE;
+
+        // f: [f(0,0), f(0,1), f(1,0), f(1,1)] = [0, 0, 1, 1]
+        let evals = EvaluationsList::new(vec![zero, zero, one, one]);
+        // g: [g(0,0), g(0,1), g(1,0), g(1,1)] = [1, 1, 1, 1]
+        let weights = EvaluationsList::new(vec![one, one, one, one]);
+
+        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+
+        // c0 = f(0,0)*g(0,0) + f(0,1)*g(0,1) = 0*1 + 0*1 = 0
+        let expected_c0 = zero * one + zero * one;
+        assert_eq!(c0, expected_c0);
+
+        // c2 = (f(1,0)-f(0,0))*(g(1,0)-g(0,0)) + (f(1,1)-f(0,1))*(g(1,1)-g(0,1))
+        //    = (1-0)*(1-1) + (1-0)*(1-1) = 0 + 0 = 0
+        let expected_c2 = (one - zero) * (one - one) + (one - zero) * (one - one);
+        assert_eq!(c2, expected_c2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_sumcheck_coefficients_mismatched_lengths() {
+        // Panic if evals and weights have different lengths.
+        let evals = EvaluationsList::new(vec![EF4::ONE; 4]);
+        let weights = EvaluationsList::new(vec![EF4::ONE; 8]);
+
+        let _ = evals.sumcheck_coefficients(&weights);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_sumcheck_coefficients_single_element() {
+        // Panic if fewer than 2 elements (need at least 1 variable).
+        let evals = EvaluationsList::new(vec![EF4::ONE]);
+        let weights = EvaluationsList::new(vec![EF4::ONE]);
+
+        let _ = evals.sumcheck_coefficients(&weights);
     }
 }
