@@ -1680,7 +1680,7 @@ mod tests {
         let poly = EvaluationsList::new(coeffs);
 
         // Convert coefficients into an EvaluationsList (for testing the fold on evals)
-        let evals_list: EvaluationsList<F> = poly.clone();
+        let evals_list: EvaluationsList<F> = poly;
 
         // We fold over the last variable (x_1) by setting x_1 = 5 in EF4
         let r1 = EF4::from_u64(5);
