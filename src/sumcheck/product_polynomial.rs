@@ -939,8 +939,8 @@ mod tests {
 
         // The auto-selection might choose either variant depending on SIMD width.
         let auto = ProductPolynomial::<F, EF>::new(
-            EvaluationsList::new(evals_vec.clone()),
-            EvaluationsList::new(weights_vec.clone()),
+            EvaluationsList::new(evals_vec),
+            EvaluationsList::new(weights_vec),
         );
 
         // Both should have the same num_variables.
