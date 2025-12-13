@@ -1425,27 +1425,29 @@ mod tests {
         // Define a simple 2-variable multilinear polynomial:
         //
         // Variables: x_1, x_2
-        // Coefficients ordered in lexicographic order: (x_1, x_2)
+        // Evaluations ordered in lexicographic order of input points: (x_1, x_2)
         //
-        // - coeffs[0] → constant term
-        // - coeffs[1] → x_2 term
-        // - coeffs[2] → x_1 term
-        // - coeffs[3] → x_1·x_2 term
+        // - evals[0] → f(0, 0)
+        // - evals[1] → f(0, 1)
+        // - evals[2] → f(1, 0)
+        // - evals[3] → f(1, 1)
         //
-        // Thus, the polynomial is:
-        //
-        //   f(x_1, x_2) = c0 + c1·x_2 + c2·x_1 + c3·x_1·x_2
+        // Thus, the polynomial is represented by its values
+        // on the Boolean hypercube {0,1}².
         //
         // where:
-        let c0 = F::from_u64(5); // constant
-        let c1 = F::from_u64(6); // x_2 coefficient
-        let c2 = F::from_u64(7); // x_1 coefficient
-        let c3 = F::from_u64(8); // x_1·x_2 coefficient
+        let e0 = F::from_u64(5); // f(0, 0)
+        let e1 = F::from_u64(6); // increment when x_2 = 1
+        let e2 = F::from_u64(7); // increment when x_1 = 1
+        let e3 = F::from_u64(8); // increment when x_1 = x_2 = 1
         //
         // So concretely:
         //
-        //   f(x_1, x_2) = 5 + 6·x_2 + 7·x_1 + 8·x_1·x_2
-        let evals = EvaluationsList::new(vec![c0, c0 + c1, c0 + c2, c0 + c1 + c2 + c3]);
+        //   f(0, 0) = 5
+        //   f(0, 1) = 5 + 6 = 11
+        //   f(1, 0) = 5 + 7 = 12
+        //   f(1, 1) = 5 + 6 + 7 + 8 = 26
+        let evals = EvaluationsList::new(vec![e0, e0 + e1, e0 + e2, e0 + e1 + e2 + e3]);
 
         // Choose evaluation point:
         //
@@ -1460,7 +1462,7 @@ mod tests {
         //   f(x_1, x_2) = 5 + 6·x_2 + 7·x_1 + 8·x_1·x_2
         //
         // Substituting (x_1, x_2):
-        let expected = c0 + c1 * x2 + c2 * x1 + c3 * x1 * x2;
+        let expected = e0 + e1 * x2 + e2 * x1 + e3 * x1 * x2;
 
         // Now evaluate using the function under test
         let result = evals.evaluate_hypercube_base(&coords);
@@ -1487,24 +1489,24 @@ mod tests {
         // Thus:
         //    f(x_0,x_1,x_2) = c0 + c1·x_2 + c2·x_1 + c3·x_1·x_2
         //                + c4·x_0 + c5·x_0·x_2 + c6·x_0·x_1 + c7·x_0·x_1·x_2
-        let c0 = F::from_u64(1);
-        let c1 = F::from_u64(2);
-        let c2 = F::from_u64(3);
-        let c3 = F::from_u64(4);
-        let c4 = F::from_u64(5);
-        let c5 = F::from_u64(6);
-        let c6 = F::from_u64(7);
-        let c7 = F::from_u64(8);
+        let e0 = F::from_u64(1);
+        let e1 = F::from_u64(2);
+        let e2 = F::from_u64(3);
+        let e3 = F::from_u64(4);
+        let e4 = F::from_u64(5);
+        let e5 = F::from_u64(6);
+        let e6 = F::from_u64(7);
+        let e7 = F::from_u64(8);
 
         let evals = EvaluationsList::new(vec![
-            c0,
-            c0 + c1,
-            c0 + c2,
-            c0 + c1 + c2 + c3,
-            c0 + c4,
-            c0 + c1 + c4 + c5,
-            c0 + c2 + c4 + c6,
-            c0 + c1 + c2 + c3 + c4 + c5 + c6 + c7,
+            e0,
+            e0 + e1,
+            e0 + e2,
+            e0 + e1 + e2 + e3,
+            e0 + e4,
+            e0 + e1 + e4 + e5,
+            e0 + e2 + e4 + e6,
+            e0 + e1 + e2 + e3 + e4 + e5 + e6 + e7,
         ]);
 
         // Pick point: (x_0,x_1,x_2) = (2, 3, 4)
@@ -1524,14 +1526,14 @@ mod tests {
         //          + 6·2·4
         //          + 7·2·3
         //          + 8·2·3·4
-        let expected = c0
-            + c1 * x2
-            + c2 * x1
-            + c3 * x1 * x2
-            + c4 * x0
-            + c5 * x0 * x2
-            + c6 * x0 * x1
-            + c7 * x0 * x1 * x2;
+        let expected = e0
+            + e1 * e2
+            + e2 * e1
+            + e3 * e1 * e2
+            + e4 * x0
+            + e5 * x0 * x2
+            + e6 * x0 * x1
+            + e7 * x0 * x1 * x2;
 
         let result = evals.evaluate_hypercube_base(&point);
         assert_eq!(result, expected);
@@ -1555,24 +1557,24 @@ mod tests {
         // Thus:
         //    f(x_0,x_1,x_2) = c0 + c1·x_2 + c2·x_1 + c3·x_1·x_2
         //                + c4·x_0 + c5·x_0·x_2 + c6·x_0·x_1 + c7·x_0·x_1·x_2
-        let c0 = F::from_u64(1);
-        let c1 = F::from_u64(2);
-        let c2 = F::from_u64(3);
-        let c3 = F::from_u64(4);
-        let c4 = F::from_u64(5);
-        let c5 = F::from_u64(6);
-        let c6 = F::from_u64(7);
-        let c7 = F::from_u64(8);
+        let e0 = F::from_u64(1);
+        let e1 = F::from_u64(2);
+        let e2 = F::from_u64(3);
+        let e3 = F::from_u64(4);
+        let e4 = F::from_u64(5);
+        let e5 = F::from_u64(6);
+        let e6 = F::from_u64(7);
+        let e7 = F::from_u64(8);
 
         let evals = EvaluationsList::new(vec![
-            c0,
-            c0 + c1,
-            c0 + c2,
-            c0 + c1 + c2 + c3,
-            c0 + c4,
-            c0 + c1 + c4 + c5,
-            c0 + c2 + c4 + c6,
-            c0 + c1 + c2 + c3 + c4 + c5 + c6 + c7,
+            e0,
+            e0 + e1,
+            e0 + e2,
+            e0 + e1 + e2 + e3,
+            e0 + e4,
+            e0 + e1 + e4 + e5,
+            e0 + e2 + e4 + e6,
+            e0 + e1 + e2 + e3 + e4 + e5 + e6 + e7,
         ]);
 
         // Choose evaluation point: (x_0, x_1, x_2) = (2, 3, 4)
@@ -1598,14 +1600,14 @@ mod tests {
         //               + 8·2·3·4
         //
         // and lifting each constant into EF4 for correct typing
-        let expected = EF4::from(c0)
-            + EF4::from(c1) * x2
-            + EF4::from(c2) * x1
-            + EF4::from(c3) * x1 * x2
-            + EF4::from(c4) * x0
-            + EF4::from(c5) * x0 * x2
-            + EF4::from(c6) * x0 * x1
-            + EF4::from(c7) * x0 * x1 * x2;
+        let expected = EF4::from(e0)
+            + EF4::from(e1) * x2
+            + EF4::from(e2) * x1
+            + EF4::from(e3) * x1 * x2
+            + EF4::from(e4) * x0
+            + EF4::from(e5) * x0 * x2
+            + EF4::from(e6) * x0 * x1
+            + EF4::from(e7) * x0 * x1 * x2;
 
         // Evaluate via `evaluate_hypercube` method
         let result = evals.evaluate_hypercube_base(&point);
@@ -1619,11 +1621,11 @@ mod tests {
         // Set number of Boolean input variables n = 10.
         let num_variables = 10;
 
-        // Build a multilinear polynomial f(x) = x with coefficients 0, 1, ..., 1023 in F
-        let coeffs = (0..(1 << num_variables)).map(F::from_u64).collect();
+        // Build a multilinear polynomial
+        let evals = (0..(1 << num_variables)).map(F::from_u64).collect();
 
         // Wrap into EvaluationsList
-        let evals_list = EvaluationsList::new(coeffs);
+        let evals_list = EvaluationsList::new(evals);
 
         // Define a fixed evaluation point in F^n: [0, 35, 70, ..., 35*(n-1)]
         let randomness: Vec<_> = (0..num_variables)

@@ -539,8 +539,7 @@ mod tests {
         let num_points = 1 << NUM_VARS;
 
         // Construct simple deterministic coefficients f = [1, 2, ..., 2^K]
-        let coeffs: Vec<F> = (1..=num_points).map(F::from_u64).collect();
-        let evals = EvaluationsList::new(coeffs);
+        let evals = EvaluationsList::new((1..=num_points).map(F::from_u64).collect());
 
         assert_eq!(evals.num_variables(), NUM_VARS);
 
@@ -690,8 +689,7 @@ mod tests {
         const NUM_VARS: usize = 6;
         let num_points = 1 << NUM_VARS;
 
-        let coeffs: Vec<F> = (1..=num_points).map(F::from_u64).collect();
-        let evals = EvaluationsList::new(coeffs);
+        let evals = EvaluationsList::new((1..=num_points).map(F::from_u64).collect());
 
         assert_eq!(evals.num_variables(), NUM_VARS);
 

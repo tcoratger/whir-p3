@@ -199,36 +199,36 @@ fn test_initial_statement_with_folding_factor_3() {
     // Define the multilinear polynomial:
     // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
     //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
-    let c1 = F::from_u64(1);
-    let c2 = F::from_u64(2);
-    let c3 = F::from_u64(3);
-    let c4 = F::from_u64(4);
-    let c5 = F::from_u64(5);
-    let c6 = F::from_u64(6);
-    let c7 = F::from_u64(7);
-    let c8 = F::from_u64(8);
+    let e1 = F::from_u64(1);
+    let e2 = F::from_u64(2);
+    let e3 = F::from_u64(3);
+    let e4 = F::from_u64(4);
+    let e5 = F::from_u64(5);
+    let e6 = F::from_u64(6);
+    let e7 = F::from_u64(7);
+    let e8 = F::from_u64(8);
 
     let poly = EvaluationsList::new(vec![
-        c1,
-        c1 + c2,
-        c1 + c3,
-        c1 + c2 + c3 + c4,
-        c1 + c5,
-        c1 + c2 + c5 + c6,
-        c1 + c3 + c5 + c7,
-        c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8,
+        e1,
+        e1 + e2,
+        e1 + e3,
+        e1 + e2 + e3 + e4,
+        e1 + e5,
+        e1 + e2 + e5 + e6,
+        e1 + e3 + e5 + e7,
+        e1 + e2 + e3 + e4 + e5 + e6 + e7 + e8,
     ]);
 
     // Manual redefinition of the same polynomial as a function for evaluation
     let f = |x0: EF4, x1: EF4, x2: EF4| {
-        x2 * c2
-            + x1 * c3
-            + x1 * x2 * c4
-            + x0 * c5
-            + x0 * x2 * c6
-            + x0 * x1 * c7
-            + x0 * x1 * x2 * c8
-            + c1
+        x2 * e2
+            + x1 * e3
+            + x1 * x2 * e4
+            + x0 * e5
+            + x0 * x2 * e6
+            + x0 * x1 * e7
+            + x0 * x1 * x2 * e8
+            + e1
     };
 
     // Add a single equality constraint to the statement: f(1,1,1) = expected value
@@ -372,36 +372,36 @@ fn test_initialize_round_state_with_initial_statement() {
 
     // Define a multilinear polynomial:
     // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2 + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
-    let c1 = F::from_u64(1);
-    let c2 = F::from_u64(2);
-    let c3 = F::from_u64(3);
-    let c4 = F::from_u64(4);
-    let c5 = F::from_u64(5);
-    let c6 = F::from_u64(6);
-    let c7 = F::from_u64(7);
-    let c8 = F::from_u64(8);
+    let e1 = F::from_u64(1);
+    let e2 = F::from_u64(2);
+    let e3 = F::from_u64(3);
+    let e4 = F::from_u64(4);
+    let e5 = F::from_u64(5);
+    let e6 = F::from_u64(6);
+    let e7 = F::from_u64(7);
+    let e8 = F::from_u64(8);
 
     let poly = EvaluationsList::new(vec![
-        c1,
-        c1 + c2,
-        c1 + c3,
-        c1 + c2 + c3 + c4,
-        c1 + c5,
-        c1 + c2 + c5 + c6,
-        c1 + c3 + c5 + c7,
-        c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8,
+        e1,
+        e1 + e2,
+        e1 + e3,
+        e1 + e2 + e3 + e4,
+        e1 + e5,
+        e1 + e2 + e5 + e6,
+        e1 + e3 + e5 + e7,
+        e1 + e2 + e3 + e4 + e5 + e6 + e7 + e8,
     ]);
 
     // Equivalent function for evaluating the polynomial manually
     let f = |x0: EF4, x1: EF4, x2: EF4| {
-        x2 * c2
-            + x1 * c3
-            + x1 * x2 * c4
-            + x0 * c5
-            + x0 * x2 * c6
-            + x0 * x1 * c7
-            + x0 * x1 * x2 * c8
-            + c1
+        x2 * e2
+            + x1 * e3
+            + x1 * x2 * e4
+            + x0 * e5
+            + x0 * x2 * e6
+            + x0 * x1 * e7
+            + x0 * x1 * x2 * e8
+            + e1
     };
 
     // Construct a statement with one evaluation constraint at the point (1, 0, 1)
