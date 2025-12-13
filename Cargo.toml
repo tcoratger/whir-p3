@@ -102,10 +102,6 @@ name = "whir"
 harness = false
 
 [[bench]]
-name = "wavelet"
-harness = false
-
-[[bench]]
 name = "evaluate"
 harness = false
 
