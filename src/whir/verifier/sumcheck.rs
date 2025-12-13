@@ -298,7 +298,7 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::{DomainSeparator, SumcheckParams},
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::{coeffs::CoefficientList, evals::EvaluationsList},
+        poly::evals::EvaluationsList,
         sumcheck::sumcheck_single::SumcheckSingle,
         whir::{
             constraints::{Constraint, statement::EqStatement},
@@ -354,30 +354,39 @@ mod tests {
         // Define a multilinear polynomial in 3 variables:
         // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
         //              + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
-        let c1 = F::from_u64(1);
-        let c2 = F::from_u64(2);
-        let c3 = F::from_u64(3);
-        let c4 = F::from_u64(4);
-        let c5 = F::from_u64(5);
-        let c6 = F::from_u64(6);
-        let c7 = F::from_u64(7);
-        let c8 = F::from_u64(8);
+        let e1 = F::from_u64(1);
+        let e2 = F::from_u64(2);
+        let e3 = F::from_u64(3);
+        let e4 = F::from_u64(4);
+        let e5 = F::from_u64(5);
+        let e6 = F::from_u64(6);
+        let e7 = F::from_u64(7);
+        let e8 = F::from_u64(8);
 
-        let coeffs = CoefficientList::new(vec![c1, c2, c3, c4, c5, c6, c7, c8]);
+        let evals = EvaluationsList::new(vec![
+            e1,
+            e1 + e2,
+            e1 + e3,
+            e1 + e2 + e3 + e4,
+            e1 + e5,
+            e1 + e2 + e5 + e6,
+            e1 + e3 + e5 + e7,
+            e1 + e2 + e3 + e4 + e5 + e6 + e7 + e8,
+        ]);
 
         // Define the actual polynomial function over EF4
         let f = |x0: EF4, x1: EF4, x2: EF4| {
-            x2 * c2
-                + x1 * c3
-                + x1 * x2 * c4
-                + x0 * c5
-                + x0 * x2 * c6
-                + x0 * x1 * c7
-                + x0 * x1 * x2 * c8
-                + c1
+            x2 * e2
+                + x1 * e3
+                + x1 * x2 * e4
+                + x0 * e5
+                + x0 * x2 * e6
+                + x0 * x1 * e7
+                + x0 * x1 * x2 * e8
+                + e1
         };
 
-        let n_vars = coeffs.num_variables();
+        let n_vars = evals.num_variables();
         assert_eq!(n_vars, 3);
 
         // Create a constraint system with evaluations of f at various points
@@ -434,7 +443,7 @@ mod tests {
 
         // Instantiate the prover with base field coefficients
         let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals(
-            &coeffs.to_evaluations(),
+            &evals,
             sumcheck,
             &mut prover_challenger,
             folding_factor,
@@ -530,10 +539,9 @@ mod tests {
         let num_points = 1 << NUM_VARS;
 
         // Construct simple deterministic coefficients f = [1, 2, ..., 2^K]
-        let coeffs: Vec<F> = (1..=num_points).map(F::from_u64).collect();
-        let coeffs = CoefficientList::new(coeffs);
+        let evals = EvaluationsList::new((1..=num_points).map(F::from_u64).collect());
 
-        assert_eq!(coeffs.num_variables(), NUM_VARS);
+        assert_eq!(evals.num_variables(), NUM_VARS);
 
         // -------------------------------------------------------------
         // Construct a Statement by evaluating f at several Boolean points
@@ -551,7 +559,7 @@ mod tests {
                 })
                 .collect();
             let ml_point = MultilinearPoint::new(bool_point.clone());
-            let expected_val = coeffs.evaluate(&ml_point);
+            let expected_val = evals.evaluate_hypercube_base(&ml_point);
             statement.add_evaluated_constraint(ml_point, expected_val);
         }
 
@@ -587,7 +595,7 @@ mod tests {
 
         // Instantiate the prover with base field coefficients and univariate skip
         let (_, _) = SumcheckSingle::<F, EF4>::with_skip(
-            &coeffs.to_evaluations(),
+            &evals,
             skip_data,
             &mut prover_challenger,
             folding_factor,
@@ -681,10 +689,9 @@ mod tests {
         const NUM_VARS: usize = 6;
         let num_points = 1 << NUM_VARS;
 
-        let coeffs: Vec<F> = (1..=num_points).map(F::from_u64).collect();
-        let coeffs = CoefficientList::new(coeffs);
+        let evals = EvaluationsList::new((1..=num_points).map(F::from_u64).collect());
 
-        assert_eq!(coeffs.num_variables(), NUM_VARS);
+        assert_eq!(evals.num_variables(), NUM_VARS);
 
         // Create a constraint system with evaluations of f at a point
         let mut statement = EqStatement::initialize(NUM_VARS);
@@ -692,7 +699,7 @@ mod tests {
             .map(|j| if j % 2 == 0 { EF4::ONE } else { EF4::ZERO })
             .collect();
         let ml_point = MultilinearPoint::new(constraint_point);
-        let expected_val = coeffs.evaluate(&ml_point);
+        let expected_val = evals.evaluate_hypercube_base(&ml_point);
         statement.add_evaluated_constraint(ml_point, expected_val);
 
         let folding_factor = NUM_VARS;
@@ -727,7 +734,7 @@ mod tests {
 
         // Instantiate the prover with base field coefficients using SVO
         let (_, _) = SumcheckSingle::<F, EF4>::from_base_evals(
-            &coeffs.to_evaluations(),
+            &evals,
             sumcheck,
             &mut prover_challenger,
             folding_factor,

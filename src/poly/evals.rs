@@ -13,7 +13,7 @@ use p3_util::log2_strict_usize;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use super::{coeffs::CoefficientList, multilinear::MultilinearPoint, wavelet::Radix2WaveletKernel};
+use super::multilinear::MultilinearPoint;
 use crate::{
     constant::MLE_RECURSION_THRESHOLD, sumcheck::sumcheck_small_value::SvoAccumulators,
     utils::uninitialized_vec,
@@ -575,19 +575,6 @@ where
         //
         // It holds the values q(x') for all x' ∈ {0,1}^{n-k}, in lexicographic order.
         EvaluationsList::new(folded_evals_flat)
-    }
-
-    /// Convert from a list of evaluations to a list of multilinear coefficients.
-    #[must_use]
-    #[inline]
-    #[instrument(skip_all)]
-    pub fn to_coefficients<B: Field>(self) -> CoefficientList<F>
-    where
-        F: ExtensionField<B>,
-    {
-        let kernel = Radix2WaveletKernel::<B>::default();
-        let evals = kernel.inverse_wavelet_transform_algebra(self.0);
-        CoefficientList::new(evals)
     }
 
     /// Folds a list of evaluations from a base field `F` into an extension field `EF`.
@@ -1239,7 +1226,6 @@ mod tests {
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
-    use crate::poly::coeffs::CoefficientList;
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;
@@ -1518,30 +1504,29 @@ mod tests {
         // Define a simple 2-variable multilinear polynomial:
         //
         // Variables: x_1, x_2
-        // Coefficients ordered in lexicographic order: (x_1, x_2)
+        // Evaluations ordered in lexicographic order of input points: (x_1, x_2)
         //
-        // - coeffs[0] → constant term
-        // - coeffs[1] → x_2 term
-        // - coeffs[2] → x_1 term
-        // - coeffs[3] → x_1·x_2 term
+        // - evals[0] → f(0, 0)
+        // - evals[1] → f(0, 1)
+        // - evals[2] → f(1, 0)
+        // - evals[3] → f(1, 1)
         //
-        // Thus, the polynomial is:
-        //
-        //   f(x_1, x_2) = c0 + c1·x_2 + c2·x_1 + c3·x_1·x_2
+        // Thus, the polynomial is represented by its values
+        // on the Boolean hypercube {0,1}².
         //
         // where:
-        let c0 = F::from_u64(5); // constant
-        let c1 = F::from_u64(6); // x_2 coefficient
-        let c2 = F::from_u64(7); // x_1 coefficient
-        let c3 = F::from_u64(8); // x_1·x_2 coefficient
+        let e0 = F::from_u64(5); // f(0, 0)
+        let e1 = F::from_u64(6); // increment when x_2 = 1
+        let e2 = F::from_u64(7); // increment when x_1 = 1
+        let e3 = F::from_u64(8); // increment when x_1 = x_2 = 1
         //
         // So concretely:
         //
-        //   f(x_1, x_2) = 5 + 6·x_2 + 7·x_1 + 8·x_1·x_2
-        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3]);
-
-        // Convert coefficients to evaluations via the wavelet transform
-        let evals = coeffs.to_evaluations();
+        //   f(0, 0) = 5
+        //   f(0, 1) = 5 + 6 = 11
+        //   f(1, 0) = 5 + 7 = 12
+        //   f(1, 1) = 5 + 6 + 7 + 8 = 26
+        let evals = EvaluationsList::new(vec![e0, e0 + e1, e0 + e2, e0 + e1 + e2 + e3]);
 
         // Choose evaluation point:
         //
@@ -1556,7 +1541,7 @@ mod tests {
         //   f(x_1, x_2) = 5 + 6·x_2 + 7·x_1 + 8·x_1·x_2
         //
         // Substituting (x_1, x_2):
-        let expected = c0 + c1 * x2 + c2 * x1 + c3 * x1 * x2;
+        let expected = e0 + e1 * x2 + e2 * x1 + e3 * x1 * x2;
 
         // Now evaluate using the function under test
         let result = evals.evaluate_hypercube_base(&coords);
@@ -1583,17 +1568,25 @@ mod tests {
         // Thus:
         //    f(x_0,x_1,x_2) = c0 + c1·x_2 + c2·x_1 + c3·x_1·x_2
         //                + c4·x_0 + c5·x_0·x_2 + c6·x_0·x_1 + c7·x_0·x_1·x_2
-        let c0 = F::from_u64(1);
-        let c1 = F::from_u64(2);
-        let c2 = F::from_u64(3);
-        let c3 = F::from_u64(4);
-        let c4 = F::from_u64(5);
-        let c5 = F::from_u64(6);
-        let c6 = F::from_u64(7);
-        let c7 = F::from_u64(8);
+        let e0 = F::from_u64(1);
+        let e1 = F::from_u64(2);
+        let e2 = F::from_u64(3);
+        let e3 = F::from_u64(4);
+        let e4 = F::from_u64(5);
+        let e5 = F::from_u64(6);
+        let e6 = F::from_u64(7);
+        let e7 = F::from_u64(8);
 
-        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
-        let evals = coeffs.to_evaluations();
+        let evals = EvaluationsList::new(vec![
+            e0,
+            e0 + e1,
+            e0 + e2,
+            e0 + e1 + e2 + e3,
+            e0 + e4,
+            e0 + e1 + e4 + e5,
+            e0 + e2 + e4 + e6,
+            e0 + e1 + e2 + e3 + e4 + e5 + e6 + e7,
+        ]);
 
         // Pick point: (x_0,x_1,x_2) = (2, 3, 4)
         let x0 = F::from_u64(2);
@@ -1612,14 +1605,14 @@ mod tests {
         //          + 6·2·4
         //          + 7·2·3
         //          + 8·2·3·4
-        let expected = c0
-            + c1 * x2
-            + c2 * x1
-            + c3 * x1 * x2
-            + c4 * x0
-            + c5 * x0 * x2
-            + c6 * x0 * x1
-            + c7 * x0 * x1 * x2;
+        let expected = e0
+            + e1 * x2
+            + e2 * x1
+            + e3 * x1 * x2
+            + e4 * x0
+            + e5 * x0 * x2
+            + e6 * x0 * x1
+            + e7 * x0 * x1 * x2;
 
         let result = evals.evaluate_hypercube_base(&point);
         assert_eq!(result, expected);
@@ -1643,17 +1636,25 @@ mod tests {
         // Thus:
         //    f(x_0,x_1,x_2) = c0 + c1·x_2 + c2·x_1 + c3·x_1·x_2
         //                + c4·x_0 + c5·x_0·x_2 + c6·x_0·x_1 + c7·x_0·x_1·x_2
-        let c0 = F::from_u64(1);
-        let c1 = F::from_u64(2);
-        let c2 = F::from_u64(3);
-        let c3 = F::from_u64(4);
-        let c4 = F::from_u64(5);
-        let c5 = F::from_u64(6);
-        let c6 = F::from_u64(7);
-        let c7 = F::from_u64(8);
+        let e0 = F::from_u64(1);
+        let e1 = F::from_u64(2);
+        let e2 = F::from_u64(3);
+        let e3 = F::from_u64(4);
+        let e4 = F::from_u64(5);
+        let e5 = F::from_u64(6);
+        let e6 = F::from_u64(7);
+        let e7 = F::from_u64(8);
 
-        let coeffs = CoefficientList::new(vec![c0, c1, c2, c3, c4, c5, c6, c7]);
-        let evals = coeffs.to_evaluations();
+        let evals = EvaluationsList::new(vec![
+            e0,
+            e0 + e1,
+            e0 + e2,
+            e0 + e1 + e2 + e3,
+            e0 + e4,
+            e0 + e1 + e4 + e5,
+            e0 + e2 + e4 + e6,
+            e0 + e1 + e2 + e3 + e4 + e5 + e6 + e7,
+        ]);
 
         // Choose evaluation point: (x_0, x_1, x_2) = (2, 3, 4)
         //
@@ -1678,14 +1679,14 @@ mod tests {
         //               + 8·2·3·4
         //
         // and lifting each constant into EF4 for correct typing
-        let expected = EF4::from(c0)
-            + EF4::from(c1) * x2
-            + EF4::from(c2) * x1
-            + EF4::from(c3) * x1 * x2
-            + EF4::from(c4) * x0
-            + EF4::from(c5) * x0 * x2
-            + EF4::from(c6) * x0 * x1
-            + EF4::from(c7) * x0 * x1 * x2;
+        let expected = EF4::from(e0)
+            + EF4::from(e1) * x2
+            + EF4::from(e2) * x1
+            + EF4::from(e3) * x1 * x2
+            + EF4::from(e4) * x0
+            + EF4::from(e5) * x0 * x2
+            + EF4::from(e6) * x0 * x1
+            + EF4::from(e7) * x0 * x1 * x2;
 
         // Evaluate via `evaluate_hypercube` method
         let result = evals.evaluate_hypercube_base(&point);
@@ -1699,14 +1700,11 @@ mod tests {
         // Set number of Boolean input variables n = 10.
         let num_variables = 10;
 
-        // Build a multilinear polynomial f(x) = x with coefficients 0, 1, ..., 1023 in F
-        let coeffs = (0..(1 << num_variables)).map(F::from_u64).collect();
+        // Build a multilinear polynomial
+        let evals = (0..(1 << num_variables)).map(F::from_u64).collect();
 
-        // Wrap into CoefficientList to access polynomial logic
-        let coeffs_list = CoefficientList::new(coeffs);
-
-        // Convert to EvaluationsList using a wavelet transform
-        let evals_list: EvaluationsList<F> = coeffs_list.clone().to_evaluations();
+        // Wrap into EvaluationsList
+        let evals_list = EvaluationsList::new(evals);
 
         // Define a fixed evaluation point in F^n: [0, 35, 70, ..., 35*(n-1)]
         let randomness: Vec<_> = (0..num_variables)
@@ -1728,7 +1726,6 @@ mod tests {
             // Used to evaluate the original uncompressed polynomial
             let eval_point1 =
                 MultilinearPoint::new([fold_part.clone(), eval_part.0.clone()].concat());
-            let eval_point2 = MultilinearPoint::new([eval_part.0.clone(), fold_part].concat());
 
             // Fold the evaluation list over the last `k` variables
             let folded_evals = evals_list.fold(&fold_random);
@@ -1737,7 +1734,7 @@ mod tests {
             assert_eq!(folded_evals.num_variables(), num_variables - k);
 
             // Fold the coefficients list over the last `k` variables
-            let folded_coeffs = coeffs_list.fold(&fold_random);
+            let folded_coeffs = evals_list.fold(&fold_random);
 
             // Verify that the number of variables has been folded correctly
             assert_eq!(folded_coeffs.num_variables(), num_variables - k);
@@ -1748,12 +1745,6 @@ mod tests {
                 folded_evals.evaluate_hypercube_base(&eval_part),
                 evals_list.evaluate_hypercube_base(&eval_point1)
             );
-
-            // Compare with the coefficient list equivalent
-            assert_eq!(
-                folded_coeffs.evaluate(&eval_part),
-                evals_list.evaluate_hypercube_base(&eval_point2)
-            );
         }
     }
 
@@ -1761,16 +1752,16 @@ mod tests {
     fn test_fold_with_extension_one_var() {
         // Define a 2-variable polynomial:
         // f(x_0, x_1) = 1 + 2·x_1 + 3·x_0 + 4·x_0·x_1
-        let coeffs = vec![
-            F::from_u64(1), // constant
-            F::from_u64(2), // x_1
-            F::from_u64(3), // x_0
-            F::from_u64(4), // x_0·x_1
+        let evals = vec![
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(4),
         ];
-        let poly = CoefficientList::new(coeffs);
+        let poly = EvaluationsList::new(evals);
 
         // Convert coefficients into an EvaluationsList (for testing the fold on evals)
-        let evals_list: EvaluationsList<F> = poly.clone().to_evaluations();
+        let evals_list: EvaluationsList<F> = poly;
 
         // We fold over the last variable (x_1) by setting x_1 = 5 in EF4
         let r1 = EF4::from_u64(5);
@@ -1790,7 +1781,7 @@ mod tests {
             let folded_point = MultilinearPoint::new(vec![x0]);
 
             // Evaluate original poly at (x_0, 5)
-            let expected = poly.evaluate(&full_point);
+            let expected = evals_list.evaluate_hypercube_base(&full_point);
 
             // Evaluate folded poly at x_0
             let actual = folded.evaluate_hypercube_base(&folded_point);
