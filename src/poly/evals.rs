@@ -1527,9 +1527,9 @@ mod tests {
         //          + 7·2·3
         //          + 8·2·3·4
         let expected = e0
-            + e1 * e2
-            + e2 * e1
-            + e3 * e1 * e2
+            + e1 * x2
+            + e2 * x1
+            + e3 * x1 * x2
             + e4 * x0
             + e5 * x0 * x2
             + e6 * x0 * x1
