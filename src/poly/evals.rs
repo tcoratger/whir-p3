@@ -1673,13 +1673,13 @@ mod tests {
     fn test_fold_with_extension_one_var() {
         // Define a 2-variable polynomial:
         // f(x_0, x_1) = 1 + 2·x_1 + 3·x_0 + 4·x_0·x_1
-        let coeffs = vec![
-            F::from_u64(1), // constant
-            F::from_u64(2), // x_1
-            F::from_u64(3), // x_0
-            F::from_u64(4), // x_0·x_1
+        let evals = vec![
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(4),
         ];
-        let poly = EvaluationsList::new(coeffs);
+        let poly = EvaluationsList::new(evals);
 
         // Convert coefficients into an EvaluationsList (for testing the fold on evals)
         let evals_list: EvaluationsList<F> = poly;
