@@ -1,6 +1,7 @@
 //! Sumcheck protocol implementation.
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_util::log2_strict_usize;
@@ -150,7 +151,8 @@ where
     /// - Applies first set of sumcheck rounds with univariate skip optimization.
     #[instrument(skip_all)]
     #[allow(clippy::too_many_arguments)]
-    pub fn with_skip<Challenger>(
+    pub fn with_skip<Challenger, Dft>(
+        dft: &Dft,
         evals: &EvaluationsList<F>,
         skip_data: &mut SumcheckSkipData<EF, F>,
         challenger: &mut Challenger,
@@ -163,6 +165,7 @@ where
         F: TwoAdicField,
         EF: TwoAdicField,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Dft: TwoAdicSubgroupDft<F>,
     {
         assert_ne!(folding_factor, 0);
         assert!(k_skip > 1);
@@ -183,7 +186,7 @@ where
         let w_mat = weights.into_mat(width);
 
         // Compute the sumcheck polynomial.
-        let sumcheck_poly = compute_skipping_sumcheck_polynomial(f_mat.clone(), w_mat.clone());
+        let sumcheck_poly = compute_skipping_sumcheck_polynomial(dft, f_mat.clone(), w_mat.clone());
 
         debug_assert_eq!(
             sumcheck_poly

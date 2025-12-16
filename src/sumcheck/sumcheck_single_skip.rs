@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use p3_dft::{Radix2DitParallel, TwoAdicSubgroupDft};
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_maybe_rayon::prelude::*;
@@ -22,6 +22,7 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 /// performing a low-degree extension (LDE) of each row of `f` and `w` from `D` to a larger domain `D'`.
 ///
 /// # Arguments
+/// - `dft`: A DFT backend used for the low-degree extension.
 /// - `f_mat`: Evaluations of the multilinear polynomial $f$ reshaped to $(2^k \times 2^{n-k})$.
 /// - `weights_mat`: Evaluations of the weight polynomial $w$ reshaped to $(2^k \times 2^{n-k})$.
 ///
@@ -35,19 +36,20 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 ///   enabling efficient computation of the univariate sumcheck polynomial.
 #[must_use]
 #[instrument(skip_all)]
-pub(crate) fn compute_skipping_sumcheck_polynomial<F, EF>(
+pub(crate) fn compute_skipping_sumcheck_polynomial<F, EF, Dft>(
+    dft: &Dft,
     f_mat: RowMajorMatrix<F>,
     weights_mat: RowMajorMatrix<EF>,
 ) -> SumcheckPolynomial<EF>
 where
     F: TwoAdicField + Ord,
     EF: ExtensionField<F>,
+    Dft: TwoAdicSubgroupDft<F>,
 {
     // Apply a low-degree extension (LDE) to each column of f_mat and weights_mat.
     //
     // This gives us access to evaluations of f(X, b) and w(X, b)
     // for X ∈ D' (coset of size 2^{k+1}).
-    let dft = Radix2DitParallel::<F>::default();
 
     let f_on_coset = dft.lde_batch(f_mat, 1).to_row_major_matrix();
     let weights_on_coset = dft.lde_algebra_batch(weights_mat, 1).to_row_major_matrix();
@@ -82,7 +84,7 @@ mod tests {
 
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
-    use p3_dft::NaiveDft;
+    use p3_dft::{NaiveDft, Radix2DFTSmallBatch};
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use rand::{SeedableRng, rngs::SmallRng};
 
@@ -98,6 +100,7 @@ mod tests {
     type Dft = NaiveDft;
     type Perm = Poseidon2BabyBear<16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
+    type SkipDft = Radix2DFTSmallBatch<F>;
 
     /// Creates a fresh domain separator and challenger with fixed RNG seed.
     fn domainsep_and_challenger() -> (DomainSeparator<EF4, F>, MyChallenger) {
@@ -165,9 +168,11 @@ mod tests {
         // To evaluate this polynomial, we perform a low-degree extension
         // using DFT on a multiplicative coset of size 2^{k+1} = 8.
         // ----------------------------------------------------------------
+        let skip_dft = SkipDft::default();
         let num_remaining_vars = evals.num_variables() - 2;
         let width = 1 << num_remaining_vars;
-        let poly = compute_skipping_sumcheck_polynomial::<F, EF4>(
+        let poly = compute_skipping_sumcheck_polynomial::<F, EF4, _>(
+            &skip_dft,
             evals.into_mat(width),
             weights.into_mat(width),
         );
@@ -202,9 +207,11 @@ mod tests {
         // This should panic because:
         // - the polynomial has only 1 variable
         // - we try to skip 2 variables
+        let skip_dft = SkipDft::default();
         let num_remaining_vars = evals.num_variables() - 2;
         let width = 1 << num_remaining_vars;
-        let _ = compute_skipping_sumcheck_polynomial::<F, EF4>(
+        let _ = compute_skipping_sumcheck_polynomial::<F, EF4, _>(
+            &skip_dft,
             evals.into_mat(width),
             weights.into_mat(width),
         );
@@ -316,7 +323,8 @@ mod tests {
         let w_mat = weights.into_mat(width);
 
         // Compute the sumcheck polynomial.
-        let poly = compute_skipping_sumcheck_polynomial(f_mat.clone(), w_mat.clone());
+        let skip_dft = SkipDft::default();
+        let poly = compute_skipping_sumcheck_polynomial(&skip_dft, f_mat.clone(), w_mat.clone());
         assert_eq!(poly.evaluations().len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3
