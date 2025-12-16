@@ -2,6 +2,7 @@ use alloc::{vec, vec::Vec};
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
+use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
@@ -582,12 +583,14 @@ fn run_sumcheck_test_skips(
 
     // ROUND 0
     // Initialize sumcheck with univariate skip (skips K_SKIP_SUMCHECK)
+    let dft = Radix2DFTSmallBatch::<F>::default();
     let folding0 = folding_factor.at_round(0);
     // Extract skip data from the initial phase
     let InitialPhase::WithStatementSkip(ref mut skip_data) = proof.initial_phase else {
         panic!("Expected WithStatementSkip variant");
     };
     let (mut sumcheck, mut prover_randomness) = SumcheckSingle::with_skip(
+        &dft,
         &poly,
         skip_data,
         &mut prover_challenger,

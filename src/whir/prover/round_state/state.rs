@@ -5,6 +5,7 @@
 use alloc::{sync::Arc, vec::Vec};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
@@ -135,7 +136,8 @@ where
     ///
     /// Returns the complete `RoundState` ready for the first WHIR folding round.
     #[instrument(skip_all)]
-    pub fn initialize_first_round_state<MyChallenger, C, Challenger>(
+    pub fn initialize_first_round_state<MyChallenger, C, Challenger, Dft>(
+        dft: &Dft,
         prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
         proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
         challenger: &mut Challenger,
@@ -146,6 +148,7 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
         MyChallenger: Clone,
         C: Clone,
+        Dft: TwoAdicSubgroupDft<F>,
     {
         // Append OOD constraints to statement for Reed-Solomon proximity testing
         statement.concatenate(&witness.ood_statement);
@@ -162,6 +165,7 @@ where
 
                 // Use univariate skip by skipping k variables
                 SumcheckSingle::with_skip(
+                    dft,
                     &witness.polynomial,
                     skip_data,
                     challenger,

@@ -166,8 +166,9 @@ where
         );
 
         // Initialize the round state with inputs and initial polynomial data
-        let mut round_state =
-            RoundState::initialize_first_round_state(self, proof, challenger, statement, witness)?;
+        let mut round_state = RoundState::initialize_first_round_state(
+            dft, self, proof, challenger, statement, witness,
+        )?;
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
