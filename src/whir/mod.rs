@@ -9,7 +9,7 @@ use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::{InitialPhaseConfig, WhirConfig};
 use prover::Prover;
-use rand::{SeedableRng, rngs::SmallRng};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use verifier::Verifier;
 
 use crate::{
@@ -47,7 +47,7 @@ pub fn make_whir_things(
     initial_phase_config: InitialPhaseConfig,
 ) {
     // Calculate polynomial size: 2^num_variables coefficients for multilinear polynomial
-    let num_coeffs = 1 << num_variables;
+    let num_evaluations = 1 << num_variables;
 
     // Initialize deterministic RNG for reproducible test results
     let mut rng = SmallRng::seed_from_u64(1);
@@ -79,10 +79,8 @@ pub fn make_whir_things(
         whir_params.clone(),
     );
 
-    // Define test polynomial: all coefficients = 1 for simple verification
-    //
-    // TODO: replace with a random polynomial
-    let polynomial = EvaluationsList::new(vec![F::ONE; num_coeffs]);
+    // Define test polynomial with random evaluations
+    let polynomial = EvaluationsList::new((0..num_evaluations).map(|_| rng.random()).collect());
 
     // Generate evaluation points
     let points: Vec<_> = (0..num_points)
