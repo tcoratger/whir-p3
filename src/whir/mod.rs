@@ -19,6 +19,7 @@ use crate::{
     whir::proof::WhirProof,
 };
 
+pub mod batch_proof;
 pub mod committer;
 pub mod constraints;
 pub mod parameters;

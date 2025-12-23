@@ -919,6 +919,23 @@ where
             // REDUCTION: Merge all thread-local accumulators
             .par_fold_reduce(SvoAccumulators::new, |a, b| a + b, |a, b| a + b)
     }
+
+    /// Compute g = coeff_a·f_a + coeff_b·f_b element-wise
+    pub fn linear_combination<EF: ExtensionField<F>>(
+        f_a: &Self,
+        coeff_a: EF,
+        f_b: &Self,
+        coeff_b: EF,
+    ) -> EvaluationsList<EF> {
+        assert_eq!(f_a.num_evals(), f_b.num_evals());
+        let evals: Vec<EF> = f_a
+            .as_slice()
+            .iter()
+            .zip(f_b.as_slice().iter())
+            .map(|(&a, &b)| coeff_a * EF::from(a) + coeff_b * EF::from(b))
+            .collect();
+        EvaluationsList::new(evals)
+    }
 }
 
 impl<A: Copy + Send + Sync + PrimeCharacteristicRing> EvaluationsList<A> {
@@ -1244,6 +1261,20 @@ mod tests {
         assert_eq!(evaluations_list.num_evals(), evals.len());
         assert_eq!(evaluations_list.num_variables(), 2);
         assert_eq!(evaluations_list.as_slice(), &evals);
+    }
+
+    #[test]
+    fn test_linear_combination() {
+        let f_a = EvaluationsList::new(vec![F::ONE, F::TWO]);
+        let f_b = EvaluationsList::new(vec![F::TWO, F::ONE]);
+        let coeff_a = EF4::from_u64(3);
+        let coeff_b = EF4::from_u64(2);
+
+        let result = EvaluationsList::<F>::linear_combination(&f_a, coeff_a, &f_b, coeff_b);
+
+        // result[0] = 3*1 + 2*2 = 7, result[1] = 3*2 + 2*1 = 8
+        assert_eq!(result.as_slice()[0], EF4::from_u64(7));
+        assert_eq!(result.as_slice()[1], EF4::from_u64(8));
     }
 
     #[test]
