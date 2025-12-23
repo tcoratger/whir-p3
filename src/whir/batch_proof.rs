@@ -121,6 +121,8 @@ where
             "Batch opening requires same-degree polynomials"
         );
 
+        let num_variables = witness_a.polynomial.num_variables();
+
         // ==== Step 1: Store commitments ====
         proof.commitment_a = witness_a.prover_data.root().into();
         proof.commitment_b = witness_b.prover_data.root().into();
@@ -145,6 +147,18 @@ where
             v_b,
             alpha,
         );
+
+        // Fold OOD constraints (assuming same OOD points for both, in same order)
+        let mut folded_ood = EqStatement::initialize(num_variables);
+        for ((point_a, &v_a), (point_b, &v_b)) in witness_a
+            .ood_statement
+            .iter()
+            .zip(witness_b.ood_statement.iter())
+        {
+            debug_assert_eq!(point_a, point_b, "OOD points must match");
+            let folded_value = r_0 * v_a + (EF::ONE - r_0) * v_b;
+            folded_ood.add_evaluated_constraint(point_a.clone(), folded_value);
+        }
 
         // ==== Step 5: Continue with inner WHIR ====
         // The sumcheck_prover now contains the folded polynomial g and weights w'
