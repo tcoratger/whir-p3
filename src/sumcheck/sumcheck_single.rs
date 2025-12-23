@@ -185,24 +185,13 @@ where
         // Compute the sumcheck polynomial.
         let sumcheck_poly = compute_skipping_sumcheck_polynomial(f_mat.clone(), w_mat.clone());
 
-        debug_assert_eq!(
-            sumcheck_poly
-                .evaluations()
-                .iter()
-                .step_by(2)
-                .copied()
-                .sum::<EF>(),
-            sum
-        );
-        let polynomial_skip_evaluation = sumcheck_poly.evaluations();
+        debug_assert_eq!(sumcheck_poly.iter().step_by(2).copied().sum::<EF>(), sum);
 
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
-        challenger.observe_algebra_slice(polynomial_skip_evaluation);
+        challenger.observe_algebra_slice(&sumcheck_poly);
 
         // Store skip evaluations
-        skip_data
-            .evaluations
-            .extend_from_slice(polynomial_skip_evaluation);
+        skip_data.evaluations.extend_from_slice(&sumcheck_poly);
 
         // Proof-of-work challenge to delay prover (only if pow_bits > 0).
         if pow_bits > 0 {
