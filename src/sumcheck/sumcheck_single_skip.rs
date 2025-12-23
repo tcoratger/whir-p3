@@ -6,8 +6,6 @@ use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_maybe_rayon::prelude::*;
 use tracing::instrument;
 
-use super::sumcheck_polynomial::SumcheckPolynomial;
-
 /// Computes the sumcheck polynomial using the **univariate skip** optimization,
 /// which folds the first `k` variables in one step via low-degree extension (LDE).
 ///
@@ -26,7 +24,7 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 /// - `weights_mat`: Evaluations of the weight polynomial $w$ reshaped to $(2^k \times 2^{n-k})$.
 ///
 /// # Returns
-/// The resulting univariate polynomial $h(X)$ evaluated over coset $D$.
+/// The evaluations of the resulting univariate polynomial $h(X)$ over coset $D$.
 ///
 /// # Notes
 /// - This method assumes that `f` is represented using base field values (`F`)
@@ -38,7 +36,7 @@ use super::sumcheck_polynomial::SumcheckPolynomial;
 pub(crate) fn compute_skipping_sumcheck_polynomial<F, EF>(
     f_mat: RowMajorMatrix<F>,
     weights_mat: RowMajorMatrix<EF>,
-) -> SumcheckPolynomial<EF>
+) -> Vec<EF>
 where
     F: TwoAdicField + Ord,
     EF: ExtensionField<F>,
@@ -72,7 +70,7 @@ where
         .collect();
 
     // Return h(X) as evaluations of the univariate sumcheck polynomial h(X)
-    SumcheckPolynomial::new(result)
+    result
 }
 
 #[cfg(test)]
@@ -176,14 +174,8 @@ mod tests {
         // Finally, the sum over {0,1} values of X2 must also be zero
         // because the polynomial is identically zero on the full domain.
         // ----------------------------------------------------------------
-        assert_eq!(
-            poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
-            EF4::ZERO
-        );
-        assert_eq!(
-            poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
-            sum
-        );
+        assert_eq!(poly.iter().step_by(2).copied().sum::<EF4>(), EF4::ZERO);
+        assert_eq!(poly.iter().step_by(2).copied().sum::<EF4>(), sum);
     }
 
     #[test]
@@ -317,7 +309,7 @@ mod tests {
 
         // Compute the sumcheck polynomial.
         let poly = compute_skipping_sumcheck_polynomial(f_mat.clone(), w_mat.clone());
-        assert_eq!(poly.evaluations().len(), n_evals_func);
+        assert_eq!(poly.len(), n_evals_func);
 
         // Manually compute f at all 8 binary points (0,1)^3
         let f_000 = f_base(F::ZERO, F::ZERO, F::ZERO);
@@ -563,12 +555,9 @@ mod tests {
         let r7 = w07 * f07 + w17 * f17;
 
         // Check the polynomial evaluations are correct
-        assert_eq!(poly.evaluations(), vec![r0, r1, r2, r3, r4, r5, r6, r7]);
+        assert_eq!(poly, vec![r0, r1, r2, r3, r4, r5, r6, r7]);
 
         // Check the sum of the polynomial evaluations is correct
-        assert_eq!(
-            poly.evaluations().iter().step_by(2).copied().sum::<EF4>(),
-            expected_sum
-        );
+        assert_eq!(poly.iter().step_by(2).copied().sum::<EF4>(), expected_sum);
     }
 }
