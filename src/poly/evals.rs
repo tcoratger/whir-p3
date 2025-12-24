@@ -928,7 +928,7 @@ where
         coeff_b: EF,
     ) -> EvaluationsList<EF> {
         assert_eq!(f_a.num_evals(), f_b.num_evals());
-        let evals: Vec<EF> = f_a
+        let evals = f_a
             .as_slice()
             .iter()
             .zip(f_b.as_slice().iter())
