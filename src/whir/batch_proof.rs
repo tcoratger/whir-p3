@@ -289,6 +289,8 @@ where
 /// # Panics
 ///
 /// Panics if the statement is empty.
+/// TODO: remove or generalize this function as batch opening needs to work for
+/// in the general case with multiple constrants
 fn extract_single_constraint<EF: Field>(statement: &EqStatement<EF>) -> (MultilinearPoint<EF>, EF) {
     assert!(
         !statement.is_empty(),
