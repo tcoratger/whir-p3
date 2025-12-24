@@ -322,6 +322,8 @@ mod tests {
     type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
+    type MyWhirConfig =
+        crate::whir::parameters::WhirConfig<EF, F, MyHash, MyCompress, MyChallenger>;
 
     /// Test selector_round produces correct folded polynomial and sumcheck state.
     ///
@@ -374,12 +376,7 @@ mod tests {
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
         };
-
-        let config =
-            crate::whir::parameters::WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(
-                num_vars + 2,
-                whir_params,
-            );
+        let config = MyWhirConfig::new(num_vars + 2, whir_params);
 
         let prover = Prover(&config);
 
