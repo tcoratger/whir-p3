@@ -123,19 +123,19 @@ where
 
         let num_variables = witness_a.polynomial.num_variables();
 
-        // ==== Step 1: Store commitments ====
+        // Store commitments
         proof.commitment_a = witness_a.prover_data.root().into();
         proof.commitment_b = witness_b.prover_data.root().into();
 
-        // ==== Step 2: Sample batching randomness α ====
+        // Sample batching randomness α
         let alpha: EF = challenger.sample_algebra_element();
 
-        // ==== Step 3: Extract claims from statements ====
+        // Extract claims from statements
         // For now, we assume single-constraint statements
         let (z_a, v_a) = extract_single_constraint(statement_a);
         let (z_b, v_b) = extract_single_constraint(statement_b);
 
-        // ==== Step 4: Run selector round ====
+        // Run selector round
         let (sumcheck_prover, r_0) = self.selector_round(
             &mut proof.selector_sumcheck,
             challenger,
@@ -160,7 +160,7 @@ where
             folded_ood.add_evaluated_constraint(point_a.clone(), folded_value);
         }
 
-        // ==== Step 5: Continue with inner WHIR ====
+        // Continue with inner WHIR
         // The sumcheck_prover now contains the folded polynomial g and weights w'
         // We need to continue with the WHIR rounds on this folded state
 
@@ -209,8 +209,7 @@ where
         v_b: EF,
         alpha: EF,
     ) -> (SumcheckSingle<F, EF>, EF) {
-        // ==== Create combined polynomial and weights for selector round ====
-        //
+        // Create combined polynomial and weights for selector round:
         // The combined polynomial f_c(X, b) = X·f_a(b) + (1-X)·f_b(b) over {0,1}^{m+1}
         // has evaluations [f_b | f_a] (first half is f_b at X=0, second half is f_a at X=1)
         //
@@ -237,8 +236,7 @@ where
             .collect();
         let combined_weights = EvaluationsList::new(combined_weights_vec);
 
-        // ==== Compute sumcheck polynomial coefficients ====
-        //
+        // Compute sumcheck polynomial coefficients:
         // h(X) = Σ_b f_c(X, b) · w(X, b)
         // We compute c0 = h(0) and c2 (quadratic coefficient)
         let (c0, c2) = combined_poly.sumcheck_coefficients(&combined_weights);
@@ -246,12 +244,11 @@ where
         // Sanity check: c0 should equal α·v_b
         debug_assert_eq!(c0, alpha * v_b, "c0 = h(0) should equal α·v_b");
 
-        // ==== Fiat-Shamir: observe and sample ====
+        // Observe Fiat-Shamir
         let pow_bits = self.starting_folding_pow_bits;
         let r_0 = selector_data.observe_and_sample::<Challenger, F>(challenger, c0, c2, pow_bits);
 
-        // ==== Fold the polynomial and weights ====
-        //
+        // Fold the polynomial and weights:
         // g(b) = r_0·f_a(b) + (1-r_0)·f_b(b)
         // w'(b) = r_0·eq(b, z_a) + α(1-r_0)·eq(b, z_b)
         // σ' = h(r_0)
@@ -273,7 +270,7 @@ where
         let c1 = h_1 - c0 - c2;
         let sigma_prime = c0 + c1 * r_0 + c2 * r_0.square();
 
-        // ==== Create SumcheckSingle for continuation ====
+        // Create SumcheckSingle for continuation
         let poly = ProductPolynomial::new(g, w_prime);
         debug_assert_eq!(poly.dot_product(), sigma_prime);
 
