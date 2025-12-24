@@ -213,7 +213,7 @@ where
         let combined_poly = EvaluationsList::new(combined_evals);
 
         // Build combined weights: [α·eq(·, z_b) | eq(·, z_a)]
-        let eq_z_b = EvaluationsList::<EF>::new_from_point(z_b.as_slice(), alpha);
+        let eq_z_b = EvaluationsList::new_from_point(z_b.as_slice(), alpha);
         let eq_z_a = EvaluationsList::<EF>::new_from_point(z_a.as_slice(), EF::ONE);
         let combined_weights_vec: Vec<EF> = eq_z_b
             .as_slice()
