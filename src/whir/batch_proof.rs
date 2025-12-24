@@ -60,7 +60,7 @@ pub struct BatchWhirProof<F, EF, const DIGEST_ELEMS: usize> {
     /// Selector sumcheck data: stores [c0, c2] for h(X) = c0 + c1·X + c2·X²
     /// c0 = h(0) = α·v_b
     /// c2 = quadratic coefficient
-    /// Verifier derives h(1) = σ - h(0) = v_a
+    /// Verifier derives c1
     pub selector_sumcheck: SumcheckData<EF, F>,
 
     /// Inner WHIR proof on the folded polynomial g = r_0·f_a + (1-r_0)·f_b
