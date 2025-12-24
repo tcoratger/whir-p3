@@ -304,21 +304,35 @@ fn extract_single_constraint<EF: Field>(statement: &EqStatement<EF>) -> (Multili
 mod tests {
     use alloc::vec;
 
-    use p3_baby_bear::BabyBear;
+    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
+    use p3_challenger::DuplexChallenger;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
-    use rand::{Rng, SeedableRng, rngs::SmallRng};
+    use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
+    use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
+    use crate::{
+        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+        whir::{parameters::InitialPhaseConfig, prover::Prover},
+    };
 
     type F = BabyBear;
     type EF = BinomialExtensionField<F, 4>;
+    type Perm = Poseidon2BabyBear<16>;
+    type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
+    type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
+    type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
-    /// Test that folding produces the correct polynomial.
+    /// Test selector_round produces correct folded polynomial and sumcheck state.
+    ///
+    /// Verifies:
+    /// 1. The returned SumcheckSingle has correct folded polynomial g = r_0·f_a + (1-r_0)·f_b
+    /// 2. h(r_0) has been computed correctly
     #[test]
-    fn test_folding() {
+    fn test_selector_round() {
         let num_vars = 2;
-        let num_evals = 1 << num_vars;
 
+        // Create test polynomials
         let f_a = EvaluationsList::new(vec![
             F::from_u64(1),
             F::from_u64(2),
@@ -332,13 +346,81 @@ mod tests {
             F::from_u64(8),
         ]);
 
-        let r_0 = EF::from_u64(3);
-        let g = EvaluationsList::linear_combination(&f_a, r_0, &f_b, EF::ONE - r_0);
+        // Create evaluation points
+        let z_a = MultilinearPoint::new(vec![EF::from_u64(2), EF::from_u64(3)]);
+        let z_b = MultilinearPoint::new(vec![EF::from_u64(5), EF::from_u64(7)]);
 
-        for i in 0..num_evals {
-            let expected =
-                r_0 * EF::from(f_a.as_slice()[i]) + (EF::ONE - r_0) * EF::from(f_b.as_slice()[i]);
-            assert_eq!(g.as_slice()[i], expected);
-        }
+        // Compute actual evaluations v_a = f_a(z_a), v_b = f_b(z_b)
+        let v_a = f_a.evaluate_hypercube_base::<EF>(&z_a);
+        let v_b = f_b.evaluate_hypercube_base::<EF>(&z_b);
+
+        // Batching randomness
+        let alpha = EF::from_u64(11);
+
+        // Set up minimal WhirConfig for creating a Prover
+        let mut rng = SmallRng::seed_from_u64(42);
+        let perm = Perm::new_from_rng_128(&mut rng);
+        let merkle_hash = MyHash::new(perm.clone());
+        let merkle_compress = MyCompress::new(perm.clone());
+
+        let whir_params = ProtocolParameters {
+            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+            security_level: 32,
+            pow_bits: 0,
+            rs_domain_initial_reduction_factor: 1,
+            folding_factor: FoldingFactor::Constant(2),
+            merkle_hash,
+            merkle_compress,
+            soundness_type: SecurityAssumption::CapacityBound,
+            starting_log_inv_rate: 1,
+        };
+
+        let config =
+            crate::whir::parameters::WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(
+                num_vars + 2,
+                whir_params,
+            );
+
+        let prover = Prover(&config);
+
+        // Create challenger
+        let mut challenger = MyChallenger::new(perm);
+
+        // Run selector_round
+        let mut selector_data = SumcheckData::default();
+        let (sumcheck_prover, r_0) = prover.selector_round(
+            &mut selector_data,
+            &mut challenger,
+            &f_a,
+            &f_b,
+            &z_a,
+            &z_b,
+            v_a,
+            v_b,
+            alpha,
+        );
+
+        // Verify the folded polynomial g = r_0·f_a + (1-r_0)·f_b
+        let expected_g = EvaluationsList::linear_combination(&f_a, r_0, &f_b, EF::ONE - r_0);
+        assert_eq!(
+            sumcheck_prover.evals().as_slice(),
+            expected_g.as_slice(),
+            "Folded polynomial should be g = r_0·f_a + (1-r_0)·f_b"
+        );
+
+        // Verify selector_data was populated
+        assert_eq!(
+            selector_data.polynomial_evaluations.len(),
+            1,
+            "Should have one sumcheck round recorded"
+        );
+
+        // Compute h(r_0) from the recorded coefficients
+        let [c0, c2] = selector_data.polynomial_evaluations[0];
+        let sigma = v_a + alpha * v_b; // original claim
+        let c1 = sigma - c0 - c0 - c2; // c1 = σ - 2·c0 - c2
+        let h_at_r0 = c0 + c1 * r_0 + c2 * r_0 * r_0;
+
+        assert_eq!(sumcheck_prover.sum, h_at_r0, "sigma' should equal h(r_0)");
     }
 }

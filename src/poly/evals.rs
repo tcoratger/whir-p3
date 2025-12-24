@@ -1273,6 +1273,7 @@ mod tests {
         let result = EvaluationsList::<F>::linear_combination(&f_a, coeff_a, &f_b, coeff_b);
 
         // result[0] = 3*1 + 2*2 = 7, result[1] = 3*2 + 2*1 = 8
+        assert_eq!(result.as_slice().len(), 2);
         assert_eq!(result.as_slice()[0], EF4::from_u64(7));
         assert_eq!(result.as_slice()[1], EF4::from_u64(8));
     }
