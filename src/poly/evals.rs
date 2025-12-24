@@ -932,7 +932,7 @@ where
             .as_slice()
             .iter()
             .zip(f_b.as_slice().iter())
-            .map(|(&a, &b)| coeff_a * EF::from(a) + coeff_b * EF::from(b))
+            .map(|(&a, &b)| coeff_a * a + coeff_b * b)
             .collect();
         EvaluationsList::new(evals)
     }
