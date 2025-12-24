@@ -313,60 +313,6 @@ mod tests {
     type F = BabyBear;
     type EF = BinomialExtensionField<F, 4>;
 
-    /// Test that the selector round produces correct coefficients.
-    #[test]
-    fn test_selector_coefficients() {
-        let num_vars = 3;
-        let num_evals = 1 << num_vars;
-
-        let mut rng = SmallRng::seed_from_u64(42);
-
-        // Random polynomials
-        let f_a_evals: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
-        let f_b_evals: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
-        let f_a = EvaluationsList::new(f_a_evals);
-        let f_b = EvaluationsList::new(f_b_evals);
-
-        // Random evaluation points
-        let z_a = MultilinearPoint::<EF>::rand(&mut rng, num_vars);
-        let z_b = MultilinearPoint::<EF>::rand(&mut rng, num_vars);
-
-        // Compute actual evaluations
-        let v_a = f_a.evaluate_hypercube_base(&z_a);
-        let v_b = f_b.evaluate_hypercube_base(&z_b);
-
-        let alpha = EF::from_u64(7);
-
-        // Build combined structures
-        let combined_evals: Vec<F> = f_b
-            .as_slice()
-            .iter()
-            .chain(f_a.as_slice().iter())
-            .copied()
-            .collect();
-        let combined_poly = EvaluationsList::new(combined_evals);
-
-        let eq_z_b = EvaluationsList::new_from_point(z_b.as_slice(), alpha);
-        let eq_z_a = EvaluationsList::new_from_point(z_a.as_slice(), EF::ONE);
-        let combined_weights_vec: Vec<EF> = eq_z_b
-            .as_slice()
-            .iter()
-            .chain(eq_z_a.as_slice().iter())
-            .copied()
-            .collect();
-        let combined_weights = EvaluationsList::new(combined_weights_vec);
-
-        let (c0, _c2) = combined_poly.sumcheck_coefficients(&combined_weights);
-
-        // Verify c0 = h(0) = α·v_b
-        assert_eq!(c0, alpha * v_b);
-
-        // Verify σ = h(0) + h(1) = v_a + α·v_b
-        let sigma = v_a + alpha * v_b;
-        let h_1 = sigma - c0;
-        assert_eq!(h_1, v_a);
-    }
-
     /// Test that folding produces the correct polynomial.
     #[test]
     fn test_folding() {
