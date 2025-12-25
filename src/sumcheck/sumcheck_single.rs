@@ -38,7 +38,7 @@ use crate::{
 ///
 /// The sumcheck protocol ensures that the claimed sum is correct.
 #[derive(Debug, Clone)]
-pub struct SumcheckSingle<F: Field, EF: ExtensionField<F>> {
+pub struct SumcheckSingle<F: TwoAdicField, EF: ExtensionField<F>> {
     /// Paired evaluation and weight polynomials for the quadratic sumcheck.
     ///
     /// This holds both `f(x)` (the polynomial being sumchecked) and `w(x)` (the constraint
@@ -54,7 +54,7 @@ pub struct SumcheckSingle<F: Field, EF: ExtensionField<F>> {
 
 impl<F, EF> SumcheckSingle<F, EF>
 where
-    F: Field + Ord,
+    F: TwoAdicField + Ord,
     EF: ExtensionField<F>,
 {
     /// Constructs a new `SumcheckSingle` instance from evaluations in the extension field.
@@ -110,7 +110,7 @@ where
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
-        constraint: &Constraint<F, EF>,
+        constraint: &Constraint<EF>,
     ) -> (Self, MultilinearPoint<EF>)
     where
         F: TwoAdicField,
@@ -157,7 +157,7 @@ where
         folding_factor: usize,
         pow_bits: usize,
         k_skip: usize,
-        constraint: &Constraint<F, EF>,
+        constraint: &Constraint<EF>,
     ) -> (Self, MultilinearPoint<EF>)
     where
         F: TwoAdicField,
@@ -291,7 +291,7 @@ where
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
-        constraint: Option<Constraint<F, EF>>,
+        constraint: Option<Constraint<EF>>,
     ) -> MultilinearPoint<EF>
     where
         F: TwoAdicField,
@@ -337,11 +337,11 @@ where
 /// * The verifier's challenge `r` as an `EF` element.
 /// * [`ProductPolynomial`] with new compressed polynomial evaluations and weights in the extension field.
 /// * Updated sum.
-fn initial_round<F: Field, EF: ExtensionField<F>, Challenger>(
+fn initial_round<F: TwoAdicField, EF: ExtensionField<F>, Challenger>(
     evals: &EvaluationsList<F>,
     sumcheck_data: &mut SumcheckData<EF, F>,
     challenger: &mut Challenger,
-    constraint: &Constraint<F, EF>,
+    constraint: &Constraint<EF>,
     pow_bits: usize,
 ) -> (ProductPolynomial<F, EF>, EF, EF)
 where

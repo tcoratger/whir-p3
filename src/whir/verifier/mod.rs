@@ -9,6 +9,7 @@ use p3_interpolation::interpolate_subgroup;
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
+use p3_util::log2_strict_usize;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -21,7 +22,7 @@ use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         EqStatement,
-        constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
+        constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::DomainStatement},
         parameters::{InitialPhaseConfig, WhirConfig},
         proof::{QueryOpening, WhirProof},
         verifier::sumcheck::{
@@ -81,11 +82,8 @@ where
         if self.initial_phase_config.has_initial_statement() {
             statement.concatenate(&prev_commitment.ood_statement);
 
-            let constraint = Constraint::new(
-                challenger.sample_algebra_element(),
-                statement,
-                SelectStatement::initialize(self.num_variables),
-            );
+            let constraint =
+                Constraint::new_eq_only(challenger.sample_algebra_element(), statement);
             // Combine claimed evals with combination randomness
             constraint.combine_evals(&mut claimed_eval);
             constraints.push(constraint);
@@ -263,7 +261,7 @@ where
         commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
-    ) -> Result<SelectStatement<F, EF>, VerifierError>
+    ) -> Result<DomainStatement<EF>, VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
@@ -370,16 +368,11 @@ where
                 }
             })
             .collect();
-
-        let stir_constraints = stir_challenges_indexes
-            .iter()
-            .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
-            .collect();
-
-        Ok(SelectStatement::new(
+        Ok(DomainStatement::new(
             params.num_variables,
-            stir_constraints,
-            folds,
+            log2_strict_usize(params.domain_size >> params.folding_factor),
+            &stir_challenges_indexes,
+            &folds,
         ))
     }
 

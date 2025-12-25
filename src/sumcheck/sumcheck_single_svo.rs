@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, TwoAdicField};
 
 use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -21,7 +21,7 @@ pub(crate) const NUM_SVO_ROUNDS: usize = 3;
 
 impl<F, EF> SumcheckSingle<F, EF>
 where
-    F: Field + Ord,
+    F: TwoAdicField + Ord,
     EF: ExtensionField<F>,
 {
     /// Compute a Sumcheck using the Small Value Optimization (SVO) for the first three rounds and
@@ -33,7 +33,7 @@ where
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
-        constraint: &Constraint<F, EF>,
+        constraint: &Constraint<EF>,
     ) -> (Self, MultilinearPoint<EF>)
     where
         F: TwoAdicField,
