@@ -13,7 +13,7 @@
 //! ```
 //!
 //! The selector variable X chooses between f_a (when X=1) and f_b (when X=0).
-//! α is the folding randomness chocen by the Verifier.
+//! α is the folding randomness chosen by the Verifier.
 //!
 //! The combined weight polynomial is:
 //!
