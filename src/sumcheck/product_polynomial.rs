@@ -20,7 +20,7 @@
 //! over remaining variables. For quadratic sumcheck, `h(X)` is degree-2.
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue, dot_product};
+use p3_field::{ExtensionField, PackedFieldExtension, PackedValue, TwoAdicField, dot_product};
 use p3_util::log2_strict_usize;
 use tracing::instrument;
 
@@ -71,7 +71,7 @@ use crate::{
 /// This occurs after sufficient rounds of folding reduce the polynomial size below the
 /// SIMD efficiency threshold.
 #[derive(Debug, Clone)]
-pub(crate) enum ProductPolynomial<F: Field, EF: ExtensionField<F>> {
+pub(crate) enum ProductPolynomial<F: TwoAdicField, EF: ExtensionField<F>> {
     /// SIMD-packed representation for large polynomials.
     ///
     /// Each element in `evals` and `weights` is an `EF::ExtensionPacking`, which holds
@@ -109,7 +109,7 @@ pub(crate) enum ProductPolynomial<F: Field, EF: ExtensionField<F>> {
     },
 }
 
-impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
+impl<F: TwoAdicField, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
     /// Creates a new [`ProductPolynomial`] from extension field evaluations.
     ///
     /// Automatically selects the optimal representation (packed or scalar) based on
@@ -464,7 +464,7 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
     ///
     /// * `sum` - Running sum to update with new constraint contributions.
     /// * `constraint` - The constraint to combine into weights.
-    pub(crate) fn combine(&mut self, sum: &mut EF, constraint: &Constraint<F, EF>) {
+    pub(crate) fn combine(&mut self, sum: &mut EF, constraint: &Constraint<EF>) {
         match self {
             Self::Packed { weights, .. } => {
                 constraint.combine_packed(weights, sum);

@@ -8,9 +8,9 @@ use crate::{
 };
 
 /// Evaluate a single round's constraint.
-fn eval_round<F: Field, EF: ExtensionField<F> + TwoAdicField>(
+fn eval_round<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField>(
     round: usize,
-    constraint: &Constraint<F, EF>,
+    constraint: &Constraint<EF>,
     original_point: &MultilinearPoint<EF>,
     context: &PointContext<EF>,
 ) -> EF {
@@ -60,7 +60,7 @@ fn eval_round<F: Field, EF: ExtensionField<F> + TwoAdicField>(
 
     let sel_contribution = constraint
         .iter_sels()
-        .map(|(&var, coeff)| {
+        .map(|(var, coeff)| {
             let expanded =
                 MultilinearPoint::expand_from_univariate(var, constraint.num_variables());
             coeff * expanded.select_poly(&eval_point)
@@ -108,9 +108,9 @@ impl ConstraintPolyEvaluator {
     /// Constraint i needs evaluation point matching its polynomial's remaining variables.
     /// This means using challenges from prover round i onwards + final sumcheck.
     #[must_use]
-    pub fn eval_constraints_poly<F: Field, EF: ExtensionField<F> + TwoAdicField>(
+    pub fn eval_constraints_poly<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField>(
         &self,
-        constraints: &[Constraint<F, EF>],
+        constraints: &[Constraint<EF>],
         point: &MultilinearPoint<EF>,
     ) -> EF {
         let using_skip = self.univariate_skip.is_some();
@@ -180,7 +180,7 @@ mod tests {
     use crate::{
         parameters::FoldingFactor,
         poly::evals::EvaluationsList,
-        whir::constraints::statement::{EqStatement, SelectStatement},
+        whir::constraints::statement::{DomainStatement, EqStatement},
     };
 
     type F = BabyBear;
@@ -233,8 +233,16 @@ mod tests {
             });
 
             // Create select statement for the current domain size (20, then 15, then 10).
-            let mut sel_statement = SelectStatement::<F, EF>::initialize(num_vars_at_round);
-            (0..num_sel).for_each(|_| sel_statement.add_constraint(rng.random(), rng.random()));
+            let (indicies, evals): (Vec<_>, Vec<_>) = (0..num_sel)
+                .map(|_| {
+                    (
+                        rng.random_range::<usize, _>(..1 << num_vars_at_round),
+                        rng.random::<EF>(),
+                    )
+                })
+                .unzip();
+            let sel_statement =
+                DomainStatement::<EF>::new(num_vars_at_round, num_vars_at_round, &indicies, &evals);
             constraints.push(Constraint::new(gamma, eq_statement, sel_statement));
 
             // Shrink the number of variables for the next round.
@@ -246,7 +254,8 @@ mod tests {
 
         // Calculate W(r) using the function under test
         let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
-        let result_from_eval_poly = evaluator.eval_constraints_poly(&constraints, &final_point);
+        let result_from_eval_poly =
+            evaluator.eval_constraints_poly::<F, _>(&constraints, &final_point);
 
         // Calculate W(r) by materializing and evaluating round-by-round
         // This simpler, more direct method serves as our ground truth.
@@ -257,7 +266,7 @@ mod tests {
                 let num_vars = constraint.num_variables();
                 let mut combined = EvaluationsList::zero(num_vars);
                 let mut eval = EF::ZERO;
-                constraint.combine(&mut combined, &mut eval);
+                constraint.combine::<F>(&mut combined, &mut eval);
                 let point = final_point.get_subpoint_over_range(0..num_vars).reversed();
                 combined.evaluate_hypercube_ext::<F>(&point)
             })
@@ -333,8 +342,13 @@ mod tests {
                 });
 
                 // Create select statement for the current domain size (20, then 15, then 10).
-                let mut sel_statement = SelectStatement::<F, EF>::initialize(num_vars_current);
-                (0..num_sel).for_each(|_| sel_statement.add_constraint(rng.random(), rng.random()));
+                let (indicies, evals):(Vec<_>, Vec<_>) = (0..num_sel)
+                    .map(|_| (rng.random_range::<usize, _>(..1 << num_vars_current), rng.random::<EF>()))
+                    .unzip();
+                let sel_statement = DomainStatement::<EF>::new(num_vars_current, num_vars_current, &indicies, &evals);
+
+
+
                 constraints.push(Constraint::new(gamma, eq_statement, sel_statement));
 
                 // Shrink the number of variables for the next round.
@@ -350,7 +364,7 @@ mod tests {
             // This is the recursive method we want to validate.
             let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
             let result_from_eval_poly =
-                evaluator.eval_constraints_poly(&constraints, &final_point);
+                evaluator.eval_constraints_poly::<F,_>(&constraints, &final_point);
 
             // Calculate W(r) by materializing and evaluating round-by-round
             //
@@ -364,7 +378,7 @@ mod tests {
                     let point = final_point.get_subpoint_over_range(0..num_vars_at_round).reversed();
                     let mut combined = EvaluationsList::zero(constraint.num_variables());
                     let mut eval = EF::ZERO;
-                    constraint.combine(&mut combined, &mut eval);
+                    constraint.combine::<F>(&mut combined, &mut eval);
                     num_vars_at_round -= folding_factors_vec[round_idx];
                     combined.evaluate_hypercube_ext::<F>(&point)
                 })
@@ -416,8 +430,16 @@ mod tests {
             });
 
             // Create select statement for the current domain size (20, then 15, then 10).
-            let mut sel_statement = SelectStatement::<F, EF>::initialize(num_vars_at_round);
-            (0..num_sel).for_each(|_| sel_statement.add_constraint(rng.random(), rng.random()));
+            let (indicies, evals): (Vec<_>, Vec<_>) = (0..num_sel)
+                .map(|_| {
+                    (
+                        rng.random_range::<usize, _>(..1 << num_vars_at_round),
+                        rng.random::<EF>(),
+                    )
+                })
+                .unzip();
+            let sel_statement =
+                DomainStatement::<EF>::new(num_vars_at_round, num_vars_at_round, &indicies, &evals);
             constraints.push(Constraint::new(rng.random(), eq_statement, sel_statement));
 
             // Shrink the number of variables for the next round.
@@ -431,7 +453,8 @@ mod tests {
         // Calculate W(r) using the function under test
         let evaluator =
             ConstraintPolyEvaluator::new(num_vars, folding_factor, Some(K_SKIP_SUMCHECK));
-        let result_from_eval_poly = evaluator.eval_constraints_poly(&constraints, &final_point);
+        let result_from_eval_poly =
+            evaluator.eval_constraints_poly::<F, _>(&constraints, &final_point);
 
         // Manually compute W(r) with explicit recursive evaluation
         let mut expected_result = EF::ZERO;
@@ -476,7 +499,7 @@ mod tests {
             .map(|constraint| {
                 let mut combined = EvaluationsList::zero(constraint.num_variables());
                 let mut eval = EF::ZERO;
-                constraint.combine(&mut combined, &mut eval);
+                constraint.combine::<F>(&mut combined, &mut eval);
                 let point = r_rest.get_subpoint_over_range(0..constraint.num_variables());
                 combined.evaluate_hypercube_ext::<F>(&point.reversed())
             })
@@ -553,8 +576,10 @@ mod tests {
                 });
 
                 // Create select statement for the current domain size (20, then 15, then 10).
-                let mut sel_statement = SelectStatement::<F, EF>::initialize(num_vars_current);
-                (0..num_sel).for_each(|_| sel_statement.add_constraint(rng.random(), rng.random()));
+            let (indicies, evals):(Vec<_>, Vec<_>) = (0..num_sel)
+                .map(|_| (rng.random_range::<usize, _>(..1 << num_vars_current), rng.random::<EF>()))
+                .unzip();
+            let sel_statement = DomainStatement::<EF>::new(num_vars_current, num_vars_current, &indicies, &evals);
                 constraints.push(Constraint::new(rng.random(), eq_statement, sel_statement));
 
                 // Shrink the number of variables for the next round.
@@ -569,7 +594,7 @@ mod tests {
 
             // Calculate W(r) using the function under test
             let result_from_eval_poly =
-                evaluator.eval_constraints_poly(&constraints, &final_point);
+                evaluator.eval_constraints_poly::<F, _>(&constraints, &final_point);
 
 
             // Calculate W(r) by materializing and evaluating round-by-round
@@ -608,7 +633,7 @@ mod tests {
                 .map(|constraint| {
                     let mut combined = EvaluationsList::zero(constraint.num_variables());
                     let mut eval = EF::ZERO;
-                    constraint.combine(&mut combined, &mut eval);
+                    constraint.combine::<F>(&mut combined, &mut eval);
                     let point = r_rest.get_subpoint_over_range(0..constraint.num_variables());
                     combined.evaluate_hypercube_ext::<F>(&point.reversed())
                 })
