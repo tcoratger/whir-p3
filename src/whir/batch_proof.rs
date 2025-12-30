@@ -343,7 +343,7 @@ where
         &self,
         proof: &BatchWhirProof<F, EF, DIGEST_ELEMS>,
         challenger: &mut Challenger,
-        parsed_commitments: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
+        parsed_commitments: Vec<&ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>>,
         mut statement: EqStatement<EF>,
     ) -> Result<MultilinearPoint<EF>, VerifierError>
     where
