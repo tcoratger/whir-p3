@@ -12,7 +12,7 @@ use p3_matrix::{
 };
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
-use round_state::RoundState;
+pub use round_state::RoundState;
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
@@ -179,7 +179,7 @@ where
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = self.num_variables - self.folding_factor.total_number(round_index)))]
     #[allow(clippy::too_many_lines)]
-    fn round<const DIGEST_ELEMS: usize, Dft: TwoAdicSubgroupDft<F>>(
+    pub fn round<const DIGEST_ELEMS: usize, Dft: TwoAdicSubgroupDft<F>>(
         &self,
         dft: &Dft,
         round_index: usize,
@@ -307,8 +307,10 @@ where
             None => {
                 let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
                 for challenge in &stir_challenges_indexes {
-                    let commitment =
-                        mmcs.open_batch(*challenge, &round_state.commitment_merkle_prover_data);
+                    let commitment = mmcs.open_batch(
+                        *challenge,
+                        round_state.commitment_merkle_prover_data[0].as_ref(),
+                    );
                     let answer = commitment.opened_values[0].clone();
                     answers.push(answer.clone());
 
@@ -488,8 +490,10 @@ where
         match &round_state.merkle_prover_data {
             None => {
                 for challenge in final_challenge_indexes {
-                    let commitment =
-                        mmcs.open_batch(challenge, &round_state.commitment_merkle_prover_data);
+                    let commitment = mmcs.open_batch(
+                        challenge,
+                        round_state.commitment_merkle_prover_data[0].as_ref(),
+                    );
 
                     proof.final_queries.push(QueryOpening::Base {
                         values: commitment.opened_values[0].clone(),
