@@ -476,6 +476,7 @@ where
 
                     values.clone()
                 }
+                &QueryOpening::Batch { .. } => todo!(),
             };
 
             results.push(values_ef);
