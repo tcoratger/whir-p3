@@ -28,21 +28,27 @@
 //!
 //! The protocol then continues with standard WHIR on the folded polynomial.
 
-use alloc::vec::Vec;
-
+use alloc::{vec, vec::Vec};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
-use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
-use super::proof::{SumcheckData, WhirProof};
+use super::proof::SumcheckData;
 use crate::{
     fiat_shamir::errors::FiatShamirError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{product_polynomial::ProductPolynomial, sumcheck_single::SumcheckSingle},
-    whir::{committer::Witness, constraints::statement::EqStatement, prover::Prover},
+    whir::{
+        WhirProof,
+        committer::{Witness, reader::ParsedCommitment},
+        constraints::statement::EqStatement,
+        prover::{Prover, RoundState},
+        verifier::{Verifier, errors::VerifierError},
+    },
 };
 
 /// Batch opening proof wrapper
@@ -57,6 +63,8 @@ pub struct BatchWhirProof<F, EF, const DIGEST_ELEMS: usize> {
 
     /// Commitment to second polynomial (f_b)
     pub commitment_b: [F; DIGEST_ELEMS],
+
+    pub initial_ood_answers: [Vec<EF>; 2],
 
     /// Selector sumcheck data: stores [c0, c2] for h(X) = c0 + c1·X + c2·X²
     /// c0 = h(0) = α·v_b
@@ -161,16 +169,39 @@ where
             folded_ood.add_evaluated_constraint(point_a.clone(), folded_value);
         }
 
-        // Continue with inner WHIR
-        // The sumcheck_prover now contains the folded polynomial g and weights w'
-        // We need to continue with the WHIR rounds on this folded state
+        // Initialize selector rounds for batching
+        let mut round_state = RoundState {
+            // Starting domain H_0 with |H_0| = 2^m evaluation points
+            domain_size: self.starting_domain_size(),
+            // Compute next domain generator: ω_1 = ω_0^{2^k} for H_1 after folding
+            next_domain_gen: F::two_adic_generator(
+                self.starting_domain_size().ilog2() as usize - self.folding_factor.at_round(0),
+            ),
+            // Sumcheck prover configured for constraint verification
+            sumcheck_prover: sumcheck_prover.clone(),
+            // Current round's folding challenges (α_1, ..., α_k)
+            folding_randomness: MultilinearPoint::new(vec![r_0]),
+            // Merkle commitment from witness for base field polynomial
+            commitment_merkle_prover_data: vec![
+                witness_a.prover_data.clone(),
+                witness_b.prover_data.clone(),
+            ],
+            merkle_prover_data: None,
+            // No extension field commitment yet (first round operates in base field)
+            // Constraint set augmented with OOD evaluations
+            statement: folded_ood,
+        };
 
-        // TODO: Continue with inner WHIR rounds
-        // This requires setting up a RoundState with the folded polynomial
-        // and running the remaining rounds
-
-        // For now, store the folding challenge for verification
-        let _ = (sumcheck_prover, r_0, dft);
+        // Run the WHIR protocol round-by-round
+        for round in 0..=self.n_rounds() {
+            self.round(
+                dft,
+                round,
+                &mut proof.inner_proof,
+                challenger,
+                &mut round_state,
+            )?;
+        }
 
         Ok(())
     }
@@ -298,6 +329,30 @@ fn extract_single_constraint<EF: Field>(statement: &EqStatement<EF>) -> (Multili
     );
     let (point, &eval) = statement.iter().next().unwrap();
     (point.clone(), eval)
+}
+
+impl<'a, EF, F, H, C, Challenger> Verifier<'a, EF, F, H, C, Challenger>
+where
+    F: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+{
+    #[instrument(skip_all)]
+    #[allow(clippy::too_many_lines)]
+    pub fn batch_verify<const DIGEST_ELEMS: usize>(
+        &self,
+        proof: &BatchWhirProof<F, EF, DIGEST_ELEMS>,
+        challenger: &mut Challenger,
+        parsed_commitments: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
+        mut statement: EqStatement<EF>,
+    ) -> Result<MultilinearPoint<EF>, VerifierError>
+    where
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+    {
+        todo!()
+    }
 }
 
 #[cfg(test)]
