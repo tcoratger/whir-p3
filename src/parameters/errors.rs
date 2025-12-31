@@ -369,7 +369,7 @@ mod tests {
 
         let field_size_bits = 128;
 
-        // List size (unchanged from before)
+        // List size
         let real_list_size = 1. / (2. * eta * rate.sqrt());
         let computed_list_size = assumption.list_size_bits(log_degree, log_inv_rate);
         assert!((real_list_size.log2() - computed_list_size).abs() < 0.01);
