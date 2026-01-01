@@ -3,7 +3,7 @@ use core::fmt::Display;
 use errors::SecurityAssumption;
 use thiserror::Error;
 
-use crate::whir::parameters::InitialPhaseConfig;
+use crate::whir::parameters::InitialPhase;
 
 pub mod errors;
 
@@ -151,7 +151,7 @@ pub struct ProtocolParameters<H, C> {
     ///
     /// This determines whether an initial statement is included and which optimization
     /// strategy to use for the sumcheck protocol.
-    pub initial_phase_config: InitialPhaseConfig,
+    pub initial_phase: InitialPhase,
     /// The logarithmic inverse rate for sampling.
     pub starting_log_inv_rate: usize,
     /// The value v such that that the size of the Reed Solomon domain on which

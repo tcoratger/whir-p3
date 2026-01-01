@@ -1,14 +1,14 @@
-use alloc::{format, vec, vec::Vec};
+use alloc::vec::Vec;
 use core::{fmt::Debug, ops::Deref, slice::from_ref};
 
 use errors::VerifierError;
-use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
+use p3_util::log2_strict_usize;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -18,15 +18,13 @@ use super::{
 use crate::{
     alloc::string::ToString,
     constant::K_SKIP_SUMCHECK,
+    fiat_shamir::transcript::{Challenge, VerifierTranscript},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         EqStatement,
         constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
-        parameters::{InitialPhaseConfig, WhirConfig},
-        proof::{QueryOpening, WhirProof},
-        verifier::sumcheck::{
-            verify_final_sumcheck_rounds, verify_initial_sumcheck_rounds, verify_sumcheck_rounds,
-        },
+        parameters::{InitialPhase, WhirConfig},
+        verifier::sumcheck::{verify_initial_sumcheck_rounds, verify_standard_sumcheck_rounds},
     },
 };
 
@@ -38,37 +36,41 @@ pub mod sumcheck;
 /// This type provides a lightweight, ergonomic interface to verification methods
 /// by wrapping a reference to the `WhirConfig`.
 #[derive(Debug)]
-pub struct Verifier<'a, EF, F, H, C, Challenger>(
+pub struct Verifier<'a, F, EF, Hash, Compress>(
     /// Reference to the verifier’s configuration containing all round parameters.
-    pub(crate) &'a WhirConfig<EF, F, H, C, Challenger>,
-)
-where
-    F: Field,
-    EF: ExtensionField<F>;
+    pub(crate) &'a WhirConfig<F, EF, Hash, Compress>,
+);
 
-impl<'a, EF, F, H, C, Challenger> Verifier<'a, EF, F, H, C, Challenger>
+impl<F, EF, Hash, Compress> Deref for Verifier<'_, F, EF, Hash, Compress> {
+    type Target = WhirConfig<F, EF, Hash, Compress>;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'a, F, EF, Hasher, Compress> Verifier<'a, F, EF, Hasher, Compress>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, Challenger>) -> Self {
+    pub const fn new(params: &'a WhirConfig<F, EF, Hasher, Compress>) -> Self {
         Self(params)
     }
 
     #[instrument(skip_all)]
     #[allow(clippy::too_many_lines)]
-    pub fn verify<const DIGEST_ELEMS: usize>(
+    pub fn verify<Transcript, const DIGEST_ELEMS: usize>(
         &self,
-        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
-        challenger: &mut Challenger,
+        transcript: &mut Transcript,
         parsed_commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
         mut statement: EqStatement<EF>,
     ) -> Result<MultilinearPoint<EF>, VerifierError>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        Hasher: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
+        Compress: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Transcript: VerifierTranscript<F, EF, DIGEST_ELEMS>,
     {
         // During the rounds we collect constraints, combination randomness, folding randomness
         // and we update the claimed sum of constraint evaluation.
@@ -78,11 +80,11 @@ where
         let mut prev_commitment = parsed_commitment.clone();
 
         // Optional constraint building - only if we have a statement
-        if self.initial_phase_config.has_initial_statement() {
+        if self.initial_phase.has_initial_statement() {
             statement.concatenate(&prev_commitment.ood_statement);
 
             let constraint = Constraint::new(
-                challenger.sample_algebra_element(),
+                <Transcript as Challenge<EF>>::sample(transcript),
                 statement,
                 SelectStatement::initialize(self.num_variables),
             );
@@ -96,8 +98,8 @@ where
 
         // Verify initial sumcheck
         let folding_randomness = verify_initial_sumcheck_rounds(
-            &proof.initial_phase,
-            challenger,
+            transcript,
+            self.initial_phase,
             &mut claimed_eval,
             self.folding_factor.at_round(0),
             self.starting_folding_pow_bits,
@@ -110,26 +112,23 @@ where
             let round_params = &self.round_parameters[round_index];
 
             // Receive commitment to the folded polynomial (likely encoded at higher expansion)
-            let new_commitment = ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse_with_round(
-                proof,
-                challenger,
+            let new_commitment = ParsedCommitment::<_, [F; DIGEST_ELEMS]>::parse(
+                transcript,
                 round_params.num_variables,
                 round_params.ood_samples,
-                Some(round_index),
-            );
+            )?;
 
             // Verify in-domain challenges on the previous commitment.
             let stir_statement = self.verify_stir_challenges(
-                proof,
-                challenger,
+                transcript,
                 round_params,
-                &prev_commitment,
+                prev_commitment.root,
                 round_folding_randomness.last().unwrap(),
                 round_index,
             )?;
 
             let constraint = Constraint::new(
-                challenger.sample_algebra_element(),
+                <Transcript as Challenge<EF>>::sample(transcript),
                 new_commitment.ood_statement.clone(),
                 stir_statement,
             );
@@ -138,11 +137,10 @@ where
 
             // TODO: SVO optimization is not yet fully implemented
             // Falls back to classic sumcheck for all optimization modes
-            let folding_randomness = verify_sumcheck_rounds(
-                &proof.rounds[round_index],
-                challenger,
-                &mut claimed_eval,
+            let folding_randomness = verify_standard_sumcheck_rounds(
+                transcript,
                 self.folding_factor.at_round(round_index + 1),
+                &mut claimed_eval,
                 round_params.folding_pow_bits,
             )?;
 
@@ -152,20 +150,15 @@ where
             prev_commitment = new_commitment;
         }
 
-        // In the final round we receive the full polynomial instead of a commitment.
-        let Some(final_evaluations) = proof.final_poly.clone() else {
-            panic!("Expected final polynomial");
-        };
-
         // Observe the final polynomial to the challenger
-        challenger.observe_algebra_slice(final_evaluations.as_slice());
+        let final_evaluations =
+            EvaluationsList::<EF>::new(transcript.read_many(1 << self.final_sumcheck_rounds)?);
 
         // Verify in-domain challenges on the previous commitment.
         let stir_statement = self.verify_stir_challenges(
-            proof,
-            challenger,
+            transcript,
             &self.final_round_config(),
-            &prev_commitment,
+            prev_commitment.root,
             round_folding_randomness.last().unwrap(),
             self.n_rounds(),
         )?;
@@ -181,11 +174,10 @@ where
 
         // TODO: SVO optimization is not yet fully implemented
         // Falls back to classic sumcheck for all optimization modes
-        let final_sumcheck_randomness = verify_final_sumcheck_rounds(
-            proof.final_sumcheck.as_ref(),
-            challenger,
-            &mut claimed_eval,
+        let final_sumcheck_randomness = verify_standard_sumcheck_rounds(
+            transcript,
             self.final_sumcheck_rounds,
+            &mut claimed_eval,
             self.final_folding_pow_bits,
         )?;
 
@@ -201,7 +193,7 @@ where
 
         // For skip case, don't reverse the randomness (prover stores it in forward order)
         // For non-skip case, reverse it to match the prover's storage
-        let is_skip_used = self.initial_phase_config.is_univariate_skip()
+        let is_skip_used = self.initial_phase.is_univariate_skip()
             && K_SKIP_SUMCHECK <= self.folding_factor.at_round(0);
 
         let point_for_eval = if is_skip_used {
@@ -255,19 +247,19 @@ where
     /// # Errors
     /// Returns `VerifierError::MerkleProofInvalid` if Merkle proof verification fails
     /// or the prover’s data does not match the commitment.
-    pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
+    pub fn verify_stir_challenges<Transcript, const DIGEST_ELEMS: usize>(
         &self,
-        proof: &crate::whir::proof::WhirProof<F, EF, DIGEST_ELEMS>,
-        challenger: &mut Challenger,
+        transcript: &mut Transcript,
         params: &RoundConfig<F>,
-        commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
+        root: Hash<F, F, DIGEST_ELEMS>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
     ) -> Result<SelectStatement<F, EF>, VerifierError>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        Hasher: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
+        Compress: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Transcript: VerifierTranscript<F, EF, DIGEST_ELEMS>,
     {
         // CRITICAL: Verify the prover's proof-of-work before generating challenges.
         //
@@ -283,48 +275,46 @@ where
         // By verifying that proof-of-work *now*, we confirm that the prover "locked in" their
         // commitment at a significant computational cost. This gives us confidence that the
         // challenges we generate are unpredictable and unbiased by a cheating prover.
-        let pow_witness = if round_index < self.n_rounds() {
-            proof
-                .get_pow_after_commitment(round_index)
-                .ok_or(VerifierError::InvalidRoundIndex { index: round_index })?
-        } else {
-            // Final round uses final_pow_witness
-            proof.final_pow_witness
-        };
-        if params.pow_bits > 0 && !challenger.check_witness(params.pow_bits, pow_witness) {
-            return Err(VerifierError::InvalidPowWitness);
-        }
+        transcript.pow(params.pow_bits)?;
 
         // Transcript checkpoint after PoW
         if round_index < self.n_rounds() {
-            challenger.sample();
+            <Transcript as Challenge<EF>>::sample(transcript);
         }
 
-        let stir_challenges_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
+        let stir_challenges_indexes = get_challenge_stir_queries::<F, _>(
+            transcript,
             params.domain_size,
             params.folding_factor,
             params.num_queries,
-            challenger,
         )?;
 
-        let dimensions = vec![Dimensions {
-            height: params.domain_size >> params.folding_factor,
-            width: 1 << params.folding_factor,
-        }];
-        let answers = self.verify_merkle_proof(
-            proof,
-            &commitment.root,
-            &stir_challenges_indexes,
-            &dimensions,
-            round_index,
-        )?;
+        let answers = if round_index == 0 {
+            let answers = self.verify_merkle_proof(
+                transcript,
+                root,
+                &stir_challenges_indexes,
+                params.domain_size,
+                params.folding_factor,
+            )?;
+
+            answers
+                .into_iter()
+                .map(|answer| answer.into_iter().map(EF::from).collect::<Vec<EF>>())
+                .collect::<Vec<_>>()
+        } else {
+            self.verify_merkle_proof_ext(
+                transcript,
+                root,
+                &stir_challenges_indexes,
+                params.domain_size,
+                params.folding_factor,
+            )?
+        };
 
         // Determine if this is the special first round where the univariate skip is applied.
         let is_skip_round = round_index == 0
-            && matches!(
-                self.initial_phase_config,
-                InitialPhaseConfig::WithStatementUnivariateSkip
-            )
+            && matches!(self.initial_phase, InitialPhase::WithStatementSkip)
             && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
         // Compute STIR Constraints
@@ -406,93 +396,88 @@ where
     ///
     /// # Errors
     /// Returns `VerifierError::MerkleProofInvalid` if any Merkle proof fails verification.
-    pub fn verify_merkle_proof<const DIGEST_ELEMS: usize>(
+    pub fn verify_merkle_proof<Transcript, const DIGEST_ELEMS: usize>(
         &self,
-        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
-        root: &Hash<F, F, DIGEST_ELEMS>,
+        transcript: &mut Transcript,
+        root: Hash<F, F, DIGEST_ELEMS>,
         indices: &[usize],
-        dimensions: &[Dimensions],
-        round_index: usize,
+        domain_size: usize,
+        folding_factor: usize,
+    ) -> Result<Vec<Vec<F>>, VerifierError>
+    where
+        Hasher: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
+        Compress: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Transcript: VerifierTranscript<F, EF, DIGEST_ELEMS>,
+    {
+        let width = 1 << folding_factor;
+        let height = domain_size >> folding_factor;
+        let depth = log2_strict_usize(height);
+        let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
+        indices
+            .iter()
+            .map(|&index| {
+                let answer: Vec<F> = transcript.read_hint_many(width)?;
+                let proof: Vec<[F; DIGEST_ELEMS]> = transcript.read_hint_many(depth)?;
+                mmcs.verify_batch(
+                    &root,
+                    &[Dimensions { height, width }],
+                    index,
+                    BatchOpeningRef {
+                        opened_values: from_ref(&answer),
+                        opening_proof: &proof,
+                    },
+                )
+                .map_err(|_| VerifierError::MerkleProofInvalid {
+                    position: index,
+                    reason: "Base field Merkle proof verification failed".to_string(),
+                })?;
+                Ok(answer)
+            })
+            .collect::<Result<Vec<_>, VerifierError>>()
+    }
+
+    // TODO: implement a generic verifier with MMC trait
+    pub fn verify_merkle_proof_ext<Transcript, const DIGEST_ELEMS: usize>(
+        &self,
+        transcript: &mut Transcript,
+        root: Hash<F, F, DIGEST_ELEMS>,
+        indices: &[usize],
+        domain_size: usize,
+        folding_factor: usize,
     ) -> Result<Vec<Vec<EF>>, VerifierError>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        Hasher: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
+        Compress: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Transcript: VerifierTranscript<F, EF, DIGEST_ELEMS>,
     {
+        let width = 1 << folding_factor;
+        let height = domain_size >> folding_factor;
+        let depth = log2_strict_usize(height);
         let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
-        let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
-
-        // Determine which queries to use from the proof structure
-        let queries = if round_index == self.n_rounds() {
-            &proof.final_queries
-        } else {
-            &proof
-                .rounds
-                .get(round_index)
-                .ok_or_else(|| VerifierError::MerkleProofInvalid {
-                    position: 0,
-                    reason: format!("Round {round_index} not found in proof"),
-                })?
-                .queries
-        };
-
-        let mut results = Vec::with_capacity(indices.len());
-
-        for (&index, query) in indices.iter().zip(queries.iter()) {
-            let values_ef = match query {
-                QueryOpening::Base { values, proof } => {
-                    mmcs.verify_batch(
-                        root,
-                        dimensions,
+        let extension_mmcs = ExtensionMmcs::new(mmcs);
+        indices
+            .iter()
+            .map(|&index| {
+                let answer: Vec<EF> = transcript.read_hint_many(width)?;
+                let proof: Vec<[F; DIGEST_ELEMS]> = transcript.read_hint_many(depth)?;
+                extension_mmcs
+                    .verify_batch(
+                        &root,
+                        &[Dimensions { height, width }],
                         index,
                         BatchOpeningRef {
-                            opened_values: from_ref(values),
-                            opening_proof: proof,
+                            opened_values: from_ref(&answer),
+                            opening_proof: &proof,
                         },
                     )
                     .map_err(|_| VerifierError::MerkleProofInvalid {
                         position: index,
                         reason: "Base field Merkle proof verification failed".to_string(),
                     })?;
-
-                    // Convert F -> EF
-                    values.iter().map(|&f| f.into()).collect()
-                }
-                QueryOpening::Extension { values, proof } => {
-                    extension_mmcs
-                        .verify_batch(
-                            root,
-                            dimensions,
-                            index,
-                            BatchOpeningRef {
-                                opened_values: from_ref(values),
-                                opening_proof: proof,
-                            },
-                        )
-                        .map_err(|_| VerifierError::MerkleProofInvalid {
-                            position: index,
-                            reason: "Extension field Merkle proof verification failed".to_string(),
-                        })?;
-
-                    values.clone()
-                }
-            };
-
-            results.push(values_ef);
-        }
-
-        Ok(results)
-    }
-}
-
-impl<EF, F, H, C, Challenger> Deref for Verifier<'_, EF, F, H, C, Challenger>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
-    type Target = WhirConfig<EF, F, H, C, Challenger>;
-
-    fn deref(&self) -> &Self::Target {
-        self.0
+                Ok(answer)
+            })
+            .collect::<Result<Vec<_>, VerifierError>>()
     }
 }

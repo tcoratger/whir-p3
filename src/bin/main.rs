@@ -1,11 +1,9 @@
 use std::time::Instant;
 
 use clap::Parser;
-use p3_baby_bear::BabyBear;
 use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::extension::BinomialExtensionField;
-use p3_goldilocks::Goldilocks;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{
@@ -15,14 +13,16 @@ use rand::{
 use tracing_forest::{ForestLayer, util::LevelFilter};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::{
-    fiat_shamir::domain_separator::DomainSeparator,
+    fiat_shamir::{
+        domain_separator::DomainSeparator,
+        transcript::{FiatShamirReader, FiatShamirWriter},
+    },
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         constraints::statement::EqStatement,
-        parameters::{InitialPhaseConfig, WhirConfig},
-        proof::WhirProof,
+        parameters::{InitialPhase, WhirConfig},
         prover::Prover,
         verifier::Verifier,
     },
@@ -30,11 +30,6 @@ use whir_p3::{
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, 4>;
-type _F = BabyBear;
-type _EF = BinomialExtensionField<_F, 5>;
-type __F = Goldilocks;
-type __EF = BinomialExtensionField<__F, 2>;
-
 type Poseidon16 = Poseidon2KoalaBear<16>;
 type Poseidon24 = Poseidon2KoalaBear<24>;
 
@@ -114,7 +109,7 @@ fn main() {
 
     // Construct WHIR protocol parameters
     let whir_params = ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+        initial_phase: InitialPhase::WithStatementClassic,
         security_level,
         pow_bits,
         folding_factor,
@@ -125,10 +120,7 @@ fn main() {
         rs_domain_initial_reduction_factor,
     };
 
-    let params = WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(
-        num_variables,
-        whir_params.clone(),
-    );
+    let params = WhirConfig::<F, EF, MerkleHash, MerkleCompress>::new(num_variables, whir_params);
 
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
@@ -148,8 +140,12 @@ fn main() {
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
     let mut domainsep = DomainSeparator::new(vec![]);
-    domainsep.commit_statement::<_, _, _, 32>(&params);
-    domainsep.add_whir_proof::<_, _, _, 32>(&params);
+    domainsep.commit_statement::<_, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, 32>(&params);
+
+    let mut challenger = MyChallenger::new(poseidon16);
+    // Initialize the challenger with domain separator
+    domainsep.observe_domain_separator(&mut challenger);
 
     println!("=========================================");
     println!("Whir (PCS) 🌪️");
@@ -157,23 +153,13 @@ fn main() {
         println!("WARN: more PoW bits required than what specified.");
     }
 
-    let challenger = MyChallenger::new(poseidon16);
-
-    // Initialize the prover's challenger with domain separator
-    let mut prover_challenger = challenger.clone();
-    domainsep.observe_domain_separator(&mut prover_challenger);
-
+    let mut transcript: FiatShamirWriter<F, _> = FiatShamirWriter::init(challenger.clone());
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
 
     let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
-
-    let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
-
     let time = Instant::now();
-    let witness = committer
-        .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
-        .unwrap();
+    let witness = committer.commit(&dft, &mut transcript, polynomial).unwrap();
     let commit_time = time.elapsed();
 
     // Generate a proof using the prover
@@ -182,39 +168,32 @@ fn main() {
     // Generate a proof for the given statement and witness
     let time = Instant::now();
     prover
-        .prove(
-            &dft,
-            &mut proof,
-            &mut prover_challenger,
-            statement.clone(),
-            witness,
-        )
+        .prove(&dft, &mut transcript, statement.clone(), witness)
         .unwrap();
-
     let opening_time = time.elapsed();
+    let proof = transcript.finalize();
+
+    println!(
+        "Proof size: {} bytes ({:.2} KB)",
+        proof.len(),
+        proof.len() as f64 / 1024.0
+    );
 
     // Create a commitment reader
     let commitment_reader = CommitmentReader::new(&params);
 
     // Create a verifier with matching parameters
     let verifier = Verifier::new(&params);
-
-    // Initialize the verifier's challenger with domain separator
-    let mut verifier_challenger = challenger;
-    domainsep.observe_domain_separator(&mut verifier_challenger);
+    let mut transcript = FiatShamirReader::<F, _>::init(proof, challenger);
 
     // Parse the commitment
-    let parsed_commitment =
-        commitment_reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
+    let parsed_commitment = commitment_reader
+        .parse_commitment::<_, 8>(&mut transcript)
+        .unwrap();
 
     let verif_time = Instant::now();
     verifier
-        .verify(
-            &proof,
-            &mut verifier_challenger,
-            &parsed_commitment,
-            statement,
-        )
+        .verify(&mut transcript, &parsed_commitment, statement)
         .unwrap();
     let verify_time = verif_time.elapsed();
 
@@ -224,11 +203,6 @@ fn main() {
         commit_time.as_millis(),
         opening_time.as_millis()
     );
-    let proof_bytes = bincode::serialize(&proof).expect("Failed to serialize proof");
-    println!(
-        "Proof size: {} bytes ({:.2} KB)",
-        proof_bytes.len(),
-        proof_bytes.len() as f64 / 1024.0
-    );
+
     println!("Verification time: {} μs", verify_time.as_micros());
 }

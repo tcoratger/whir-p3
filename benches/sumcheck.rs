@@ -5,14 +5,13 @@ use p3_field::extension::BinomialExtensionField;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use whir_p3::{
-    fiat_shamir::domain_separator::DomainSeparator,
+    fiat_shamir::{domain_separator::DomainSeparator, transcript::FiatShamirWriter},
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         constraints::{Constraint, statement::EqStatement},
-        parameters::InitialPhaseConfig,
-        proof::{InitialPhase, SumcheckData, WhirProof},
+        parameters::InitialPhase,
     },
 };
 
@@ -31,7 +30,7 @@ fn create_test_protocol_params(
     let perm = Perm::new_from_rng_128(&mut rng);
 
     ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+        initial_phase: InitialPhase::WithStatementClassic,
         security_level: 32,
         pow_bits: 0,
         rs_domain_initial_reduction_factor: 1,
@@ -90,9 +89,6 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
         // Benchmark for the classic, round-by-round sumcheck
         let classic_folding_schedule = [*num_vars / 2, num_vars - (*num_vars / 2)];
 
-        // Create parameters with a dummy folding factor (we'll use manual schedule)
-        let params = create_test_protocol_params(FoldingFactor::Constant(2));
-
         // Setup domain separator
         let domsep: DomainSeparator<EF, F> = DomainSeparator::new(vec![]);
 
@@ -101,41 +97,33 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
                 // Setup fresh challenger for each iteration
                 let mut challenger = setup_challenger();
                 domsep.observe_domain_separator(&mut challenger);
-
-                // Initialize proof
-                let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, *num_vars);
+                let mut transcript = FiatShamirWriter::init(challenger.clone());
 
                 // Create constraint using challenger directly
                 let statement = generate_statement(&mut challenger, *num_vars, poly, 3);
                 let alpha: EF = challenger.sample_algebra_element();
                 let constraint = Constraint::new_eq_only(alpha, statement);
 
-                // Extract sumcheck data from the initial phase
-                let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
-                    panic!("Expected WithStatement variant");
-                };
-
                 // First round - fold first half of variables
                 let (mut sumcheck_prover, _) = SumcheckSingle::from_base_evals(
+                    &mut transcript,
                     poly,
-                    sumcheck,
-                    &mut challenger,
                     classic_folding_schedule[0],
                     0,
                     &constraint,
-                );
+                )
+                .unwrap();
 
                 // Second round - fold remaining variables
                 if classic_folding_schedule.len() > 1 && classic_folding_schedule[1] > 0 {
-                    let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
-                    sumcheck_prover.compute_sumcheck_polynomials(
-                        &mut sumcheck_data,
-                        &mut challenger,
-                        classic_folding_schedule[1],
-                        0,
-                        None,
-                    );
-                    proof.set_final_sumcheck_data(sumcheck_data);
+                    sumcheck_prover
+                        .compute_sumcheck_polynomials(
+                            &mut transcript,
+                            classic_folding_schedule[1],
+                            0,
+                            None,
+                        )
+                        .unwrap();
                 }
             });
         });

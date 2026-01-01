@@ -1,7 +1,6 @@
 use alloc::sync::Arc;
 use core::ops::Deref;
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -13,12 +12,12 @@ use tracing::{info_span, instrument};
 
 use super::Witness;
 use crate::{
-    fiat_shamir::errors::FiatShamirError,
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{
-        committer::DenseMatrix, constraints::statement::EqStatement, parameters::WhirConfig,
-        proof::WhirProof,
+    fiat_shamir::{
+        errors::FiatShamirError,
+        transcript::{Challenge, Writer},
     },
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    whir::{committer::DenseMatrix, constraints::statement::EqStatement, parameters::WhirConfig},
 };
 
 /// Responsible for committing polynomials using a Merkle-based scheme.
@@ -28,22 +27,16 @@ use crate::{
 ///
 /// It provides a commitment that can be used for proof generation and verification.
 #[derive(Debug)]
-pub struct CommitmentWriter<'a, EF, F, H, C, Challenger>(
+pub struct CommitmentWriter<'a, F, EF, Hash, Compress>(
     /// Reference to the WHIR protocol configuration.
-    &'a WhirConfig<EF, F, H, C, Challenger>,
-)
-where
-    F: Field,
-    EF: ExtensionField<F>;
+    &'a WhirConfig<F, EF, Hash, Compress>,
+);
 
-impl<'a, EF, F, H, C, Challenger> CommitmentWriter<'a, EF, F, H, C, Challenger>
-where
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+impl<'a, F: TwoAdicField, EF: ExtensionField<F>, Hash, Compress>
+    CommitmentWriter<'a, F, EF, Hash, Compress>
 {
     /// Create a new writer that borrows the WHIR protocol configuration.
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, Challenger>) -> Self {
+    pub const fn new(params: &'a WhirConfig<F, EF, Hash, Compress>) -> Self {
         Self(params)
     }
 
@@ -57,21 +50,21 @@ where
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
     #[instrument(skip_all)]
-    pub fn commit<Dft: TwoAdicSubgroupDft<F>, const DIGEST_ELEMS: usize>(
+    pub fn commit<Dft: TwoAdicSubgroupDft<F>, Transcript, const DIGEST_ELEMS: usize>(
         &self,
         dft: &Dft,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
-        challenger: &mut Challenger,
+        transcript: &mut Transcript,
         polynomial: EvaluationsList<F>,
     ) -> Result<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>, FiatShamirError>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+        Hash: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+        Compress: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
             + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
             + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Transcript: Writer<[F; DIGEST_ELEMS]> + Writer<EF> + Challenge<EF>,
     {
         // Transpose for reverse variable order
         // And then pad with zeros
@@ -95,29 +88,26 @@ where
             .in_scope(|| dft.dft_batch(padded).to_row_major_matrix());
 
         // Commit to the Merkle tree
-        let merkle_tree = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
-            self.merkle_hash.clone(),
-            self.merkle_compress.clone(),
-        );
+        let merkle_tree =
+            MerkleTreeMmcs::<F::Packing, F::Packing, Hash, Compress, DIGEST_ELEMS>::new(
+                self.merkle_hash.clone(),
+                self.merkle_compress.clone(),
+            );
         let (root, prover_data) =
             info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
-
-        proof.initial_commitment = *root.as_ref();
-        challenger.observe_slice(root.as_ref());
+        Writer::<[F; DIGEST_ELEMS]>::write(transcript, *root.as_ref())?;
 
         let mut ood_statement = EqStatement::initialize(self.num_variables);
-        (0..self.0.commitment_ood_samples).for_each(|_| {
+        (0..self.0.commitment_ood_samples).try_for_each(|_| {
             // Generate OOD points from ProverState randomness
-            let point = MultilinearPoint::expand_from_univariate(
-                challenger.sample_algebra_element(),
-                self.num_variables,
-            );
+            let var: EF = transcript.sample();
+            let point = MultilinearPoint::expand_from_univariate(var, self.num_variables);
             let eval = info_span!("ood evaluation")
                 .in_scope(|| polynomial.evaluate_hypercube_base(&point));
-            proof.initial_ood_answers.push(eval);
-            challenger.observe_algebra_element(eval);
+            transcript.write(eval)?;
             ood_statement.add_evaluated_constraint(point, eval);
-        });
+            Ok(())
+        })?;
 
         // Return the witness containing the polynomial, Merkle tree, and OOD results.
         Ok(Witness {
@@ -128,13 +118,11 @@ where
     }
 }
 
-impl<EF, F, H, C, Challenger> Deref for CommitmentWriter<'_, EF, F, H, C, Challenger>
+impl<F, EF, Hash, Compress> Deref for CommitmentWriter<'_, F, EF, Hash, Compress>
 where
     F: Field,
-    EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, Challenger>;
-
+    type Target = WhirConfig<F, EF, Hash, Compress>;
     fn deref(&self) -> &Self::Target {
         self.0
     }
@@ -152,9 +140,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        fiat_shamir::domain_separator::DomainSeparator,
+        fiat_shamir::{domain_separator::DomainSeparator, transcript::FiatShamirWriter},
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        whir::parameters::InitialPhaseConfig,
+        whir::parameters::InitialPhase,
     };
 
     type F = BabyBear;
@@ -180,7 +168,7 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+            initial_phase: InitialPhase::WithStatementClassic,
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
@@ -195,31 +183,27 @@ mod tests {
         };
 
         // Define multivariate parameters for the polynomial.
-        let params = WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(
-            num_variables,
-            whir_params.clone(),
-        );
+        let params = WhirConfig::<F, F, MyHash, MyCompress>::new(num_variables, whir_params);
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        let mut proof = WhirProof::<F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
-
         // Set up the DomainSeparator and initialize a ProverState narg_string.
-        let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
-        domainsep.commit_statement::<_, _, _, 8>(&params);
-        domainsep.add_whir_proof::<_, _, _, 8>(&params);
+        let mut domainsep = DomainSeparator::new(vec![]);
+        domainsep.commit_statement::<_, _, 8>(&params);
+        domainsep.add_whir_proof::<_, _, 8>(&params);
 
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         domainsep.observe_domain_separator(&mut challenger);
+        let mut transcript: FiatShamirWriter<F, _> = FiatShamirWriter::init(challenger);
 
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(&params);
         let dft = Radix2DFTSmallBatch::<F>::default();
         let witness = committer
-            .commit(&dft, &mut proof, &mut challenger, polynomial.clone())
+            .commit(&dft, &mut transcript, polynomial.clone())
             .unwrap();
 
         // Ensure OOD (out-of-domain) points are generated.
@@ -237,7 +221,7 @@ mod tests {
 
         // Check that OOD answers match expected evaluations
         for (i, (ood_point, ood_eval)) in witness.ood_statement.iter().enumerate() {
-            let expected_eval = polynomial.evaluate_hypercube_base(ood_point);
+            let expected_eval = polynomial.evaluate_hypercube_base::<F>(ood_point);
             assert_eq!(
                 *ood_eval, expected_eval,
                 "OOD answer at index {i} should match expected evaluation"
@@ -261,7 +245,7 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+            initial_phase: InitialPhase::WithStatementClassic,
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
@@ -275,28 +259,22 @@ mod tests {
             starting_log_inv_rate: starting_rate,
         };
 
-        let params = WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(
-            num_variables,
-            whir_params.clone(),
-        );
+        let params = WhirConfig::<F, F, MyHash, MyCompress>::new(num_variables, whir_params);
 
         let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
 
-        let mut proof = WhirProof::<F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
-
         let mut domainsep = DomainSeparator::new(vec![]);
-        domainsep.commit_statement::<_, _, _, 8>(&params);
+        domainsep.commit_statement::<_, _, 8>(&params);
 
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         domainsep.observe_domain_separator(&mut challenger);
+        let mut transcript = FiatShamirWriter::init(challenger);
 
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
-        let _ = committer
-            .commit(&dft, &mut proof, &mut challenger, polynomial)
-            .unwrap();
+        let _ = committer.commit(&dft, &mut transcript, polynomial).unwrap();
     }
 
     #[test]
@@ -315,7 +293,7 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+            initial_phase: InitialPhase::WithStatementClassic,
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
@@ -329,10 +307,7 @@ mod tests {
             starting_log_inv_rate: starting_rate,
         };
 
-        let mut params = WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(
-            num_variables,
-            whir_params.clone(),
-        );
+        let mut params = WhirConfig::<F, F, MyHash, MyCompress>::new(num_variables, whir_params);
 
         // Explicitly set OOD samples to 0
         params.commitment_ood_samples = 0;
@@ -340,21 +315,17 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        let mut proof = WhirProof::<F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
-
         let mut domainsep = DomainSeparator::new(vec![]);
-        domainsep.commit_statement::<_, _, _, 8>(&params);
+        domainsep.commit_statement::<_, _, 8>(&params);
 
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-
         domainsep.observe_domain_separator(&mut challenger);
+        let mut transcript = FiatShamirWriter::init(challenger);
 
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
-        let witness = committer
-            .commit(&dft, &mut proof, &mut challenger, polynomial)
-            .unwrap();
+        let witness = committer.commit(&dft, &mut transcript, polynomial).unwrap();
 
         assert!(
             witness.ood_statement.is_empty(),

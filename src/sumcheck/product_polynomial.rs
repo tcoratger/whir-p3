@@ -19,14 +19,18 @@
 //! At each round, we compute a univariate polynomial `h(X)` that represents the partial sum
 //! over remaining variables. For quadratic sumcheck, `h(X)` is degree-2.
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue, dot_product};
 use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use crate::{
+    fiat_shamir::{
+        errors::FiatShamirError,
+        transcript::{Challenge, Pow, Writer},
+    },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{constraints::Constraint, proof::SumcheckData},
+    sumcheck::sumcheck_single::observe_and_sample,
+    whir::constraints::Constraint,
 };
 
 /// A paired representation of evaluation and weight polynomials for quadratic sumcheck.
@@ -371,15 +375,14 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
     ///
     /// The verifier's challenge `r \in EF` for this round.
     #[instrument(skip_all)]
-    pub(crate) fn round<Challenger>(
+    pub(crate) fn round<Transcript>(
         &mut self,
-        sumcheck_data: &mut SumcheckData<EF, F>,
-        challenger: &mut Challenger,
+        transcript: &mut Transcript,
         sum: &mut EF,
         pow_bits: usize,
-    ) -> EF
+    ) -> Result<EF, FiatShamirError>
     where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Transcript: Writer<EF> + Pow<F> + Challenge<EF>,
     {
         // Step 1: Compute sumcheck polynomial coefficients.
         //
@@ -406,7 +409,7 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
         };
 
         // Step 2-4: Commit to transcript, do PoW, and receive challenge.
-        let r = sumcheck_data.observe_and_sample(challenger, c0, c2, pow_bits);
+        let r = observe_and_sample(transcript, c0, c2, pow_bits)?;
 
         // Step 5: Fold both polynomials using the challenge.
         self.compress(r);
@@ -436,7 +439,7 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
         // are more efficient than packed operations.
         self.transition();
 
-        r
+        Ok(r)
     }
 
     /// Extracts the evaluation polynomial as a scalar [`EvaluationsList`].

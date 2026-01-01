@@ -1,14 +1,13 @@
 use alloc::vec::Vec;
 use core::{f64::consts::LOG2_10, marker::PhantomData};
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, TwoAdicField};
 
 use crate::parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption};
 
 /// Configuration for the initial phase of the WHIR protocol.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InitialPhaseConfig {
+pub enum InitialPhase {
     /// Protocol with statement using classic sumcheck (no optimization).
     ///
     /// This is the standard baseline implementation where the prover proves
@@ -20,7 +19,7 @@ pub enum InitialPhaseConfig {
     ///
     /// Uses the univariate skip optimization from <https://eprint.iacr.org/2024/108>
     /// to skip the first k variables in the sumcheck by using a univariate representation.
-    WithStatementUnivariateSkip,
+    WithStatementSkip,
 
     /// Protocol with statement using Small Value Optimization (SVO).
     ///
@@ -37,7 +36,7 @@ pub enum InitialPhaseConfig {
     WithoutStatement,
 }
 
-impl InitialPhaseConfig {
+impl InitialPhase {
     /// Returns `true` if this configuration includes an initial statement.
     #[must_use]
     pub const fn has_initial_statement(&self) -> bool {
@@ -47,7 +46,7 @@ impl InitialPhaseConfig {
     /// Returns `true` if univariate skip optimization is enabled.
     #[must_use]
     pub const fn is_univariate_skip(&self) -> bool {
-        matches!(self, Self::WithStatementUnivariateSkip)
+        matches!(self, Self::WithStatementSkip)
     }
 
     /// Returns `true` if SVO optimization is enabled.
@@ -70,12 +69,8 @@ pub struct RoundConfig<F> {
     pub folded_domain_gen: F,
 }
 
-#[derive(Debug, Clone)]
-pub struct WhirConfig<EF, F, Hash, C, Challenger>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-{
+#[derive(Debug)]
+pub struct WhirConfig<F, EF, Hash, Compress> {
     pub num_variables: usize,
     pub soundness_type: SecurityAssumption,
     pub security_level: usize,
@@ -88,7 +83,7 @@ where
     /// 1. The commitment is a valid low degree polynomial (WithoutStatement).
     /// 2. The commitment is a valid folded polynomial, and an additional polynomial evaluation
     ///    statement (any of the WithStatement* variants).
-    pub initial_phase_config: InitialPhaseConfig,
+    pub initial_phase: InitialPhase,
     pub starting_log_inv_rate: usize,
     pub starting_folding_pow_bits: usize,
 
@@ -104,21 +99,13 @@ where
 
     // Merkle tree parameters
     pub merkle_hash: Hash,
-    pub merkle_compress: C,
-
-    pub _base_field: PhantomData<F>,
+    pub merkle_compress: Compress,
     pub _extension_field: PhantomData<EF>,
-    pub _challenger: PhantomData<Challenger>,
 }
 
-impl<EF, F, Hash, C, Challenger> WhirConfig<EF, F, Hash, C, Challenger>
-where
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-{
+impl<F: TwoAdicField, EF: ExtensionField<F>, Hash, Compress> WhirConfig<F, EF, Hash, Compress> {
     #[allow(clippy::too_many_lines)]
-    pub fn new(num_variables: usize, whir_parameters: ProtocolParameters<Hash, C>) -> Self {
+    pub fn new(num_variables: usize, whir_parameters: ProtocolParameters<Hash, Compress>) -> Self {
         // We need to store the initial number of variables for the final composition.
         let initial_num_variables = num_variables;
         whir_parameters
@@ -157,7 +144,7 @@ where
             .folding_factor
             .compute_number_of_rounds(num_variables);
 
-        let has_initial_statement = whir_parameters.initial_phase_config.has_initial_statement();
+        let has_initial_statement = whir_parameters.initial_phase.has_initial_statement();
 
         let commitment_ood_samples = if has_initial_statement {
             whir_parameters.soundness_type.determine_ood_samples(
@@ -275,7 +262,7 @@ where
         Self {
             security_level: whir_parameters.security_level,
             max_pow_bits: whir_parameters.pow_bits,
-            initial_phase_config: whir_parameters.initial_phase_config,
+            initial_phase: whir_parameters.initial_phase,
             commitment_ood_samples,
             num_variables: initial_num_variables,
             soundness_type: whir_parameters.soundness_type,
@@ -291,9 +278,7 @@ where
             final_log_inv_rate: log_inv_rate,
             merkle_hash: whir_parameters.merkle_hash,
             merkle_compress: whir_parameters.merkle_compress,
-            _base_field: PhantomData,
             _extension_field: PhantomData,
-            _challenger: PhantomData,
         }
     }
 
@@ -513,7 +498,7 @@ mod tests {
     const fn default_whir_params()
     -> ProtocolParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
         ProtocolParameters {
-            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+            initial_phase: InitialPhase::WithStatementClassic,
             security_level: 100,
             pow_bits: 20,
             rs_domain_initial_reduction_factor: 1,
@@ -530,23 +515,19 @@ mod tests {
         let params = default_whir_params();
 
         let config =
-            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                10, params,
-            );
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(10, params);
 
         assert_eq!(config.security_level, 100);
         assert_eq!(config.max_pow_bits, 20);
         assert_eq!(config.soundness_type, SecurityAssumption::CapacityBound);
-        assert!(config.initial_phase_config.has_initial_statement());
+        assert!(config.initial_phase.has_initial_statement());
     }
 
     #[test]
     fn test_n_rounds() {
         let params = default_whir_params();
         let config =
-            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                10, params,
-            );
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(10, params);
 
         assert_eq!(config.n_rounds(), config.round_parameters.len());
     }
@@ -556,7 +537,7 @@ mod tests {
         let field_size_bits = 64;
         let soundness = SecurityAssumption::CapacityBound;
 
-        let pow_bits = WhirConfig::<F, F, u8, u8, MyChallenger>::folding_pow_bits(
+        let pow_bits = WhirConfig::<F, F, u8, u8>::folding_pow_bits(
             100, // Security level
             soundness,
             field_size_bits,
@@ -572,9 +553,7 @@ mod tests {
     fn test_check_pow_bits_within_limits() {
         let params = default_whir_params();
         let mut config =
-            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                10, params,
-            );
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(10, params);
 
         // Set all values within limits
         config.max_pow_bits = 20;
@@ -618,9 +597,7 @@ mod tests {
     fn test_check_pow_bits_starting_folding_exceeds() {
         let params = default_whir_params();
         let mut config =
-            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                10, params,
-            );
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(10, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 21; // Exceeds max_pow_bits
@@ -637,9 +614,7 @@ mod tests {
     fn test_check_pow_bits_final_pow_exceeds() {
         let params = default_whir_params();
         let mut config =
-            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                10, params,
-            );
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(10, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15;
@@ -656,9 +631,7 @@ mod tests {
     fn test_check_pow_bits_round_pow_exceeds() {
         let params = default_whir_params();
         let mut config =
-            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                10, params,
-            );
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(10, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15;
@@ -688,9 +661,7 @@ mod tests {
     fn test_check_pow_bits_round_folding_pow_exceeds() {
         let params = default_whir_params();
         let mut config =
-            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                10, params,
-            );
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(10, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 15;
@@ -720,9 +691,7 @@ mod tests {
     fn test_check_pow_bits_exactly_at_limit() {
         let params = default_whir_params();
         let mut config =
-            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                10, params,
-            );
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(10, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 20;
@@ -751,9 +720,7 @@ mod tests {
     fn test_check_pow_bits_all_exceed() {
         let params = default_whir_params();
         let mut config =
-            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>, MyChallenger>::new(
-                10, params,
-            );
+            WhirConfig::<F, F, Poseidon2Sponge<u8>, Poseidon2Compression<u8>>::new(10, params);
 
         config.max_pow_bits = 20;
         config.starting_folding_pow_bits = 22;

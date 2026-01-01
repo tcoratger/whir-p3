@@ -2,12 +2,12 @@ use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, TwoAdicField};
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::pattern::{Hint, Observe, Pattern, Sample},
-    whir::parameters::{InitialPhaseConfig, WhirConfig},
+    whir::parameters::{InitialPhase, WhirConfig},
 };
 
 /// Configuration parameters for a sumcheck phase in the protocol.
@@ -49,7 +49,7 @@ pub struct DomainSeparator<EF, F> {
 impl<EF, F> DomainSeparator<EF, F>
 where
     EF: ExtensionField<F>,
-    F: Field,
+    F: TwoAdicField,
 {
     /// Create a new DomainSeparator with the domain separator.
     #[must_use]
@@ -99,36 +99,30 @@ where
         }
     }
 
-    pub fn commit_statement<HC, C, Challenger, const DIGEST_ELEMS: usize>(
+    pub fn commit_statement<Hash, Compress, const DIGEST_ELEMS: usize>(
         &mut self,
-        params: &WhirConfig<EF, F, HC, C, Challenger>,
-    ) where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    {
+        params: &WhirConfig<F, EF, Hash, Compress>,
+    ) {
         // TODO: Add params
         self.observe(DIGEST_ELEMS, Observe::MerkleDigest);
         if params.commitment_ood_samples > 0 {
-            assert!(params.initial_phase_config.has_initial_statement());
+            assert!(params.initial_phase.has_initial_statement());
             self.add_ood(params.commitment_ood_samples);
         }
     }
 
-    pub fn add_whir_proof<HC, C, Challenger, const DIGEST_ELEMS: usize>(
+    pub fn add_whir_proof<Hash, Compress, const DIGEST_ELEMS: usize>(
         &mut self,
-        params: &WhirConfig<EF, F, HC, C, Challenger>,
-    ) where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-        EF: TwoAdicField,
-        F: TwoAdicField,
-    {
+        params: &WhirConfig<F, EF, Hash, Compress>,
+    ) {
         // TODO: Add statement
-        if params.initial_phase_config.has_initial_statement() {
+        if params.initial_phase.has_initial_statement() {
             self.sample(1, Sample::InitialCombinationRandomness);
             self.add_sumcheck(&SumcheckParams {
                 rounds: params.folding_factor.at_round(0),
                 pow_bits: params.starting_folding_pow_bits,
-                univariate_skip: match params.initial_phase_config {
-                    InitialPhaseConfig::WithStatementUnivariateSkip => Some(K_SKIP_SUMCHECK),
+                univariate_skip: match params.initial_phase {
+                    InitialPhase::WithStatementSkip => Some(K_SKIP_SUMCHECK),
                     _ => None,
                 },
             });
