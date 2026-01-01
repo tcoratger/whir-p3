@@ -16,11 +16,11 @@ macro_rules! impl_from_uniform_bytes {
     ($field:ty) => {
         impl SerializedField for $field {
             fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-                bincode::deserialize(bytes).map_err(|_err| Error::IO)
+                bincode::deserialize(bytes).map_err(|_err| Error::ElementIO)
             }
 
             fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-                bincode::serialize(&self).map_err(|_err| Error::IO)
+                bincode::serialize(&self).map_err(|_err| Error::ElementIO)
             }
         }
     };
