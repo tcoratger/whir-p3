@@ -1,38 +1,84 @@
 use alloc::{vec, vec::Vec};
 use core::marker::PhantomData;
 
+use p3_baby_bear::BabyBear;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field};
+use p3_field::{
+    BasedVectorSpace, ExtensionField, Field, PrimeField32, PrimeField64, RawDataSerializable,
+    extension::BinomialExtensionField, integers::QuotientMap,
+};
+use p3_goldilocks::Goldilocks;
+use p3_koala_bear::KoalaBear;
 use p3_symmetric::Hash;
 
 use crate::fiat_shamir::errors::FiatShamirError as Error;
 
-pub trait SerializedField: p3_field::Field {
+pub trait SerializedField: Field {
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error>;
-    fn to_bytes(&self) -> Result<Vec<u8>, Error>;
+    fn to_bytes(&self) -> Vec<u8>;
 }
 
-macro_rules! impl_from_uniform_bytes {
-    ($field:ty) => {
+macro_rules! impl_field_ser {
+    (32, $field:ty) => {
         impl SerializedField for $field {
             fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-                bincode::deserialize(bytes).map_err(|_err| Error::ElementIO)
+                let bytes = bytes.try_into().map_err(|_| Error::ElementIO)?;
+                let inner = u32::from_le_bytes(bytes);
+                <$field>::from_canonical_checked(inner).ok_or(Error::ElementIO)
             }
 
-            fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-                bincode::serialize(&self).map_err(|_err| Error::ElementIO)
+            fn to_bytes(&self) -> Vec<u8> {
+                <$field>::as_canonical_u32(self).to_le_bytes().to_vec()
+            }
+        }
+    };
+    (64, $field:ty) => {
+        impl SerializedField for $field {
+            fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+                let bytes = bytes.try_into().map_err(|_| Error::ElementIO)?;
+                let inner = u64::from_le_bytes(bytes);
+                <$field>::from_canonical_checked(inner).ok_or(Error::ElementIO)
+            }
+
+            fn to_bytes(&self) -> Vec<u8> {
+                <$field>::as_canonical_u64(self).to_le_bytes().to_vec()
             }
         }
     };
 }
 
-impl_from_uniform_bytes!(p3_goldilocks::Goldilocks);
-impl_from_uniform_bytes!(p3_field::extension::BinomialExtensionField<p3_goldilocks::Goldilocks, 2>);
-impl_from_uniform_bytes!(p3_baby_bear::BabyBear);
-impl_from_uniform_bytes!(p3_field::extension::BinomialExtensionField<p3_baby_bear::BabyBear, 4>);
-impl_from_uniform_bytes!(p3_koala_bear::KoalaBear);
-impl_from_uniform_bytes!(p3_field::extension::BinomialExtensionField<p3_koala_bear::KoalaBear, 4>);
-impl_from_uniform_bytes!(p3_field::extension::BinomialExtensionField<p3_koala_bear::KoalaBear, 8>);
+macro_rules! impl_ext_field_ser {
+    ($base:ty, $d:expr) => {
+        impl SerializedField for BinomialExtensionField<$base, $d> {
+            fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+                (bytes.len() == Self::NUM_BYTES)
+                    .then_some(())
+                    .ok_or(Error::ElementIO)?;
+                bytes
+                    .chunks_exact(<$base>::NUM_BYTES)
+                    .map(<$base>::from_bytes)
+                    .collect::<Result<Vec<_>, Error>>()
+                    .map(|coeffs| Self::from_basis_coefficients_slice(&coeffs).unwrap())
+            }
+
+            fn to_bytes(&self) -> Vec<u8> {
+                self.as_basis_coefficients_slice()
+                    .iter()
+                    .flat_map(|e: &$base| e.to_bytes())
+                    .collect()
+            }
+        }
+    };
+}
+
+impl_field_ser!(64, Goldilocks);
+impl_field_ser!(32, BabyBear);
+impl_field_ser!(32, KoalaBear);
+
+impl_ext_field_ser!(Goldilocks, 2);
+impl_ext_field_ser!(BabyBear, 4);
+impl_ext_field_ser!(KoalaBear, 4);
+impl_ext_field_ser!(KoalaBear, 8);
 
 pub trait ChallengeBits {
     fn sample(&mut self, bits: usize) -> usize;
@@ -135,8 +181,7 @@ where
     }
 
     fn write_hint(&mut self, e: EF) -> Result<(), Error> {
-        let bytes = e.to_bytes()?;
-        assert_eq!(bytes.len(), EF::NUM_BYTES);
+        let bytes = e.to_bytes();
         self.data.extend_from_slice(&bytes);
         Ok(())
     }
@@ -343,6 +388,42 @@ mod test {
     };
 
     use super::*;
+
+    #[test]
+    fn test_serialization() {
+        use rand::{
+            Rng,
+            distr::{Distribution, StandardUniform},
+        };
+
+        let n = 1000;
+        #[allow(clippy::items_after_statements)]
+        fn run_test<F: SerializedField>(rng: &mut impl Rng, n: usize)
+        where
+            StandardUniform: Distribution<F>,
+        {
+            let mut bytes = vec![0u8; F::NUM_BYTES];
+            let zero = F::from_bytes(&bytes).unwrap();
+            assert_eq!(zero, F::ZERO);
+            bytes[0] = 1;
+            let one = F::from_bytes(&bytes).unwrap();
+            assert_eq!(one, F::ONE);
+            for _ in 0..n {
+                let a0: F = rng.random();
+                let bytes = a0.to_bytes();
+                let a1 = F::from_bytes(&bytes).unwrap();
+                assert_eq!(a0, a1);
+            }
+        }
+
+        let mut rng = SmallRng::seed_from_u64(0);
+        run_test::<Goldilocks>(&mut rng, n);
+        run_test::<BinomialExtensionField<Goldilocks, 2>>(&mut rng, n);
+        run_test::<BabyBear>(&mut rng, n);
+        run_test::<BinomialExtensionField<BabyBear, 4>>(&mut rng, n);
+        run_test::<KoalaBear>(&mut rng, n);
+        run_test::<BinomialExtensionField<KoalaBear, 4>>(&mut rng, n);
+    }
 
     enum TestFs<F, Challenger> {
         Writer(FiatShamirWriter<F, Challenger>),
