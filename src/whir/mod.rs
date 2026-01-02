@@ -3,26 +3,27 @@ use alloc::{vec, vec::Vec};
 use committer::{reader::CommitmentReader, writer::CommitmentWriter};
 use constraints::statement::EqStatement;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::{DuplexChallenger, FieldChallenger};
+use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
-use parameters::{InitialPhaseConfig, WhirConfig};
+use parameters::{InitialPhase, WhirConfig};
 use prover::Prover;
 use rand::{SeedableRng, rngs::SmallRng};
 use verifier::Verifier;
 
 use crate::{
-    fiat_shamir::domain_separator::DomainSeparator,
+    fiat_shamir::{
+        domain_separator::DomainSeparator,
+        transcript::{Challenge, FiatShamirReader, FiatShamirWriter},
+    },
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::proof::WhirProof,
 };
 
 pub mod committer;
 pub mod constraints;
 pub mod parameters;
-pub mod proof;
 pub mod prover;
 pub mod utils;
 pub mod verifier;
@@ -44,7 +45,7 @@ pub fn make_whir_things(
     soundness_type: SecurityAssumption,
     pow_bits: usize,
     rs_domain_initial_reduction_factor: usize,
-    initial_phase_config: InitialPhaseConfig,
+    initial_phase: InitialPhase,
 ) {
     // Calculate polynomial size: 2^num_variables coefficients for multilinear polynomial
     let num_coeffs = 1 << num_variables;
@@ -62,7 +63,7 @@ pub fn make_whir_things(
 
     // Configure WHIR protocol with all security and performance parameters
     let whir_params = ProtocolParameters {
-        initial_phase_config,
+        initial_phase,
         security_level: 32,
         pow_bits,
         rs_domain_initial_reduction_factor,
@@ -74,10 +75,7 @@ pub fn make_whir_things(
     };
 
     // Create unified configuration combining protocol and polynomial parameters
-    let params = WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(
-        num_variables,
-        whir_params.clone(),
-    );
+    let params = WhirConfig::<F, EF, MyHash, MyCompress>::new(num_variables, whir_params);
 
     // Define test polynomial: all coefficients = 1 for simple verification
     //
@@ -100,46 +98,38 @@ pub fn make_whir_things(
     }
 
     // Setup Fiat-Shamir transcript structure for non-interactive proof generation
-    let mut domainsep = DomainSeparator::new(vec![]);
+    let mut domainsep: DomainSeparator<EF, F> = DomainSeparator::new(vec![]);
     // Add statement commitment to transcript
-    domainsep.commit_statement::<_, _, _, 32>(&params);
+    domainsep.commit_statement::<_, _, 32>(&params);
     // Add proof structure to transcript
-    domainsep.add_whir_proof::<_, _, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, 32>(&params);
 
     // Create fresh RNG and challenger for transcript randomness
     // Initialize prover's view of the Fiat-Shamir transcript
     let mut rng = SmallRng::seed_from_u64(1);
-    let mut prover_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-    domainsep.observe_domain_separator(&mut prover_challenger);
+    let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    domainsep.observe_domain_separator(&mut challenger);
+    let mut transcript = FiatShamirWriter::init(challenger.clone());
 
     // Create polynomial commitment using Merkle tree over evaluation domain
     let committer = CommitmentWriter::new(&params);
     // DFT evaluator for polynomial
     let dft = Radix2DFTSmallBatch::<F>::default();
 
-    let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
-
     // Commit to polynomial evaluations and generate cryptographic witness
-    let witness = committer
-        .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
-        .unwrap();
+    let witness = committer.commit(&dft, &mut transcript, polynomial).unwrap();
 
     // Initialize WHIR prover with the configured parameters
     let prover = Prover(&params);
 
     // Generate WHIR proof
     prover
-        .prove(
-            &dft,
-            &mut proof,
-            &mut prover_challenger,
-            statement.clone(),
-            witness,
-        )
+        .prove(&dft, &mut transcript, statement.clone(), witness)
         .unwrap();
+    let checkpoint_prover: F = transcript.sample();
 
     // Sample final challenge to ensure transcript consistency between prover/verifier
-    let checkpoint_prover: EF = prover_challenger.sample_algebra_element();
+    let proof = transcript.finalize();
 
     // Initialize commitment parser for verifier-side operations
     let commitment_reader = CommitmentReader::new(&params);
@@ -148,31 +138,26 @@ pub fn make_whir_things(
     let verifier = Verifier::new(&params);
 
     // Reconstruct verifier's transcript from proof data and domain separator
-    let mut rng = SmallRng::seed_from_u64(1);
-    let mut verifier_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-    domainsep.observe_domain_separator(&mut verifier_challenger);
+    let mut transcript = FiatShamirReader::init(proof, challenger);
 
     // Parse and validate the polynomial commitment from proof data
-    let parsed_commitment =
-        commitment_reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
+    let parsed_commitment = commitment_reader
+        .parse_commitment::<_, 8>(&mut transcript)
+        .unwrap();
 
     // Execute WHIR verification
     verifier
-        .verify(
-            &proof,
-            &mut verifier_challenger,
-            &parsed_commitment,
-            statement,
-        )
+        .verify(&mut transcript, &parsed_commitment, statement)
         .unwrap();
 
-    let checkpoint_verifier: EF = verifier_challenger.sample_algebra_element();
+    let checkpoint_verifier: F = transcript.sample();
     assert_eq!(checkpoint_prover, checkpoint_verifier);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constant::K_SKIP_SUMCHECK;
 
     #[test]
     fn test_whir_end_to_end_without_univariate_skip() {
@@ -212,7 +197,7 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    InitialPhaseConfig::WithStatementClassic,
+                                    InitialPhase::WithStatementClassic,
                                 );
                             }
                         }
@@ -225,13 +210,8 @@ mod tests {
     #[test]
     fn test_whir_end_to_end_with_univariate_skip() {
         let folding_factors = [
-            FoldingFactor::Constant(1),
-            FoldingFactor::Constant(2),
-            FoldingFactor::Constant(3),
-            FoldingFactor::Constant(4),
-            FoldingFactor::ConstantFromSecondRound(2, 1),
-            FoldingFactor::ConstantFromSecondRound(3, 1),
-            FoldingFactor::ConstantFromSecondRound(3, 2),
+            FoldingFactor::Constant(5),
+            FoldingFactor::ConstantFromSecondRound(5, 1),
             FoldingFactor::ConstantFromSecondRound(5, 2),
         ];
         let soundness_type = [
@@ -248,6 +228,7 @@ mod tests {
                 if folding_factor.at_round(0) < rs_domain_initial_reduction_factor {
                     continue;
                 }
+                assert!(folding_factor.at_round(0) >= K_SKIP_SUMCHECK);
                 let num_variables = folding_factor.at_round(0)..=3 * folding_factor.at_round(0);
                 for num_variable in num_variables {
                     for num_points in num_points {
@@ -260,7 +241,7 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    InitialPhaseConfig::WithStatementUnivariateSkip,
+                                    InitialPhase::WithStatementSkip,
                                 );
                             }
                         }
@@ -308,7 +289,7 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    InitialPhaseConfig::WithStatementSvo,
+                                    InitialPhase::WithStatementSvo,
                                 );
                             }
                         }
@@ -347,7 +328,7 @@ mod tests {
                             soundness_type,
                             pow_bits,
                             rs_reduction_factor,
-                            InitialPhaseConfig::WithoutStatement,
+                            InitialPhase::WithoutStatement,
                         );
                     }
                 }

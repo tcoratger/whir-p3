@@ -2,9 +2,8 @@
 //!
 //! This module implements the core round state management for the WHIR protocol.
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::sync::Arc;
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
@@ -12,13 +11,16 @@ use tracing::instrument;
 
 use crate::{
     constant::K_SKIP_SUMCHECK,
-    fiat_shamir::errors::FiatShamirError,
+    fiat_shamir::{
+        errors::FiatShamirError,
+        transcript::{Challenge, Pow, Writer},
+    },
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_single::SumcheckSingle,
     whir::{
         committer::{RoundMerkleTree, Witness},
         constraints::{Constraint, statement::EqStatement},
-        proof::{InitialPhase, SumcheckSkipData, WhirProof},
+        parameters::InitialPhase,
         prover::Prover,
     },
 };
@@ -135,36 +137,31 @@ where
     ///
     /// Returns the complete `RoundState` ready for the first WHIR folding round.
     #[instrument(skip_all)]
-    pub fn initialize_first_round_state<MyChallenger, C, Challenger>(
-        prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
-        challenger: &mut Challenger,
+    pub fn initialize_first_round_state<Transcript, Hash, Compress>(
+        prover: &Prover<'_, F, EF, Hash, Compress>,
+        transcript: &mut Transcript,
         mut statement: EqStatement<EF>,
         witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<Self, FiatShamirError>
     where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-        MyChallenger: Clone,
-        C: Clone,
+        Transcript: Writer<[F; DIGEST_ELEMS]> + Writer<EF> + Challenge<EF> + Pow<F>,
     {
         // Append OOD constraints to statement for Reed-Solomon proximity testing
         statement.concatenate(&witness.ood_statement);
 
         // Protocol branching based on initial phase variant in proof
-        let (sumcheck_prover, folding_randomness) = match &mut proof.initial_phase {
+        let (sumcheck_prover, folding_randomness) = match prover.initial_phase {
             // Branch: WithStatementSkip - use univariate skip optimization
-            InitialPhase::WithStatementSkip(skip_data)
+            InitialPhase::WithStatementSkip
                 if K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0) =>
             {
                 // Build constraint with random linear combination
-                let constraint =
-                    Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
+                let constraint = Constraint::new_eq_only(transcript.sample(), statement.clone());
 
                 // Use univariate skip by skipping k variables
                 SumcheckSingle::with_skip(
                     &witness.polynomial,
-                    skip_data,
-                    challenger,
+                    transcript,
                     prover.folding_factor.at_round(0),
                     prover.starting_folding_pow_bits,
                     K_SKIP_SUMCHECK,
@@ -173,7 +170,7 @@ where
             }
 
             // Branch: WithStatementSvo - SVO optimization
-            InitialPhase::WithStatementSvo { sumcheck } => {
+            InitialPhase::WithStatementSvo => {
                 // SVO optimization requirements (see Procedure 9 in https://eprint.iacr.org/2025/1117):
                 // 1. At least 2 * NUM_SVO_ROUNDS variables - The SVO algorithm partitions
                 //    variables into Prefix (k), Inner (l/2), and Outer segments. For these
@@ -186,8 +183,7 @@ where
                 const MIN_SVO_FOLDING_FACTOR: usize = 6;
 
                 // Build constraint with random linear combination
-                let constraint =
-                    Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
+                let constraint = Constraint::new_eq_only(transcript.sample(), statement.clone());
 
                 let folding_factor = prover.folding_factor.at_round(0);
                 let has_single_constraint = constraint.eq_statement.len() == 1;
@@ -196,9 +192,8 @@ where
                     // Use SVO optimization: first 3 rounds use specialized algorithm,
                     // remaining rounds use standard Algorithm 5
                     SumcheckSingle::from_base_evals_svo(
+                        transcript,
                         &witness.polynomial,
-                        sumcheck,
-                        challenger,
                         folding_factor,
                         prover.starting_folding_pow_bits,
                         &constraint,
@@ -208,9 +203,8 @@ where
                     // - Input is too small (folding_factor < MIN_SVO_FOLDING_FACTOR)
                     // - Multiple constraints exist (SVO only handles single constraint, see TODO above)
                     SumcheckSingle::from_base_evals(
+                        transcript,
                         &witness.polynomial,
-                        sumcheck,
-                        challenger,
                         folding_factor,
                         prover.starting_folding_pow_bits,
                         &constraint,
@@ -219,17 +213,14 @@ where
             }
 
             // Branch: WithStatement or WithStatementSkip (fallback when folding_factor < K_SKIP)
-            InitialPhase::WithStatement { sumcheck }
-            | InitialPhase::WithStatementSkip(SumcheckSkipData { sumcheck, .. }) => {
+            InitialPhase::WithStatementClassic | InitialPhase::WithStatementSkip => {
                 // Build constraint with random linear combination
-                let constraint =
-                    Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
+                let constraint = Constraint::new_eq_only(transcript.sample(), statement.clone());
 
                 // Standard sumcheck protocol without optimization
                 SumcheckSingle::from_base_evals(
+                    transcript,
                     &witness.polynomial,
-                    sumcheck,
-                    challenger,
                     prover.folding_factor.at_round(0),
                     prover.starting_folding_pow_bits,
                     &constraint,
@@ -237,12 +228,10 @@ where
             }
 
             // Branch: WithoutStatement - direct polynomial folding path
-            InitialPhase::WithoutStatement { pow_witness } => {
+            InitialPhase::WithoutStatement => {
                 // Sample folding challenges α_1, ..., α_k
                 let folding_randomness = MultilinearPoint::new(
-                    (0..prover.folding_factor.at_round(0))
-                        .map(|_| challenger.sample_algebra_element())
-                        .collect::<Vec<_>>(),
+                    transcript.sample_many(prover.folding_factor.at_round(0)),
                 );
 
                 // Apply folding transformation: f(X_0, ..., X_{n-1}) → f'(X_k, ..., X_{n-1})
@@ -257,13 +246,11 @@ where
                 );
 
                 // Apply proof-of-work grinding and store witness (only if pow_bits > 0)
-                if prover.starting_folding_pow_bits > 0 {
-                    *pow_witness = challenger.grind(prover.starting_folding_pow_bits);
-                }
+                transcript.pow(prover.starting_folding_pow_bits)?;
 
-                (sumcheck, folding_randomness)
+                Ok((sumcheck, folding_randomness))
             }
-        };
+        }?;
 
         // Initialize complete round state for first WHIR protocol round
         Ok(Self {

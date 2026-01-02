@@ -9,21 +9,20 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{SeedableRng, rngs::SmallRng};
 
 use crate::{
-    fiat_shamir::domain_separator::DomainSeparator,
+    fiat_shamir::{domain_separator::DomainSeparator, transcript::FiatShamirWriter},
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         WhirConfig,
         committer::{Witness, writer::CommitmentWriter},
         constraints::statement::EqStatement,
-        parameters::InitialPhaseConfig,
-        proof::WhirProof,
+        parameters::InitialPhase,
         prover::{Prover, round_state::RoundState},
     },
 };
 
 type F = BabyBear;
-type EF4 = BinomialExtensionField<F, 4>;
+type EF = BinomialExtensionField<F, 4>;
 type Perm = Poseidon2BabyBear<16>;
 
 type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
@@ -44,10 +43,10 @@ const DIGEST_ELEMS: usize = 8;
 /// for round state construction in WHIR tests.
 fn make_test_config(
     num_variables: usize,
-    initial_phase_config: InitialPhaseConfig,
+    initial_phase_config: InitialPhase,
     folding_factor: usize,
     pow_bits: usize,
-) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger> {
+) -> WhirConfig<F, EF, MyHash, MyCompress> {
     let mut rng = SmallRng::seed_from_u64(1);
     let perm = Perm::new_from_rng_128(&mut rng);
 
@@ -57,7 +56,7 @@ fn make_test_config(
     // Define the core protocol parameters for WHIR, customizing behavior based
     // on whether to start with an initial sumcheck and how to fold the polynomial.
     let protocol_params = ProtocolParameters {
-        initial_phase_config,
+        initial_phase: initial_phase_config,
         security_level: 80,
         pow_bits,
         rs_domain_initial_reduction_factor: 1,
@@ -83,61 +82,38 @@ fn make_test_config(
 /// This is used as a boilerplate step before running the first WHIR round.
 #[allow(clippy::type_complexity)]
 fn setup_domain_and_commitment(
-    params: &WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger>,
+    params: &WhirConfig<F, EF, MyHash, MyCompress>,
     poly: EvaluationsList<F>,
 ) -> (
-    WhirProof<F, EF4, DIGEST_ELEMS>,
-    MyChallenger,
-    Witness<EF4, F, DenseMatrix<F>, DIGEST_ELEMS>,
+    FiatShamirWriter<F, MyChallenger>,
+    Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
 ) {
-    // Build ProtocolParameters from WhirConfig fields
-    let protocol_params = ProtocolParameters {
-        initial_phase_config: params.initial_phase_config,
-        security_level: params.security_level,
-        pow_bits: params.starting_folding_pow_bits,
-        folding_factor: params.folding_factor,
-        merkle_hash: params.merkle_hash.clone(),
-        merkle_compress: params.merkle_compress.clone(),
-        soundness_type: params.soundness_type,
-        starting_log_inv_rate: params.starting_log_inv_rate,
-        rs_domain_initial_reduction_factor: 1,
-    };
-
-    // Create WhirProof structure from protocol parameters
-    let whir_proof = WhirProof::from_protocol_parameters(&protocol_params, poly.num_variables());
-
     // Create a new Fiat-Shamir domain separator.
     let mut domsep = DomainSeparator::new(vec![]);
 
     // Observe the public statement into the transcript for binding.
-    domsep.commit_statement::<_, _, _, 8>(params);
+    domsep.commit_statement::<_, _, 8>(params);
 
     // Reserve transcript space for WHIR proof messages.
-    domsep.add_whir_proof::<_, _, _, 8>(params);
+    domsep.add_whir_proof::<_, _, 8>(params);
 
     // Convert the domain separator into a mutable prover-side transcript.
     let mut rng = SmallRng::seed_from_u64(1);
-    let mut prover_challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
-    domsep.observe_domain_separator(&mut prover_challenger);
+    let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    domsep.observe_domain_separator(&mut challenger);
+    let mut transcript = FiatShamirWriter::init(challenger);
 
     // Create a committer using the protocol configuration (Merkle parameters, hashers, etc.).
     let committer = CommitmentWriter::new(params);
 
-    let mut proof = WhirProof::from_protocol_parameters(&protocol_params, poly.num_variables());
-
     // Perform DFT-based commitment to the polynomial, producing a witness
     // which includes the Merkle tree and polynomial values.
     let witness = committer
-        .commit(
-            &Radix2DFTSmallBatch::<F>::default(),
-            &mut proof,
-            &mut prover_challenger,
-            poly,
-        )
+        .commit(&Radix2DFTSmallBatch::<F>::default(), &mut transcript, poly)
         .unwrap();
 
     // Return all initialized components needed for round state setup.
-    (whir_proof, prover_challenger, witness)
+    (transcript, witness)
 }
 
 #[test]
@@ -149,7 +125,7 @@ fn test_no_initial_statement_no_sumcheck() {
     // - no initial sumcheck,
     // - folding factor 2,
     // - no PoW grinding.
-    let config = make_test_config(num_variables, InitialPhaseConfig::WithoutStatement, 2, 0);
+    let config = make_test_config(num_variables, InitialPhase::WithoutStatement, 2, 0);
 
     // Define a polynomial
     let poly = EvaluationsList::new(vec![F::from_u64(3); 1 << num_variables]);
@@ -158,16 +134,15 @@ fn test_no_initial_statement_no_sumcheck() {
     // - domain separator for Fiat-Shamir transcript,
     // - prover state,
     // - witness containing Merkle tree for `poly`.
-    let (mut proof, mut challenger, witness) = setup_domain_and_commitment(&config, poly);
+    let (mut transcript, witness) = setup_domain_and_commitment(&config, poly);
 
     // Create an empty public statement (no constraints)
-    let statement = EqStatement::<EF4>::initialize(num_variables);
+    let statement = EqStatement::<EF>::initialize(num_variables);
 
     // Initialize the round state using the setup configuration and witness
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
-        &mut proof,
-        &mut challenger,
+        &mut transcript,
         statement,
         witness,
     )
@@ -189,12 +164,7 @@ fn test_initial_statement_with_folding_factor_3() {
     // - initial statement enabled (sumcheck will run),
     // - folding factor = 3 (fold all variables in the first round),
     // - PoW disabled.
-    let config = make_test_config(
-        num_variables,
-        InitialPhaseConfig::WithStatementClassic,
-        3,
-        0,
-    );
+    let config = make_test_config(num_variables, InitialPhase::WithStatementClassic, 3, 0);
 
     // Define the multilinear polynomial:
     // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
@@ -220,7 +190,7 @@ fn test_initial_statement_with_folding_factor_3() {
     ]);
 
     // Manual redefinition of the same polynomial as a function for evaluation
-    let f = |x0: EF4, x1: EF4, x2: EF4| {
+    let f = |x0: EF, x1: EF, x2: EF| {
         x2 * e2
             + x1 * e3
             + x1 * x2 * e4
@@ -232,20 +202,19 @@ fn test_initial_statement_with_folding_factor_3() {
     };
 
     // Add a single equality constraint to the statement: f(1,1,1) = expected value
-    let mut statement = EqStatement::<EF4>::initialize(num_variables);
+    let mut statement = EqStatement::<EF>::initialize(num_variables);
     statement.add_evaluated_constraint(
-        MultilinearPoint::new(vec![EF4::ONE, EF4::ONE, EF4::ONE]),
-        f(EF4::ONE, EF4::ONE, EF4::ONE),
+        MultilinearPoint::new(vec![EF::ONE, EF::ONE, EF::ONE]),
+        f(EF::ONE, EF::ONE, EF::ONE),
     );
 
     // Set up the domain separator, prover state, and witness for this configuration
-    let (mut proof, mut challenger_rf, witness) = setup_domain_and_commitment(&config, poly);
+    let (mut transcript, witness) = setup_domain_and_commitment(&config, poly);
 
     // Run the first round state initialization (this will trigger sumcheck)
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
-        &mut proof,
-        &mut challenger_rf,
+        &mut transcript,
         statement,
         witness,
     )
@@ -268,7 +237,7 @@ fn test_initial_statement_with_folding_factor_3() {
     assert_eq!(eval_at_point, expected);
 
     // Check that dot product of evaluations and weights matches the final sum
-    let dot_product: EF4 = sumcheck.poly.dot_product();
+    let dot_product: EF = sumcheck.poly.dot_product();
     assert_eq!(dot_product, sumcheck.sum);
 
     // The `folding_randomness` should store values in forward order (X0, X1, X2)
@@ -291,35 +260,29 @@ fn test_zero_poly_multiple_constraints() {
     let num_variables = 3;
 
     // Build a WHIR config with an initial statement, folding factor 1, and no PoW
-    let config = make_test_config(
-        num_variables,
-        InitialPhaseConfig::WithStatementClassic,
-        1,
-        0,
-    );
+    let config = make_test_config(num_variables, InitialPhase::WithStatementClassic, 1, 0);
 
     // Define a zero polynomial: f(X) = 0 for all X
     let poly = EvaluationsList::new(vec![F::ZERO; 1 << num_variables]);
 
     // Generate domain separator, prover state, and Merkle commitment witness for the poly
-    let (mut proof, mut challenger_rf, witness) = setup_domain_and_commitment(&config, poly);
+    let (mut transcript, witness) = setup_domain_and_commitment(&config, poly);
 
     // Create a new statement with multiple constraints
-    let mut statement = EqStatement::<EF4>::initialize(num_variables);
+    let mut statement = EqStatement::<EF>::initialize(num_variables);
 
     // Add one equality constraint per Boolean input: f(x) = 0 for all x ∈ {0,1}³
     for i in 0..1 << num_variables {
         let point = (0..num_variables)
-            .map(|b| EF4::from_u64(((i >> b) & 1) as u64))
+            .map(|b| EF::from_u64(((i >> b) & 1) as u64))
             .collect();
-        statement.add_evaluated_constraint(MultilinearPoint::new(point), EF4::ZERO);
+        statement.add_evaluated_constraint(MultilinearPoint::new(point), EF::ZERO);
     }
 
     // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
-        &mut proof,
-        &mut challenger_rf,
+        &mut transcript,
         statement,
         witness,
     )
@@ -331,12 +294,12 @@ fn test_zero_poly_multiple_constraints() {
 
     for (f, w) in sumcheck.evals().iter().zip(&sumcheck.weights()) {
         // Each evaluation should be 0
-        assert_eq!(*f, EF4::ZERO);
+        assert_eq!(*f, EF::ZERO);
         // Their contribution to the weighted sum should also be 0
-        assert_eq!(*f * *w, EF4::ZERO);
+        assert_eq!(*f * *w, EF::ZERO);
     }
     // Final claimed sum is 0
-    assert_eq!(sumcheck.sum, EF4::ZERO);
+    assert_eq!(sumcheck.sum, EF::ZERO);
 
     // Folding randomness should have length equal to the folding factor (1)
     assert_eq!(sumcheck_randomness.num_variables(), 1);
@@ -365,7 +328,7 @@ fn test_initialize_round_state_with_initial_statement() {
     // - PoW bits enabled.
     let config = make_test_config(
         num_variables,
-        InitialPhaseConfig::WithStatementClassic,
+        InitialPhase::WithStatementClassic,
         1,
         pow_bits,
     );
@@ -393,7 +356,7 @@ fn test_initialize_round_state_with_initial_statement() {
     ]);
 
     // Equivalent function for evaluating the polynomial manually
-    let f = |x0: EF4, x1: EF4, x2: EF4| {
+    let f = |x0: EF, x1: EF, x2: EF| {
         x2 * e2
             + x1 * e3
             + x1 * x2 * e4
@@ -405,21 +368,20 @@ fn test_initialize_round_state_with_initial_statement() {
     };
 
     // Construct a statement with one evaluation constraint at the point (1, 0, 1)
-    let mut statement = EqStatement::<EF4>::initialize(num_variables);
+    let mut statement = EqStatement::<EF>::initialize(num_variables);
     statement.add_evaluated_constraint(
-        MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE]),
-        f(EF4::ONE, EF4::ZERO, EF4::ONE),
+        MultilinearPoint::new(vec![EF::ONE, EF::ZERO, EF::ONE]),
+        f(EF::ONE, EF::ZERO, EF::ONE),
     );
 
     // Set up Fiat-Shamir domain and produce commitment + witness
     // Generate domain separator, prover state, and Merkle commitment witness for the poly
-    let (mut proof, mut challenger_rf, witness) = setup_domain_and_commitment(&config, poly);
+    let (mut transcript, witness) = setup_domain_and_commitment(&config, poly);
 
     // Run the first round initialization
     let state = RoundState::initialize_first_round_state(
         &Prover(&config),
-        &mut proof,
-        &mut challenger_rf,
+        &mut transcript,
         statement,
         witness,
     )
@@ -433,13 +395,13 @@ fn test_initialize_round_state_with_initial_statement() {
     let evals_f = &sumcheck.evals();
     assert_eq!(
         evals_f.evaluate_hypercube_ext::<F>(&MultilinearPoint::new(vec![
-            EF4::from_u64(32636),
-            EF4::from_u64(9876)
+            EF::from_u64(32636),
+            EF::from_u64(9876)
         ])),
         f(
             sumcheck_randomness[0],
-            EF4::from_u64(32636),
-            EF4::from_u64(9876),
+            EF::from_u64(32636),
+            EF::from_u64(9876),
         )
     );
 

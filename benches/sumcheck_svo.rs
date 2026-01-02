@@ -11,13 +11,9 @@ use whir::{
 };
 use whir_p3::{
     self as whir,
-    fiat_shamir::domain_separator::DomainSeparator,
+    fiat_shamir::{domain_separator::DomainSeparator, transcript::FiatShamirWriter},
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    whir::{
-        constraints::Constraint,
-        parameters::InitialPhaseConfig,
-        proof::{InitialPhase, SumcheckData, WhirProof},
-    },
+    whir::{constraints::Constraint, parameters::InitialPhase},
 };
 
 type F = KoalaBear;
@@ -39,7 +35,7 @@ fn create_test_protocol_params_classic(
     let perm = Poseidon16::new_from_rng_128(&mut rng);
 
     ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+        initial_phase: InitialPhase::WithStatementClassic,
         security_level: 32,
         pow_bits: 0,
         rs_domain_initial_reduction_factor: 1,
@@ -95,37 +91,21 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
         let poly = generate_poly(*num_vars);
 
         // Classic benchmark - folding all variables in one round
-        let params_classic =
-            create_test_protocol_params_classic(FoldingFactor::Constant(*num_vars));
         group.bench_with_input(BenchmarkId::new("Classic", *num_vars), &poly, |b, poly| {
             b.iter(|| {
                 // Setup fresh challenger for each iteration
                 let mut challenger = setup_challenger();
                 domsep.observe_domain_separator(&mut challenger);
-
-                // Initialize proof
-                let mut proof =
-                    WhirProof::<F, EF, 8>::from_protocol_parameters(&params_classic, *num_vars);
+                let mut transcript = FiatShamirWriter::init(challenger.clone());
 
                 // Create constraint using challenger directly
                 let statement = generate_statement(&mut challenger, *num_vars, poly, 3);
                 let alpha: EF = challenger.sample_algebra_element();
                 let constraint = Constraint::new_eq_only(alpha, statement);
 
-                // Extract sumcheck data from the initial phase
-                let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
-                    panic!("Expected WithStatement variant");
-                };
-
                 // Fold all variables in one round
-                SumcheckSingle::from_base_evals(
-                    poly,
-                    sumcheck,
-                    &mut challenger,
-                    *num_vars,
-                    0,
-                    &constraint,
-                );
+                SumcheckSingle::from_base_evals(&mut transcript, poly, *num_vars, 0, &constraint)
+                    .unwrap();
             });
         });
 
@@ -135,24 +115,22 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
                 // Setup fresh challenger for each iteration
                 let mut challenger = setup_challenger();
                 domsep.observe_domain_separator(&mut challenger);
+                let mut transcript = FiatShamirWriter::init(challenger.clone());
 
                 // Create constraint using challenger directly
                 let statement = generate_statement(&mut challenger, *num_vars, poly, 1);
                 let alpha: EF = challenger.sample_algebra_element();
                 let constraint = Constraint::new_eq_only(alpha, statement);
 
-                // Create sumcheck data
-                let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
-
                 // Fold all variables using SVO optimization
                 SumcheckSingle::from_base_evals_svo(
+                    &mut transcript,
                     poly,
-                    &mut sumcheck_data,
-                    &mut challenger,
                     *num_vars,
                     0,
                     &constraint,
-                );
+                )
+                .unwrap();
             });
         });
     }

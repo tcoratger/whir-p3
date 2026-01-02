@@ -10,4 +10,6 @@ pub enum FiatShamirError {
     /// Proof-of-work witness fails difficulty requirement.
     #[error("Invalid grinding witness: proof-of-work verification failed")]
     InvalidGrindingWitness,
+    #[error("Invalid element")]
+    ElementIO,
 }

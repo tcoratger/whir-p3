@@ -1,22 +1,61 @@
 //! Sumcheck protocol implementation.
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use alloc::vec::Vec;
+
 use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use crate::{
+    fiat_shamir::{
+        errors::FiatShamirError,
+        transcript::{Challenge, Pow, Writer},
+    },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::{
         product_polynomial::ProductPolynomial,
         sumcheck_single_skip::compute_skipping_sumcheck_polynomial,
     },
-    whir::{
-        constraints::{Constraint, statement::EqStatement},
-        proof::{SumcheckData, SumcheckSkipData},
-    },
+    whir::constraints::{Constraint, statement::EqStatement},
 };
+
+/// Commits polynomial coefficients to the transcript and returns a challenge.
+///
+/// This helper function handles the Fiat-Shamir interaction for a sumcheck round.
+///
+/// # Arguments
+///
+/// * `transcript` - Fiat-Shamir transcript.
+/// * `c0` - Constant coefficient `h(0)`.
+/// * `c2` - Quadratic coefficient.
+/// * `pow_bits` - PoW difficulty (0 to skip grinding).
+///
+/// # Returns
+///
+/// The sampled challenge `r \in EF`.
+pub(crate) fn observe_and_sample<F: Field, EF: ExtensionField<F>, Transcript>(
+    transcript: &mut Transcript,
+    c0: EF,
+    c2: EF,
+    pow_bits: usize,
+) -> Result<EF, FiatShamirError>
+where
+    Transcript: Challenge<EF> + Pow<F> + Writer<EF>,
+{
+    // Absorb coefficients into the transcript.
+    //
+    // Note: We only send (c_0, c_2). The verifier derives c_1 from the sum constraint.
+    transcript.write_many(&[c0, c2])?;
+
+    // Optional proof-of-work to increase prover cost.
+    //
+    // This makes it expensive for a malicious prover to "mine" favorable challenges.
+    transcript.pow(pow_bits)?;
+
+    // Sample the verifier's challenge for this round.
+    Ok(transcript.sample())
+}
 
 /// Implements the single-round sumcheck protocol for verifying a multilinear polynomial evaluation.
 ///
@@ -104,18 +143,17 @@ where
     /// - Initializes internal sumcheck state with weights and expected sum.
     /// - Applies first set of sumcheck rounds
     #[instrument(skip_all)]
-    pub fn from_base_evals<Challenger>(
+    pub fn from_base_evals<Transcript>(
+        transcript: &mut Transcript,
         evals: &EvaluationsList<F>,
-        sumcheck: &mut SumcheckData<EF, F>,
-        challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
         constraint: &Constraint<F, EF>,
-    ) -> (Self, MultilinearPoint<EF>)
+    ) -> Result<(Self, MultilinearPoint<EF>), FiatShamirError>
     where
         F: TwoAdicField,
         EF: TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Transcript: Challenge<EF> + Pow<F> + Writer<EF>,
     {
         assert_ne!(folding_factor, 0);
 
@@ -129,16 +167,13 @@ where
             "number of rounds must be less than or equal to instance size"
         );
 
-        let (mut poly, r, mut sum) =
-            initial_round(evals, sumcheck, challenger, constraint, pow_bits);
+        let (mut poly, r, mut sum) = initial_round(evals, transcript, constraint, pow_bits)?;
 
-        let rs = core::iter::once(r)
-            .chain(
-                (1..folding_factor).map(|_| poly.round(sumcheck, challenger, &mut sum, pow_bits)),
-            )
-            .collect();
+        let rs = core::iter::once(Ok(r))
+            .chain((1..folding_factor).map(|_| poly.round(transcript, &mut sum, pow_bits)))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        (Self { poly, sum }, MultilinearPoint::new(rs))
+        Ok((Self { poly, sum }, MultilinearPoint::new(rs)))
     }
 
     /// Constructs a new `SumcheckSingle` instance from evaluations in the base field.
@@ -150,19 +185,18 @@ where
     /// - Applies first set of sumcheck rounds with univariate skip optimization.
     #[instrument(skip_all)]
     #[allow(clippy::too_many_arguments)]
-    pub fn with_skip<Challenger>(
+    pub fn with_skip<Transcript>(
         evals: &EvaluationsList<F>,
-        skip_data: &mut SumcheckSkipData<EF, F>,
-        challenger: &mut Challenger,
+        transcript: &mut Transcript,
         folding_factor: usize,
         pow_bits: usize,
         k_skip: usize,
         constraint: &Constraint<F, EF>,
-    ) -> (Self, MultilinearPoint<EF>)
+    ) -> Result<(Self, MultilinearPoint<EF>), FiatShamirError>
     where
         F: TwoAdicField,
         EF: TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Transcript: Challenge<EF> + Pow<F> + Writer<EF>,
     {
         assert_ne!(folding_factor, 0);
         assert!(k_skip > 1);
@@ -188,18 +222,13 @@ where
         debug_assert_eq!(sumcheck_poly.iter().step_by(2).copied().sum::<EF>(), sum);
 
         // Fiat–Shamir: commit to h by absorbing its M evaluations into the transcript.
-        challenger.observe_algebra_slice(&sumcheck_poly);
-
-        // Store skip evaluations
-        skip_data.evaluations.extend_from_slice(&sumcheck_poly);
+        transcript.write_many(&sumcheck_poly)?;
 
         // Proof-of-work challenge to delay prover (only if pow_bits > 0).
-        if pow_bits > 0 {
-            skip_data.pow = challenger.grind(pow_bits);
-        }
+        transcript.pow(pow_bits)?;
 
         // Receive the verifier challenge for this entire collapsed round.
-        let r: EF = challenger.sample_algebra_element();
+        let r: EF = transcript.sample();
 
         // Interpolate the LDE matrices at the folding randomness to get the new "folded" polynomial state.
         let new_p = EvaluationsList::new(interpolate_subgroup(&f_mat, r));
@@ -211,14 +240,11 @@ where
         let mut sum = poly.dot_product();
 
         // Apply rest of sumcheck rounds
-        let rs = core::iter::once(r)
-            .chain(
-                (k_skip..folding_factor)
-                    .map(|_| poly.round(&mut skip_data.sumcheck, challenger, &mut sum, pow_bits)),
-            )
-            .collect();
+        let rs = core::iter::once(Ok(r))
+            .chain((k_skip..folding_factor).map(|_| poly.round(transcript, &mut sum, pow_bits)))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        (Self { poly, sum }, MultilinearPoint::new(rs))
+        Ok((Self { poly, sum }, MultilinearPoint::new(rs)))
     }
 
     /// Returns the number of variables in the polynomial.
@@ -274,18 +300,17 @@ where
     /// - If `folding_factor > num_variables()`
     /// - If univariate skip is attempted with evaluations in the extension field.
     #[instrument(skip_all)]
-    pub fn compute_sumcheck_polynomials<Challenger>(
+    pub fn compute_sumcheck_polynomials<Transcript>(
         &mut self,
-        sumcheck_data: &mut SumcheckData<EF, F>,
-        challenger: &mut Challenger,
+        transcript: &mut Transcript,
         folding_factor: usize,
         pow_bits: usize,
         constraint: Option<Constraint<F, EF>>,
-    ) -> MultilinearPoint<EF>
+    ) -> Result<MultilinearPoint<EF>, FiatShamirError>
     where
         F: TwoAdicField,
         EF: TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Transcript: Challenge<EF> + Pow<F> + Writer<EF>,
     {
         if let Some(constraint) = constraint {
             self.poly.combine(&mut self.sum, &constraint);
@@ -294,14 +319,11 @@ where
         // Standard round-by-round folding
         // Proceed with one-variable-per-round folding for remaining variables.
         let res = (0..folding_factor)
-            .map(|_| {
-                self.poly
-                    .round(sumcheck_data, challenger, &mut self.sum, pow_bits)
-            })
-            .collect();
+            .map(|_| self.poly.round(transcript, &mut self.sum, pow_bits))
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Return the full vector of verifier challenges as a multilinear point.
-        MultilinearPoint::new(res)
+        Ok(MultilinearPoint::new(res))
     }
 }
 
@@ -326,15 +348,14 @@ where
 /// * The verifier's challenge `r` as an `EF` element.
 /// * [`ProductPolynomial`] with new compressed polynomial evaluations and weights in the extension field.
 /// * Updated sum.
-fn initial_round<F: Field, EF: ExtensionField<F>, Challenger>(
+fn initial_round<F: Field, EF: ExtensionField<F>, Transcript>(
     evals: &EvaluationsList<F>,
-    sumcheck_data: &mut SumcheckData<EF, F>,
-    challenger: &mut Challenger,
+    transcript: &mut Transcript,
     constraint: &Constraint<F, EF>,
     pow_bits: usize,
-) -> (ProductPolynomial<F, EF>, EF, EF)
+) -> Result<(ProductPolynomial<F, EF>, EF, EF), FiatShamirError>
 where
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Transcript: Challenge<EF> + Pow<F> + Writer<EF>,
 {
     let num_vars = evals.num_variables();
 
@@ -363,7 +384,7 @@ where
         let c2 = EF::ExtensionPacking::to_ext_iter([c2]).sum();
 
         // Commit to transcript, perform PoW, and receive challenge.
-        let r = sumcheck_data.observe_and_sample(challenger, c0, c2, pow_bits);
+        let r = observe_and_sample(transcript, c0, c2, pow_bits)?;
 
         // Fold both polynomials and update the sum.
         weights.compress(r);
@@ -372,7 +393,7 @@ where
 
         let poly = ProductPolynomial::<F, EF>::new_packed(evals, weights);
         debug_assert_eq!(poly.dot_product(), sum);
-        (poly, r, sum)
+        Ok((poly, r, sum))
     } else {
         // Scalar path: Direct computation for small polynomials.
         let (mut weights, mut sum) = constraint.combine_new();
@@ -381,7 +402,7 @@ where
         let (c0, c2) = evals.sumcheck_coefficients(&weights);
 
         // Commit to transcript, perform PoW, and receive challenge.
-        let r = sumcheck_data.observe_and_sample(challenger, c0, c2, pow_bits);
+        let r = observe_and_sample(transcript, c0, c2, pow_bits)?;
 
         // Fold both polynomials and update the sum.
         weights.compress(r);
@@ -390,6 +411,6 @@ where
 
         let poly = ProductPolynomial::<F, EF>::new_small(evals, weights);
         debug_assert_eq!(poly.dot_product(), sum);
-        (poly, r, sum)
+        Ok((poly, r, sum))
     }
 }

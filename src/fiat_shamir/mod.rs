@@ -3,3 +3,4 @@ pub mod errors;
 pub mod pattern;
 #[cfg(test)]
 mod tests;
+pub mod transcript;

@@ -6,14 +6,13 @@ use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use whir_p3::{
-    fiat_shamir::domain_separator::DomainSeparator,
+    fiat_shamir::{domain_separator::DomainSeparator, transcript::FiatShamirWriter},
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::writer::CommitmentWriter,
         constraints::statement::EqStatement,
-        parameters::{InitialPhaseConfig, WhirConfig},
-        proof::WhirProof,
+        parameters::{InitialPhase, WhirConfig},
         prover::Prover,
     },
 };
@@ -30,9 +29,7 @@ type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 
 #[allow(clippy::type_complexity)]
 fn prepare_inputs() -> (
-    WhirConfig<EF, F, MerkleHash, MerkleCompress, MyChallenger>,
-    ProtocolParameters<MerkleHash, MerkleCompress>,
-    usize,
+    WhirConfig<F, EF, MerkleHash, MerkleCompress>,
     Radix2DFTSmallBatch<F>,
     EvaluationsList<F>,
     EqStatement<EF>,
@@ -74,7 +71,7 @@ fn prepare_inputs() -> (
 
     // Assemble the protocol-level parameters.
     let whir_params = ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+        initial_phase: InitialPhase::WithStatementClassic,
         security_level,
         pow_bits,
         folding_factor,
@@ -86,7 +83,7 @@ fn prepare_inputs() -> (
     };
 
     // Combine multivariate and protocol parameters into a unified WHIR config.
-    let params = WhirConfig::new(num_variables, whir_params.clone());
+    let params = WhirConfig::new(num_variables, whir_params);
 
     // Sample random multilinear polynomial
 
@@ -114,8 +111,8 @@ fn prepare_inputs() -> (
     let mut domainsep = DomainSeparator::new(vec![]);
 
     // Commit protocol parameters and proof type to the domain separator.
-    domainsep.commit_statement::<_, _, _, 32>(&params);
-    domainsep.add_whir_proof::<_, _, _, 32>(&params);
+    domainsep.commit_statement::<_, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, 32>(&params);
 
     // Instantiate the Fiat-Shamir challenger from an empty seed and Keccak.
     let challenger = MyChallenger::new(poseidon16);
@@ -126,31 +123,20 @@ fn prepare_inputs() -> (
     let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
 
     // Return all preprocessed components needed to run commit/prove/verify benchmarks.
-    (
-        params,
-        whir_params,
-        num_variables,
-        dft,
-        polynomial,
-        statement,
-        challenger,
-        domainsep,
-    )
+    (params, dft, polynomial, statement, challenger, domainsep)
 }
 
 fn benchmark_commit_and_prove(c: &mut Criterion) {
-    let (params, whir_params, num_variables, dft, polynomial, statement, challenger, domainsep) =
-        prepare_inputs();
+    let (params, dft, polynomial, statement, challenger, domainsep) = prepare_inputs();
 
     c.bench_function("commit", |b| {
         b.iter(|| {
             let mut challenger_clone = challenger.clone();
             domainsep.observe_domain_separator(&mut challenger_clone);
-            let mut proof =
-                WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
+            let mut transcript = FiatShamirWriter::init(challenger_clone);
             let committer = CommitmentWriter::new(&params);
             let _witness = committer
-                .commit(&dft, &mut proof, &mut challenger_clone, polynomial.clone())
+                .commit(&dft, &mut transcript, polynomial.clone())
                 .unwrap();
         });
     });
@@ -159,22 +145,15 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
         b.iter(|| {
             let mut challenger_clone = challenger.clone();
             domainsep.observe_domain_separator(&mut challenger_clone);
-            let mut proof =
-                WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
+            let mut transcript = FiatShamirWriter::init(challenger_clone);
             let committer = CommitmentWriter::new(&params);
             let witness = committer
-                .commit(&dft, &mut proof, &mut challenger_clone, polynomial.clone())
+                .commit(&dft, &mut transcript, polynomial.clone())
                 .unwrap();
 
             let prover = Prover(&params);
             prover
-                .prove(
-                    &dft,
-                    &mut proof,
-                    &mut challenger_clone,
-                    statement.clone(),
-                    witness,
-                )
+                .prove(&dft, &mut transcript, statement.clone(), witness)
                 .unwrap();
         });
     });
