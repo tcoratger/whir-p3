@@ -376,6 +376,7 @@ where
 
 #[cfg(test)]
 mod test {
+
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
     use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
@@ -391,13 +392,6 @@ mod test {
 
     #[test]
     fn test_serialization() {
-        use rand::{
-            Rng,
-            distr::{Distribution, StandardUniform},
-        };
-
-        let n = 1000;
-        #[allow(clippy::items_after_statements)]
         fn run_test<F: SerializedField>(rng: &mut impl Rng, n: usize)
         where
             StandardUniform: Distribution<F>,
@@ -416,6 +410,7 @@ mod test {
             }
         }
 
+        let n = 1000;
         let mut rng = SmallRng::seed_from_u64(0);
         run_test::<Goldilocks>(&mut rng, n);
         run_test::<BinomialExtensionField<Goldilocks, 2>>(&mut rng, n);
@@ -441,13 +436,47 @@ mod test {
         }
     }
 
-    fn writer<W, F: Field + SerializedField, Ext: ExtensionField<F> + SerializedField>(
+    impl<F: SerializedField, Challenger: GrindingChallenger> ChallengeBits for TestFs<F, Challenger> {
+        fn sample(&mut self, bits: usize) -> usize {
+            match self {
+                Self::Writer(w) => w.sample(bits),
+                Self::Reader(r) => r.sample(bits),
+            }
+        }
+    }
+
+    impl<F: SerializedField, Challenger: GrindingChallenger<Witness = F> + FieldChallenger<F>>
+        Pow<F> for TestFs<F, Challenger>
+    {
+        fn pow(&mut self, bits: usize) -> Result<(), Error> {
+            match self {
+                Self::Writer(w) => w.pow(bits),
+                Self::Reader(r) => r.pow(bits),
+            }
+        }
+    }
+
+    impl<F: SerializedField, Challenger: GrindingChallenger<Witness = F> + FieldChallenger<F>>
+        TestFs<F, Challenger>
+    {
+        fn finalize(self) -> Vec<u8> {
+            match self {
+                Self::Writer(w) => w.finalize(),
+                Self::Reader(_) => unreachable!(),
+            }
+        }
+    }
+
+    fn test_fs<
+        F: Field + SerializedField,
+        Ext: ExtensionField<F> + SerializedField,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    >(
         seed: u64,
-        w: &mut W,
+        fs: &mut TestFs<F, Challenger>,
     ) -> (Vec<F>, Vec<Ext>, Vec<Ext>, Vec<usize>)
     where
         StandardUniform: Distribution<F> + Distribution<Ext>,
-        W: Writer<F> + Writer<Ext> + Challenge<F> + Challenge<Ext> + ChallengeBits + Pow<F>,
     {
         let mut rng_range = SmallRng::seed_from_u64(seed);
         let mut rng_number = SmallRng::seed_from_u64(seed + 1);
@@ -459,86 +488,56 @@ mod test {
 
         (0..100).for_each(|_| {
             let n_el_draw = rng_range.random_range(0..10);
+            let chs: Vec<Ext> =
+                <TestFs<F, Challenger> as Challenge<Ext>>::sample_many(fs, n_el_draw);
             let n_idx_draw = rng_range.random_range(0..10);
             let idx_bits = rng_range.random_range(0..4);
-            let n_write = rng_range.random_range(0..10);
-            let n_write_ext = rng_range.random_range(0..10);
-            let pow_bits = rng_range.random_range(0..4);
-
-            let chs: Vec<Ext> = <W as Challenge<Ext>>::sample_many(w, n_el_draw);
-            let idx = <W as ChallengeBits>::sample_many(w, n_idx_draw, idx_bits);
-            let els: Vec<F> = (0..n_write).map(|_| rng_number.random()).collect();
-            let els_ext: Vec<Ext> = (0..n_write_ext).map(|_| rng_number.random()).collect();
-            w.write_many(&els).unwrap();
-            w.write_many(&els_ext).unwrap();
-
+            let idx =
+                <TestFs<F, Challenger> as ChallengeBits>::sample_many(fs, n_idx_draw, idx_bits);
             chs_w.extend(chs);
             idx_w.extend(idx);
-            els_w.extend(els);
-            els_ext_w.extend(els_ext);
 
-            w.pow(pow_bits).unwrap();
+            let n_base = rng_range.random_range(0..10);
+            let n_ext = rng_range.random_range(0..10);
+            match fs {
+                TestFs::Writer(w) => {
+                    let els: Vec<F> = (0..n_base).map(|_| rng_number.random()).collect();
+                    let els_ext: Vec<Ext> = (0..n_ext).map(|_| rng_number.random()).collect();
+                    w.write_many(&els).unwrap();
+                    w.write_many(&els_ext).unwrap();
+                    els_w.extend(els);
+                    els_ext_w.extend(els_ext);
+                }
+                TestFs::Reader(r) => {
+                    let els: Vec<F> = r.read_many(n_base).unwrap();
+                    let els_ext: Vec<Ext> = r.read_many(n_ext).unwrap();
+                    els_w.extend(els);
+                    els_ext_w.extend(els_ext);
+                }
+            }
+            let pow_bits = rng_range.random_range(0..4);
+            fs.pow(pow_bits).unwrap();
 
-            let n_write = rng_range.random_range(0..10);
-            let n_write_ext = rng_range.random_range(0..10);
-
-            let els: Vec<F> = (0..n_write).map(|_| rng_number.random()).collect();
-            let els_ext: Vec<Ext> = (0..n_write_ext).map(|_| rng_number.random()).collect();
-
-            w.write_hint_many(&els).unwrap();
-            w.write_hint_many(&els_ext).unwrap();
-
-            els_w.extend(els);
-            els_ext_w.extend(els_ext);
+            let n_base = rng_range.random_range(0..10);
+            let n_ext = rng_range.random_range(0..10);
+            match fs {
+                TestFs::Writer(w) => {
+                    let els: Vec<F> = (0..n_base).map(|_| rng_number.random()).collect();
+                    let els_ext: Vec<Ext> = (0..n_ext).map(|_| rng_number.random()).collect();
+                    w.write_hint_many(&els).unwrap();
+                    w.write_hint_many(&els_ext).unwrap();
+                    els_w.extend(els);
+                    els_ext_w.extend(els_ext);
+                }
+                TestFs::Reader(r) => {
+                    let els: Vec<F> = r.read_hint_many(n_base).unwrap();
+                    let els_ext: Vec<Ext> = r.read_hint_many(n_ext).unwrap();
+                    els_w.extend(els);
+                    els_ext_w.extend(els_ext);
+                }
+            }
         });
         (els_w, els_ext_w, chs_w, idx_w)
-    }
-
-    #[cfg(test)]
-    fn reader<R, F: Field + SerializedField, Ext: ExtensionField<F> + SerializedField>(
-        seed: u64,
-        r: &mut R,
-    ) -> (Vec<F>, Vec<Ext>, Vec<Ext>, Vec<usize>)
-    where
-        StandardUniform: Distribution<F> + Distribution<Ext>,
-        R: Reader<F> + Reader<Ext> + Challenge<Ext> + Challenge<F> + ChallengeBits + Pow<F>,
-    {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let mut els_r = vec![];
-        let mut els_ext_r = vec![];
-        let mut chs_r = vec![];
-        let mut idx_r = vec![];
-
-        (0..100).for_each(|_| {
-            let n_el_draw = rng.random_range(0..10);
-            let n_idx_draw = rng.random_range(0..10);
-            let idx_bits = rng.random_range(0..4);
-            let n_read = rng.random_range(0..10);
-            let n_read_ext = rng.random_range(0..10);
-            let pow_bits = rng.random_range(0..4);
-
-            let chs: Vec<Ext> = <R as Challenge<Ext>>::sample_many(r, n_el_draw);
-            let idx: Vec<usize> = <R as ChallengeBits>::sample_many(r, n_idx_draw, idx_bits);
-            let els: Vec<F> = r.read_many(n_read).unwrap();
-            let els_ext: Vec<Ext> = r.read_many(n_read_ext).unwrap();
-
-            els_r.extend(els);
-            els_ext_r.extend(els_ext);
-            chs_r.extend(chs);
-            idx_r.extend(idx);
-
-            r.pow(pow_bits).unwrap();
-
-            let n_read = rng.random_range(0..10);
-            let n_read_ext = rng.random_range(0..10);
-            let els: Vec<F> = r.read_hint_many(n_read).unwrap();
-            let els_ext: Vec<Ext> = r.read_hint_many(n_read_ext).unwrap();
-
-            els_r.extend(els);
-            els_ext_r.extend(els_ext);
-        });
-
-        (els_r, els_ext_r, chs_r, idx_r)
     }
 
     #[test]
@@ -552,18 +551,29 @@ mod test {
         ) where
             StandardUniform: Distribution<F> + Distribution<EF>,
         {
-            for i in 0..10 {
-                let mut w = FiatShamirWriter::<F, _>::init(challenger.clone());
-                let (els0, els_ext0, chs0, idx0) = writer::<_, F, EF>(i, &mut w);
-                let checkpoint0 = <FiatShamirWriter<_, _> as Challenge<EF>>::sample(&mut w);
+            for seed in 0..10 {
+                let w = FiatShamirWriter::<F, _>::init(challenger.clone());
+                let mut w = TestFs::Writer(w);
+                let (els0, els_ext0, chs0, idx0) = test_fs::<F, EF, _>(seed, &mut w);
+                let checkpoint_writer: EF =
+                    <TestFs<F, Challenger> as Challenge<EF>>::sample(&mut w);
                 let proof = w.finalize();
 
-                let mut r = FiatShamirReader::<F, _>::init(proof, challenger.clone());
-                let (els1, els_ext1, chs1, idx1) = reader::<_, F, EF>(i, &mut r);
-                let checkpoint1 = <FiatShamirReader<_, _> as Challenge<EF>>::sample(&mut r);
+                let r = FiatShamirReader::<F, _>::init(proof, challenger.clone());
+                let mut r = TestFs::Reader(r);
+                let (els1, els_ext1, chs1, idx1) = test_fs::<F, EF, _>(seed, &mut r);
+                let checkpoint_reader: EF =
+                    <TestFs<F, Challenger> as Challenge<EF>>::sample(&mut r);
+                assert_eq!(checkpoint_writer, checkpoint_reader);
 
-                assert_eq!(checkpoint0, checkpoint1);
-                assert!(<FiatShamirReader<F, _> as Reader<F>>::read(&mut r).is_err());
+                match &mut r {
+                    TestFs::Reader(r) => {
+                        assert_eq!(r.buffer.pos, r.buffer.data.len());
+                        assert!(<FiatShamirReader<F, _> as Reader<F>>::read(r).is_err());
+                        assert!(<FiatShamirReader<F, _> as Reader<F>>::read_many(r, 2).is_err());
+                    }
+                    TestFs::Writer(_) => unreachable!(),
+                }
 
                 assert_eq!(els0, els1);
                 assert_eq!(els_ext0, els_ext1);
