@@ -1009,41 +1009,40 @@ where
         // This avoids scanning the table N times (once per round).
         (0..(1 << l))
             .into_par_iter()
-            .fold(
-                || SvoAccumulators::<EF, N>::new(),
-                |mut accs, index| {
-                    // STEP 1: Compute W(x) · p(x)
-                    //
-                    // This is M_BE (base × extension) multiplication.
-                    // Key benefit: cheaper than M_EE after p gets folded.
-                    let p_val = poly_evals[index];
-                    let w_val = weight_evals[index];
-                    let contribution = w_val * p_val;
+            .map(|index| {
+                let mut accs = SvoAccumulators::<EF, N>::new();
 
-                    // STEP 2: Distribute to each round's accumulator
-                    //
-                    // For round r, extract the top (r+1) bits as "prefix".
-                    //
-                    // Example: l=4, index=0b1011 (binary representation)
-                    //
-                    //   index = [1] [0] [1] [1]
-                    //            ↑   ↑   ↑   ↑
-                    //           x_0 x_1 x_2 x_3
-                    //
-                    //   Round 0: prefix = 1     (1 bit)  → A_0[1]
-                    //   Round 1: prefix = 10    (2 bits) → A_1[2]
-                    //   Round 2: prefix = 101   (3 bits) → A_2[5]
-                    for r in 0..N {
-                        let prefix_bits = r + 1;
-                        let shift = l - prefix_bits;
-                        let prefix = index >> shift;
-                        accs.accumulate(r, prefix, contribution);
-                    }
+                // STEP 1: Compute W(x) · p(x)
+                //
+                // This is M_BE (base × extension) multiplication.
+                // Key benefit: cheaper than M_EE after p gets folded.
+                let p_val = poly_evals[index];
+                let w_val = weight_evals[index];
+                let contribution = w_val * p_val;
 
-                    accs
-                },
-            )
-            .reduce(|| SvoAccumulators::new(), |a, b| a + b)
+                // STEP 2: Distribute to each round's accumulator
+                //
+                // For round r, extract the top (r+1) bits as "prefix".
+                //
+                // Example: l=4, index=0b1011 (binary representation)
+                //
+                //   index = [1] [0] [1] [1]
+                //            ↑   ↑   ↑   ↑
+                //           x_0 x_1 x_2 x_3
+                //
+                //   Round 0: prefix = 1     (1 bit)  → A_0[1]
+                //   Round 1: prefix = 10    (2 bits) → A_1[2]
+                //   Round 2: prefix = 101   (3 bits) → A_2[5]
+                for r in 0..N {
+                    let prefix_bits = r + 1;
+                    let shift = l - prefix_bits;
+                    let prefix = index >> shift;
+                    accs.accumulate(r, prefix, contribution);
+                }
+
+                accs
+            })
+            .par_fold_reduce(SvoAccumulators::new, |a, b| a + b, |a, b| a + b)
     }
 
     /// Computes c_2 accumulators for batched SVO sumcheck.
@@ -1145,76 +1144,75 @@ where
         // This avoids double-counting since each (lo, hi) pair appears once.
         (0..(1 << l))
             .into_par_iter()
-            .fold(
-                || SvoAccumulators::<EF, N>::new(),
-                |mut accs, index| {
-                    for r in 0..N {
-                        // STEP 1: Locate the current variable x_r
-                        //
-                        // Round r processes variable x_r.
-                        // In the index bits, x_r sits at position (l-r-1).
-                        //
-                        // Example with l=4:
-                        //
-                        //   index bits: [x_0][x_1][x_2][x_3]
-                        //   positions:    3    2    1    0
-                        //
-                        //   Round 0: x_0 at position 3 (MSB)
-                        //   Round 1: x_1 at position 2
-                        //   Round 2: x_2 at position 1
-                        let current_var_position = l - r - 1;
+            .map(|index| {
+                let mut accs = SvoAccumulators::<EF, N>::new();
 
-                        // STEP 2: Only process "lo" indices (x_r = 0)
+                for r in 0..N {
+                    // STEP 1: Locate the current variable x_r
+                    //
+                    // Round r processes variable x_r.
+                    // In the index bits, x_r sits at position (l-r-1).
+                    //
+                    // Example with l=4:
+                    //
+                    //   index bits: [x_0][x_1][x_2][x_3]
+                    //   positions:    3    2    1    0
+                    //
+                    //   Round 0: x_0 at position 3 (MSB)
+                    //   Round 1: x_1 at position 2
+                    //   Round 2: x_2 at position 1
+                    let current_var_position = l - r - 1;
+
+                    // STEP 2: Only process "lo" indices (x_r = 0)
+                    //
+                    // Check if bit at current_var_position is 0.
+                    // If so, this is the "lo" half of a (lo, hi) pair.
+                    if (index >> current_var_position) & 1 == 0 {
+                        // STEP 3: Compute the "hi" index
                         //
-                        // Check if bit at current_var_position is 0.
-                        // If so, this is the "lo" half of a (lo, hi) pair.
-                        if (index >> current_var_position) & 1 == 0 {
-                            // STEP 3: Compute the "hi" index
-                            //
-                            // Flip bit at current_var_position from 0 to 1.
-                            //
-                            // Example: l=4, r=1, index=0b0001
-                            //   current_var_position = 2
-                            //   hi_index = 0b0001 | 0b0100 = 0b0101
-                            let hi_index = index | (1 << current_var_position);
+                        // Flip bit at current_var_position from 0 to 1.
+                        //
+                        // Example: l=4, r=1, index=0b0001
+                        //   current_var_position = 2
+                        //   hi_index = 0b0001 | 0b0100 = 0b0101
+                        let hi_index = index | (1 << current_var_position);
 
-                            // STEP 4: Compute deltas
-                            //
-                            // Δp = p(hi) - p(lo)
-                            // ΔW = W(hi) - W(lo)
-                            //
-                            // These measure the change when x_r: 0 → 1.
-                            let p_hi = poly_evals[hi_index];
-                            let p_lo = poly_evals[index];
-                            let delta_p = p_hi - p_lo;
-                            let delta_w = weight_evals[hi_index] - weight_evals[index];
+                        // STEP 4: Compute deltas
+                        //
+                        // Δp = p(hi) - p(lo)
+                        // ΔW = W(hi) - W(lo)
+                        //
+                        // These measure the change when x_r: 0 → 1.
+                        let p_hi = poly_evals[hi_index];
+                        let p_lo = poly_evals[index];
+                        let delta_p = p_hi - p_lo;
+                        let delta_w = weight_evals[hi_index] - weight_evals[index];
 
-                            // STEP 5: Compute c_2 contribution
-                            //
-                            // c_2 contribution = ΔW · Δp
-                            // This is M_BE multiplication (base × extension).
-                            let contribution = delta_w * delta_p;
+                        // STEP 5: Compute c_2 contribution
+                        //
+                        // c_2 contribution = ΔW · Δp
+                        // This is M_BE multiplication (base × extension).
+                        let contribution = delta_w * delta_p;
 
-                            // STEP 6: Extract prefix and accumulate
-                            //
-                            // Prefix = the r bits ABOVE the current variable.
-                            //
-                            // Example: l=4, r=1, index=0b0010
-                            //
-                            //   index = [0]  [0]  [1]  [0]
-                            //            ↑    ↑
-                            //         prefix x_1
-                            //
-                            //   prefix = 0b0010 >> 3 = 0b0  → C2_1[0]
-                            let prefix = index >> (current_var_position + 1);
-                            accs.accumulate(r, prefix, contribution);
-                        }
+                        // STEP 6: Extract prefix and accumulate
+                        //
+                        // Prefix = the r bits ABOVE the current variable.
+                        //
+                        // Example: l=4, r=1, index=0b0010
+                        //
+                        //   index = [0]  [0]  [1]  [0]
+                        //            ↑    ↑
+                        //         prefix x_1
+                        //
+                        //   prefix = 0b0010 >> 3 = 0b0  → C2_1[0]
+                        let prefix = index >> (current_var_position + 1);
+                        accs.accumulate(r, prefix, contribution);
                     }
+                }
 
-                    accs
-                },
-            )
-            .reduce(|| SvoAccumulators::new(), |a, b| a + b)
+                accs
+            })
+            .par_fold_reduce(SvoAccumulators::new, |a, b| a + b, |a, b| a + b)
     }
 }
 
