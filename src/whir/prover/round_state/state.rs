@@ -135,6 +135,7 @@ where
     ///
     /// Returns the complete `RoundState` ready for the first WHIR folding round.
     #[instrument(skip_all)]
+    #[allow(clippy::too_many_lines)]
     pub fn initialize_first_round_state<MyChallenger, C, Challenger>(
         prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
         proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,

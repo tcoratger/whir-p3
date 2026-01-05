@@ -154,8 +154,7 @@ where
         assert_ne!(folding_factor, 0);
         assert!(
             folding_factor >= NUM_SVO_ROUNDS,
-            "folding factor must be at least {} for batched SVO",
-            NUM_SVO_ROUNDS
+            "folding factor must be at least {NUM_SVO_ROUNDS} for batched SVO"
         );
 
         let mut challenges = Vec::with_capacity(folding_factor);
