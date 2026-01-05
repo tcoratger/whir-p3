@@ -371,6 +371,13 @@ where
 
 /// Algorithm 5. Page 18.
 /// Compute the remaining sumcheck rounds, from round l0 + 1 to round l.
+///
+/// # Arguments
+///
+/// * `folding_factor` - Total number of sumcheck rounds to perform (including SVO rounds).
+///   This limits the loop to run exactly `folding_factor - start_round` iterations,
+///   regardless of `eq_poly.num_variables()`.
+#[allow(clippy::too_many_arguments)]
 pub fn algorithm_5<Challenger, F, EF>(
     sumcheck_data: &mut SumcheckData<EF, F>,
     challenger: &mut Challenger,
@@ -379,18 +386,20 @@ pub fn algorithm_5<Challenger, F, EF>(
     challenges: &mut Vec<EF>,
     sum: &mut EF,
     pow_bits: usize,
+    folding_factor: usize,
 ) where
     F: Field,
     EF: ExtensionField<F> + Send + Sync,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
-    let num_vars = eq_poly.num_variables();
     // Current position in the sumcheck
     let start_round = eq_poly.bound_count();
-    challenges.reserve(num_vars - start_round);
+    challenges.reserve(folding_factor - start_round);
 
-    // Main loop: compute rounds from start_round to num_vars-1
-    for i in start_round..num_vars {
+    // Main loop: compute rounds from start_round to folding_factor-1
+    // Note: we use folding_factor instead of eq_poly.num_variables() to correctly
+    // handle cases where the polynomial has more variables than the sumcheck rounds.
+    for i in start_round..folding_factor {
         let round = i + 1;
 
         // Get precomputed tables from unified struct
@@ -428,6 +437,128 @@ pub fn algorithm_5<Challenger, F, EF>(
         let eval_1 = *sum - s_0;
         *sum = s_inf * r_i.square() + (eval_1 - s_0 - s_inf) * r_i + s_0;
     }
+}
+
+/// Batched SVO first rounds for multiple equality constraints.
+///
+/// **Important**: Only round 1 uses SVO accumulators. Rounds 2+ use standard sumcheck
+/// on the folded polynomials because the SVO accumulator approach doesn't correctly
+/// handle the cross-terms that arise after folding with challenges.
+///
+/// # Why only round 1?
+///
+/// For round 1, the accumulators correctly compute:
+/// - `c_0 = Σ_suffix W(0, suffix) * p(0, suffix)`
+///
+/// But for round 2 after folding with challenge `r_1`, we need:
+/// - `c_0 = Σ_suffix W'(0, suffix) * p'(0, suffix)`
+///
+/// where `W' = (1-r_1)*W(0,...) + r_1*W(1,...)` and `p' = (1-r_1)*p(0,...) + r_1*p(1,...)`.
+///
+/// The product `W' * p'` involves cross terms like `W(0,...)*p(1,...)` that are NOT
+/// captured by the pre-computed accumulators `A[prefix] = Σ W(prefix,...) * p(prefix,...)`.
+///
+/// # Algorithm
+///
+/// 1. Compute SVO accumulators for round 1 only
+/// 2. Use accumulators to compute c_0 and c_2 for round 1
+/// 3. After round 1, fold both W and p with the first challenge
+/// 4. Use standard sumcheck (sumcheck_coefficients) for rounds 2-3
+///
+/// # Returns
+///
+/// A tuple `(folded_evals, folded_weights)` containing the polynomials after all
+/// NUM_SVO_ROUNDS have been processed. These can be used for subsequent rounds.
+#[allow(clippy::too_many_arguments)]
+pub fn svo_first_rounds_batched<Challenger, F: Field, EF: ExtensionField<F>>(
+    sumcheck_data: &mut SumcheckData<EF, F>,
+    challenger: &mut Challenger,
+    poly: &EvaluationsList<F>,
+    weights: &EvaluationsList<EF>,
+    challenges: &mut Vec<EF>,
+    sum: &mut EF,
+    pow_bits: usize,
+) -> (EvaluationsList<EF>, EvaluationsList<EF>)
+where
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+{
+    // Compute accumulators for round 1 only
+    //
+    // - We only use 1 round's worth of accumulators for round 1.
+    // - Rounds 2-3 will use standard sumcheck after folding.
+    let c0_accumulators: SvoAccumulators<EF, 1> =
+        poly.compute_svo_accumulators_with_weight(weights);
+    let c2_accumulators: SvoAccumulators<EF, 1> =
+        poly.compute_svo_c2_accumulators_with_weight(weights);
+
+    // Round 1
+    //
+    // For round 1, no prefix, so accumulators give c_0 and c_2 directly.
+    // A_0[u] where u ∈ {0, 1} gives the sums for X_0 = 0 and X_0 = 1.
+
+    let c0_round_1 = c0_accumulators.at_round(0);
+    let c2_round_1 = c2_accumulators.at_round(0);
+
+    // c_0 = A[0] (sum when current variable = 0)
+    let c_0 = c0_round_1[0];
+    // c_2 = C2[0] (coefficient of X^2)
+    let c_2 = c2_round_1[0];
+
+    sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
+    challenger.observe_algebra_slice(&[c_0, c_2]);
+
+    if pow_bits > 0 {
+        sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
+    }
+
+    let r_1: EF = challenger.sample_algebra_element();
+    challenges.push(r_1);
+
+    // Update sum: h(r) = c_0 + c_1*r + c_2*r^2 where c_1 = sum - 2*c_0 - c_2
+    let eval_1 = *sum - c_0;
+    *sum = c_2 * r_1.square() + (eval_1 - c_0 - c_2) * r_1 + c_0;
+
+    // Fold after Round 1
+    //
+    // After round 1, fold both p and W with challenge r_1.
+    // This correctly computes:
+    //   p'(x_1, ...) = (1-r_1)*p(0, x_1, ...) + r_1*p(1, x_1, ...)
+    //   W'(x_1, ...) = (1-r_1)*W(0, x_1, ...) + r_1*W(1, x_1, ...)
+    //
+    // Now p' is in extension field, and we continue with standard sumcheck.
+    let mut folded_evals: EvaluationsList<EF> = poly.compress_ext(r_1);
+    let mut folded_weights: EvaluationsList<EF> = weights.clone();
+    folded_weights.compress(r_1);
+
+    // Rounds 2-3: Standard Sumcheck
+    //
+    // Use standard sumcheck on the folded polynomials.
+    // This correctly handles the cross-terms.
+    for _ in 1..NUM_SVO_ROUNDS {
+        // Compute (c_0, c_2) using the standard sumcheck formula
+        let (c_0, c_2) = folded_evals.sumcheck_coefficients(&folded_weights);
+
+        sumcheck_data.polynomial_evaluations.push([c_0, c_2]);
+        challenger.observe_algebra_slice(&[c_0, c_2]);
+
+        if pow_bits > 0 {
+            sumcheck_data.push_pow_witness(challenger.grind(pow_bits));
+        }
+
+        let r: EF = challenger.sample_algebra_element();
+        challenges.push(r);
+
+        // Fold for next round
+        folded_evals.compress(r);
+        folded_weights.compress(r);
+
+        // Update sum
+        let eval_1 = *sum - c_0;
+        *sum = c_2 * r.square() + (eval_1 - c_0 - c_2) * r + c_0;
+    }
+
+    // Return the folded polynomials for use in subsequent rounds
+    (folded_evals, folded_weights)
 }
 
 #[cfg(test)]

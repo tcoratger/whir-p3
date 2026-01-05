@@ -14,7 +14,7 @@ use crate::{
     constant::K_SKIP_SUMCHECK,
     fiat_shamir::errors::FiatShamirError,
     poly::multilinear::MultilinearPoint,
-    sumcheck::sumcheck_single::SumcheckSingle,
+    sumcheck::{sumcheck_single::SumcheckSingle, sumcheck_single_svo::NUM_SVO_ROUNDS},
     whir::{
         committer::{RoundMerkleTree, Witness},
         constraints::{Constraint, statement::EqStatement},
@@ -174,17 +174,6 @@ where
 
             // Branch: WithStatementSvo - SVO optimization
             InitialPhase::WithStatementSvo { sumcheck } => {
-                // SVO optimization requirements (see Procedure 9 in https://eprint.iacr.org/2025/1117):
-                // 1. At least 2 * NUM_SVO_ROUNDS variables - The SVO algorithm partitions
-                //    variables into Prefix (k), Inner (l/2), and Outer segments. For these
-                //    segments not to overlap, we need k + l/2 <= l, which gives l >= 2k.
-                // 2. Exactly one equality constraint (SVO algorithm assumes single point)
-                //
-                // TODO: The single constraint requirement is a current limitation.
-                // This approach should be generalized to handle multiple constraints.
-                // See: https://hackmd.io/@tcoratger/H1SNENAeZg for details.
-                const MIN_SVO_FOLDING_FACTOR: usize = 6;
-
                 // Build constraint with random linear combination
                 let constraint =
                     Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
@@ -192,29 +181,92 @@ where
                 let folding_factor = prover.folding_factor.at_round(0);
                 let has_single_constraint = constraint.eq_statement.len() == 1;
 
-                if folding_factor >= MIN_SVO_FOLDING_FACTOR && has_single_constraint {
-                    // Use SVO optimization: first 3 rounds use specialized algorithm,
-                    // remaining rounds use standard Algorithm 5
-                    SumcheckSingle::from_base_evals_svo(
-                        &witness.polynomial,
-                        sumcheck,
-                        challenger,
-                        folding_factor,
-                        prover.starting_folding_pow_bits,
-                        &constraint,
-                    )
+                if has_single_constraint {
+                    // Single constraint SVO requires at least 2 × NUM_SVO_ROUNDS variables.
+                    //
+                    // See Algorithm 5 (EqPoly_{SC}) in https://eprint.iacr.org/2025/1117
+                    //
+                    // The eq-poly optimization splits l variables into inner/outer parts:
+                    //
+                    //   Round i: [x_L ∈ {0,1}^{l/2 - i}] [x_R ∈ {0,1}^{l/2}]
+                    //             └────── inner ──────┘  └───── outer ─────┘
+                    //
+                    // The inner sum has (l/2 - i) variables.
+                    //
+                    // For round i to have a non-empty inner sum: l/2 - i >= 0
+                    //
+                    // For NUM_SVO_ROUNDS = 3 rounds:
+                    //
+                    //   Round 3 requires: l/2 - 3 >= 0  →  l >= 6
+                    //
+                    // Hence: MIN_SVO_FOLDING_FACTOR = 2 × NUM_SVO_ROUNDS = 6
+                    const MIN_SVO_FOLDING_FACTOR_SINGLE: usize = 2 * NUM_SVO_ROUNDS;
+
+                    if folding_factor >= MIN_SVO_FOLDING_FACTOR_SINGLE {
+                        // Use SVO optimization for single constraint:
+                        // - first 3 rounds use l*t factorization with specialized algorithm,
+                        // - remaining rounds use standard Algorithm 5
+                        SumcheckSingle::from_base_evals_svo(
+                            &witness.polynomial,
+                            sumcheck,
+                            challenger,
+                            folding_factor,
+                            prover.starting_folding_pow_bits,
+                            &constraint,
+                        )
+                    } else {
+                        // Fall back to classic sumcheck when input is too small
+                        SumcheckSingle::from_base_evals(
+                            &witness.polynomial,
+                            sumcheck,
+                            challenger,
+                            folding_factor,
+                            prover.starting_folding_pow_bits,
+                            &constraint,
+                        )
+                    }
                 } else {
-                    // Fall back to classic sumcheck when:
-                    // - Input is too small (folding_factor < MIN_SVO_FOLDING_FACTOR)
-                    // - Multiple constraints exist (SVO only handles single constraint, see TODO above)
-                    SumcheckSingle::from_base_evals(
-                        &witness.polynomial,
-                        sumcheck,
-                        challenger,
-                        folding_factor,
-                        prover.starting_folding_pow_bits,
-                        &constraint,
-                    )
+                    // Batched SVO for multiple constraints only requires NUM_SVO_ROUNDS variables.
+                    //
+                    // Unlike single-constraint SVO which uses the eq-poly l/2 split for all
+                    // NUM_SVO_ROUNDS rounds, batched SVO only uses SVO accumulators for round 1,
+                    // then switches to standard sumcheck for rounds 2-3.
+                    //
+                    // This is because the combined weight W = Σ γ^i * eq(z_i, X) doesn't have
+                    // the factorizable structure needed for the l/2 split optimization.
+                    // After folding, cross-terms appear that the precomputed accumulators
+                    // don't capture.
+                    //
+                    // TODO: we should check this and see if MIN_SVO_FOLDING_FACTOR_BATCHED
+                    // can simply be >= 2 (1 SVO and then standard sumcheck).
+                    //
+                    //
+                    // See: https://hackmd.io/@tcoratger/H1SNENAeZg
+                    const MIN_SVO_FOLDING_FACTOR_BATCHED: usize = NUM_SVO_ROUNDS;
+
+                    if folding_factor >= MIN_SVO_FOLDING_FACTOR_BATCHED {
+                        // Use batched SVO:
+                        // - round 1 uses M_BE multiplications via accumulators,
+                        // - rounds 2-3 use standard sumcheck on folded polynomials.
+                        SumcheckSingle::from_base_evals_svo_batched(
+                            &witness.polynomial,
+                            sumcheck,
+                            challenger,
+                            folding_factor,
+                            prover.starting_folding_pow_bits,
+                            &constraint,
+                        )
+                    } else {
+                        // Fall back to classic sumcheck when input is too small
+                        SumcheckSingle::from_base_evals(
+                            &witness.polynomial,
+                            sumcheck,
+                            challenger,
+                            folding_factor,
+                            prover.starting_folding_pow_bits,
+                            &constraint,
+                        )
+                    }
                 }
             }
 

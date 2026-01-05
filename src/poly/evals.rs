@@ -919,6 +919,303 @@ where
             // REDUCTION: Merge all thread-local accumulators
             .par_fold_reduce(SvoAccumulators::new, |a, b| a + b, |a, b| a + b)
     }
+
+    /// Computes c_0 accumulators for batched SVO sumcheck.
+    ///
+    /// # Context
+    ///
+    /// In sumcheck round r, we compute the univariate polynomial:
+    ///
+    /// ```text
+    /// s_r(X_r) = Σ_suffix W(prefix, X_r, suffix) · p(prefix, X_r, suffix)
+    /// ```
+    ///
+    /// This means:
+    ///
+    /// ```text
+    /// s_r(X) = c_0 + c_1·X + c_2·X^2
+    /// ```
+    ///
+    /// This function pre-computes the partial sums needed for the c_0 coefficient
+    /// across N rounds in a single pass over the evaluation table.
+    ///
+    /// # What Are Accumulators?
+    ///
+    /// For round r, the constant coefficient c_0 is obtained by evaluating at X_r = 0:
+    ///
+    /// ```text
+    /// c_0 = s_r(0) = Σ_suffix W(prefix, 0, suffix) · p(prefix, 0, suffix)
+    /// ```
+    ///
+    /// We partition this sum by the values of variables x_0, x_1, ..., x_{r-1} (the "prefix").
+    ///
+    /// The accumulator `A[prefix]` stores the partial sum for that prefix:
+    ///
+    /// ```text
+    /// A[prefix] = Σ_suffix W(prefix, 0, suffix)·p(prefix, 0, suffix)
+    /// ```
+    ///
+    /// # Variable Layout
+    ///
+    /// For a polynomial with l variables indexed as x_0, x_1, ..., x_{l-1}:
+    ///
+    /// ```text
+    /// Round 0: [x_0 | x_1 x_2 ... x_{l-1}]
+    ///            ↑     └─── suffix ───┘
+    ///          prefix
+    ///          (1 bit)
+    ///
+    /// Round 1: [x_0 x_1 | x_2 ... x_{l-1}]
+    ///           └──┬──┘   └── suffix ──┘
+    ///           prefix
+    ///          (2 bits)
+    ///
+    /// Round r: [x_0 ... x_r | x_{r+1} ... x_{l-1}]
+    ///          └── prefix ──┘   └─── suffix ───┘
+    ///            (r+1 bits)
+    /// ```
+    ///
+    /// # Why Pre-compute?
+    ///
+    /// Without pre-computation, each round would scan all 2^l evaluations.
+    /// Pre-computing all accumulators in one pass reduces total work.
+    ///
+    /// # Performance Benefit
+    ///
+    /// The product W(x)·p(x) is an M_BE multiplication (base × extension).
+    /// This is cheaper than M_EE (extension × extension) which occurs after folding.
+    #[instrument(skip_all, level = "debug")]
+    pub fn compute_svo_accumulators_with_weight<EF, const N: usize>(
+        &self,
+        weights: &EvaluationsList<EF>,
+    ) -> SvoAccumulators<EF, N>
+    where
+        EF: ExtensionField<F> + Send + Sync,
+    {
+        let l = self.num_variables();
+        assert_eq!(
+            weights.num_variables(),
+            l,
+            "weight polynomial must have same number of variables"
+        );
+        assert!(N <= l, "cannot compute more SVO rounds than variables");
+
+        let poly_evals = self.as_slice();
+        let weight_evals = weights.as_slice();
+
+        // SINGLE PASS: Iterate over all 2^l evaluation points exactly once.
+        //
+        // Each point (index) contributes to accumulators for ALL N rounds.
+        // This avoids scanning the table N times (once per round).
+        (0..(1 << l))
+            .into_par_iter()
+            .fold(
+                || SvoAccumulators::<EF, N>::new(),
+                |mut accs, index| {
+                    // STEP 1: Compute W(x) · p(x)
+                    //
+                    // This is M_BE (base × extension) multiplication.
+                    // Key benefit: cheaper than M_EE after p gets folded.
+                    let p_val = poly_evals[index];
+                    let w_val = weight_evals[index];
+                    let contribution = w_val * p_val;
+
+                    // STEP 2: Distribute to each round's accumulator
+                    //
+                    // For round r, extract the top (r+1) bits as "prefix".
+                    //
+                    // Example: l=4, index=0b1011 (binary representation)
+                    //
+                    //   index = [1] [0] [1] [1]
+                    //            ↑   ↑   ↑   ↑
+                    //           x_0 x_1 x_2 x_3
+                    //
+                    //   Round 0: prefix = 1     (1 bit)  → A_0[1]
+                    //   Round 1: prefix = 10    (2 bits) → A_1[2]
+                    //   Round 2: prefix = 101   (3 bits) → A_2[5]
+                    for r in 0..N {
+                        let prefix_bits = r + 1;
+                        let shift = l - prefix_bits;
+                        let prefix = index >> shift;
+                        accs.accumulate(r, prefix, contribution);
+                    }
+
+                    accs
+                },
+            )
+            .reduce(|| SvoAccumulators::new(), |a, b| a + b)
+    }
+
+    /// Computes c_2 accumulators for batched SVO sumcheck.
+    ///
+    /// # Context
+    ///
+    /// In sumcheck round r, we compute the univariate polynomial:
+    ///
+    /// ```text
+    /// s_r(X_r) = Σ_suffix W(prefix, X_r, suffix) · p(prefix, X_r, suffix)
+    /// ```
+    ///
+    /// This means:
+    ///
+    /// ```text
+    /// s_r(X) = c_0 + c_1·X + c_2·X^2
+    /// ```
+    ///
+    /// This function pre-computes the partial sums needed for the c_2 (quadratic) coefficient
+    /// across N rounds in a single pass over the evaluation table.
+    ///
+    /// # What Are c_2 Accumulators?
+    ///
+    /// For round r, the quadratic coefficient c_2 is computed from "deltas":
+    ///
+    /// ```text
+    /// c_2 = Σ_suffix ΔW(prefix, suffix) · Δp(prefix, suffix)
+    /// ```
+    ///
+    /// where the deltas measure the difference when X_r goes from 0 to 1:
+    ///
+    /// ```text
+    /// ΔW = W(prefix, 1, suffix) - W(prefix, 0, suffix)
+    /// Δp = p(prefix, 1, suffix) - p(prefix, 0, suffix)
+    /// ```
+    ///
+    /// We partition this sum by the values of x_0, x_1, ..., x_{r-1} (the "prefix").
+    ///
+    /// The accumulator `C2[prefix]` stores the partial sum for that prefix:
+    ///
+    /// ```text
+    /// C2[prefix] = Σ_suffix ΔW(prefix, suffix) · Δp(prefix, suffix)
+    /// ```
+    ///
+    /// # Variable Layout
+    ///
+    /// For round r, variables are partitioned as:
+    ///
+    /// ```text
+    /// [x_0 ... x_{r-1} | x_r | x_{r+1} ... x_{l-1}]
+    ///  └─── prefix ────┘  ↑    └───── suffix ─────┘
+    ///      (r bits)    current     (l-r-1 bits)
+    ///                  variable
+    /// ```
+    ///
+    /// # How Deltas Work
+    ///
+    /// For each (prefix, suffix) pair, there are two evaluation points:
+    ///
+    /// ```text
+    /// "lo" index:  (prefix, 0, suffix)  →  x_r = 0
+    /// "hi" index:  (prefix, 1, suffix)  →  x_r = 1
+    ///
+    /// Δ = value_at_hi - value_at_lo
+    /// ```
+    ///
+    /// # Why pre-compute?
+    ///
+    /// Without pre-computation, each round would scan all 2^l evaluations.
+    /// Pre-computing all accumulators in one pass reduces total work.
+    ///
+    /// # Performance Benefit
+    ///
+    /// The product ΔW · Δp uses M_BE multiplication (base × extension).
+    /// This is cheaper than M_EE (extension × extension) which occurs after folding.
+    #[instrument(skip_all, level = "debug")]
+    pub fn compute_svo_c2_accumulators_with_weight<EF, const N: usize>(
+        &self,
+        weights: &EvaluationsList<EF>,
+    ) -> SvoAccumulators<EF, N>
+    where
+        EF: ExtensionField<F> + Send + Sync,
+    {
+        let l = self.num_variables();
+        assert_eq!(
+            weights.num_variables(),
+            l,
+            "weight polynomial must have same number of variables"
+        );
+        assert!(N <= l, "cannot compute more SVO rounds than variables");
+        assert!(l >= 1, "need at least 1 variable for c2 computation");
+
+        let poly_evals = self.as_slice();
+        let weight_evals = weights.as_slice();
+
+        // SINGLE PASS: Iterate over all 2^l evaluation points exactly once.
+        //
+        // For each round r, we only process "lo" indices (where x_r = 0).
+        // This avoids double-counting since each (lo, hi) pair appears once.
+        (0..(1 << l))
+            .into_par_iter()
+            .fold(
+                || SvoAccumulators::<EF, N>::new(),
+                |mut accs, index| {
+                    for r in 0..N {
+                        // STEP 1: Locate the current variable x_r
+                        //
+                        // Round r processes variable x_r.
+                        // In the index bits, x_r sits at position (l-r-1).
+                        //
+                        // Example with l=4:
+                        //
+                        //   index bits: [x_0][x_1][x_2][x_3]
+                        //   positions:    3    2    1    0
+                        //
+                        //   Round 0: x_0 at position 3 (MSB)
+                        //   Round 1: x_1 at position 2
+                        //   Round 2: x_2 at position 1
+                        let current_var_position = l - r - 1;
+
+                        // STEP 2: Only process "lo" indices (x_r = 0)
+                        //
+                        // Check if bit at current_var_position is 0.
+                        // If so, this is the "lo" half of a (lo, hi) pair.
+                        if (index >> current_var_position) & 1 == 0 {
+                            // STEP 3: Compute the "hi" index
+                            //
+                            // Flip bit at current_var_position from 0 to 1.
+                            //
+                            // Example: l=4, r=1, index=0b0001
+                            //   current_var_position = 2
+                            //   hi_index = 0b0001 | 0b0100 = 0b0101
+                            let hi_index = index | (1 << current_var_position);
+
+                            // STEP 4: Compute deltas
+                            //
+                            // Δp = p(hi) - p(lo)
+                            // ΔW = W(hi) - W(lo)
+                            //
+                            // These measure the change when x_r: 0 → 1.
+                            let p_hi = poly_evals[hi_index];
+                            let p_lo = poly_evals[index];
+                            let delta_p = p_hi - p_lo;
+                            let delta_w = weight_evals[hi_index] - weight_evals[index];
+
+                            // STEP 5: Compute c_2 contribution
+                            //
+                            // c_2 contribution = ΔW · Δp
+                            // This is M_BE multiplication (base × extension).
+                            let contribution = delta_w * delta_p;
+
+                            // STEP 6: Extract prefix and accumulate
+                            //
+                            // Prefix = the r bits ABOVE the current variable.
+                            //
+                            // Example: l=4, r=1, index=0b0010
+                            //
+                            //   index = [0]  [0]  [1]  [0]
+                            //            ↑    ↑
+                            //         prefix x_1
+                            //
+                            //   prefix = 0b0010 >> 3 = 0b0  → C2_1[0]
+                            let prefix = index >> (current_var_position + 1);
+                            accs.accumulate(r, prefix, contribution);
+                        }
+                    }
+
+                    accs
+                },
+            )
+            .reduce(|| SvoAccumulators::new(), |a, b| a + b)
+    }
 }
 
 impl<A: Copy + Send + Sync + PrimeCharacteristicRing> EvaluationsList<A> {
