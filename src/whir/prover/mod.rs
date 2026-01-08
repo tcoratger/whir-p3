@@ -138,8 +138,7 @@ where
     ///
     ///
     /// # Errors
-    /// Returns an error if the witness or statement are invalid, or if a round fails.
-    #[instrument(skip_all)]
+    /// Returns an error if the witness or statement are invalid, or if a round f   #[instrument(skip_all)]
     pub fn prove<Dft: TwoAdicSubgroupDft<F>, const DIGEST_ELEMS: usize>(
         &self,
         dft: &Dft,
@@ -306,74 +305,121 @@ where
         match &round_state.merkle_prover_data {
             None => {
                 let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
-                for challenge in &stir_challenges_indexes {
-                    let commitment = mmcs.open_batch(
-                        *challenge,
-                        round_state.commitment_merkle_prover_data[0].as_ref(),
-                    );
-                    let answer = commitment.opened_values[0].clone();
-                    answers.push(answer.clone());
+                let is_batch = round_state.commitment_merkle_prover_data.len() > 1;
 
-                    queries.push(QueryOpening::Base {
-                        values: answer.clone(),
-                        proof: commitment.opening_proof,
-                    });
-                }
+                if is_batch {
+                    // Batch mode: open both trees at each query
+                    for &challenge in &stir_challenges_indexes {
+                        let commit_a = mmcs.open_batch(
+                            challenge,
+                            round_state.commitment_merkle_prover_data[0].as_ref(),
+                        );
+                        let commit_b = mmcs.open_batch(
+                            challenge,
+                            round_state.commitment_merkle_prover_data[1].as_ref(),
+                        );
 
-                // Determine if this is the special first round where the univariate skip is applied.
-                let is_skip_round = round_index == 0
-                    && matches!(
-                        self.initial_phase_config,
-                        InitialPhaseConfig::WithStatementUnivariateSkip
-                    )
-                    && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
+                        queries.push(QueryOpening::Batch {
+                            values: [
+                                commit_a.opened_values[0].clone(),
+                                commit_b.opened_values[0].clone(),
+                            ],
+                            proof: [commit_a.opening_proof, commit_b.opening_proof],
+                        });
+                        // Fold the opened values: g(b) = r_0·f_a(b) + (1-r_0)·f_b(b)
+                        let r_0 = round_state.folding_randomness.as_slice()[0];
+                        let values_a = &commit_a.opened_values[0];
+                        let values_b = &commit_b.opened_values[0];
 
-                // Process each set of evaluations retrieved from the Merkle tree openings.
-                for (answer, var) in answers.iter().zip(stir_vars.into_iter()) {
-                    let evals = EvaluationsList::new(answer.clone());
-                    // Fold the polynomial represented by the `answer` evaluations using the verifier's challenge.
-                    // The evaluation method depends on whether this is a "skip round" or a "standard round".
-                    if is_skip_round {
-                        // Case 1: Univariate Skip Round Evaluation
-                        //
+                        // Fold element-wise to get the combined answer
+                        let folded_answer: Vec<EF> = values_a
+                          .iter()
+                          .zip(values_b.iter())
+                          .map(|(&a, &b)| r_0 * EF::from(a) + (EF::ONE - r_0) * EF::from(b))
+                          .collect();
 
-                        // The challenges for the remaining (non-skipped) variables.
-                        let num_remaining_vars = evals.num_variables() - K_SKIP_SUMCHECK;
+                        answers.push(folded_answer);
 
-                        // The width of the matrix corresponds to the number of remaining variables.
-                        let width = 1 << num_remaining_vars;
+                        // Process folded answers into constraints
+                        for (answer, var) in answers {
+                          let evals = EvaluationsList::new(answer);
+                          let eval = evals.evaluate_hypercube_ext::<F>(&round_state.folding_randomness);
+                          stir_statement.add_constraint(var, eval);
+                        }
+                    }
+                } else {
+                    for challenge in &stir_challenges_indexes {
+                        let commitment = mmcs.open_batch(
+                            *challenge,
+                            round_state.commitment_merkle_prover_data[0].as_ref(),
+                        );
+                        let answer = commitment.opened_values[0].clone();
+                        answers.push(answer.clone());
 
-                        // Reshape the `answer` evaluations into the `2^k x 2^(n-k)` matrix format.
-                        let mat = evals.into_mat(width);
+                        queries.push(QueryOpening::Base {
+                            values: answer.clone(),
+                            proof: commitment.opening_proof,
+                        });
 
-                        // For a skip round, `folding_randomness` is the special `(n-k)+1` challenge object.
-                        let r_all = round_state.folding_randomness.clone();
+                        
+                    }
 
-                        // Deconstruct the special challenge object `r_all`.
-                        //
-                        // The last element is the single challenge for the `k_skip` variables being folded.
-                        let r_skip = *r_all
-                            .last_variable()
-                            .expect("skip challenge must be present");
-                        // The first `n - k_skip` elements are the challenges for the remaining variables.
-                        let r_rest = r_all.get_subpoint_over_range(..num_remaining_vars);
+                    // Determine if this is the special first round where the univariate skip is applied.
+                    let is_skip_round = round_index == 0
+                        && matches!(
+                            self.initial_phase_config,
+                            InitialPhaseConfig::WithStatementUnivariateSkip
+                        )
+                        && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
-                        // Perform the two-stage skip-aware evaluation:
-                        //
-                        // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
-                        let folded_row = interpolate_subgroup(&mat, r_skip);
-                        // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-                        let eval =
-                            EvaluationsList::new(folded_row).evaluate_hypercube_ext::<F>(&r_rest);
-                        stir_statement.add_constraint(var, eval);
-                    } else {
-                        // Case 2: Standard Sumcheck Round
-                        //
-                        // The `answer` represents a standard multilinear polynomial.
+                    // Process each set of evaluations retrieved from the Merkle tree openings.
+                    for (answer, var) in answers.iter().zip(stir_vars.into_iter()) {
+                        let evals = EvaluationsList::new(answer.clone());
+                        // Fold the polynomial represented by the `answer` evaluations using the verifier's challenge.
+                        // The evaluation method depends on whether this is a "skip round" or a "standard round".
+                        if is_skip_round {
+                            // Case 1: Univariate Skip Round Evaluation
+                            //
 
-                        // Perform a standard multilinear evaluation at the full challenge point `r`.
-                        let eval = evals.evaluate_hypercube_base(&round_state.folding_randomness);
-                        stir_statement.add_constraint(var, eval);
+                            // The challenges for the remaining (non-skipped) variables.
+                            let num_remaining_vars = evals.num_variables() - K_SKIP_SUMCHECK;
+
+                            // The width of the matrix corresponds to the number of remaining variables.
+                            let width = 1 << num_remaining_vars;
+
+                            // Reshape the `answer` evaluations into the `2^k x 2^(n-k)` matrix format.
+                            let mat = evals.into_mat(width);
+
+                            // For a skip round, `folding_randomness` is the special `(n-k)+1` challenge object.
+                            let r_all = round_state.folding_randomness.clone();
+
+                            // Deconstruct the special challenge object `r_all`.
+                            //
+                            // The last element is the single challenge for the `k_skip` variables being folded.
+                            let r_skip = *r_all
+                                .last_variable()
+                                .expect("skip challenge must be present");
+                            // The first `n - k_skip` elements are the challenges for the remaining variables.
+                            let r_rest = r_all.get_subpoint_over_range(..num_remaining_vars);
+
+                            // Perform the two-stage skip-aware evaluation:
+                            //
+                            // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
+                            let folded_row = interpolate_subgroup(&mat, r_skip);
+                            // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
+                            let eval = EvaluationsList::new(folded_row)
+                                .evaluate_hypercube_ext::<F>(&r_rest);
+                            stir_statement.add_constraint(var, eval);
+                        } else {
+                            // Case 2: Standard Sumcheck Round
+                            //
+                            // The `answer` represents a standard multilinear polynomial.
+
+                            // Perform a standard multilinear evaluation at the full challenge point `r`.
+                            let eval =
+                                evals.evaluate_hypercube_base(&round_state.folding_randomness);
+                            stir_statement.add_constraint(var, eval);
+                        }
                     }
                 }
             }

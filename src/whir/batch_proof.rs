@@ -29,6 +29,7 @@
 //! The protocol then continues with standard WHIR on the folded polynomial.
 
 use alloc::{vec, vec::Vec};
+use hashbrown::Equivalent;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -344,7 +345,8 @@ where
         proof: &BatchWhirProof<F, EF, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         parsed_commitments: Vec<&ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>>,
-        mut statement: EqStatement<EF>,
+        mut statement_a: EqStatement<EF>,
+        mut statement_b: EqStatement<EF>,
     ) -> Result<MultilinearPoint<EF>, VerifierError>
     where
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
