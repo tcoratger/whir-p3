@@ -290,6 +290,7 @@ mod tests {
 
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
+    use p3_dft::Radix2DFTSmallBatch;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{SeedableRng, rngs::SmallRng};
@@ -594,7 +595,9 @@ mod tests {
         };
 
         // Instantiate the prover with base field coefficients and univariate skip
+        let dft = Radix2DFTSmallBatch::<F>::default();
         let (_, _) = SumcheckSingle::<F, EF4>::with_skip(
+            &dft,
             &evals,
             skip_data,
             &mut prover_challenger,

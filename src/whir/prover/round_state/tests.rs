@@ -164,7 +164,9 @@ fn test_no_initial_statement_no_sumcheck() {
     let statement = EqStatement::<EF4>::initialize(num_variables);
 
     // Initialize the round state using the setup configuration and witness
+    let dft = Radix2DFTSmallBatch::<F>::default();
     let state = RoundState::initialize_first_round_state(
+        &dft,
         &Prover(&config),
         &mut proof,
         &mut challenger,
@@ -242,7 +244,9 @@ fn test_initial_statement_with_folding_factor_3() {
     let (mut proof, mut challenger_rf, witness) = setup_domain_and_commitment(&config, poly);
 
     // Run the first round state initialization (this will trigger sumcheck)
+    let dft = Radix2DFTSmallBatch::<F>::default();
     let state = RoundState::initialize_first_round_state(
+        &dft,
         &Prover(&config),
         &mut proof,
         &mut challenger_rf,
@@ -316,7 +320,9 @@ fn test_zero_poly_multiple_constraints() {
     }
 
     // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
+    let dft = Radix2DFTSmallBatch::<F>::default();
     let state = RoundState::initialize_first_round_state(
+        &dft,
         &Prover(&config),
         &mut proof,
         &mut challenger_rf,
@@ -416,7 +422,9 @@ fn test_initialize_round_state_with_initial_statement() {
     let (mut proof, mut challenger_rf, witness) = setup_domain_and_commitment(&config, poly);
 
     // Run the first round initialization
+    let dft = Radix2DFTSmallBatch::<F>::default();
     let state = RoundState::initialize_first_round_state(
+        &dft,
         &Prover(&config),
         &mut proof,
         &mut challenger_rf,
