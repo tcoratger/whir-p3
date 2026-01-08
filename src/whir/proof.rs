@@ -159,6 +159,12 @@ pub enum QueryOpening<F, EF, const DIGEST_ELEMS: usize> {
         /// Merkle authentication path
         proof: Vec<[F; DIGEST_ELEMS]>,
     },
+
+    #[serde(rename = "batch")]
+    Batch {
+        values: [Vec<F>; 2],
+        proof: [Vec<[F; DIGEST_ELEMS]>; 2],
+    },
 }
 
 /// Sumcheck polynomial data
@@ -760,6 +766,7 @@ mod tests {
                 assert_eq!(p.len(), 1);
             }
             QueryOpening::Extension { .. } => panic!("Expected Base variant"),
+            QueryOpening::Batch { .. } => panic!("Expected Base variant"),
         }
 
         // Test Extension variant
@@ -788,6 +795,7 @@ mod tests {
                 assert_eq!(p.len(), 1);
             }
             QueryOpening::Base { .. } => panic!("Expected Extension variant"),
+            QueryOpening::Batch { .. } => panic!("Expected Extension variant"),
         }
     }
 
