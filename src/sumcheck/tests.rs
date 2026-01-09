@@ -17,7 +17,7 @@ use crate::{
         constraints::{
             Constraint,
             evaluator::ConstraintPolyEvaluator,
-            statement::{EqStatement, SelectStatement},
+            statement::{DomainStatement, EqStatement},
         },
         parameters::InitialPhaseConfig,
         proof::{InitialPhase, SumcheckData, WhirProof},
@@ -77,7 +77,7 @@ fn make_constraint<Challenger>(
     num_eqs: usize,
     num_sels: usize,
     poly: &EvaluationsList<F>,
-) -> Constraint<F, EF>
+) -> Constraint<EF>
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -86,7 +86,7 @@ where
 
     // Create a new empty eq and select statements of that arity
     let mut eq_statement = EqStatement::initialize(num_vars);
-    let mut sel_statement = SelectStatement::initialize(num_vars);
+    let mut sel_statement = DomainStatement::initialize(num_vars, num_vars);
 
     // - Sample `num_eqs` univariate challenge points.
     // - Evaluate the sumcheck polynomial on them.
@@ -131,7 +131,7 @@ where
         challenger.observe_algebra_element(eval);
 
         // Add the evaluation constraint: poly(point) == eval.
-        sel_statement.add_constraint(var, eval);
+        sel_statement.add_constraint(index, eval);
     });
 
     // Return the constructed constraint with the alpha used for linear combination.
@@ -147,7 +147,7 @@ fn make_constraint_ext<Challenger>(
     num_eqs: usize,
     num_sels: usize,
     poly: &EvaluationsList<EF>,
-) -> Constraint<F, EF>
+) -> Constraint<EF>
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -156,7 +156,7 @@ where
 
     // Create a new empty eq and select statements of that arity
     let mut eq_statement = EqStatement::initialize(num_vars);
-    let mut sel_statement = SelectStatement::initialize(num_vars);
+    let mut sel_statement = DomainStatement::initialize(num_vars, num_vars);
 
     // - Sample `num_eqs` univariate challenge points.
     // - Evaluate the sumcheck polynomial on them.
@@ -202,7 +202,7 @@ where
         challenger.observe_algebra_element(eval);
 
         // Add the evaluation constraint: poly(point) == eval.
-        sel_statement.add_constraint(var, eval);
+        sel_statement.add_constraint(index, eval);
     });
 
     // Return the constructed constraint with the alpha used for linear combination.
@@ -217,7 +217,7 @@ fn read_constraint<Challenger>(
     num_vars: usize,
     num_eqs: usize,
     num_sels: usize,
-) -> Constraint<F, EF>
+) -> Constraint<EF>
 where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -238,16 +238,12 @@ where
     }
 
     // Create a new statement that will hold all reconstructed constraints.
-    let mut sel_statement = SelectStatement::<F, EF>::initialize(num_vars);
-
-    // To simulate stir point derivation derive domain generator
-    let omega = F::two_adic_generator(num_vars);
+    let mut sel_statement = DomainStatement::initialize(num_vars, num_vars);
 
     // For each point, sample a challenge and read its corresponding evaluation from the proof.
     for i in 0..num_sels {
         // Simulate stir point derivation
         let index: usize = challenger.sample_bits(num_vars);
-        let var = omega.exp_u64(index as u64);
 
         // Read the committed evaluation corresponding to this point from constraint_evals.
         // Sel evaluations are stored after eq evaluations.
@@ -257,7 +253,7 @@ where
         challenger.observe_algebra_element(eval);
 
         // Add the constraint: poly(point) == eval.
-        sel_statement.add_constraint(var, eval);
+        sel_statement.add_constraint(index, eval);
     }
 
     Constraint::new(
@@ -511,7 +507,8 @@ fn run_sumcheck_test(
     //
     // No skip optimization, so the first round is treated as a standard sumcheck round.
     let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
-    let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness.reversed());
+    let weights =
+        evaluator.eval_constraints_poly::<F, _>(&constraints, &verifier_randomness.reversed());
 
     // CHECK SUM == f(r) * weights(z, r)
     assert_eq!(sum, final_folded_value * weights);
@@ -780,7 +777,7 @@ fn run_sumcheck_test_skips(
     //
     // Evaluate eq(z, r) using the unified constraint evaluation function.
     let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, Some(K_SKIP_SUMCHECK));
-    let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness);
+    let weights = evaluator.eval_constraints_poly::<F, _>(&constraints, &verifier_randomness);
 
     // FINAL SUMCHECK CHECK
     //
@@ -1009,7 +1006,8 @@ fn run_sumcheck_test_svo(
     //
     // No skip optimization, so the first round is treated as a standard sumcheck round.
     let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
-    let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness.reversed());
+    let weights =
+        evaluator.eval_constraints_poly::<F, _>(&constraints, &verifier_randomness.reversed());
 
     // CHECK SUM == f(r) * weights(z, r)
     assert_eq!(sum, final_folded_value * weights);

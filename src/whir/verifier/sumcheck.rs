@@ -752,7 +752,7 @@ mod tests {
         // Save a fresh copy for verify_initial_sumcheck_rounds
         let mut verifier_challenger_for_verify = verifier_challenger.clone();
 
-        let (_, mut expected_initial_sum) = constraint.combine_new();
+        let (_, mut expected_initial_sum) = constraint.combine_new::<F>();
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
 

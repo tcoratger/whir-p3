@@ -12,6 +12,7 @@ use p3_matrix::{
 };
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use p3_util::log2_strict_usize;
 use round_state::RoundState;
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
@@ -26,7 +27,7 @@ use crate::{
     fiat_shamir::errors::FiatShamirError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        constraints::{Constraint, statement::SelectStatement},
+        constraints::{Constraint, statement::DomainStatement},
         proof::{QueryOpening, SumcheckData, WhirProof},
         utils::get_challenge_stir_queries,
     },
@@ -293,12 +294,10 @@ where
             challenger,
         )?;
 
-        let stir_vars = stir_challenges_indexes
-            .iter()
-            .map(|&i| round_state.next_domain_gen.exp_u64(i as u64))
-            .collect::<Vec<_>>();
-
-        let mut stir_statement = SelectStatement::initialize(num_variables);
+        let mut stir_statement = DomainStatement::initialize(
+            num_variables,
+            log2_strict_usize(round_state.domain_size >> self.folding_factor.at_round(round_index)),
+        );
 
         // Initialize vector of queries
         let mut queries = Vec::with_capacity(stir_challenges_indexes.len());
@@ -328,7 +327,7 @@ where
                     && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
 
                 // Process each set of evaluations retrieved from the Merkle tree openings.
-                for (answer, var) in answers.iter().zip(stir_vars.into_iter()) {
+                for (answer, idx) in answers.iter().zip(stir_challenges_indexes.into_iter()) {
                     let evals = EvaluationsList::new(answer.clone());
                     // Fold the polynomial represented by the `answer` evaluations using the verifier's challenge.
                     // The evaluation method depends on whether this is a "skip round" or a "standard round".
@@ -364,7 +363,7 @@ where
                         // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
                         let eval =
                             EvaluationsList::new(folded_row).evaluate_hypercube_ext::<F>(&r_rest);
-                        stir_statement.add_constraint(var, eval);
+                        stir_statement.add_constraint(idx, eval);
                     } else {
                         // Case 2: Standard Sumcheck Round
                         //
@@ -372,7 +371,7 @@ where
 
                         // Perform a standard multilinear evaluation at the full challenge point `r`.
                         let eval = evals.evaluate_hypercube_base(&round_state.folding_randomness);
-                        stir_statement.add_constraint(var, eval);
+                        stir_statement.add_constraint(idx, eval);
                     }
                 }
             }
@@ -389,12 +388,12 @@ where
                 }
 
                 // Process each set of evaluations retrieved from the Merkle tree openings.
-                for (answer, var) in answers.iter().zip(stir_vars.into_iter()) {
+                for (answer, idx) in answers.iter().zip(stir_challenges_indexes.into_iter()) {
                     // Wrap the evaluations to represent the polynomial.
                     let evals = EvaluationsList::new(answer.clone());
                     // Perform a standard multilinear evaluation at the full challenge point `r`.
                     let eval = evals.evaluate_hypercube_ext::<F>(&round_state.folding_randomness);
-                    stir_statement.add_constraint(var, eval);
+                    stir_statement.add_constraint(idx, eval);
                 }
             }
         }
