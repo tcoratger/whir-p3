@@ -63,7 +63,6 @@ pub struct RoundConfig<F> {
     pub folding_pow_bits: usize,
     pub num_queries: usize,
     pub ood_samples: usize,
-    pub log_inv_rate: usize,
     pub num_variables: usize,
     pub folding_factor: usize,
     pub domain_size: usize,
@@ -246,7 +245,6 @@ where
                 folding_pow_bits: folding_pow_bits as usize,
                 num_queries,
                 ood_samples,
-                log_inv_rate,
                 num_variables,
                 folding_factor,
                 domain_size,
@@ -328,23 +326,6 @@ where
         } else {
             1
         }
-    }
-
-    pub fn log_inv_rate_at(&self, round: usize) -> usize {
-        let mut res = self.starting_log_inv_rate;
-        for r in 0..round {
-            res += self.folding_factor.at_round(r);
-            res -= self.rs_reduction_factor(r);
-        }
-        res
-    }
-
-    pub fn merkle_tree_height(&self, round: usize) -> usize {
-        self.log_inv_rate_at(round) + self.num_variables - self.folding_factor.total_number(round)
-    }
-
-    pub const fn n_vars_of_final_polynomial(&self) -> usize {
-        self.num_variables - self.folding_factor.total_number(self.n_rounds())
     }
 
     /// Returns the log2 size of the largest FFT
@@ -464,7 +445,6 @@ where
                 ),
                 ood_samples: 0, // no OOD in synthetic final phase
                 folding_pow_bits: self.final_folding_pow_bits,
-                log_inv_rate: self.starting_log_inv_rate,
             }
         } else {
             let rs_reduction_factor = self.rs_reduction_factor(self.n_rounds() - 1);
@@ -486,9 +466,15 @@ where
                 folded_domain_gen,
                 ood_samples: last.ood_samples,
                 folding_pow_bits: self.final_folding_pow_bits,
-                log_inv_rate: last.log_inv_rate,
             }
         }
+    }
+
+    pub(crate) fn inv_rate(&self, round: usize) -> usize {
+        let domain_reduction = 1 << self.rs_reduction_factor(round);
+        let new_domain_size = self.round_parameters[round].domain_size / domain_reduction;
+        let num_evals = 1 << (self.num_variables - self.folding_factor.total_number(round));
+        new_domain_size / num_evals
     }
 }
 
@@ -589,7 +575,6 @@ mod tests {
                 folding_pow_bits: 19,
                 num_queries: 5,
                 ood_samples: 2,
-                log_inv_rate: 3,
                 num_variables: 10,
                 folding_factor: 2,
                 domain_size: 10,
@@ -600,7 +585,6 @@ mod tests {
                 folding_pow_bits: 19,
                 num_queries: 6,
                 ood_samples: 2,
-                log_inv_rate: 4,
                 num_variables: 10,
                 folding_factor: 2,
                 domain_size: 10,
@@ -671,7 +655,6 @@ mod tests {
             folding_pow_bits: 19,
             num_queries: 5,
             ood_samples: 2,
-            log_inv_rate: 3,
             num_variables: 10,
             folding_factor: 2,
             domain_size: 10,
@@ -703,7 +686,6 @@ mod tests {
             folding_pow_bits: 21, // Exceeds max_pow_bits
             num_queries: 5,
             ood_samples: 2,
-            log_inv_rate: 3,
             num_variables: 10,
             folding_factor: 2,
             domain_size: 10,
@@ -734,7 +716,6 @@ mod tests {
             folding_pow_bits: 20,
             num_queries: 5,
             ood_samples: 2,
-            log_inv_rate: 3,
             num_variables: 10,
             folding_factor: 2,
             domain_size: 10,
@@ -765,7 +746,6 @@ mod tests {
             folding_pow_bits: 26,
             num_queries: 5,
             ood_samples: 2,
-            log_inv_rate: 3,
             num_variables: 10,
             folding_factor: 2,
             domain_size: 10,

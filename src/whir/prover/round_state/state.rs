@@ -34,28 +34,6 @@ where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
 {
-    /// The size of the current evaluation domain D.
-    ///
-    /// In WHIR, each round operates on a multiplicative subgroup H ⊆ F of size |H| = 2^m.
-    ///
-    /// This field tracks |H| for the current round. The domain shrinks by a factor of
-    /// 2^k in each folding step, where k is the round's folding factor, ensuring
-    /// exponential convergence: |H_0| → |H_1| → ... → |H_final| where |H_{i+1}| = |H_i|/2^k.
-    ///
-    /// This size determines the degree bound for polynomials in the current round and
-    /// directly impacts both prover complexity O(|H| log |H|) and verifier query complexity.
-    pub domain_size: usize,
-
-    /// Generator ω for the next evaluation domain H_{i+1}.
-    ///
-    /// When folding from domain H_i with generator ω_i to smaller domain H_{i+1},
-    /// the new generator is ω_{i+1} = ω_i^{2^k} where k is the folding factor.
-    ///
-    /// This ensures H_{i+1} = {1, ω_{i+1}, ω_{i+1}^2, ..., ω_{i+1}^{|H_{i+1}|-1}}
-    /// remains a multiplicative subgroup with the correct size and structure for
-    /// Reed-Solomon encoding in the subsequent round.
-    pub next_domain_gen: F,
-
     /// Sumcheck prover managing constraint batching and polynomial evaluation.
     ///
     /// In WHIR, the sumcheck protocol enables efficient verification of constraint
@@ -271,12 +249,6 @@ where
 
         // Initialize complete round state for first WHIR protocol round
         Ok(Self {
-            // Starting domain H_0 with |H_0| = 2^m evaluation points
-            domain_size: prover.starting_domain_size(),
-            // Compute next domain generator: ω_1 = ω_0^{2^k} for H_1 after folding
-            next_domain_gen: F::two_adic_generator(
-                prover.starting_domain_size().ilog2() as usize - prover.folding_factor.at_round(0),
-            ),
             // Sumcheck prover configured for constraint verification
             sumcheck_prover,
             // Current round's folding challenges (α_1, ..., α_k)
