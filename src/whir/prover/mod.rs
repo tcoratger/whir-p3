@@ -210,11 +210,7 @@ where
 
         // Compute the folding factors for later use
         let folding_factor_next = self.folding_factor.at_round(round_index + 1);
-
-        // Compute polynomial evaluations and build Merkle tree
-        let domain_reduction = 1 << self.rs_reduction_factor(round_index);
-        let new_domain_size = round_state.domain_size / domain_reduction;
-        let inv_rate = new_domain_size / folded_evaluations.num_evals();
+        let inv_rate = self.inv_rate(round_index);
 
         // Transpose for reverse variable order
         // And then pad with zeros
@@ -287,7 +283,7 @@ where
 
         // STIR Queries
         let stir_challenges_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
-            round_state.domain_size,
+            round_params.domain_size,
             self.folding_factor.at_round(round_index),
             round_params.num_queries,
             challenger,
@@ -295,7 +291,7 @@ where
 
         let stir_vars = stir_challenges_indexes
             .iter()
-            .map(|&i| round_state.next_domain_gen.exp_u64(i as u64))
+            .map(|&i| round_params.folded_domain_gen.exp_u64(i as u64))
             .collect::<Vec<_>>();
 
         let mut stir_statement = SelectStatement::initialize(num_variables);
@@ -419,9 +415,6 @@ where
         proof.set_sumcheck_data_at(sumcheck_data, round_index);
 
         // Update round state
-        round_state.domain_size = new_domain_size;
-        round_state.next_domain_gen =
-            F::two_adic_generator(new_domain_size.ilog2() as usize - folding_factor_next);
         round_state.folding_randomness = folding_randomness;
         round_state.merkle_prover_data = Some(prover_data);
 
@@ -471,7 +464,7 @@ where
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
             // The size of the original domain before folding
-            round_state.domain_size,
+            self.final_round_config().domain_size,
             // The folding factor we used to fold the previous polynomial
             self.folding_factor.at_round(round_index),
             // Number of final verification queries
