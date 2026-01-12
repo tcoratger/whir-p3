@@ -290,53 +290,53 @@ impl<F: Field> EqStatement<F> {
         self.evaluations.push(eval);
     }
 
-    /// Adds an evaluation constraint `p(z) = s` to the system using univariate skip.
-    ///
-    /// This method takes the polynomial `p` and uses it to compute the evaluation `s`.
-    ///
-    /// # Univariate Skip Representation
-    ///
-    /// This method is for the case where the polynomial is represented as evaluations over
-    /// a mixed domain: a multiplicative subgroup D of size `2^log_skip_size` crossed with
-    /// the Boolean hypercube `{0,1}^j` where `j = num_variables - log_skip_size`.
-    ///
-    /// The constraint point must have `(num_variables - log_skip_size) + 1` coordinates:
-    /// - `point[0]`: Arbitrary evaluation point for the univariate (skipped) dimension
-    /// - `point[1..j+1]`: Arbitrary evaluation points for the multilinear (hypercube) dimensions
-    pub fn add_unevaluated_constraint_with_univariate_skip<BF>(
-        &mut self,
-        point: MultilinearPoint<F>,
-        poly: &EvaluationsList<BF>,
-        log_skip_size: usize,
-    ) where
-        BF: TwoAdicField,
-        F: TwoAdicField + ExtensionField<BF>,
-    {
-        // Validate log_skip_size first
-        assert!(
-            log_skip_size > 0,
-            "log_skip_size must be greater than 0 (got {log_skip_size}). For log_skip_size=0, use add_unevaluated_constraint_hypercube instead."
-        );
-        assert!(
-            log_skip_size <= self.num_variables(),
-            "log_skip_size ({log_skip_size}) must not exceed num_variables ({})",
-            self.num_variables()
-        );
+    // /// Adds an evaluation constraint `p(z) = s` to the system using univariate skip.
+    // ///
+    // /// This method takes the polynomial `p` and uses it to compute the evaluation `s`.
+    // ///
+    // /// # Univariate Skip Representation
+    // ///
+    // /// This method is for the case where the polynomial is represented as evaluations over
+    // /// a mixed domain: a multiplicative subgroup D of size `2^log_skip_size` crossed with
+    // /// the Boolean hypercube `{0,1}^j` where `j = num_variables - log_skip_size`.
+    // ///
+    // /// The constraint point must have `(num_variables - log_skip_size) + 1` coordinates:
+    // /// - `point[0]`: Arbitrary evaluation point for the univariate (skipped) dimension
+    // /// - `point[1..j+1]`: Arbitrary evaluation points for the multilinear (hypercube) dimensions
+    // pub fn add_unevaluated_constraint_with_univariate_skip<BF>(
+    //     &mut self,
+    //     point: MultilinearPoint<F>,
+    //     poly: &EvaluationsList<BF>,
+    //     log_skip_size: usize,
+    // ) where
+    //     BF: TwoAdicField,
+    //     F: TwoAdicField + ExtensionField<BF>,
+    // {
+    //     // Validate log_skip_size first
+    //     assert!(
+    //         log_skip_size > 0,
+    //         "log_skip_size must be greater than 0 (got {log_skip_size}). For log_skip_size=0, use add_unevaluated_constraint_hypercube instead."
+    //     );
+    //     assert!(
+    //         log_skip_size <= self.num_variables(),
+    //         "log_skip_size ({log_skip_size}) must not exceed num_variables ({})",
+    //         self.num_variables()
+    //     );
 
-        let expected_point_size = (self.num_variables() - log_skip_size) + 1;
-        assert_eq!(
-            point.num_variables(),
-            expected_point_size,
-            "Point must have {} coordinates for univariate skip with log_skip_size={} and num_variables={}, but has {}",
-            expected_point_size,
-            log_skip_size,
-            self.num_variables(),
-            point.num_variables()
-        );
-        let eval = poly.evaluate_with_univariate_skip(&point, log_skip_size);
-        self.points.push(point);
-        self.evaluations.push(eval);
-    }
+    //     let expected_point_size = (self.num_variables() - log_skip_size) + 1;
+    //     assert_eq!(
+    //         point.num_variables(),
+    //         expected_point_size,
+    //         "Point must have {} coordinates for univariate skip with log_skip_size={} and num_variables={}, but has {}",
+    //         expected_point_size,
+    //         log_skip_size,
+    //         self.num_variables(),
+    //         point.num_variables()
+    //     );
+    //     let eval = poly.evaluate_with_univariate_skip(&point, log_skip_size);
+    //     self.points.push(point);
+    //     self.evaluations.push(eval);
+    // }
 
     /// Adds an evaluation constraint `p(z) = s` to the system.
     ///
@@ -1256,166 +1256,6 @@ mod tests {
         let evaluations = vec![F::from_u64(100), F::from_u64(200)];
 
         let _ = EqStatement::new_with_univariate_skip(3, 2, points, evaluations);
-    }
-
-    #[test]
-    fn test_add_unevaluated_constraint_with_univariate_skip_log_skip_1() {
-        // Test with:
-        // - log_skip_size = 1,
-        // - num_variables = 2.
-        //
-        // Polynomial has 2 variables, represented over domain D × H^1
-        // where D = {g^0, g^1} (size 2) and H^1 = {0, 1}
-        let num_variables = 2;
-        let log_skip_size = 1;
-
-        // Create evaluation list: f over {g^0, g^1} × {0, 1} in row-major order
-        let evals = vec![
-            F::from_u64(7),  // f(g^0, 0)
-            F::from_u64(13), // f(g^0, 1)
-            F::from_u64(19), // f(g^1, 0)
-            F::from_u64(29), // f(g^1, 1)
-        ];
-        let poly = EvaluationsList::new(evals);
-
-        // Create constraint point with (num_variables - log_skip_size) + 1 = 2 coordinates
-        //
-        // point = (x, y) where
-        // - x is arbitrary for univariate,
-        // - y is arbitrary for hypercube.
-        let point = MultilinearPoint::new(vec![F::from_u64(2), F::from_u64(3)]);
-
-        // Create two statements and add the same constraint using different methods
-        let mut statement1 = EqStatement::<F>::initialize(num_variables);
-        let mut statement2 = EqStatement::<F>::initialize(num_variables);
-
-        // Method 1: use method where we compute the evaluation ourselves.
-        statement1.add_unevaluated_constraint_with_univariate_skip(
-            point.clone(),
-            &poly,
-            log_skip_size,
-        );
-
-        // Method 2: Compute evaluation manually and add it
-        let expected_eval = poly.evaluate_with_univariate_skip(&point, log_skip_size);
-        statement2.add_evaluated_constraint(point, expected_eval);
-
-        // Both statements should be identical
-        assert_eq!(statement1.len(), statement2.len());
-        assert_eq!(statement1.len(), 1);
-        assert_eq!(statement1.evaluations[0], statement2.evaluations[0]);
-        assert_eq!(statement1.points[0], statement2.points[0]);
-    }
-
-    #[test]
-    fn test_add_unevaluated_constraint_with_univariate_skip_log_skip_2() {
-        // Test with:
-        // - log_skip_size = 2,
-        // - num_variables = 3.
-        //
-        // Polynomial has 3 variables, represented over domain D × H^1
-        // where D = {g^0, g^1, g^2, g^3} (size 4) and H^1 = {0, 1}
-        let num_variables = 3;
-        let log_skip_size = 2;
-
-        // Create evaluation list: f over D × {0, 1} in row-major order
-        let evals = vec![
-            F::from_u64(5),  // f(g^0, 0)
-            F::from_u64(11), // f(g^0, 1)
-            F::from_u64(17), // f(g^1, 0)
-            F::from_u64(23), // f(g^1, 1)
-            F::from_u64(31), // f(g^2, 0)
-            F::from_u64(37), // f(g^2, 1)
-            F::from_u64(43), // f(g^3, 0)
-            F::from_u64(53), // f(g^3, 1)
-        ];
-        let poly = EvaluationsList::new(evals);
-
-        // Create constraint point with (num_variables - log_skip_size) + 1 = 2 coordinates
-        let point = MultilinearPoint::new(vec![F::from_u64(7), F::from_u64(11)]);
-
-        let mut statement = EqStatement::<F>::initialize(num_variables);
-        statement.add_unevaluated_constraint_with_univariate_skip(point, &poly, log_skip_size);
-
-        assert_eq!(statement.len(), 1);
-    }
-
-    #[test]
-    #[should_panic(expected = "Point must have 2 coordinates")]
-    fn test_add_unevaluated_constraint_with_univariate_skip_wrong_point_size() {
-        // Test that wrong point size causes panic
-        let num_variables = 3;
-        let log_skip_size = 2;
-
-        let evals = vec![F::ONE; 8]; // 2^3 = 8 evaluations
-        let poly = EvaluationsList::new(evals);
-
-        // Point should have (3 - 2) + 1 = 2 coordinates, but we provide 3
-        let point = MultilinearPoint::new(vec![F::from_u64(1), F::from_u64(2), F::from_u64(3)]);
-
-        let mut statement = EqStatement::<F>::initialize(num_variables);
-        statement.add_unevaluated_constraint_with_univariate_skip(point, &poly, log_skip_size);
-    }
-
-    #[test]
-    #[should_panic(expected = "log_skip_size must be greater than 0")]
-    fn test_add_unevaluated_constraint_with_univariate_skip_zero_log_skip() {
-        // Test that log_skip_size = 0 causes panic
-        let num_variables = 2;
-        let log_skip_size = 0;
-
-        let evals = vec![F::ONE; 4]; // 2^2 = 4 evaluations
-        let poly = EvaluationsList::new(evals);
-
-        let point = MultilinearPoint::new(vec![F::from_u64(1), F::from_u64(2)]);
-
-        let mut statement = EqStatement::<F>::initialize(num_variables);
-        statement.add_unevaluated_constraint_with_univariate_skip(point, &poly, log_skip_size);
-    }
-
-    #[test]
-    #[should_panic(expected = "log_skip_size")]
-    fn test_add_unevaluated_constraint_with_univariate_skip_log_skip_too_large() {
-        // Test that log_skip_size > num_variables causes panic
-        let num_variables = 2;
-        let log_skip_size = 3; // Greater than num_variables
-
-        let evals = vec![F::ONE; 4]; // 2^2 = 4 evaluations
-        let poly = EvaluationsList::new(evals);
-
-        let point = MultilinearPoint::new(vec![F::from_u64(1)]);
-
-        let mut statement = EqStatement::<F>::initialize(num_variables);
-        statement.add_unevaluated_constraint_with_univariate_skip(point, &poly, log_skip_size);
-    }
-
-    #[test]
-    fn test_add_unevaluated_constraint_with_univariate_skip_all_vars() {
-        // Edge case: log_skip_size = num_variables (all variables skipped)
-        let num_variables = 2;
-        let log_skip_size = 2;
-
-        // Create evaluation list over D = {g^0, g^1, g^2, g^3} (size 4)
-        let evals = vec![
-            F::from_u64(10),
-            F::from_u64(20),
-            F::from_u64(30),
-            F::from_u64(40),
-        ];
-        let poly = EvaluationsList::new(evals);
-
-        // Point should have (2 - 2) + 1 = 1 coordinate
-        let point = MultilinearPoint::new(vec![F::from_u64(5)]);
-
-        let mut statement = EqStatement::<F>::initialize(num_variables);
-        statement.add_unevaluated_constraint_with_univariate_skip(
-            point.clone(),
-            &poly,
-            log_skip_size,
-        );
-
-        assert_eq!(statement.len(), 1);
-        assert_eq!(statement.points[0], point);
     }
 
     #[test]

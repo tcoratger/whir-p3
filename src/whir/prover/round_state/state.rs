@@ -78,20 +78,6 @@ where
     /// The extension field structure enables efficient constraint batching while
     /// preserving the Reed-Solomon proximity properties necessary for soundness.
     pub merkle_prover_data: Option<RoundMerkleTree<F, EF, W, DIGEST_ELEMS>>,
-
-    /// Current constraint set defining the Reed-Solomon proximity testing problem.
-    ///
-    /// The statement contains linear equality constraints of the form
-    /// f(r_j) = v_j for evaluation points r_j ∈ (EF)^n and target values v_j ∈ EF.
-    /// These constraints evolve through rounds as:
-    ///
-    /// 1. **Initial**: Out-of-domain evaluations from the witness
-    /// 2. **Per Round**: New constraints from sumcheck protocol interactions
-    /// 3. **Evolution**: Constraint points updated with folding randomness
-    ///
-    /// The WHIR protocol maintains that satisfying these constraints implies
-    /// the committed polynomial is close to some Reed-Solomon codeword.
-    pub statement: EqStatement<EF>,
 }
 
 #[allow(clippy::mismatching_type_param_order)]
@@ -258,7 +244,7 @@ where
             // No extension field commitment yet (first round operates in base field)
             merkle_prover_data: None,
             // Constraint set augmented with OOD evaluations
-            statement,
+            // statement,
         })
     }
 }

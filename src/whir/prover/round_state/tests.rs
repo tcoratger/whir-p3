@@ -260,7 +260,7 @@ fn test_initial_statement_with_folding_factor_3() {
     let sumcheck_randomness = state.folding_randomness.clone();
 
     // With a folding factor of 3, all variables are collapsed in 1 round, so we expect only 1 evaluation left
-    assert_eq!(sumcheck.num_evals(), 1);
+    assert_eq!(sumcheck.poly.num_evals(), 1);
 
     // The value of f at the folding point should match the evaluation
     let eval_at_point = sumcheck.evals().as_slice()[0];

@@ -435,13 +435,12 @@ mod tests {
     use alloc::vec;
 
     use p3_baby_bear::BabyBear;
-    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::PrimeCharacteristicRing;
 
     use super::*;
     use crate::poly::evals::EvaluationsList;
 
     type F = BabyBear;
-    type EF = BinomialExtensionField<BabyBear, 4>;
 
     #[test]
     fn test_evals_eq_in_hypercube_three_vars_matches_new_from_point() {

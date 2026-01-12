@@ -15,9 +15,6 @@ use crate::{
 /// query points and their corresponding answers, which are required for verifier checks.
 #[derive(Debug, Clone)]
 pub struct ParsedCommitment<F, D> {
-    /// Number of variables in the committed polynomial.
-    pub num_variables: usize,
-
     /// Merkle root of the committed evaluation table.
     ///
     /// This hash is used by the verifier to check Merkle proofs of queried evaluations.
@@ -111,7 +108,6 @@ where
 
         // Return a structured representation of the commitment.
         ParsedCommitment {
-            num_variables,
             root,
             ood_statement,
         }

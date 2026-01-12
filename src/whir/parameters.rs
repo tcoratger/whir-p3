@@ -97,7 +97,6 @@ where
 
     pub final_queries: usize,
     pub final_pow_bits: usize,
-    pub final_log_inv_rate: usize,
     pub final_sumcheck_rounds: usize,
     pub final_folding_pow_bits: usize,
 
@@ -286,7 +285,6 @@ where
             final_pow_bits: final_pow_bits as usize,
             final_sumcheck_rounds,
             final_folding_pow_bits: final_folding_pow_bits as usize,
-            final_log_inv_rate: log_inv_rate,
             merkle_hash: whir_parameters.merkle_hash,
             merkle_compress: whir_parameters.merkle_compress,
             _base_field: PhantomData,

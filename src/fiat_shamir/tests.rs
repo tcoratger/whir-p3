@@ -18,10 +18,6 @@ fn make_challenger() -> MyChallenger {
     DuplexChallenger::new(perm)
 }
 
-fn make_domain_separator() -> DomainSeparator<EF, F> {
-    DomainSeparator::new(Vec::new())
-}
-
 proptest! {
     /// Tests that observing the same base field scalars on two identical challengers
     /// produces the same transcript state (identical challenge outputs).

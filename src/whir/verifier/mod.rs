@@ -211,7 +211,6 @@ where
         };
 
         let evaluation_of_weights = ConstraintPolyEvaluator::new(
-            self.num_variables,
             self.folding_factor,
             is_skip_used.then_some(K_SKIP_SUMCHECK),
         )
