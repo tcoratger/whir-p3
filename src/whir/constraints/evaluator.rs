@@ -73,8 +73,6 @@ fn eval_round<F: Field, EF: ExtensionField<F> + TwoAdicField>(
 /// Lightweight evaluator for the combined constraint polynomial W(r).
 #[derive(Clone, Debug)]
 pub struct ConstraintPolyEvaluator {
-    /// Number of variables in the multilinear polynomial space.
-    pub num_variables: usize,
     /// The folding factor.
     pub folding_factor: FoldingFactor,
     /// Optional skip step indicating whether the univariate skip optimization is active.
@@ -84,13 +82,8 @@ pub struct ConstraintPolyEvaluator {
 impl ConstraintPolyEvaluator {
     /// Creates a new `ConstraintPolyEvaluator` with the given parameters.
     #[must_use]
-    pub const fn new(
-        num_variables: usize,
-        folding_factor: FoldingFactor,
-        univariate_skip: Option<usize>,
-    ) -> Self {
+    pub const fn new(folding_factor: FoldingFactor, univariate_skip: Option<usize>) -> Self {
         Self {
-            num_variables,
             folding_factor,
             univariate_skip,
         }
@@ -168,11 +161,9 @@ enum PointContext<EF> {
 mod tests {
     use alloc::{vec, vec::Vec};
 
-    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-    use p3_challenger::DuplexChallenger;
+    use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_interpolation::interpolate_subgroup;
-    use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -185,11 +176,6 @@ mod tests {
 
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;
-    type Perm = Poseidon2BabyBear<16>;
-
-    type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
-    type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
-    type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
     #[test]
     fn test_eval_constraints_poly_non_skip() {
@@ -245,7 +231,7 @@ mod tests {
         let final_point = MultilinearPoint::rand(&mut rng, num_vars);
 
         // Calculate W(r) using the function under test
-        let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
+        let evaluator = ConstraintPolyEvaluator::new(folding_factor, None);
         let result_from_eval_poly = evaluator.eval_constraints_poly(&constraints, &final_point);
 
         // Calculate W(r) by materializing and evaluating round-by-round
@@ -348,7 +334,7 @@ mod tests {
             // Calculate W(r) using the function under test
             //
             // This is the recursive method we want to validate.
-            let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
+            let evaluator = ConstraintPolyEvaluator::new(folding_factor, None);
             let result_from_eval_poly =
                 evaluator.eval_constraints_poly(&constraints, &final_point);
 
@@ -429,8 +415,7 @@ mod tests {
         let final_point = MultilinearPoint::<EF>::rand(&mut rng, (num_vars - K_SKIP_SUMCHECK) + 1);
 
         // Calculate W(r) using the function under test
-        let evaluator =
-            ConstraintPolyEvaluator::new(num_vars, folding_factor, Some(K_SKIP_SUMCHECK));
+        let evaluator = ConstraintPolyEvaluator::new(folding_factor, Some(K_SKIP_SUMCHECK));
         let result_from_eval_poly = evaluator.eval_constraints_poly(&constraints, &final_point);
 
         // Manually compute W(r) with explicit recursive evaluation
@@ -531,7 +516,7 @@ mod tests {
 
             // -- Cryptographic Primitives & Verifier Config --
             let evaluator =
-                ConstraintPolyEvaluator::new(num_vars, folding_factor, Some(K_SKIP_SUMCHECK));
+                ConstraintPolyEvaluator::new( folding_factor, Some(K_SKIP_SUMCHECK));
 
             // -- Random Constraints and Challenges --
             let mut num_vars_current = num_vars;

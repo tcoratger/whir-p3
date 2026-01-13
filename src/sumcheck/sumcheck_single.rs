@@ -229,6 +229,11 @@ where
         self.poly.num_variables()
     }
 
+    /// Returns the number of evaluations in the polynomial.
+    pub const fn num_evals(&self) -> usize {
+        self.poly.num_evals()
+    }
+
     /// Returns the polynomial evaluations.
     #[instrument(skip_all)]
     pub fn evals(&self) -> EvaluationsList<EF> {
@@ -244,11 +249,6 @@ where
     /// Evaluates the sumcheck polynomial at a given multilinear point.
     pub fn eval(&self, point: &MultilinearPoint<EF>) -> EF {
         self.poly.eval(point)
-    }
-
-    /// Returns the number of evaluations in the polynomial.
-    pub const fn num_evals(&self) -> usize {
-        self.poly.num_evals()
     }
 
     /// Executes the sumcheck protocol for a multilinear polynomial with optional **univariate skip**.

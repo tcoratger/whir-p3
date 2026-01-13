@@ -3282,6 +3282,7 @@ mod tests {
         let _ = poly.fold_batch(&challenges);
     }
 
+    #[test]
     fn test_base_eval_consistency() {
         let mut rng = SmallRng::seed_from_u64(1);
 

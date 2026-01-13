@@ -27,10 +27,6 @@ type MyHash = PaddingFreeSponge<Poseidon16, 16, 8, 8>;
 type MyCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>;
 type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 
-const NUM_CONSTRAINTS: usize = 1;
-const FOLDING_FACTOR: usize = 5;
-const POW_BITS: usize = 0;
-
 /// Helper to create protocol parameters for benchmarking
 fn create_test_protocol_params_classic(
     folding_factor: FoldingFactor,

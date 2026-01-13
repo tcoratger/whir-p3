@@ -510,7 +510,7 @@ fn run_sumcheck_test(
     // CHECK EQ(z, r) WEIGHT POLY
     //
     // No skip optimization, so the first round is treated as a standard sumcheck round.
-    let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
+    let evaluator = ConstraintPolyEvaluator::new(folding_factor, None);
     let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness.reversed());
 
     // CHECK SUM == f(r) * weights(z, r)
@@ -779,7 +779,7 @@ fn run_sumcheck_test_skips(
     // EVALUATE EQ(z, r) VIA CONSTRAINTS
     //
     // Evaluate eq(z, r) using the unified constraint evaluation function.
-    let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, Some(K_SKIP_SUMCHECK));
+    let evaluator = ConstraintPolyEvaluator::new(folding_factor, Some(K_SKIP_SUMCHECK));
     let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness);
 
     // FINAL SUMCHECK CHECK
@@ -1008,7 +1008,7 @@ fn run_sumcheck_test_svo(
     // CHECK EQ(z, r) WEIGHT POLY
     //
     // No skip optimization, so the first round is treated as a standard sumcheck round.
-    let evaluator = ConstraintPolyEvaluator::new(num_vars, folding_factor, None);
+    let evaluator = ConstraintPolyEvaluator::new(folding_factor, None);
     let weights = evaluator.eval_constraints_poly(&constraints, &verifier_randomness.reversed());
 
     // CHECK SUM == f(r) * weights(z, r)

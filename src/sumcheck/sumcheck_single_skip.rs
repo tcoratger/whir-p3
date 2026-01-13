@@ -80,15 +80,12 @@ where
 mod tests {
     use alloc::vec;
 
-    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-    use p3_challenger::DuplexChallenger;
+    use p3_baby_bear::BabyBear;
     use p3_dft::{NaiveDft, Radix2DFTSmallBatch};
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
-    use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
     use crate::{
-        fiat_shamir::domain_separator::DomainSeparator,
         poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
         whir::constraints::statement::EqStatement,
     };
@@ -96,17 +93,7 @@ mod tests {
     type F = BabyBear;
     type EF4 = BinomialExtensionField<BabyBear, 4>;
     type Dft = NaiveDft;
-    type Perm = Poseidon2BabyBear<16>;
-    type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
     type SkipDft = Radix2DFTSmallBatch<F>;
-
-    /// Creates a fresh domain separator and challenger with fixed RNG seed.
-    fn domainsep_and_challenger() -> (DomainSeparator<EF4, F>, MyChallenger) {
-        let mut rng = SmallRng::seed_from_u64(1);
-        let perm = Perm::new_from_rng_128(&mut rng);
-        let challenger = MyChallenger::new(perm);
-        (DomainSeparator::new(vec![]), challenger)
-    }
 
     #[test]
     fn test_skipping_sumcheck_polynomial_k2_zero() {
