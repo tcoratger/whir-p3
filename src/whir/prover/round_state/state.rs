@@ -243,8 +243,6 @@ where
             commitment_merkle_prover_data: witness.prover_data,
             // No extension field commitment yet (first round operates in base field)
             merkle_prover_data: None,
-            // Constraint set augmented with OOD evaluations
-            // statement,
         })
     }
 }

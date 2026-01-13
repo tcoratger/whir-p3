@@ -290,54 +290,6 @@ impl<F: Field> EqStatement<F> {
         self.evaluations.push(eval);
     }
 
-    // /// Adds an evaluation constraint `p(z) = s` to the system using univariate skip.
-    // ///
-    // /// This method takes the polynomial `p` and uses it to compute the evaluation `s`.
-    // ///
-    // /// # Univariate Skip Representation
-    // ///
-    // /// This method is for the case where the polynomial is represented as evaluations over
-    // /// a mixed domain: a multiplicative subgroup D of size `2^log_skip_size` crossed with
-    // /// the Boolean hypercube `{0,1}^j` where `j = num_variables - log_skip_size`.
-    // ///
-    // /// The constraint point must have `(num_variables - log_skip_size) + 1` coordinates:
-    // /// - `point[0]`: Arbitrary evaluation point for the univariate (skipped) dimension
-    // /// - `point[1..j+1]`: Arbitrary evaluation points for the multilinear (hypercube) dimensions
-    // pub fn add_unevaluated_constraint_with_univariate_skip<BF>(
-    //     &mut self,
-    //     point: MultilinearPoint<F>,
-    //     poly: &EvaluationsList<BF>,
-    //     log_skip_size: usize,
-    // ) where
-    //     BF: TwoAdicField,
-    //     F: TwoAdicField + ExtensionField<BF>,
-    // {
-    //     // Validate log_skip_size first
-    //     assert!(
-    //         log_skip_size > 0,
-    //         "log_skip_size must be greater than 0 (got {log_skip_size}). For log_skip_size=0, use add_unevaluated_constraint_hypercube instead."
-    //     );
-    //     assert!(
-    //         log_skip_size <= self.num_variables(),
-    //         "log_skip_size ({log_skip_size}) must not exceed num_variables ({})",
-    //         self.num_variables()
-    //     );
-
-    //     let expected_point_size = (self.num_variables() - log_skip_size) + 1;
-    //     assert_eq!(
-    //         point.num_variables(),
-    //         expected_point_size,
-    //         "Point must have {} coordinates for univariate skip with log_skip_size={} and num_variables={}, but has {}",
-    //         expected_point_size,
-    //         log_skip_size,
-    //         self.num_variables(),
-    //         point.num_variables()
-    //     );
-    //     let eval = poly.evaluate_with_univariate_skip(&point, log_skip_size);
-    //     self.points.push(point);
-    //     self.evaluations.push(eval);
-    // }
-
     /// Adds an evaluation constraint `p(z) = s` to the system.
     ///
     /// Assumes the evaluation `s` is already known.
