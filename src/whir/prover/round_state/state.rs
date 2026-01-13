@@ -2,7 +2,7 @@
 //!
 //! This module implements the core round state management for the WHIR protocol.
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{sync::Arc, vec, vec::Vec};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_dft::TwoAdicSubgroupDft;
@@ -58,16 +58,23 @@ where
     /// cryptographic soundness. The length equals the folding factor k for this round.
     pub folding_randomness: MultilinearPoint<EF>,
 
-    /// Merkle tree commitment for the base field polynomial f: F^n → F.
+    /// Merkle tree commitments for base field polynomials f: F^n → F.
     ///
-    /// This commitment covers the initial polynomial evaluation table over the starting
-    /// domain H_0. The Merkle tree enables selective opening of polynomial values at
+    /// This vector contains commitments for one or more polynomials. For single-proof
+    /// scenarios, this contains exactly one tree. For batch opening, it contains
+    /// multiple trees (one per polynomial being batch-opened).
+    ///
+    /// The trees enable selective opening of polynomial values at
     /// verifier-chosen query points while maintaining cryptographic integrity.
     ///
-    /// In WHIR's proximity testing, this commitment proves the prover knows some
-    /// polynomial that is purportedly close to a Reed-Solomon codeword. The verifier
+    /// In WHIR's proximity testing, these commitments prove the prover knows
+    /// polynomials that are purportedly close to Reed-Solomon codewords. The verifier
     /// can later query specific positions to verify proximity claims.
-    pub commitment_merkle_prover_data: Arc<MerkleTree<F, W, M, DIGEST_ELEMS>>,
+    ///
+    /// Using `Vec<Arc<...>>` allows sharing individual trees independently,
+    /// which is useful when passing single trees to functions without cloning
+    /// the entire collection.
+    pub commitment_merkle_prover_data: Vec<Arc<MerkleTree<F, W, M, DIGEST_ELEMS>>>,
 
     /// Merkle tree commitment for extension field polynomials f': (EF)^{n-k} → EF.
     ///
@@ -239,8 +246,8 @@ where
             sumcheck_prover,
             // Current round's folding challenges (α_1, ..., α_k)
             folding_randomness,
-            // Merkle commitment from witness for base field polynomial
-            commitment_merkle_prover_data: witness.prover_data,
+            // Merkle commitment from witness for base field polynomial (single-element vector)
+            commitment_merkle_prover_data: vec![witness.prover_data],
             // No extension field commitment yet (first round operates in base field)
             merkle_prover_data: None,
         })
