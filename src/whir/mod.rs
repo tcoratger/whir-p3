@@ -5,7 +5,7 @@ use constraints::statement::EqStatement;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger};
 use p3_dft::Radix2DFTSmallBatch;
-use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use parameters::{InitialPhaseConfig, WhirConfig};
 use prover::Prover;
@@ -100,9 +100,9 @@ pub fn make_whir_things(
     // Setup Fiat-Shamir transcript structure for non-interactive proof generation
     let mut domainsep = DomainSeparator::new(vec![]);
     // Add statement commitment to transcript
-    domainsep.commit_statement::<_, _, _, 32>(&params);
+    domainsep.commit_statement::<_, _, _, 8>(&params);
     // Add proof structure to transcript
-    domainsep.add_whir_proof::<_, _, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, _, 8>(&params);
 
     // Create fresh RNG and challenger for transcript randomness
     // Initialize prover's view of the Fiat-Shamir transcript
@@ -115,11 +115,16 @@ pub fn make_whir_things(
     // DFT evaluator for polynomial
     let dft = Radix2DFTSmallBatch::<F>::default();
 
-    let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
+    let mut proof = WhirProof::<F, EF, F, 8>::from_protocol_parameters(&whir_params, num_variables);
 
     // Commit to polynomial evaluations and generate cryptographic witness
     let witness = committer
-        .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
+        .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+            &dft,
+            &mut proof,
+            &mut prover_challenger,
+            polynomial,
+        )
         .unwrap();
 
     // Initialize WHIR prover with the configured parameters
@@ -127,7 +132,7 @@ pub fn make_whir_things(
 
     // Generate WHIR proof
     prover
-        .prove(
+        .prove::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
             &dft,
             &mut proof,
             &mut prover_challenger,
@@ -152,11 +157,11 @@ pub fn make_whir_things(
 
     // Parse and validate the polynomial commitment from proof data
     let parsed_commitment =
-        commitment_reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
+        commitment_reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
     // Execute WHIR verification
     verifier
-        .verify(
+        .verify::<<F as Field>::Packing, F, <F as Field>::Packing, 8>(
             &proof,
             &mut verifier_challenger,
             &parsed_commitment,
@@ -351,5 +356,155 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod keccak_tests {
+    use alloc::vec;
+
+    use p3_challenger::{HashChallenger, SerializingChallenger32};
+    use p3_dft::Radix2DFTSmallBatch;
+    use p3_field::extension::BinomialExtensionField;
+    use p3_keccak::{Keccak256Hash, KeccakF};
+    use p3_koala_bear::KoalaBear;
+    use p3_symmetric::{CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher};
+    use rand::{Rng, SeedableRng, rngs::SmallRng};
+
+    use super::*;
+
+    // Field types for Keccak tests
+    type F = KoalaBear;
+    type EF = BinomialExtensionField<F, 4>;
+
+    // Keccak hash types producing [u64; 4] digests
+    type U64Hash = PaddingFreeSponge<KeccakF, 25, 17, 4>;
+    type KeccakFieldHash = SerializingHasher<U64Hash>;
+    type KeccakCompress = CompressionFunctionFromHasher<U64Hash, 2, 4>;
+
+    // Keccak challenger using byte-based HashChallenger
+    type KeccakChallenger = SerializingChallenger32<F, HashChallenger<u8, Keccak256Hash, 32>>;
+
+    /// Run a complete WHIR proof lifecycle with Keccak-based Merkle trees.
+    #[allow(clippy::too_many_arguments)]
+    fn make_whir_things_keccak(
+        num_variables: usize,
+        folding_factor: FoldingFactor,
+        num_points: usize,
+        soundness_type: SecurityAssumption,
+        pow_bits: usize,
+        rs_domain_initial_reduction_factor: usize,
+        initial_phase_config: InitialPhaseConfig,
+    ) {
+        let num_evaluations = 1 << num_variables;
+
+        // Create Keccak primitives
+        let u64_hash = U64Hash::new(KeccakF {});
+        let merkle_hash = KeccakFieldHash::new(u64_hash);
+        let merkle_compress = KeccakCompress::new(u64_hash);
+
+        // Configure WHIR protocol with Keccak hashing
+        let whir_params = ProtocolParameters {
+            initial_phase_config,
+            security_level: 32,
+            pow_bits,
+            rs_domain_initial_reduction_factor,
+            folding_factor,
+            merkle_hash,
+            merkle_compress,
+            soundness_type,
+            starting_log_inv_rate: 1,
+        };
+
+        let params = WhirConfig::<EF, F, KeccakFieldHash, KeccakCompress, KeccakChallenger>::new(
+            num_variables,
+            whir_params.clone(),
+        );
+
+        // Create random polynomial
+        let mut rng = SmallRng::seed_from_u64(1);
+        let polynomial = EvaluationsList::new((0..num_evaluations).map(|_| rng.random()).collect());
+
+        // Generate evaluation points and build statement
+        let points: Vec<_> = (0..num_points)
+            .map(|_| {
+                MultilinearPoint::new((0..num_variables).map(|i| EF::from_u64(i as u64)).collect())
+            })
+            .collect();
+
+        let mut statement = EqStatement::<EF>::initialize(num_variables);
+        for point in &points {
+            statement.add_unevaluated_constraint_hypercube(point.clone(), &polynomial);
+        }
+
+        // Setup Fiat-Shamir transcript
+        let mut domainsep = DomainSeparator::new(vec![]);
+        domainsep.commit_statement::<_, _, _, 4>(&params);
+        domainsep.add_whir_proof::<_, _, _, 4>(&params);
+
+        // Create prover challenger
+        let inner = HashChallenger::<u8, Keccak256Hash, 32>::new(vec![], Keccak256Hash {});
+        let mut prover_challenger = KeccakChallenger::new(inner);
+        domainsep.observe_domain_separator(&mut prover_challenger);
+
+        // Commit and prove
+        let committer = CommitmentWriter::new(&params);
+        let dft = Radix2DFTSmallBatch::<F>::default();
+
+        let mut proof =
+            WhirProof::<F, EF, u64, 4>::from_protocol_parameters(&whir_params, num_variables);
+
+        let witness = committer
+            .commit::<_, F, u64, u64, 4>(&dft, &mut proof, &mut prover_challenger, polynomial)
+            .unwrap();
+
+        let prover = Prover(&params);
+        prover
+            .prove::<_, F, u64, u64, 4>(
+                &dft,
+                &mut proof,
+                &mut prover_challenger,
+                statement.clone(),
+                witness,
+            )
+            .unwrap();
+
+        let checkpoint_prover: EF = prover_challenger.sample_algebra_element();
+
+        // Verify
+        let commitment_reader = CommitmentReader::new(&params);
+        let verifier = Verifier::new(&params);
+
+        let inner = HashChallenger::<u8, Keccak256Hash, 32>::new(vec![], Keccak256Hash {});
+        let mut verifier_challenger = KeccakChallenger::new(inner);
+        domainsep.observe_domain_separator(&mut verifier_challenger);
+
+        let parsed_commitment =
+            commitment_reader.parse_commitment::<u64, 4>(&proof, &mut verifier_challenger);
+
+        verifier
+            .verify::<F, u64, u64, 4>(
+                &proof,
+                &mut verifier_challenger,
+                &parsed_commitment,
+                statement,
+            )
+            .unwrap();
+
+        let checkpoint_verifier: EF = verifier_challenger.sample_algebra_element();
+        assert_eq!(checkpoint_prover, checkpoint_verifier);
+    }
+
+    #[test]
+    fn test_whir_keccak_end_to_end() {
+        make_whir_things_keccak(
+            10,
+            FoldingFactor::Constant(4),
+            2,
+            SecurityAssumption::CapacityBound,
+            0,
+            1,
+            InitialPhaseConfig::WithStatementClassic,
+        );
     }
 }

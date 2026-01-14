@@ -105,7 +105,7 @@ fn bench_sumcheck_prover_svo(c: &mut Criterion) {
 
                 // Initialize proof
                 let mut proof =
-                    WhirProof::<F, EF, 8>::from_protocol_parameters(&params_classic, *num_vars);
+                    WhirProof::<F, EF, F, 8>::from_protocol_parameters(&params_classic, *num_vars);
 
                 // Create constraint using challenger directly
                 let statement = generate_statement(&mut challenger, *num_vars, poly, 3);

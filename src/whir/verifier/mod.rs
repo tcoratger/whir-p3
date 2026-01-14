@@ -2,9 +2,9 @@ use alloc::{format, vec, vec::Vec};
 use core::{fmt::Debug, ops::Deref, slice::from_ref};
 
 use errors::VerifierError;
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -58,17 +58,25 @@ where
 
     #[instrument(skip_all)]
     #[allow(clippy::too_many_lines)]
-    pub fn verify<const DIGEST_ELEMS: usize>(
+    pub fn verify<P, W, PW, const DIGEST_ELEMS: usize>(
         &self,
-        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
+        proof: &WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
-        parsed_commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
+        parsed_commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         mut statement: EqStatement<EF>,
     ) -> Result<MultilinearPoint<EF>, VerifierError>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        P: PackedValue<Value = F> + Eq + Send + Sync,
+        W: PackedValue<Value = W> + Eq + Send + Sync + Copy,
+        PW: PackedValue<Value = W> + Eq + Send + Sync,
+        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
+            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
+            + Sync,
+        Challenger: CanObserve<Hash<F, W, DIGEST_ELEMS>>,
+        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // During the rounds we collect constraints, combination randomness, folding randomness
         // and we update the claimed sum of constraint evaluation.
@@ -110,7 +118,7 @@ where
             let round_params = &self.round_parameters[round_index];
 
             // Receive commitment to the folded polynomial (likely encoded at higher expansion)
-            let new_commitment = ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse_with_round(
+            let new_commitment = ParsedCommitment::<_, Hash<F, W, DIGEST_ELEMS>>::parse_with_round(
                 proof,
                 challenger,
                 round_params.num_variables,
@@ -119,7 +127,7 @@ where
             );
 
             // Verify in-domain challenges on the previous commitment.
-            let stir_statement = self.verify_stir_challenges(
+            let stir_statement = self.verify_stir_challenges::<P, W, PW, DIGEST_ELEMS>(
                 proof,
                 challenger,
                 round_params,
@@ -161,7 +169,7 @@ where
         challenger.observe_algebra_slice(final_evaluations.as_slice());
 
         // Verify in-domain challenges on the previous commitment.
-        let stir_statement = self.verify_stir_challenges(
+        let stir_statement = self.verify_stir_challenges::<P, W, PW, DIGEST_ELEMS>(
             proof,
             challenger,
             &self.final_round_config(),
@@ -238,7 +246,7 @@ where
     ///
     /// After verification, it evaluates the folded polynomial at these queried points.
     /// It then packages the results as a list of `Constraint` objects,
-    /// ready to be combined into the next round’s sumcheck.
+    /// ready to be combined into the next round's sumcheck.
     ///
     /// # Arguments
     /// - `proof`: The WHIR proof containing query openings and Merkle proofs.
@@ -250,24 +258,31 @@ where
     ///
     /// # Returns
     /// A vector of `Constraint` objects, each linking a queried domain point
-    /// to its evaluated, folded value under the prover’s commitment.
+    /// to its evaluated, folded value under the prover's commitment.
     ///
     /// # Errors
     /// Returns `VerifierError::MerkleProofInvalid` if Merkle proof verification fails
-    /// or the prover’s data does not match the commitment.
-    pub fn verify_stir_challenges<const DIGEST_ELEMS: usize>(
+    /// or the prover's data does not match the commitment.
+    pub fn verify_stir_challenges<P, W, PW, const DIGEST_ELEMS: usize>(
         &self,
-        proof: &crate::whir::proof::WhirProof<F, EF, DIGEST_ELEMS>,
+        proof: &crate::whir::proof::WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         params: &RoundConfig<F>,
-        commitment: &ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>,
+        commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
     ) -> Result<SelectStatement<F, EF>, VerifierError>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        P: PackedValue<Value = F> + Eq + Send + Sync,
+        W: PackedValue<Value = W> + Eq + Send + Sync,
+        PW: PackedValue<Value = W> + Eq + Send + Sync,
+        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
+            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
+            + Sync,
+        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // CRITICAL: Verify the prover's proof-of-work before generating challenges.
         //
@@ -311,7 +326,7 @@ where
             height: params.domain_size >> params.folding_factor,
             width: 1 << params.folding_factor,
         }];
-        let answers = self.verify_merkle_proof(
+        let answers = self.verify_merkle_proof::<P, W, PW, DIGEST_ELEMS>(
             proof,
             &commitment.root,
             &stir_challenges_indexes,
@@ -385,7 +400,7 @@ where
 
     /// Verify a Merkle multi-opening proof for the provided indices.
     ///
-    /// This method checks that the prover’s claimed leaf values at multiple positions
+    /// This method checks that the prover's claimed leaf values at multiple positions
     /// match the committed Merkle root, using batch Merkle proofs.
     /// It supports both base field and extension field leaf types.
     ///
@@ -406,20 +421,28 @@ where
     ///
     /// # Errors
     /// Returns `VerifierError::MerkleProofInvalid` if any Merkle proof fails verification.
-    pub fn verify_merkle_proof<const DIGEST_ELEMS: usize>(
+    pub fn verify_merkle_proof<P, W, PW, const DIGEST_ELEMS: usize>(
         &self,
-        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
-        root: &Hash<F, F, DIGEST_ELEMS>,
+        proof: &WhirProof<F, EF, W, DIGEST_ELEMS>,
+        root: &Hash<F, W, DIGEST_ELEMS>,
         indices: &[usize],
         dimensions: &[Dimensions],
         round_index: usize,
     ) -> Result<Vec<Vec<EF>>, VerifierError>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        P: PackedValue<Value = F> + Eq + Send + Sync,
+        W: PackedValue<Value = W> + Eq + Send + Sync,
+        PW: PackedValue<Value = W> + Eq + Send + Sync,
+        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
+            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
+            + Sync,
+        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
-        let mmcs = MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
+        let mmcs: MerkleTreeMmcs<P, PW, H, C, DIGEST_ELEMS> =
+            MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
         let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
 
         // Determine which queries to use from the proof structure

@@ -147,10 +147,10 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
             let mut challenger_clone = challenger.clone();
             domainsep.observe_domain_separator(&mut challenger_clone);
             let mut proof =
-                WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
+                WhirProof::<F, EF, F, 8>::from_protocol_parameters(&whir_params, num_variables);
             let committer = CommitmentWriter::new(&params);
             let _witness = committer
-                .commit(&dft, &mut proof, &mut challenger_clone, polynomial.clone())
+                .commit::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(&dft, &mut proof, &mut challenger_clone, polynomial.clone())
                 .unwrap();
         });
     });
@@ -160,15 +160,15 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
             let mut challenger_clone = challenger.clone();
             domainsep.observe_domain_separator(&mut challenger_clone);
             let mut proof =
-                WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
+                WhirProof::<F, EF, F, 8>::from_protocol_parameters(&whir_params, num_variables);
             let committer = CommitmentWriter::new(&params);
             let witness = committer
-                .commit(&dft, &mut proof, &mut challenger_clone, polynomial.clone())
+                .commit::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(&dft, &mut proof, &mut challenger_clone, polynomial.clone())
                 .unwrap();
 
             let prover = Prover(&params);
             prover
-                .prove(
+                .prove::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(
                     &dft,
                     &mut proof,
                     &mut challenger_clone,

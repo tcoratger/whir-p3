@@ -4,7 +4,7 @@ use clap::Parser;
 use p3_baby_bear::BabyBear;
 use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
-use p3_field::extension::BinomialExtensionField;
+use p3_field::{Field, extension::BinomialExtensionField};
 use p3_goldilocks::Goldilocks;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -168,11 +168,16 @@ fn main() {
 
     let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
 
-    let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&whir_params, num_variables);
+    let mut proof = WhirProof::<F, EF, F, 8>::from_protocol_parameters(&whir_params, num_variables);
 
     let time = Instant::now();
     let witness = committer
-        .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
+        .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+            &dft,
+            &mut proof,
+            &mut prover_challenger,
+            polynomial,
+        )
         .unwrap();
     let commit_time = time.elapsed();
 
@@ -182,7 +187,7 @@ fn main() {
     // Generate a proof for the given statement and witness
     let time = Instant::now();
     prover
-        .prove(
+        .prove::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
             &dft,
             &mut proof,
             &mut prover_challenger,
@@ -205,11 +210,11 @@ fn main() {
 
     // Parse the commitment
     let parsed_commitment =
-        commitment_reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
+        commitment_reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
     let verif_time = Instant::now();
     verifier
-        .verify(
+        .verify::<<F as Field>::Packing, F, <F as Field>::Packing, 8>(
             &proof,
             &mut verifier_challenger,
             &parsed_commitment,

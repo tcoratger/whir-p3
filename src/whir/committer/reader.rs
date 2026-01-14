@@ -1,7 +1,7 @@
 use core::{fmt::Debug, ops::Deref};
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
+use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
 use p3_symmetric::Hash;
 
 use crate::{
@@ -56,31 +56,37 @@ where
     /// - The prover's claimed answers at those points.
     ///
     /// This is used to verify consistency of polynomial commitments in WHIR.
-    pub fn parse<EF, Challenger, const DIGEST_ELEMS: usize>(
-        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
+    pub fn parse<EF, W, Challenger, const DIGEST_ELEMS: usize>(
+        proof: &WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         num_variables: usize,
         ood_samples: usize,
-    ) -> ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>
+    ) -> ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>
     where
         F: TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        W: PackedValue<Value = W> + Eq + Copy,
+        Challenger: FieldChallenger<F>
+            + GrindingChallenger<Witness = F>
+            + CanObserve<Hash<F, W, DIGEST_ELEMS>>,
     {
         Self::parse_with_round(proof, challenger, num_variables, ood_samples, None)
     }
 
-    pub fn parse_with_round<EF, Challenger, const DIGEST_ELEMS: usize>(
-        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
+    pub fn parse_with_round<EF, W, Challenger, const DIGEST_ELEMS: usize>(
+        proof: &WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         num_variables: usize,
         ood_samples: usize,
         round_index: Option<usize>,
-    ) -> ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>>
+    ) -> ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>
     where
         F: TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        W: PackedValue<Value = W> + Eq + Copy,
+        Challenger: FieldChallenger<F>
+            + GrindingChallenger<Witness = F>
+            + CanObserve<Hash<F, W, DIGEST_ELEMS>>,
     {
         let (root_array, ood_answers) = round_index.map_or_else(
             || (proof.initial_commitment, proof.initial_ood_answers.clone()),
@@ -91,10 +97,10 @@ where
         );
 
         // Convert to Hash type
-        let root: Hash<F, F, DIGEST_ELEMS> = root_array.into();
+        let root: Hash<F, W, DIGEST_ELEMS> = root_array.into();
 
-        // Observe the root in the challenger to match prover's transcript
-        challenger.observe_slice(&root_array);
+        // Observe the root in the challenger using generic CanObserve
+        challenger.observe(root);
 
         // Construct equality constraints for all out-of-domain (OOD) samples.
         // Each constraint enforces that the committed polynomial evaluates to the
@@ -151,12 +157,16 @@ where
     ///
     /// Reads the Merkle root and out-of-domain (OOD) challenge points and answers
     /// expected for verifying the committed polynomial.
-    pub fn parse_commitment<const DIGEST_ELEMS: usize>(
+    pub fn parse_commitment<W, const DIGEST_ELEMS: usize>(
         &self,
-        proof: &WhirProof<F, EF, DIGEST_ELEMS>,
+        proof: &WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
-    ) -> ParsedCommitment<EF, Hash<F, F, DIGEST_ELEMS>> {
-        ParsedCommitment::<_, Hash<F, F, DIGEST_ELEMS>>::parse(
+    ) -> ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>
+    where
+        W: PackedValue<Value = W> + Eq + Copy,
+        Challenger: CanObserve<Hash<F, W, DIGEST_ELEMS>>,
+    {
+        ParsedCommitment::<_, Hash<F, W, DIGEST_ELEMS>>::parse(
             proof,
             challenger,
             self.num_variables,
@@ -184,7 +194,7 @@ mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_dft::Radix2DFTSmallBatch;
-    use p3_field::extension::BinomialExtensionField;
+    use p3_field::{Field, extension::BinomialExtensionField};
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{Rng, SeedableRng, rngs::SmallRng};
 
@@ -216,7 +226,7 @@ mod tests {
     ) -> (
         WhirConfig<EF, BabyBear, MyHash, MyCompress, MyChallenger>,
         SmallRng,
-        WhirProof<F, EF, DIGEST_ELEMS>,
+        WhirProof<F, EF, F, DIGEST_ELEMS>,
     ) {
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
@@ -280,7 +290,12 @@ mod tests {
 
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
         let witness = committer
-            .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
+            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+                &dft,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
 
         // Simulate verifier state using transcript view of prover's nonce string.
@@ -289,7 +304,7 @@ mod tests {
 
         // Create a commitment reader and parse the commitment from verifier state.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
+        let parsed = reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
         // Ensure the Merkle root matches between prover and parsed result.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -322,7 +337,12 @@ mod tests {
 
         // Commit the polynomial to obtain the witness.
         let witness = committer
-            .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
+            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+                &dft,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
 
         // Initialize the verifier view of the transcript.
@@ -331,7 +351,7 @@ mod tests {
 
         // Parse the commitment from verifier transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
+        let parsed = reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
         // Validate the Merkle root matches.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -364,7 +384,12 @@ mod tests {
 
         // Commit the polynomial and obtain the witness.
         let witness = committer
-            .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
+            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+                &dft,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
@@ -373,7 +398,7 @@ mod tests {
 
         // Parse the commitment from verifier's transcript.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
+        let parsed = reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
         // Check Merkle root and OOD answers match.
         assert_eq!(parsed.root, witness.prover_data.root());
@@ -403,7 +428,12 @@ mod tests {
         ds.observe_domain_separator(&mut prover_challenger);
 
         let witness = committer
-            .commit(&dft, &mut proof, &mut prover_challenger, polynomial)
+            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+                &dft,
+                &mut proof,
+                &mut prover_challenger,
+                polynomial,
+            )
             .unwrap();
 
         // Initialize the verifier view of the transcript.
@@ -412,7 +442,7 @@ mod tests {
 
         // Parse the commitment from the verifier's state.
         let reader = CommitmentReader::new(&params);
-        let parsed = reader.parse_commitment::<8>(&proof, &mut verifier_challenger);
+        let parsed = reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
         // Each constraint should have correct univariate weight, sum, and flag.
         for (i, (point, &eval)) in parsed.ood_statement.iter().enumerate() {

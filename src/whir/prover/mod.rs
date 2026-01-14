@@ -1,17 +1,17 @@
 use alloc::vec::Vec;
 use core::ops::Deref;
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
 use p3_interpolation::interpolate_subgroup;
 use p3_matrix::{
     Matrix,
     dense::{DenseMatrix, RowMajorMatrixView},
 };
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use round_state::RoundState;
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
@@ -109,9 +109,9 @@ where
     /// # Panics
     /// - Panics if OOD lengths are inconsistent
     /// - Panics if OOD data is non-empty despite `initial_statement = false`
-    const fn validate_witness<const DIGEST_ELEMS: usize>(
+    const fn validate_witness<W, const DIGEST_ELEMS: usize>(
         &self,
-        witness: &Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
+        witness: &Witness<EF, F, DenseMatrix<F>, W, DIGEST_ELEMS>,
     ) -> bool {
         if !self.0.initial_phase_config.has_initial_statement() {
             assert!(witness.ood_statement.is_empty());
@@ -139,23 +139,34 @@ where
     ///
     /// # Errors
     /// Returns an error if the witness or statement are invalid, or if a round fails.
+    /// # Type Parameters
+    /// - `Dft`: DFT backend for polynomial evaluation
+    /// - `P`: Packed leaf type for SIMD (e.g., `F::Packing` for Poseidon, `F` for Keccak)
+    /// - `W`: Digest element type (e.g., `F` for Poseidon, `u64` for Keccak)
+    /// - `PW`: Packed digest element type for SIMD (e.g., `F::Packing` for Poseidon, `u64` for Keccak)
+    /// - `DIGEST_ELEMS`: Number of elements in the digest
     #[instrument(skip_all)]
-    pub fn prove<Dft: TwoAdicSubgroupDft<F>, const DIGEST_ELEMS: usize>(
+    pub fn prove<Dft, P, W, PW, const DIGEST_ELEMS: usize>(
         &self,
         dft: &Dft,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         statement: EqStatement<EF>,
-        witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
+        witness: Witness<EF, F, DenseMatrix<F>, W, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
-            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+        Dft: TwoAdicSubgroupDft<F>,
+        P: PackedValue<Value = F> + Eq + Send + Sync,
+        W: PackedValue<Value = W> + Eq + Send + Sync,
+        PW: PackedValue<Value = W> + Eq + Send + Sync,
+        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
+            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
             + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Challenger: CanObserve<Hash<F, W, DIGEST_ELEMS>>,
+        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Validate parameters
         assert!(
@@ -172,7 +183,13 @@ where
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
-            self.round(dft, round, proof, challenger, &mut round_state)?;
+            self.round::<P, W, PW, DIGEST_ELEMS, _>(
+                dft,
+                round,
+                proof,
+                challenger,
+                &mut round_state,
+            )?;
         }
 
         Ok(())
@@ -180,22 +197,26 @@ where
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = self.num_variables - self.folding_factor.total_number(round_index)))]
     #[allow(clippy::too_many_lines)]
-    fn round<const DIGEST_ELEMS: usize, Dft: TwoAdicSubgroupDft<F>>(
+    fn round<P, W, PW, const DIGEST_ELEMS: usize, Dft: TwoAdicSubgroupDft<F>>(
         &self,
         dft: &Dft,
         round_index: usize,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
-        round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
+        round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
-            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+        P: PackedValue<Value = F> + Eq + Send + Sync,
+        W: PackedValue<Value = W> + Eq + Send + Sync,
+        PW: PackedValue<Value = W> + Eq + Send + Sync,
+        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
+            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
             + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Challenger: CanObserve<Hash<F, W, DIGEST_ELEMS>>,
+        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         let folded_evaluations = &round_state.sumcheck_prover.evals();
         let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
@@ -203,7 +224,12 @@ where
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
-            return self.final_round(round_index, proof, challenger, round_state);
+            return self.final_round::<P, W, PW, DIGEST_ELEMS>(
+                round_index,
+                proof,
+                challenger,
+                round_state,
+            );
         }
 
         let round_params = &self.round_parameters[round_index];
@@ -230,7 +256,7 @@ where
         let folded_matrix = info_span!("dft", height = padded.height(), width = padded.width())
             .in_scope(|| dft.dft_algebra_batch(padded).to_row_major_matrix());
 
-        let mmcs = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
+        let mmcs = MerkleTreeMmcs::<P, PW, H, C, DIGEST_ELEMS>::new(
             self.merkle_hash.clone(),
             self.merkle_compress.clone(),
         );
@@ -239,7 +265,7 @@ where
             info_span!("commit matrix").in_scope(|| extension_mmcs.commit_matrix(folded_matrix));
 
         // Observe the round merkle tree commitment
-        challenger.observe_slice(root.as_ref());
+        challenger.observe(root);
 
         // Store commitment in proof
         proof.rounds[round_index].commitment = root.into();
@@ -422,21 +448,24 @@ where
     }
 
     #[instrument(skip_all)]
-    fn final_round<const DIGEST_ELEMS: usize>(
+    fn final_round<P, W, PW, const DIGEST_ELEMS: usize>(
         &self,
         round_index: usize,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
-        round_state: &mut RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>,
+        round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
-            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+        P: PackedValue<Value = F> + Eq + Send + Sync,
+        W: PackedValue<Value = W> + Eq + Send + Sync,
+        PW: PackedValue<Value = W> + Eq + Send + Sync,
+        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
+            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
             + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Directly send coefficients of the polynomial to the verifier.
         challenger.observe_algebra_slice(round_state.sumcheck_prover.evals().as_slice());
@@ -473,7 +502,7 @@ where
         )?;
 
         // Every query requires opening these many in the previous Merkle tree
-        let mmcs = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
+        let mmcs = MerkleTreeMmcs::<P, PW, H, C, DIGEST_ELEMS>::new(
             self.merkle_hash.clone(),
             self.merkle_compress.clone(),
         );

@@ -86,9 +86,9 @@ fn setup_domain_and_commitment(
     params: &WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger>,
     poly: EvaluationsList<F>,
 ) -> (
-    WhirProof<F, EF4, DIGEST_ELEMS>,
+    WhirProof<F, EF4, F, DIGEST_ELEMS>,
     MyChallenger,
-    Witness<EF4, F, DenseMatrix<F>, DIGEST_ELEMS>,
+    Witness<EF4, F, DenseMatrix<F>, F, DIGEST_ELEMS>,
 ) {
     // Build ProtocolParameters from WhirConfig fields
     let protocol_params = ProtocolParameters {
@@ -128,7 +128,7 @@ fn setup_domain_and_commitment(
     // Perform DFT-based commitment to the polynomial, producing a witness
     // which includes the Merkle tree and polynomial values.
     let witness = committer
-        .commit(
+        .commit::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, DIGEST_ELEMS>(
             &Radix2DFTSmallBatch::<F>::default(),
             &mut proof,
             &mut prover_challenger,

@@ -312,7 +312,7 @@ fn run_sumcheck_test(
     // Initialize proof and challenger
     let params =
         create_test_protocol_params(folding_factor, InitialPhaseConfig::WithStatementClassic);
-    let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, num_vars);
+    let mut proof = WhirProof::<F, EF, F, 8>::from_protocol_parameters(&params, num_vars);
     domsep.observe_domain_separator(&mut prover_challenger);
 
     // Store constraint evaluations for each round (prover writes, verifier reads)
@@ -562,7 +562,7 @@ fn run_sumcheck_test_skips(
         folding_factor,
         InitialPhaseConfig::WithStatementUnivariateSkip,
     );
-    let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, num_vars);
+    let mut proof = WhirProof::<F, EF, F, 8>::from_protocol_parameters(&params, num_vars);
     domsep.observe_domain_separator(&mut prover_challenger);
 
     // Store constraint evaluations for each round (prover writes, verifier reads)
@@ -811,7 +811,7 @@ fn run_sumcheck_test_svo(
 
     // Initialize proof and challenger
     let params = create_test_protocol_params(folding_factor, InitialPhaseConfig::WithStatementSvo);
-    let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, num_vars);
+    let mut proof = WhirProof::<F, EF, F, 8>::from_protocol_parameters(&params, num_vars);
     domsep.observe_domain_separator(&mut prover_challenger);
 
     // Store constraint evaluations for each round (prover writes, verifier reads)

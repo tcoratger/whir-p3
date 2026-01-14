@@ -1,13 +1,13 @@
 use alloc::sync::Arc;
 use core::ops::Deref;
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrixView};
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
+use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
@@ -57,21 +57,26 @@ where
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
     #[instrument(skip_all)]
-    pub fn commit<Dft: TwoAdicSubgroupDft<F>, const DIGEST_ELEMS: usize>(
+    pub fn commit<Dft, P, W, PW, const DIGEST_ELEMS: usize>(
         &self,
         dft: &Dft,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         polynomial: EvaluationsList<F>,
-    ) -> Result<Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>, FiatShamirError>
+    ) -> Result<Witness<EF, F, DenseMatrix<F>, W, DIGEST_ELEMS>, FiatShamirError>
     where
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
-            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+        Dft: TwoAdicSubgroupDft<F>,
+        P: PackedValue<Value = F> + Eq + Send + Sync,
+        W: PackedValue<Value = W> + Eq + Send + Sync,
+        PW: PackedValue<Value = W> + Eq + Send + Sync,
+        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
+            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
             + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Challenger: CanObserve<Hash<F, W, DIGEST_ELEMS>>,
+        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Transpose for reverse variable order
         // And then pad with zeros
@@ -94,8 +99,8 @@ where
         let folded_matrix = info_span!("dft", height = padded.height(), width = padded.width())
             .in_scope(|| dft.dft_batch(padded).to_row_major_matrix());
 
-        // Commit to the Merkle tree
-        let merkle_tree = MerkleTreeMmcs::<F::Packing, F::Packing, H, C, DIGEST_ELEMS>::new(
+        // Commit to the Merkle tree (using P for leaves and PW for digest SIMD)
+        let merkle_tree = MerkleTreeMmcs::<P, PW, H, C, DIGEST_ELEMS>::new(
             self.merkle_hash.clone(),
             self.merkle_compress.clone(),
         );
@@ -103,7 +108,8 @@ where
             info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
 
         proof.initial_commitment = *root.as_ref();
-        challenger.observe_slice(root.as_ref());
+        // Use CanObserve<Hash<F, W, N>> which both DuplexChallenger and SerializingChallenger implement
+        challenger.observe(root);
 
         let mut ood_statement = EqStatement::initialize(self.num_variables);
         (0..self.0.commitment_ood_samples).for_each(|_| {
@@ -204,7 +210,8 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        let mut proof = WhirProof::<F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+        let mut proof =
+            WhirProof::<F, F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
         let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
@@ -219,7 +226,12 @@ mod tests {
         let committer = CommitmentWriter::new(&params);
         let dft = Radix2DFTSmallBatch::<F>::default();
         let witness = committer
-            .commit(&dft, &mut proof, &mut challenger, polynomial.clone())
+            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+                &dft,
+                &mut proof,
+                &mut challenger,
+                polynomial.clone(),
+            )
             .unwrap();
 
         // Ensure OOD (out-of-domain) points are generated.
@@ -283,7 +295,8 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
 
-        let mut proof = WhirProof::<F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+        let mut proof =
+            WhirProof::<F, F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
 
         let mut domainsep = DomainSeparator::new(vec![]);
         domainsep.commit_statement::<_, _, _, 8>(&params);
@@ -295,7 +308,12 @@ mod tests {
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let _ = committer
-            .commit(&dft, &mut proof, &mut challenger, polynomial)
+            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+                &dft,
+                &mut proof,
+                &mut challenger,
+                polynomial,
+            )
             .unwrap();
     }
 
@@ -340,7 +358,8 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
-        let mut proof = WhirProof::<F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+        let mut proof =
+            WhirProof::<F, F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
 
         let mut domainsep = DomainSeparator::new(vec![]);
         domainsep.commit_statement::<_, _, _, 8>(&params);
@@ -353,7 +372,12 @@ mod tests {
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let witness = committer
-            .commit(&dft, &mut proof, &mut challenger, polynomial)
+            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+                &dft,
+                &mut proof,
+                &mut challenger,
+                polynomial,
+            )
             .unwrap();
 
         assert!(
