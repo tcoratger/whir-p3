@@ -17,10 +17,6 @@ pub type RoundMerkleTree<F, EF, W, const DIGEST_ELEMS: usize> =
 /// This structure holds all necessary components to verify a commitment,
 /// including the polynomial itself, the Merkle tree used for commitment,
 /// and out-of-domain (OOD) evaluations.
-///
-/// The type parameter `W` is the digest element type:
-/// - For Poseidon: `W = F` (field elements as digest)
-/// - For Keccak: `W = u64` (64-bit integers as digest)
 #[derive(Debug)]
 pub struct Witness<EF, F, M, W, const DIGEST_ELEMS: usize>
 where

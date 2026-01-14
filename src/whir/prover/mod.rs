@@ -139,12 +139,6 @@ where
     ///
     /// # Errors
     /// Returns an error if the witness or statement are invalid, or if a round fails.
-    /// # Type Parameters
-    /// - `Dft`: DFT backend for polynomial evaluation
-    /// - `P`: Packed leaf type for SIMD (e.g., `F::Packing` for Poseidon, `F` for Keccak)
-    /// - `W`: Digest element type (e.g., `F` for Poseidon, `u64` for Keccak)
-    /// - `PW`: Packed digest element type for SIMD (e.g., `F::Packing` for Poseidon, `u64` for Keccak)
-    /// - `DIGEST_ELEMS`: Number of elements in the digest
     #[instrument(skip_all)]
     pub fn prove<Dft, P, W, PW, const DIGEST_ELEMS: usize>(
         &self,
