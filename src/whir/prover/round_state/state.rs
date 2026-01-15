@@ -81,7 +81,7 @@ where
 }
 
 #[allow(clippy::mismatching_type_param_order)]
-impl<EF, F, const DIGEST_ELEMS: usize> RoundState<EF, F, F, DenseMatrix<F>, DIGEST_ELEMS>
+impl<EF, F, W, const DIGEST_ELEMS: usize> RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>
 where
     F: TwoAdicField + Ord,
     EF: ExtensionField<F> + TwoAdicField,
@@ -103,10 +103,10 @@ where
     pub fn initialize_first_round_state<MyChallenger, C, Challenger, Dft>(
         dft: &Dft,
         prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
-        proof: &mut WhirProof<F, EF, DIGEST_ELEMS>,
+        proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         mut statement: EqStatement<EF>,
-        witness: Witness<EF, F, DenseMatrix<F>, DIGEST_ELEMS>,
+        witness: Witness<EF, F, DenseMatrix<F>, W, DIGEST_ELEMS>,
     ) -> Result<Self, FiatShamirError>
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,

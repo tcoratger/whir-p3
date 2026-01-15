@@ -206,8 +206,8 @@ where
 /// # Returns
 ///
 /// - A `MultilinearPoint` of folding randomness values in reverse order.
-pub(crate) fn verify_sumcheck_rounds<F, EF, Challenger, const DIGEST_ELEMS: usize>(
-    round_proof: &WhirRoundProof<F, EF, DIGEST_ELEMS>,
+pub(crate) fn verify_sumcheck_rounds<F, EF, W, Challenger, const DIGEST_ELEMS: usize>(
+    round_proof: &WhirRoundProof<F, EF, W, DIGEST_ELEMS>,
     challenger: &mut Challenger,
     claimed_sum: &mut EF,
     rounds: usize,
@@ -324,7 +324,7 @@ mod tests {
         num_variables: usize,
         folding_factor: FoldingFactor,
         initial_phase_config: InitialPhaseConfig,
-    ) -> WhirProof<F, EF4, DIGEST_ELEMS> {
+    ) -> WhirProof<F, EF4, F, DIGEST_ELEMS> {
         // Create hash and compression functions for the Merkle tree
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);

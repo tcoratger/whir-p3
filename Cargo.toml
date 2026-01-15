@@ -57,6 +57,7 @@ p3-maybe-rayon = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bb
 p3-interpolation = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
 p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
 p3-multilinear-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
+p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
 
 hashbrown = "0.16"
 itertools = { version = "0.14.0", default-features = false, features = [

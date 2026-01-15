@@ -13,12 +13,12 @@ use crate::{
 /// Complete WHIR proof
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(bound(
-    serialize = "F: Serialize, EF: Serialize, [F; DIGEST_ELEMS]: Serialize",
-    deserialize = "F: Deserialize<'de>, EF: Deserialize<'de>, [F; DIGEST_ELEMS]: Deserialize<'de>"
+    serialize = "F: Serialize, EF: Serialize, W: Serialize, [W; DIGEST_ELEMS]: Serialize",
+    deserialize = "F: Deserialize<'de>, EF: Deserialize<'de>, W: Deserialize<'de>, [W; DIGEST_ELEMS]: Deserialize<'de>"
 ))]
-pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
+pub struct WhirProof<F, EF, W, const DIGEST_ELEMS: usize> {
     /// Initial polynomial commitment (Merkle root)
-    pub initial_commitment: [F; DIGEST_ELEMS],
+    pub initial_commitment: [W; DIGEST_ELEMS],
 
     /// Initial OOD evaluations
     pub initial_ood_answers: Vec<EF>,
@@ -27,7 +27,7 @@ pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
     pub initial_phase: InitialPhase<EF, F>,
 
     /// One proof per WHIR round
-    pub rounds: Vec<WhirRoundProof<F, EF, DIGEST_ELEMS>>,
+    pub rounds: Vec<WhirRoundProof<F, EF, W, DIGEST_ELEMS>>,
 
     /// Final polynomial evaluations
     pub final_poly: Option<EvaluationsList<EF>>,
@@ -36,18 +36,18 @@ pub struct WhirProof<F, EF, const DIGEST_ELEMS: usize> {
     pub final_pow_witness: F,
 
     /// Final round query openings
-    pub final_queries: Vec<QueryOpening<F, EF, DIGEST_ELEMS>>,
+    pub final_queries: Vec<QueryOpening<F, EF, W, DIGEST_ELEMS>>,
 
     /// Final sumcheck (if final_sumcheck_rounds > 0)
     pub final_sumcheck: Option<SumcheckData<EF, F>>,
 }
 
-impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default
-    for WhirProof<F, EF, DIGEST_ELEMS>
+impl<F: Default, EF: Default, W: Default, const DIGEST_ELEMS: usize> Default
+    for WhirProof<F, EF, W, DIGEST_ELEMS>
 {
     fn default() -> Self {
         Self {
-            initial_commitment: array::from_fn(|_| F::default()),
+            initial_commitment: array::from_fn(|_| W::default()),
             initial_ood_answers: Vec::new(),
             initial_phase: InitialPhase::default(),
             rounds: Vec::new(),
@@ -97,14 +97,16 @@ impl<F: Default, EF: Default> Default for InitialPhase<EF, F> {
 }
 
 /// Data for a single WHIR round
+///
+/// The type parameter `W` is the digest element type (same as in `WhirProof`)
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(bound(
-    serialize = "F: Serialize, EF: Serialize, [F; DIGEST_ELEMS]: Serialize",
-    deserialize = "F: Deserialize<'de>, EF: Deserialize<'de>, [F; DIGEST_ELEMS]: Deserialize<'de>"
+    serialize = "F: Serialize, EF: Serialize, W: Serialize, [W; DIGEST_ELEMS]: Serialize",
+    deserialize = "F: Deserialize<'de>, EF: Deserialize<'de>, W: Deserialize<'de>, [W; DIGEST_ELEMS]: Deserialize<'de>"
 ))]
-pub struct WhirRoundProof<F, EF, const DIGEST_ELEMS: usize> {
+pub struct WhirRoundProof<F, EF, W, const DIGEST_ELEMS: usize> {
     /// Round commitment (Merkle root)
-    pub commitment: [F; DIGEST_ELEMS],
+    pub commitment: [W; DIGEST_ELEMS],
 
     /// OOD evaluations for this round
     pub ood_answers: Vec<EF>,
@@ -113,18 +115,18 @@ pub struct WhirRoundProof<F, EF, const DIGEST_ELEMS: usize> {
     pub pow_witness: F,
 
     /// STIR query openings
-    pub queries: Vec<QueryOpening<F, EF, DIGEST_ELEMS>>,
+    pub queries: Vec<QueryOpening<F, EF, W, DIGEST_ELEMS>>,
 
     /// Sumcheck data for this round
     pub sumcheck: SumcheckData<EF, F>,
 }
 
-impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default
-    for WhirRoundProof<F, EF, DIGEST_ELEMS>
+impl<F: Default, EF: Default, W: Default, const DIGEST_ELEMS: usize> Default
+    for WhirRoundProof<F, EF, W, DIGEST_ELEMS>
 {
     fn default() -> Self {
         Self {
-            commitment: array::from_fn(|_| F::default()),
+            commitment: array::from_fn(|_| W::default()),
             ood_answers: Vec::new(),
             pow_witness: F::default(),
             queries: Vec::new(),
@@ -134,22 +136,24 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> Default
 }
 
 /// Query opening
+///
+/// The type parameter `W` is the digest element type (same as in `WhirProof`)
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(
     bound(
-        serialize = "F: Serialize, EF: Serialize, [F; DIGEST_ELEMS]: Serialize",
-        deserialize = "F: Deserialize<'de>, EF: Deserialize<'de>, [F; DIGEST_ELEMS]: Deserialize<'de>"
+        serialize = "F: Serialize, EF: Serialize, W: Serialize, [W; DIGEST_ELEMS]: Serialize",
+        deserialize = "F: Deserialize<'de>, EF: Deserialize<'de>, W: Deserialize<'de>, [W; DIGEST_ELEMS]: Deserialize<'de>"
     ),
     tag = "type"
 )]
-pub enum QueryOpening<F, EF, const DIGEST_ELEMS: usize> {
+pub enum QueryOpening<F, EF, W, const DIGEST_ELEMS: usize> {
     /// Base field query (round_index == 0)
     #[serde(rename = "base")]
     Base {
         /// Merkle leaf values in F
         values: Vec<F>,
         /// Merkle authentication path
-        proof: Vec<[F; DIGEST_ELEMS]>,
+        proof: Vec<[W; DIGEST_ELEMS]>,
     },
     /// Extension field query (round_index > 0)
     #[serde(rename = "extension")]
@@ -157,7 +161,7 @@ pub enum QueryOpening<F, EF, const DIGEST_ELEMS: usize> {
         /// Merkle leaf values in EF
         values: Vec<EF>,
         /// Merkle authentication path
-        proof: Vec<[F; DIGEST_ELEMS]>,
+        proof: Vec<[W; DIGEST_ELEMS]>,
     },
 }
 
@@ -241,7 +245,9 @@ pub struct SumcheckSkipData<EF, F> {
     pub sumcheck: SumcheckData<EF, F>,
 }
 
-impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
+impl<F: Default, EF: Default, W: Default, const DIGEST_ELEMS: usize>
+    WhirProof<F, EF, W, DIGEST_ELEMS>
+{
     /// Create a new WhirProof from protocol parameters and configuration
     ///
     /// This initializes an empty proof structure with appropriate capacity allocations
@@ -295,7 +301,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
             .queries(protocol_security_level, params.starting_log_inv_rate);
 
         Self {
-            initial_commitment: array::from_fn(|_| F::default()),
+            initial_commitment: array::from_fn(|_| W::default()),
             initial_ood_answers: Vec::new(),
             initial_phase,
             rounds: (0..num_rounds).map(|_| WhirRoundProof::default()).collect(),
@@ -307,7 +313,7 @@ impl<F: Default, EF: Default, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST
     }
 }
 
-impl<F: Clone, EF, const DIGEST_ELEMS: usize> WhirProof<F, EF, DIGEST_ELEMS> {
+impl<F: Clone, EF, W, const DIGEST_ELEMS: usize> WhirProof<F, EF, W, DIGEST_ELEMS> {
     /// Extract the PoW witness after the commitment at the given round index
     ///
     /// Returns the PoW witness from the round at the given index.
@@ -453,7 +459,7 @@ mod tests {
         let params = create_test_params(initial_phase_config, folding_factor);
 
         // Create proof structure from parameters
-        let proof: WhirProof<F, EF, DIGEST_ELEMS> =
+        let proof: WhirProof<F, EF, F, DIGEST_ELEMS> =
             WhirProof::from_protocol_parameters(&params, num_variables);
 
         // Verify that initial_phase is WithStatementSkip variant
@@ -503,7 +509,7 @@ mod tests {
         let params = create_test_params(initial_phase_config, folding_factor);
 
         // Create proof structure from parameters
-        let proof: WhirProof<F, EF, DIGEST_ELEMS> =
+        let proof: WhirProof<F, EF, F, DIGEST_ELEMS> =
             WhirProof::from_protocol_parameters(&params, num_variables);
 
         // Verify that initial_phase is WithStatement variant (NOT WithStatementSkip)
@@ -545,7 +551,7 @@ mod tests {
         let params = create_test_params(initial_phase_config, folding_factor);
 
         // Create proof structure from parameters
-        let proof: WhirProof<F, EF, DIGEST_ELEMS> =
+        let proof: WhirProof<F, EF, F, DIGEST_ELEMS> =
             WhirProof::from_protocol_parameters(&params, num_variables);
 
         // Verify that initial_phase is WithoutStatement variant
@@ -573,7 +579,7 @@ mod tests {
         let pow_witness_value = F::from_u64(42);
 
         // Create a proof with one round containing a PoW witness
-        let proof: WhirProof<F, EF, DIGEST_ELEMS> = WhirProof {
+        let proof: WhirProof<F, EF, F, DIGEST_ELEMS> = WhirProof {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
             initial_phase: InitialPhase::WithoutStatement {
@@ -605,7 +611,7 @@ mod tests {
     #[test]
     fn test_get_pow_after_commitment_invalid_round() {
         // Create a proof with one round
-        let proof: WhirProof<F, EF, DIGEST_ELEMS> = WhirProof {
+        let proof: WhirProof<F, EF, F, DIGEST_ELEMS> = WhirProof {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
             initial_phase: InitialPhase::WithoutStatement {
@@ -695,7 +701,7 @@ mod tests {
     #[test]
     fn test_whir_round_proof_default() {
         // Create a default WhirRoundProof
-        let round: WhirRoundProof<F, EF, DIGEST_ELEMS> = WhirRoundProof::default();
+        let round: WhirRoundProof<F, EF, F, DIGEST_ELEMS> = WhirRoundProof::default();
 
         // Verify commitment is array of default F values
         assert_eq!(round.commitment.len(), DIGEST_ELEMS);
@@ -743,7 +749,7 @@ mod tests {
         let proof = vec![proof_node];
 
         // Construct Base variant
-        let base_opening: QueryOpening<F, EF, DIGEST_ELEMS> = QueryOpening::Base {
+        let base_opening: QueryOpening<F, EF, F, DIGEST_ELEMS> = QueryOpening::Base {
             values,
             proof: proof.clone(),
         };
@@ -771,7 +777,7 @@ mod tests {
         let ext_values = vec![ext_val_0, ext_val_1];
 
         // Construct Extension variant
-        let ext_opening: QueryOpening<F, EF, DIGEST_ELEMS> = QueryOpening::Extension {
+        let ext_opening: QueryOpening<F, EF, F, DIGEST_ELEMS> = QueryOpening::Extension {
             values: ext_values,
             proof,
         };
@@ -813,7 +819,7 @@ mod tests {
     #[test]
     fn test_set_final_sumcheck_data() {
         // Create a proof with no rounds
-        let mut proof: WhirProof<F, EF, DIGEST_ELEMS> = WhirProof {
+        let mut proof: WhirProof<F, EF, F, DIGEST_ELEMS> = WhirProof {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
             initial_phase: InitialPhase::WithoutStatement {
@@ -845,7 +851,7 @@ mod tests {
     #[test]
     fn test_set_sumcheck_data_at_round() {
         // Create a proof with two rounds
-        let mut proof: WhirProof<F, EF, DIGEST_ELEMS> = WhirProof {
+        let mut proof: WhirProof<F, EF, F, DIGEST_ELEMS> = WhirProof {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
             initial_phase: InitialPhase::WithoutStatement {
@@ -884,7 +890,7 @@ mod tests {
     #[should_panic(expected = "index out of bounds")]
     fn test_set_sumcheck_data_at_no_rounds_panics() {
         // Create a proof with no rounds
-        let mut proof: WhirProof<F, EF, DIGEST_ELEMS> = WhirProof {
+        let mut proof: WhirProof<F, EF, F, DIGEST_ELEMS> = WhirProof {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
             initial_phase: InitialPhase::WithoutStatement {

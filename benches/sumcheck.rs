@@ -103,7 +103,8 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
                 domsep.observe_domain_separator(&mut challenger);
 
                 // Initialize proof
-                let mut proof = WhirProof::<F, EF, 8>::from_protocol_parameters(&params, *num_vars);
+                let mut proof =
+                    WhirProof::<F, EF, F, 8>::from_protocol_parameters(&params, *num_vars);
 
                 // Create constraint using challenger directly
                 let statement = generate_statement(&mut challenger, *num_vars, poly, 3);
