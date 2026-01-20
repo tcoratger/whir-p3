@@ -42,22 +42,22 @@ serde = { version = "1.0", default-features = false, features = [
     "alloc",
 ] }
 rayon = { version = "1.0", optional = true }
-p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-merkle-tree = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-commit = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-dft = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-maybe-rayon = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb", features = [
+p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-merkle-tree = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-commit = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-dft = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-maybe-rayon = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6", features = [
 ] }
-p3-interpolation = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-multilinear-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
-p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "a9d5bbb" }
+p3-interpolation = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-multilinear-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
 
 hashbrown = "0.16"
 itertools = { version = "0.14.0", default-features = false, features = [
