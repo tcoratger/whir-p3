@@ -58,6 +58,9 @@ p3-interpolation = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbf
 p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
 p3-multilinear-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
 p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "ccbffd6" }
+p3-uni-stark = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f742016" }
+p3-fri = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f742016" }
+p3-poseidon2 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "f742016" }
 
 hashbrown = "0.16"
 itertools = { version = "0.14.0", default-features = false, features = [
