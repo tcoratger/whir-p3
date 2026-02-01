@@ -5,21 +5,20 @@
 use alloc::{sync::Arc, vec::Vec};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::MerkleTree;
 use tracing::instrument;
 
 use crate::{
-    constant::K_SKIP_SUMCHECK,
     fiat_shamir::errors::FiatShamirError,
     poly::multilinear::MultilinearPoint,
-    sumcheck::sumcheck_single::SumcheckSingle,
+    sumcheck::sumcheck_prover::Sumcheck,
     whir::{
         committer::{RoundMerkleTree, Witness},
-        constraints::{Constraint, statement::EqStatement},
-        proof::{InitialPhase, SumcheckSkipData, WhirProof},
+        constraints::statement::EqStatement,
+        parameters::SumcheckStrategy,
+        proof::{InitialPhase, WhirProof},
         prover::Prover,
     },
 };
@@ -45,7 +44,7 @@ where
     /// - Runs sumcheck rounds to prove S evaluates correctly over H^n
     /// - Updates constraint sets with new evaluation points from polynomial folding
     /// - Manages the transition from base field to extension field operations
-    pub sumcheck_prover: SumcheckSingle<F, EF>,
+    pub sumcheck_prover: Sumcheck<F, EF>,
 
     /// Folding randomness (α_1, α_2, ..., α_k) sampled for the current round.
     ///
@@ -100,9 +99,9 @@ where
     ///
     /// Returns the complete `RoundState` ready for the first WHIR folding round.
     #[instrument(skip_all)]
-    pub fn initialize_first_round_state<MyChallenger, C, Challenger, Dft>(
-        dft: &Dft,
+    pub fn initialize_first_round_state<MyChallenger, C, Challenger>(
         prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
+        sumcheck_strategy: SumcheckStrategy,
         proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         mut statement: EqStatement<EF>,
@@ -112,99 +111,21 @@ where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
         MyChallenger: Clone,
         C: Clone,
-        Dft: TwoAdicSubgroupDft<F>,
     {
         // Append OOD constraints to statement for Reed-Solomon proximity testing
         statement.concatenate(&witness.ood_statement);
 
         // Protocol branching based on initial phase variant in proof
         let (sumcheck_prover, folding_randomness) = match &mut proof.initial_phase {
-            // Branch: WithStatementSkip - use univariate skip optimization
-            InitialPhase::WithStatementSkip(skip_data)
-                if K_SKIP_SUMCHECK <= prover.folding_factor.at_round(0) =>
-            {
-                // Build constraint with random linear combination
-                let constraint =
-                    Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
-
-                // Use univariate skip by skipping k variables
-                SumcheckSingle::with_skip(
-                    dft,
-                    &witness.polynomial,
-                    skip_data,
-                    challenger,
-                    prover.folding_factor.at_round(0),
-                    prover.starting_folding_pow_bits,
-                    K_SKIP_SUMCHECK,
-                    &constraint,
-                )
-            }
-
-            // Branch: WithStatementSvo - SVO optimization
-            InitialPhase::WithStatementSvo { sumcheck } => {
-                // SVO optimization requirements (see Procedure 9 in https://eprint.iacr.org/2025/1117):
-                // 1. At least 2 * NUM_SVO_ROUNDS variables - The SVO algorithm partitions
-                //    variables into Prefix (k), Inner (l/2), and Outer segments. For these
-                //    segments not to overlap, we need k + l/2 <= l, which gives l >= 2k.
-                // 2. Exactly one equality constraint (SVO algorithm assumes single point)
-                //
-                // TODO: The single constraint requirement is a current limitation.
-                // This approach should be generalized to handle multiple constraints.
-                // See: https://hackmd.io/@tcoratger/H1SNENAeZg for details.
-                const MIN_SVO_FOLDING_FACTOR: usize = 6;
-
-                // Build constraint with random linear combination
-                let constraint =
-                    Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
-
-                let folding_factor = prover.folding_factor.at_round(0);
-                let has_single_constraint = constraint.eq_statement.len() == 1;
-
-                if folding_factor >= MIN_SVO_FOLDING_FACTOR && has_single_constraint {
-                    // Use SVO optimization: first 3 rounds use specialized algorithm,
-                    // remaining rounds use standard Algorithm 5
-                    SumcheckSingle::from_base_evals_svo(
-                        &witness.polynomial,
-                        sumcheck,
-                        challenger,
-                        folding_factor,
-                        prover.starting_folding_pow_bits,
-                        &constraint,
-                    )
-                } else {
-                    // Fall back to classic sumcheck when:
-                    // - Input is too small (folding_factor < MIN_SVO_FOLDING_FACTOR)
-                    // - Multiple constraints exist (SVO only handles single constraint, see TODO above)
-                    SumcheckSingle::from_base_evals(
-                        &witness.polynomial,
-                        sumcheck,
-                        challenger,
-                        folding_factor,
-                        prover.starting_folding_pow_bits,
-                        &constraint,
-                    )
-                }
-            }
-
-            // Branch: WithStatement or WithStatementSkip (fallback when folding_factor < K_SKIP)
-            InitialPhase::WithStatement { sumcheck }
-            | InitialPhase::WithStatementSkip(SumcheckSkipData { sumcheck, .. }) => {
-                // Build constraint with random linear combination
-                let constraint =
-                    Constraint::new_eq_only(challenger.sample_algebra_element(), statement.clone());
-
-                // Standard sumcheck protocol without optimization
-                SumcheckSingle::from_base_evals(
-                    &witness.polynomial,
-                    sumcheck,
-                    challenger,
-                    prover.folding_factor.at_round(0),
-                    prover.starting_folding_pow_bits,
-                    &constraint,
-                )
-            }
-
-            // Branch: WithoutStatement - direct polynomial folding path
+            InitialPhase::WithStatement { data } => Sumcheck::from_base_evals(
+                sumcheck_strategy,
+                &witness.polynomial,
+                data,
+                challenger,
+                prover.folding_factor.at_round(0),
+                prover.starting_folding_pow_bits,
+                &statement,
+            ),
             InitialPhase::WithoutStatement { pow_witness } => {
                 // Sample folding challenges α_1, ..., α_k
                 let folding_randomness = MultilinearPoint::new(
@@ -214,11 +135,13 @@ where
                 );
 
                 // Apply folding transformation: f(X_0, ..., X_{n-1}) → f'(X_k, ..., X_{n-1})
-                let poly = witness.polynomial.fold(&folding_randomness);
+                let poly = witness
+                    .polynomial
+                    .compress_multi(folding_randomness.as_slice());
                 let num_variables = poly.num_variables();
 
                 // Create trivial sumcheck prover (no constraints to batch)
-                let sumcheck = SumcheckSingle::from_extension_evals(
+                let sumcheck = Sumcheck::from_extension_evals(
                     poly,
                     EqStatement::initialize(num_variables),
                     EF::ONE,

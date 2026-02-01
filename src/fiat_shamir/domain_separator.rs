@@ -5,9 +5,8 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
-    constant::K_SKIP_SUMCHECK,
     fiat_shamir::pattern::{Hint, Observe, Pattern, Sample},
-    whir::parameters::{InitialPhaseConfig, WhirConfig},
+    whir::parameters::WhirConfig,
 };
 
 /// Configuration parameters for a sumcheck phase in the protocol.
@@ -24,13 +23,6 @@ pub struct SumcheckParams {
     /// - If `pow_bits > 0`, a PoW challenge is inserted after each round.
     /// - If `pow_bits == 0`, PoW is disabled.
     pub pow_bits: usize,
-
-    /// Optional number of variables to skip using the univariate skip optimization.
-    ///
-    /// - If `None`, all rounds are performed normally.
-    /// - If `Some(k)`, the first `k` variables are skipped by replacing them with a
-    ///   single low-degree extension (LDE) step, provided `k > 1`.
-    pub univariate_skip: Option<usize>,
 }
 
 /// The pattern of an interactive protocol.
@@ -108,7 +100,7 @@ where
         // TODO: Add params
         self.observe(DIGEST_ELEMS, Observe::MerkleDigest);
         if params.commitment_ood_samples > 0 {
-            assert!(params.initial_phase_config.has_initial_statement());
+            assert!(params.initial_statement);
             self.add_ood(params.commitment_ood_samples);
         }
     }
@@ -122,15 +114,11 @@ where
         F: TwoAdicField,
     {
         // TODO: Add statement
-        if params.initial_phase_config.has_initial_statement() {
+        if params.initial_statement {
             self.sample(1, Sample::InitialCombinationRandomness);
             self.add_sumcheck(&SumcheckParams {
                 rounds: params.folding_factor.at_round(0),
                 pow_bits: params.starting_folding_pow_bits,
-                univariate_skip: match params.initial_phase_config {
-                    InitialPhaseConfig::WithStatementUnivariateSkip => Some(K_SKIP_SUMCHECK),
-                    _ => None,
-                },
             });
         } else {
             self.sample(params.folding_factor.at_round(0), Sample::FoldingRandomness);
@@ -152,7 +140,6 @@ where
             self.add_sumcheck(&SumcheckParams {
                 rounds: params.folding_factor.at_round(round + 1),
                 pow_bits: r.folding_pow_bits,
-                univariate_skip: None,
             });
             domain_size >>= params.rs_reduction_factor(round);
         }
@@ -175,7 +162,6 @@ where
         self.add_sumcheck(&SumcheckParams {
             rounds: params.final_sumcheck_rounds,
             pow_bits: params.final_folding_pow_bits,
-            univariate_skip: None,
         });
         self.hint(Hint::DeferredWeightEvaluations);
     }
@@ -187,43 +173,19 @@ where
     /// - Sampling verifier challenges for folding randomness.
     /// - Optionally performing a proof-of-work challenge for each round.
     ///
-    /// If `univariate_skip` is enabled with `k > 1`, the first `k` variables are skipped
-    /// using a low-degree extension (LDE) over a coset. In this case, the transcript
-    /// includes a single LDE observation step and challenge, followed by the remaining rounds.
     ///
     /// # Parameters
     /// - `rounds`: Total number of variables folded by the sumcheck protocol.
     /// - `pow_bits`: If greater than 0.0, a proof-of-work challenge is appended after each round.
-    /// - `univariate_skip`: If `Some(k)`, applies the univariate skip optimization by skipping
     ///   the first `k` rounds and replacing them with a single LDE + challenge step.
     pub fn add_sumcheck(&mut self, params: &SumcheckParams) {
-        let SumcheckParams {
-            rounds,
-            pow_bits,
-            univariate_skip,
-        } = *params;
+        let SumcheckParams { rounds, pow_bits } = *params;
 
-        // Determine the number of rounds to skip using univariate skip optimization.
-        let k = univariate_skip.unwrap_or(0);
-
-        // If univariate skip is active and skipping more than 1 round,
-        // perform a low-degree extension (LDE) step over a coset:
-        // - Absorb 2^{k+1} scalars (the LDE evaluations of the skipped polynomial).
-        // - Sample 1 challenge for the folding randomness.
-        // - Optionally perform PoW after the LDE step.
-        if k > 1 {
-            let lde_size = 1 << (k + 1);
-            self.observe(lde_size, Observe::SumcheckPolySkip);
-            self.sample(1, Sample::FoldingRandomnessSkip);
-            self.pow(pow_bits);
-        }
-
-        // Proceed with the remaining (unskipped) sumcheck rounds.
         // Each round:
         // - Absorbs 3 scalars (coefficients of a degree-2 polynomial).
         // - Samples 1 folding randomness challenge.
         // - Optionally performs a PoW challenge.
-        for _ in k..rounds {
+        for _ in 0..rounds {
             self.observe(3, Observe::SumcheckPoly);
             self.sample(1, Sample::FoldingRandomness);
             self.pow(pow_bits);

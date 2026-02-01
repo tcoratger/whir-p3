@@ -160,7 +160,6 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        whir::parameters::InitialPhaseConfig,
     };
 
     type F = BabyBear;
@@ -186,7 +185,7 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+            initial_statement: true,
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
@@ -273,7 +272,8 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+            initial_statement: true,
+
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
@@ -333,7 +333,7 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+            initial_statement: true,
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,

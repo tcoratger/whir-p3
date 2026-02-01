@@ -7,7 +7,7 @@ use p3_challenger::{DuplexChallenger, FieldChallenger};
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
-use parameters::{InitialPhaseConfig, WhirConfig};
+use parameters::WhirConfig;
 use prover::Prover;
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use verifier::Verifier;
@@ -16,7 +16,7 @@ use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::proof::WhirProof,
+    whir::{parameters::SumcheckStrategy, proof::WhirProof},
 };
 
 pub mod committer;
@@ -44,7 +44,8 @@ pub fn make_whir_things(
     soundness_type: SecurityAssumption,
     pow_bits: usize,
     rs_domain_initial_reduction_factor: usize,
-    initial_phase_config: InitialPhaseConfig,
+    sumcheck_strategy: SumcheckStrategy,
+    initial_statement: bool,
 ) {
     // Calculate polynomial size: 2^num_variables coefficients for multilinear polynomial
     let num_evaluations = 1 << num_variables;
@@ -62,7 +63,7 @@ pub fn make_whir_things(
 
     // Configure WHIR protocol with all security and performance parameters
     let whir_params = ProtocolParameters {
-        initial_phase_config,
+        initial_statement,
         security_level: 32,
         pow_bits,
         rs_domain_initial_reduction_factor,
@@ -134,6 +135,7 @@ pub fn make_whir_things(
     prover
         .prove::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
             &dft,
+            sumcheck_strategy,
             &mut proof,
             &mut prover_challenger,
             statement.clone(),
@@ -178,7 +180,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_whir_end_to_end_without_univariate_skip() {
+    fn test_whir_end_to_end() {
         let folding_factors = [
             FoldingFactor::Constant(1),
             FoldingFactor::Constant(2),
@@ -215,47 +217,9 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    InitialPhaseConfig::WithStatementClassic,
+                                    SumcheckStrategy::Classic,
+                                    true,
                                 );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_whir_end_to_end_with_univariate_skip() {
-        let folding_factors = [
-            FoldingFactor::Constant(1),
-            FoldingFactor::Constant(2),
-            FoldingFactor::Constant(3),
-            FoldingFactor::Constant(4),
-            FoldingFactor::ConstantFromSecondRound(2, 1),
-            FoldingFactor::ConstantFromSecondRound(3, 1),
-            FoldingFactor::ConstantFromSecondRound(3, 2),
-            FoldingFactor::ConstantFromSecondRound(5, 2),
-        ];
-        let soundness_type = [
-            SecurityAssumption::JohnsonBound,
-            SecurityAssumption::CapacityBound,
-            SecurityAssumption::UniqueDecoding,
-        ];
-        let num_points = [0, 1, 2];
-        let pow_bits = [0, 5, 10];
-        let rs_domain_initial_reduction_factors = 1..=3;
-
-        for rs_domain_initial_reduction_factor in rs_domain_initial_reduction_factors {
-            for folding_factor in folding_factors {
-                if folding_factor.at_round(0) < rs_domain_initial_reduction_factor {
-                    continue;
-                }
-                let num_variables = folding_factor.at_round(0)..=3 * folding_factor.at_round(0);
-                for num_variable in num_variables {
-                    for num_points in num_points {
-                        for soundness_type in soundness_type {
-                            for pow_bits in pow_bits {
                                 make_whir_things(
                                     num_variable,
                                     folding_factor,
@@ -263,55 +227,8 @@ mod tests {
                                     soundness_type,
                                     pow_bits,
                                     rs_domain_initial_reduction_factor,
-                                    InitialPhaseConfig::WithStatementUnivariateSkip,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_whir_end_to_end_with_svo() {
-        let folding_factors = [
-            FoldingFactor::Constant(1),
-            FoldingFactor::Constant(2),
-            FoldingFactor::Constant(3),
-            FoldingFactor::Constant(4),
-            FoldingFactor::ConstantFromSecondRound(2, 1),
-            FoldingFactor::ConstantFromSecondRound(3, 1),
-            FoldingFactor::ConstantFromSecondRound(3, 2),
-            FoldingFactor::ConstantFromSecondRound(5, 2),
-        ];
-        let soundness_type = [
-            SecurityAssumption::JohnsonBound,
-            SecurityAssumption::CapacityBound,
-            SecurityAssumption::UniqueDecoding,
-        ];
-        let num_points = [0, 1, 2];
-        let pow_bits = [0, 5, 10];
-        let rs_domain_initial_reduction_factors = 1..=3;
-
-        for rs_domain_initial_reduction_factor in rs_domain_initial_reduction_factors {
-            for folding_factor in folding_factors {
-                if folding_factor.at_round(0) < rs_domain_initial_reduction_factor {
-                    continue;
-                }
-                let num_variables = folding_factor.at_round(0)..=3 * folding_factor.at_round(0);
-                for num_variable in num_variables {
-                    for num_points in num_points {
-                        for soundness_type in soundness_type {
-                            for pow_bits in pow_bits {
-                                make_whir_things(
-                                    num_variable,
-                                    folding_factor,
-                                    num_points,
-                                    soundness_type,
-                                    pow_bits,
-                                    rs_domain_initial_reduction_factor,
-                                    InitialPhaseConfig::WithStatementSvo,
+                                    SumcheckStrategy::SVO,
+                                    true,
                                 );
                             }
                         }
@@ -350,7 +267,8 @@ mod tests {
                             soundness_type,
                             pow_bits,
                             rs_reduction_factor,
-                            InitialPhaseConfig::WithoutStatement,
+                            SumcheckStrategy::default(),
+                            false,
                         );
                     }
                 }
@@ -394,7 +312,6 @@ mod keccak_tests {
         soundness_type: SecurityAssumption,
         pow_bits: usize,
         rs_domain_initial_reduction_factor: usize,
-        initial_phase_config: InitialPhaseConfig,
     ) {
         let num_evaluations = 1 << num_variables;
 
@@ -405,7 +322,7 @@ mod keccak_tests {
 
         // Configure WHIR protocol with Keccak hashing
         let whir_params = ProtocolParameters {
-            initial_phase_config,
+            initial_statement: true,
             security_level: 32,
             pow_bits,
             rs_domain_initial_reduction_factor,
@@ -462,6 +379,7 @@ mod keccak_tests {
         prover
             .prove::<_, F, u64, u64, 4>(
                 &dft,
+                SumcheckStrategy::default(),
                 &mut proof,
                 &mut prover_challenger,
                 statement.clone(),
@@ -504,7 +422,6 @@ mod keccak_tests {
             SecurityAssumption::CapacityBound,
             0,
             1,
-            InitialPhaseConfig::WithStatementClassic,
         );
     }
 }

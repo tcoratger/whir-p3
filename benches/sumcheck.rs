@@ -8,10 +8,10 @@ use whir_p3::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::sumcheck_single::SumcheckSingle,
+    sumcheck::sumcheck_prover::Sumcheck,
     whir::{
-        constraints::{Constraint, statement::EqStatement},
-        parameters::InitialPhaseConfig,
+        constraints::statement::EqStatement,
+        parameters::SumcheckStrategy,
         proof::{InitialPhase, SumcheckData, WhirProof},
     },
 };
@@ -31,7 +31,7 @@ fn create_test_protocol_params(
     let perm = Perm::new_from_rng_128(&mut rng);
 
     ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+        initial_statement: true,
         security_level: 32,
         pow_bits: 0,
         rs_domain_initial_reduction_factor: 1,
@@ -108,27 +108,70 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
 
                 // Create constraint using challenger directly
                 let statement = generate_statement(&mut challenger, *num_vars, poly, 3);
-                let alpha: EF = challenger.sample_algebra_element();
-                let constraint = Constraint::new_eq_only(alpha, statement);
 
                 // Extract sumcheck data from the initial phase
-                let InitialPhase::WithStatement { ref mut sumcheck } = proof.initial_phase else {
+                let InitialPhase::WithStatement { ref mut data, .. } = proof.initial_phase else {
                     panic!("Expected WithStatement variant");
                 };
 
                 // First round - fold first half of variables
-                let (mut sumcheck_prover, _) = SumcheckSingle::from_base_evals(
+                let (mut sumcheck_prover, _) = Sumcheck::from_base_evals(
+                    SumcheckStrategy::Classic,
                     poly,
-                    sumcheck,
+                    data,
                     &mut challenger,
                     classic_folding_schedule[0],
                     0,
-                    &constraint,
+                    &statement,
                 );
 
                 // Second round - fold remaining variables
                 if classic_folding_schedule.len() > 1 && classic_folding_schedule[1] > 0 {
-                    let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
+                    let mut sumcheck_data: SumcheckData<F, EF> = SumcheckData::default();
+                    sumcheck_prover.compute_sumcheck_polynomials(
+                        &mut sumcheck_data,
+                        &mut challenger,
+                        classic_folding_schedule[1],
+                        0,
+                        None,
+                    );
+                    proof.set_final_sumcheck_data(sumcheck_data);
+                }
+            });
+        });
+
+        group.bench_with_input(BenchmarkId::new("SVO", *num_vars), &poly, |b, poly| {
+            b.iter(|| {
+                // Setup fresh challenger for each iteration
+                let mut challenger = setup_challenger();
+                domsep.observe_domain_separator(&mut challenger);
+
+                // Initialize proof
+                let mut proof =
+                    WhirProof::<F, EF, F, 8>::from_protocol_parameters(&params, *num_vars);
+
+                // Create constraint using challenger directly
+                let statement = generate_statement(&mut challenger, *num_vars, poly, 3);
+
+                // Extract sumcheck data from the initial phase
+                let InitialPhase::WithStatement { ref mut data, .. } = proof.initial_phase else {
+                    panic!("Expected WithStatement variant");
+                };
+
+                // First round - fold first half of variables
+                let (mut sumcheck_prover, _) = Sumcheck::from_base_evals(
+                    SumcheckStrategy::SVO,
+                    poly,
+                    data,
+                    &mut challenger,
+                    classic_folding_schedule[0],
+                    0,
+                    &statement,
+                );
+
+                // Second round - fold remaining variables
+                if classic_folding_schedule.len() > 1 && classic_folding_schedule[1] > 0 {
+                    let mut sumcheck_data: SumcheckData<F, EF> = SumcheckData::default();
                     sumcheck_prover.compute_sumcheck_polynomials(
                         &mut sumcheck_data,
                         &mut challenger,
@@ -141,6 +184,7 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
             });
         });
     }
+
     group.finish();
 }
 

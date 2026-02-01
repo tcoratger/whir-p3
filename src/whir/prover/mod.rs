@@ -5,7 +5,6 @@ use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
-use p3_interpolation::interpolate_subgroup;
 use p3_matrix::{
     Matrix,
     dense::{DenseMatrix, RowMajorMatrixView},
@@ -16,17 +15,13 @@ use round_state::RoundState;
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
-use super::{
-    committer::Witness,
-    constraints::statement::EqStatement,
-    parameters::{InitialPhaseConfig, WhirConfig},
-};
+use super::{committer::Witness, constraints::statement::EqStatement, parameters::WhirConfig};
 use crate::{
-    constant::K_SKIP_SUMCHECK,
     fiat_shamir::errors::FiatShamirError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::{Constraint, statement::SelectStatement},
+        parameters::SumcheckStrategy,
         proof::{QueryOpening, SumcheckData, WhirProof},
         utils::get_challenge_stir_queries,
     },
@@ -90,7 +85,7 @@ where
     /// `true` if the statement structure is valid for this protocol instance.
     const fn validate_statement(&self, statement: &EqStatement<EF>) -> bool {
         statement.num_variables() == self.0.num_variables
-            && (self.0.initial_phase_config.has_initial_statement() || statement.is_empty())
+            && (self.0.initial_statement || statement.is_empty())
     }
 
     /// Validates that the witness satisfies the structural requirements of the WHIR prover.
@@ -113,7 +108,7 @@ where
         &self,
         witness: &Witness<EF, F, DenseMatrix<F>, W, DIGEST_ELEMS>,
     ) -> bool {
-        if !self.0.initial_phase_config.has_initial_statement() {
+        if !self.0.initial_statement {
             assert!(witness.ood_statement.is_empty());
         }
         witness.polynomial.num_variables() == self.0.num_variables
@@ -143,6 +138,7 @@ where
     pub fn prove<Dft, P, W, PW, const DIGEST_ELEMS: usize>(
         &self,
         dft: &Dft,
+        sumcheck_strategy: SumcheckStrategy,
         proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         statement: EqStatement<EF>,
@@ -172,7 +168,12 @@ where
 
         // Initialize the round state with inputs and initial polynomial data
         let mut round_state = RoundState::initialize_first_round_state(
-            dft, self, proof, challenger, statement, witness,
+            self,
+            sumcheck_strategy,
+            proof,
+            challenger,
+            statement,
+            witness,
         )?;
 
         // Run the WHIR protocol round-by-round
@@ -335,61 +336,19 @@ where
                     });
                 }
 
-                // Determine if this is the special first round where the univariate skip is applied.
-                let is_skip_round = round_index == 0
-                    && matches!(
-                        self.initial_phase_config,
-                        InitialPhaseConfig::WithStatementUnivariateSkip
-                    )
-                    && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
-
                 // Process each set of evaluations retrieved from the Merkle tree openings.
                 for (answer, var) in answers.iter().zip(stir_vars.into_iter()) {
                     let evals = EvaluationsList::new(answer.clone());
                     // Fold the polynomial represented by the `answer` evaluations using the verifier's challenge.
                     // The evaluation method depends on whether this is a "skip round" or a "standard round".
-                    if is_skip_round {
-                        // Case 1: Univariate Skip Round Evaluation
-                        //
 
-                        // The challenges for the remaining (non-skipped) variables.
-                        let num_remaining_vars = evals.num_variables() - K_SKIP_SUMCHECK;
+                    // Case 2: Standard Sumcheck Round
+                    //
+                    // The `answer` represents a standard multilinear polynomial.
 
-                        // The width of the matrix corresponds to the number of remaining variables.
-                        let width = 1 << num_remaining_vars;
-
-                        // Reshape the `answer` evaluations into the `2^k x 2^(n-k)` matrix format.
-                        let mat = evals.into_mat(width);
-
-                        // For a skip round, `folding_randomness` is the special `(n-k)+1` challenge object.
-                        let r_all = round_state.folding_randomness.clone();
-
-                        // Deconstruct the special challenge object `r_all`.
-                        //
-                        // The last element is the single challenge for the `k_skip` variables being folded.
-                        let r_skip = *r_all
-                            .last_variable()
-                            .expect("skip challenge must be present");
-                        // The first `n - k_skip` elements are the challenges for the remaining variables.
-                        let r_rest = r_all.get_subpoint_over_range(..num_remaining_vars);
-
-                        // Perform the two-stage skip-aware evaluation:
-                        //
-                        // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
-                        let folded_row = interpolate_subgroup(&mat, r_skip);
-                        // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-                        let eval =
-                            EvaluationsList::new(folded_row).evaluate_hypercube_ext::<F>(&r_rest);
-                        stir_statement.add_constraint(var, eval);
-                    } else {
-                        // Case 2: Standard Sumcheck Round
-                        //
-                        // The `answer` represents a standard multilinear polynomial.
-
-                        // Perform a standard multilinear evaluation at the full challenge point `r`.
-                        let eval = evals.evaluate_hypercube_base(&round_state.folding_randomness);
-                        stir_statement.add_constraint(var, eval);
-                    }
+                    // Perform a standard multilinear evaluation at the full challenge point `r`.
+                    let eval = evals.evaluate_hypercube_base(&round_state.folding_randomness);
+                    stir_statement.add_constraint(var, eval);
                 }
             }
             Some(data) => {
@@ -424,7 +383,7 @@ where
             stir_statement,
         );
 
-        let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
+        let mut sumcheck_data: SumcheckData<F, EF> = SumcheckData::default();
         let folding_randomness = round_state.sumcheck_prover.compute_sumcheck_polynomials(
             &mut sumcheck_data,
             challenger,
@@ -528,7 +487,7 @@ where
 
         // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
-            let mut sumcheck_data: SumcheckData<EF, F> = SumcheckData::default();
+            let mut sumcheck_data: SumcheckData<F, EF> = SumcheckData::default();
             round_state.sumcheck_prover.compute_sumcheck_polynomials(
                 &mut sumcheck_data,
                 challenger,

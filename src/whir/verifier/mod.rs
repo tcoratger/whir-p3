@@ -5,7 +5,6 @@ use errors::VerifierError;
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
-use p3_interpolation::interpolate_subgroup;
 use p3_matrix::Dimensions;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
@@ -17,15 +16,15 @@ use super::{
 };
 use crate::{
     alloc::string::ToString,
-    constant::K_SKIP_SUMCHECK,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         EqStatement,
         constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
-        parameters::{InitialPhaseConfig, WhirConfig},
+        parameters::WhirConfig,
         proof::{QueryOpening, WhirProof},
         verifier::sumcheck::{
-            verify_final_sumcheck_rounds, verify_initial_sumcheck_rounds, verify_sumcheck_rounds,
+            verify_final_sumcheck_rounds, verify_initial_sumcheck_rounds_without_statement,
+            verify_sumcheck_rounds,
         },
     },
 };
@@ -85,31 +84,42 @@ where
         let mut claimed_eval = EF::ZERO;
         let mut prev_commitment = parsed_commitment.clone();
 
-        // Optional constraint building - only if we have a statement
-        if self.initial_phase_config.has_initial_statement() {
-            statement.concatenate(&prev_commitment.ood_statement);
+        let folding_randomness = match &proof.initial_phase {
+            crate::whir::proof::InitialPhase::WithoutStatement { pow_witness } => {
+                assert!(prev_commitment.ood_statement.is_empty());
+                assert!(statement.is_empty());
 
-            let constraint = Constraint::new(
-                challenger.sample_algebra_element(),
-                statement,
-                SelectStatement::initialize(self.num_variables),
-            );
-            // Combine claimed evals with combination randomness
-            constraint.combine_evals(&mut claimed_eval);
-            constraints.push(constraint);
-        } else {
-            assert!(prev_commitment.ood_statement.is_empty());
-            assert!(statement.is_empty());
-        }
+                verify_initial_sumcheck_rounds_without_statement(
+                    *pow_witness,
+                    challenger,
+                    self.folding_factor.at_round(0),
+                    self.starting_folding_pow_bits,
+                )
+            }
+            crate::whir::proof::InitialPhase::WithStatement { data, .. } => {
+                statement.concatenate(&prev_commitment.ood_statement);
 
-        // Verify initial sumcheck
-        let folding_randomness = verify_initial_sumcheck_rounds(
-            &proof.initial_phase,
-            challenger,
-            &mut claimed_eval,
-            self.folding_factor.at_round(0),
-            self.starting_folding_pow_bits,
-        )?;
+                let constraint = Constraint::new(
+                    challenger.sample_algebra_element(),
+                    statement,
+                    SelectStatement::initialize(self.num_variables),
+                );
+                // Combine claimed evals with combination randomness
+                constraint.combine_evals(&mut claimed_eval);
+                constraints.push(constraint);
+
+                assert_eq!(
+                    proof.initial_phase.number_of_rounds().unwrap(),
+                    self.folding_factor.at_round(0)
+                );
+                verify_sumcheck_rounds(
+                    data,
+                    challenger,
+                    &mut claimed_eval,
+                    self.starting_folding_pow_bits,
+                )
+            }
+        }?;
 
         round_folding_randomness.push(folding_randomness);
 
@@ -144,13 +154,10 @@ where
             constraint.combine_evals(&mut claimed_eval);
             constraints.push(constraint);
 
-            // TODO: SVO optimization is not yet fully implemented
-            // Falls back to classic sumcheck for all optimization modes
             let folding_randomness = verify_sumcheck_rounds(
-                &proof.rounds[round_index],
+                &proof.rounds[round_index].sumcheck,
                 challenger,
                 &mut claimed_eval,
-                self.folding_factor.at_round(round_index + 1),
                 round_params.folding_pow_bits,
             )?;
 
@@ -207,22 +214,10 @@ where
                 .collect(),
         );
 
-        // For skip case, don't reverse the randomness (prover stores it in forward order)
-        // For non-skip case, reverse it to match the prover's storage
-        let is_skip_used = self.initial_phase_config.is_univariate_skip()
-            && K_SKIP_SUMCHECK <= self.folding_factor.at_round(0);
+        let point_for_eval = folding_randomness.reversed();
 
-        let point_for_eval = if is_skip_used {
-            folding_randomness.clone()
-        } else {
-            folding_randomness.reversed()
-        };
-
-        let evaluation_of_weights = ConstraintPolyEvaluator::new(
-            self.folding_factor,
-            is_skip_used.then_some(K_SKIP_SUMCHECK),
-        )
-        .eval_constraints_poly(&constraints, &point_for_eval);
+        let evaluation_of_weights = ConstraintPolyEvaluator::new(self.folding_factor)
+            .eval_constraints_poly(&constraints, &point_for_eval);
 
         // Check the final sumcheck evaluation
         let final_value = final_evaluations.evaluate_hypercube_ext::<F>(&final_sumcheck_randomness);
@@ -333,55 +328,11 @@ where
             round_index,
         )?;
 
-        // Determine if this is the special first round where the univariate skip is applied.
-        let is_skip_round = round_index == 0
-            && matches!(
-                self.initial_phase_config,
-                InitialPhaseConfig::WithStatementUnivariateSkip
-            )
-            && self.folding_factor.at_round(0) >= K_SKIP_SUMCHECK;
-
         // Compute STIR Constraints
         let folds: Vec<_> = answers
             .into_iter()
             .map(|answer| {
-                if is_skip_round {
-                    // Case 1: Univariate Skip Round Evaluation
-                    //
-                    // The `answer` contains evaluations of a polynomial over the `k_skip` variables.
-                    let evals = EvaluationsList::new(answer);
-
-                    // Calculate `n-k`, the number of variables that are *not* folded in this skip round.
-                    let num_remaining_vars = evals.num_variables() - K_SKIP_SUMCHECK;
-
-                    // Determine the width of the evaluation matrix, which is `2^(n-k)`.
-                    let width = 1 << num_remaining_vars;
-
-                    // Reshape the flat `2^n` evaluations into a `2^k x 2^(n-k)` matrix.
-                    let mat = evals.into_mat(width);
-
-                    // The `folding_randomness` for a skip round is the special `(n-k)+1` challenge object.
-                    let r_all = folding_randomness.clone();
-
-                    // Deconstruct the challenge object `r_all` into its two components.
-                    //
-                    // The last element is the single challenge `r_skip` used to evaluate the skipped variables.
-                    let r_skip = *r_all
-                        .last_variable()
-                        .expect("skip challenge must be present");
-                    // The first `n - k_skip` elements are the challenges `r_rest` for the remaining variables.
-                    let r_rest =
-                        MultilinearPoint::new(r_all.as_slice()[..num_remaining_vars].to_vec());
-
-                    // Perform the two-stage skip-aware evaluation:
-                    //
-                    // "Fold" the skipped variables by interpolating the matrix at `r_skip`.
-                    let folded_row = interpolate_subgroup(&mat, r_skip);
-                    // Evaluate the resulting smaller polynomial at the remaining challenges `r_rest`.
-                    EvaluationsList::new(folded_row).evaluate_hypercube_ext::<F>(&r_rest)
-                } else {
-                    EvaluationsList::new(answer).evaluate_hypercube_ext::<F>(folding_randomness)
-                }
+                EvaluationsList::new(answer).evaluate_hypercube_ext::<F>(folding_randomness)
             })
             .collect();
 

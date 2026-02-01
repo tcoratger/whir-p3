@@ -3,9 +3,7 @@ use alloc::{vec, vec::Vec};
 use itertools::Itertools;
 use p3_field::{
     Algebra, ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing,
-    TwoAdicField,
 };
-use p3_interpolation::interpolate_subgroup;
 use p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixView};
 use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::eq_batch::eval_eq_batch;
@@ -14,10 +12,7 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use super::multilinear::MultilinearPoint;
-use crate::{
-    constant::MLE_RECURSION_THRESHOLD, sumcheck::sumcheck_small_value::SvoAccumulators,
-    utils::uninitialized_vec,
-};
+use crate::{constant::MLE_RECURSION_THRESHOLD, utils::uninitialized_vec};
 
 const PARALLEL_THRESHOLD: usize = 4096;
 
@@ -204,6 +199,82 @@ impl<A: Clone + Copy + Default + Send + Sync> EvaluationsList<A> {
         }
         EvaluationsList(out)
     }
+
+    /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
+    ///
+    /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
+    ///
+    /// ```text
+    ///     g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
+    /// ```
+    ///
+    /// # Arguments
+    /// - `point`: The extension-field values to substitute for the last `k` variables.
+    ///
+    /// # Returns
+    /// - A new `EvaluationsList<EF>` representing the folded function over the remaining `n - k` variables.
+    pub(crate) fn compress_multi<EF>(&self, point: &[EF]) -> EvaluationsList<EF>
+    where
+        A: Field,
+        EF: ExtensionField<A>,
+    {
+        assert!(point.len() <= self.num_variables());
+        let eq = EvaluationsList::new_from_point(point, EF::ONE);
+        let mut out = EF::zero_vec(1 << (self.num_variables() - point.len()));
+        self.0
+            .chunks(self.num_evals() / eq.num_evals())
+            .zip_eq(eq.iter())
+            .for_each(|(chunk, &r)| {
+                out.par_iter_mut()
+                    .zip_eq(chunk.par_iter())
+                    .for_each(|(acc, &poly)| *acc += r * poly);
+            });
+        EvaluationsList(out)
+    }
+
+    /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
+    ///
+    /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
+    ///
+    /// ```text
+    ///     g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
+    /// ```
+    ///
+    /// # Arguments
+    /// - `point`: The extension-field values to substitute for the last `k` variables.
+    ///
+    /// # Returns
+    /// - A new `EvaluationsList<EF::ExtensionPacking>` representing the folded function over the remaining `n - k` variables.
+    pub fn compress_multi_into_packed<EF>(
+        &self,
+        point: &[EF],
+    ) -> EvaluationsList<EF::ExtensionPacking>
+    where
+        A: Field,
+        EF: ExtensionField<A>,
+    {
+        assert!(point.len() <= self.num_variables());
+        let point = MultilinearPoint::new(point.to_vec());
+        let eq = EvaluationsList::new_from_point(point.as_slice(), EF::ONE);
+
+        let mut out = EF::ExtensionPacking::zero_vec(
+            1 << (self.num_variables()
+                - point.num_variables()
+                - log2_strict_usize(A::Packing::WIDTH)),
+        );
+
+        self.0
+            .chunks(self.num_evals() / eq.num_evals())
+            .zip_eq(eq.iter())
+            .for_each(|(chunk, &r)| {
+                let r = EF::ExtensionPacking::from(r);
+                let chunk = A::Packing::pack_slice(chunk);
+                out.par_iter_mut()
+                    .zip_eq(chunk.par_iter())
+                    .for_each(|(acc, &poly)| *acc += r * poly);
+            });
+        EvaluationsList(out)
+    }
 }
 
 impl<Packed: Copy + Send + Sync> EvaluationsList<Packed> {
@@ -274,7 +345,7 @@ impl<Packed: Copy + Send + Sync> EvaluationsList<Packed> {
     /// ```text
     ///     eq(x, point) = \prod_{i=1}^{n} (1 - p_i + 2 p_i x_i).
     /// ```
-    pub fn eval_hypercube_packed<F, EF>(&self, point: &MultilinearPoint<EF>) -> EF
+    pub fn evaluate_hypercube_packed<F, EF>(&self, point: &MultilinearPoint<EF>) -> EF
     where
         F: Field,
         EF: ExtensionField<F, ExtensionPacking = Packed>,
@@ -388,194 +459,36 @@ where
         }
     }
 
-    /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
-    ///
-    /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
-    ///
-    /// ```text
-    ///     g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
-    /// ```
-    ///
-    /// # Arguments
-    /// - `folding_randomness`: The extension-field values to substitute for the last `k` variables.
-    ///
-    /// # Returns
-    /// - A new `EvaluationsList<EF>` representing the folded function over the remaining `n - k` variables.
-    ///
-    /// # Panics
-    /// - If the evaluation list is not sized `2^n` for some `n`.
-    #[instrument(skip_all)]
-    #[inline]
-    pub fn fold<EF>(&self, folding_randomness: &MultilinearPoint<EF>) -> EvaluationsList<EF>
-    where
-        EF: ExtensionField<F>,
-    {
-        assert_ne!(folding_randomness.num_variables(), 0);
-        assert!(folding_randomness.num_variables() <= self.num_variables());
-        let mut poly = self.compress_ext(folding_randomness.as_slice()[0]);
-        for &r in &folding_randomness.as_slice()[1..] {
-            poly.compress(r);
-        }
-        poly
-    }
-
-    /// Folds the polynomial over the first `k` variables in a single batched step.
-    ///
-    /// - Let $p : \{0,1\}^n \to F$ be the multilinear polynomial represented by this
-    ///   evaluation list.
-    /// - Let `challenges` have length $k$ with elements in an extension field `EF`.
-    ///
-    /// This method returns the evaluations of the folded polynomial
-    ///
-    /// \begin{equation}
-    ///   q(x') = p(r_0, \dots, r_{k-1}, x')
-    /// \end{equation}
-    ///
-    /// for all $x' \in \{0,1\}^{n-k}$, where $(r_0, \dots, r_{k-1})$ come from `challenges`.
-    ///
-    /// # Memory layout and indexing
-    ///
-    /// The evaluations in `self.0` are stored in lexicographic order over $(x_0, \dots, x_{n-1})$.
-    ///
-    /// - The first `k` variables $(x_0, \dots, x_{k-1})$ correspond to the
-    ///   most significant bits of the index.
-    /// - The remaining `n - k` variables correspond to the least significant bits.
-    ///
-    /// We can view the table as a $2^k \times 2^{n-k}$ matrix:
-    ///
-    /// \begin{equation}
-    ///   p(b, x'), \quad b \in \{0,1\}^k,\ x' \in \{0,1\}^{n-k},
-    /// \end{equation}
-    ///
-    /// where each column (fixed $x'$) is contiguous in memory.
-    ///
-    /// For a fixed suffix $x'$, the folded value is
-    ///
-    /// \begin{equation}
-    ///   q(x') = \sum_{b \in \{0,1\}^k} eq(r, b) \cdot p(b, x'),
-    /// \end{equation}
-    ///
-    /// where $eq(r, b)$ is the multilinear equality polynomial evaluated at
-    /// `challenges` and the Boolean vector $b$.
-    ///
-    /// # Arguments
-    ///
-    /// - `challenges`: Slice of length $k$ containing the extension field
-    ///   challenges $(r_0, \dots, r_{k-1})$ to substitute for the first `k`
-    ///   variables. May be empty.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `challenges.len() > self.num_variables()`.
-    ///
-    /// # Returns
-    ///
-    /// An `EvaluationsList<EF>` with $2^{n-k}$ entries representing the folded
-    /// polynomial $q$ over the remaining `n - k` variables.
-    pub fn fold_batch<EF>(&self, challenges: &[EF]) -> EvaluationsList<EF>
-    where
-        EF: ExtensionField<F> + Send + Sync,
-    {
-        // Number of folded variables: k = challenges.len().
-        let num_challenges = challenges.len();
-
-        // Simple case: k = 0.
-        //
-        // No variables are folded. We just reinterpret the polynomial
-        // by lifting each base-field value into the extension field.
-        if num_challenges == 0 {
-            // - If F and EF differ, this converts each F into EF.
-            // - If they are the same type, this is a no-op conversion.
-            return EvaluationsList(self.0.iter().map(|&x| EF::from(x)).collect());
-        }
-
-        // Total number of variables in the original polynomial: n.
-        let n = self.num_variables();
-
-        // Sanity check: cannot fold more variables than we have.
-        assert!(
-            num_challenges <= n,
-            "fold_batch: challenges.len() = {num_challenges} exceeds num_variables() = {n}"
-        );
-
-        // Number of remaining variables after folding: n - k.
-        let remaining_vars = n - num_challenges;
-
-        // Number of evaluations in the folded table: 2^(n-k).
-        //
-        // Each such evaluation corresponds to one suffix x' ∈ {0,1}^{n-k}.
-        let num_remaining_evals = 1 << remaining_vars;
-
-        // Precompute equality weights:
-        //
-        // eq_evals[j] = eq(r, b_j) for the j-th Boolean vector b_j ∈ {0,1}^k,
-        // in lexicographic order over b_j.
-        //
-        // This gives us the coefficients for the dot product in the folding formula:
-        //
-        //   q(x') = Σ_b eq(r, b) * p(b, x').
-        let eq_evals = EvaluationsList::new_from_point(challenges, EF::ONE);
-
-        // Prepare output buffer initialized with zeros so we can unconditionally accumulate.
-        //
-        // folded_evals_flat[i] will store q(x') for the suffix index i.
-        let mut folded_evals_flat = EF::zero_vec(num_remaining_evals);
-
-        // Compute the folded evaluations in parallel.
-        //
-        // We split the output buffer into disjoint chunks. Each chunk corresponds
-        // to a contiguous range of suffix indices x'. Each thread owns its chunk
-        // and updates it independently, so no synchronization is needed.
-        //
-        // This layout ensures that both reads from the input polynomial and writes
-        // to the output are over contiguous slices, which is friendly to caches.
-        folded_evals_flat
-            .par_chunks_mut(PARALLEL_THRESHOLD)
-            .enumerate()
-            .for_each(|(chunk_idx, result_chunk)| {
-                // Compute the global starting index for this chunk of suffixes.
-                //
-                // All suffix indices covered by this chunk are:
-                //   i = chunk_start_offset .. chunk_start_offset + result_chunk.len().
-                let chunk_start_offset = chunk_idx * PARALLEL_THRESHOLD;
-
-                // For this fixed range of suffix indices, sum over all prefixes b.
-                //
-                // - j runs over all 2^k Boolean prefixes b_j,
-                // - eq_val is the precomputed weight eq(r, b_j).
-                for (j, &eq_val) in eq_evals.0.iter().enumerate() {
-                    // Calculate where the block corresponding to prefix b_j starts in the input.
-                    //
-                    // The evaluation p(b_j, x') lives at index:
-                    //
-                    //   original_eval_index = j * 2^(n-k) + i,
-                    //
-                    // because prefixes are in the most significant bits and
-                    // suffixes are in the least significant bits.
-                    //
-                    // For the current chunk, the block we need starts at:
-                    let input_block_start = j * num_remaining_evals + chunk_start_offset;
-
-                    // Get the contiguous slice of input evaluations for this prefix,
-                    // restricted to the suffix range covered by `result_chunk`.
-                    let input_chunk =
-                        &self.0[input_block_start..input_block_start + result_chunk.len()];
-
-                    // Accumulate eq(r, b_j) * p(b_j, x') into the result.
-                    //
-                    // This hot loop iterates contiguously over both input and result chunks.
-                    for (res, &p_b_x) in result_chunk.iter_mut().zip(input_chunk) {
-                        // Accumulate eq(r, b_j) * p(b_j, x') in the extension field.
-                        *res += eq_val * p_b_x;
-                    }
-                }
-            });
-
-        // Wrap the flat vector into a new evaluation list in EF.
-        //
-        // It holds the values q(x') for all x' ∈ {0,1}^{n-k}, in lexicographic order.
-        EvaluationsList::new(folded_evals_flat)
-    }
+    // /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
+    // ///
+    // /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
+    // ///
+    // /// ```text
+    // ///     g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
+    // /// ```
+    // ///
+    // /// # Arguments
+    // /// - `folding_randomness`: The extension-field values to substitute for the last `k` variables.
+    // ///
+    // /// # Returns
+    // /// - A new `EvaluationsList<EF>` representing the folded function over the remaining `n - k` variables.
+    // ///
+    // /// # Panics
+    // /// - If the evaluation list is not sized `2^n` for some `n`.
+    // #[instrument(skip_all)]
+    // #[inline]
+    // pub fn fold<EF>(&self, folding_randomness: &MultilinearPoint<EF>) -> EvaluationsList<EF>
+    // where
+    //     EF: ExtensionField<F>,
+    // {
+    //     assert_ne!(folding_randomness.num_variables(), 0);
+    //     assert!(folding_randomness.num_variables() <= self.num_variables());
+    //     let mut poly = self.compress_ext(folding_randomness.as_slice()[0]);
+    //     for &r in &folding_randomness.as_slice()[1..] {
+    //         poly.compress(r);
+    //     }
+    //     poly
+    // }
 
     /// Folds a list of evaluations from a base field `F` into an extension field `EF`.
     ///
@@ -609,315 +522,6 @@ where
                 .map(|(&a0, &a1)| r * (a1 - a0) + a0)
                 .collect()
         })
-    }
-
-    /// Evaluates a polynomial over the mixed domain `D × H^j` at an arbitrary point.
-    ///
-    /// # Purpose
-    ///
-    /// This method supports the **univariate skip** optimization in sumcheck protocol.
-    ///
-    /// Instead of evaluating over the full Boolean hypercube `{0,1}^n`, we use a mixed domain
-    /// where:
-    /// - `k` variables live on a multiplicative subgroup `D`,
-    /// - `j = n - k` variables remain on the Boolean hypercube `H^j`.
-    ///
-    /// # How It Works
-    ///
-    /// The evaluation proceeds in two stages:
-    ///
-    /// **Stage 1: Univariate Interpolation**
-    ///
-    /// The `k` skipped variables correspond to a multiplicative subgroup `D` of size `2^k`.
-    ///
-    /// We treat the evaluation table as a `2^k × 2^j` grid with `2^k` rows and `2^j` columns.
-    ///
-    /// Each column represents evaluations of a univariate polynomial over the subgroup `D`.
-    ///
-    /// We interpolate each column polynomial and evaluate it at the given point `x`.
-    ///
-    /// This collapses all `2^k` rows into a single row of `2^j` values.
-    ///
-    /// **Stage 2: Multilinear Interpolation**
-    ///
-    /// The folded row from Stage 1 represents evaluations of a multilinear polynomial
-    /// in the remaining `j` variables.
-    ///
-    /// We evaluate this polynomial at the remaining coordinates `y` using standard
-    /// multilinear interpolation.
-    ///
-    /// # Input Structure
-    ///
-    /// The evaluation point `point` must have exactly `j + 1` coordinates:
-    ///
-    /// - `point[0]` = `x`: Evaluation point for the `k` skipped variables,
-    /// - `point[1..]` = `y`: Evaluation points for the `j` hypercube variables.
-    ///
-    /// # Memory Layout
-    ///
-    /// The evaluation table is stored as a `2^k × 2^j` grid in row-major order.
-    ///
-    /// - Rows correspond to subgroup elements.
-    /// - Columns correspond to hypercube corners.
-    ///
-    /// This is lexicographical (natural) order, not bit-reversed order.
-    /// TODO: we should check in the future if we need bit reversed order.
-    ///
-    /// # Parameters
-    ///
-    /// - `point`: The evaluation point with `j + 1` coordinates as described above
-    /// - `log_skip_size`: Number of variables to skip (must satisfy `0 < log_skip_size ≤ n`)
-    #[must_use]
-    #[inline]
-    pub fn evaluate_with_univariate_skip<EF>(
-        &self,
-        point: &MultilinearPoint<EF>,
-        log_skip_size: usize,
-    ) -> EF
-    where
-        F: TwoAdicField,
-        EF: TwoAdicField + ExtensionField<F>,
-    {
-        // Get the total number of variables n in the polynomial.
-        let n = self.num_variables();
-
-        // - Validate that log_skip_size is in the valid range (0, n].
-        // - Using log_skip_size = 0 is meaningless; use standard evaluate() instead.
-        assert!(
-            log_skip_size > 0,
-            "log_skip_size must be greater than 0 (got {log_skip_size}). For log_skip_size=0, use the standard evaluate() method."
-        );
-        assert!(
-            log_skip_size <= n,
-            "log_skip_size ({log_skip_size}) must not exceed num_variables ({n})"
-        );
-
-        // Compute j = n - k, the number of remaining hypercube variables.
-        let num_hypercube_vars = n - log_skip_size;
-
-        // Verify the evaluation point has the correct structure: j + 1 coordinates.
-        // - The first coordinate is for the skipped variables,
-        // - The rest for the hypercube.
-        assert_eq!(
-            point.num_variables(),
-            num_hypercube_vars + 1,
-            "Point must have {} coordinates for univariate skip with log_skip_size={} and n={}, but has {}",
-            num_hypercube_vars + 1,
-            log_skip_size,
-            n,
-            point.num_variables()
-        );
-
-        // Split the evaluation point into two parts:
-        //   - x  = point[0]     : evaluation point for the k skipped variables (univariate)
-        //   - y  = point[1..]   : evaluation points for the j hypercube variables (multilinear)
-        let x = point[0];
-        let y_coords = &point.as_slice()[1..];
-        let y_point = MultilinearPoint::new(y_coords.to_vec());
-
-        // STAGE 1: Univariate Interpolation
-        //
-        // We have 2^n evaluations organized as a 2^k × 2^j grid.
-        // - Rows index the subgroup D (size 2^k).
-        // - Columns index the hypercube H^j (size 2^j).
-
-        // Compute the number of columns in the grid: 2^j.
-        let hypercube_size = 1 << num_hypercube_vars;
-
-        // Create a matrix view of the evaluation table.
-        // This interprets the flat array as a 2^k × 2^j matrix in row-major order.
-        let mat = RowMajorMatrixView::new(self.as_slice(), hypercube_size);
-
-        // Interpolate each of the 2^j columns over the subgroup D and evaluate at x.
-        //
-        // Each column is a univariate polynomial of degree < 2^k evaluated at the subgroup.
-        // After interpolation at x, we get a single row of 2^j values.
-        //
-        // TODO: Depending on what is slower, it may be worth investigating whether it's better
-        // to perform the univariate interpolation first (current approach) or last (after the
-        // hypercube evaluation). The optimal order may depend on the relative sizes of k and j.
-        let folded_evals: Vec<EF> = interpolate_subgroup(&mat, x);
-
-        // STAGE 2: Multilinear Interpolation
-        //
-        // The folded row represents evaluations of a j-variate multilinear polynomial
-        // over the Boolean hypercube {0,1}^j.
-        //
-        // We now evaluate this polynomial at the coordinates y.
-
-        // Wrap the folded evaluations as a new list of evaluations.
-        let final_poly = EvaluationsList::new(folded_evals);
-
-        // Perform standard multilinear interpolation at y and return the result.
-        final_poly.evaluate_hypercube_ext::<F>(&y_point)
-    }
-
-    /// Computes precomputation accumulators for the Small-Value Optimization (SVO).
-    ///
-    /// Speeding Up Sum-Check Proving: https://eprint.iacr.org/2025/1117.pdf
-    ///
-    /// This is the core of the SVO prover strategy (Procedure 9, Page 37).
-    ///
-    /// It precomputes all sum-check round polynomials for the first `N` rounds simultaneously,
-    /// exploiting the fact that polynomial values are "small".
-    ///
-    /// # What This Does
-    ///
-    /// In standard sum-check, proving each round costs `O(2^n)` large-field multiplications.
-    /// This function precomputes `N` rounds at once, replacing most large-field operations
-    /// with cheaper small-field operations.
-    ///
-    /// When `g(x) = E(x) · P(x)` where:
-    /// - `E(x)` is the equality polynomial (large field values)
-    /// - `P(x)` evaluates to small integers or base field elements
-    ///
-    /// We can delay the expensive `E` multiplications until the very end.
-    ///
-    /// # Why This Works
-    ///
-    /// ## Variable Splitting
-    ///
-    /// We split the `n` variables into three groups:
-    ///
-    /// ```text
-    /// ┌─────┬────────┬─────────┐
-    /// │  β  │  x_in  │  x_out  │  ← n total variables
-    /// └─────┴────────┴─────────┘
-    ///    N     n/2    remaining
-    /// ```
-    ///
-    /// - **β** (N vars): The "prefix" variables being sum-checked across rounds 0..N
-    /// - **x_in** (n/2 vars): Inner variables summed in tight loop (cache-friendly)
-    /// - **x_out** (rest): Outer variables parallelized across threads
-    ///
-    /// ## Equality Polynomial Factorization
-    ///
-    /// The equality polynomial factors nicely:
-    ///
-    /// ```text
-    /// E(x) = E_in(x_in) · E_out(x_out)
-    /// ```
-    ///
-    /// This lets us compute the accumulator for round `i` as:
-    ///
-    /// ```text
-    /// A_i(v,u) = Σ_{x_out} E_out(x_out) · [ Σ_{x_in} E_in(x_in) · P(v,u,x_in,x_out) ]
-    ///                                       └──────────────────────────────────────┘
-    ///                                                "small" inner product
-    /// ```
-    ///
-    /// The bracketed inner sum uses only small values, so it's cheap!
-    ///
-    /// # Algorithm Steps
-    ///
-    /// ## 1. Parallel Outer Loop (x_out)
-    ///
-    /// We parallelize over `x_out` chunks. Each thread gets its own:
-    /// - Accumulator storage (no contention)
-    /// - Temporary buffer (no allocations in hot path)
-    ///
-    /// ## 2. Inner Product (x_in) - The Fast Part
-    ///
-    /// For each fixed `x_out`, we iterate linearly over `x_in`:
-    ///
-    /// ```text
-    /// temp[β] += E_in[x_in] · P(β, x_in, x_out)
-    ///            └────────┘   └───────────────┘
-    ///              large           small
-    /// ```
-    ///
-    /// ## 3. Distribution (E_out) - The Large Part
-    ///
-    /// After computing all `temp[β]` for this `x_out`, we multiply by the
-    /// expensive `E_out` values and distribute to the round accumulators:
-    ///
-    /// ```text
-    /// A_r[acc_idx] += Σ_k E_out[...] · temp[...]
-    /// ```
-    ///
-    /// This is the only place we do large-field × large-field multiplication.
-    pub fn compute_svo_accumulators<EF, const N: usize>(
-        &self,
-        e_in: &EvaluationsList<EF>,
-        e_out: &[EvaluationsList<EF>; N],
-    ) -> SvoAccumulators<EF, N>
-    where
-        EF: ExtensionField<F> + Send + Sync,
-    {
-        let l = self.num_variables();
-        let half_l = l / 2;
-
-        // Calculate variable splits: β (N vars) || x_in (half_l vars) || x_out (remaining)
-        let x_out_num_vars = half_l - N + (l % 2);
-        let x_num_vars = l - N;
-
-        debug_assert_eq!(half_l + x_out_num_vars, x_num_vars);
-
-        let poly_evals = self.as_slice();
-        let num_x_in = 1 << half_l;
-
-        // Cache raw pointers to E_out slices to avoid bounds checks in hot loop.
-        //
-        // Safe: slices outlive the parallel iterator below.
-        let e_out_slices: [&[EF]; N] = core::array::from_fn(|i| e_out[i].as_slice());
-
-        //  PARALLEL FOLD-REDUCE
-        //
-        // Strategy: Split work over x_out chunks across threads.
-        // Each thread maintains its own accumulator + temp buffer.
-        //
-        (0..1 << x_out_num_vars)
-            .into_par_iter()
-            .map(|x_out| {
-                // THREAD-LOCAL INITIALIZATION
-                let mut local_accs = SvoAccumulators::<EF, N>::new();
-                let mut temp_buffer = EF::zero_vec(1 << N);
-
-                // STEP 1: Inner product (small multiplications)
-                //
-                // For each x_in, accumulate:
-                //   temp[β] += E_in[x_in] · P(β, x_in, x_out)
-                for (x_in, &e_in_val) in e_in.0.iter().enumerate().take(num_x_in) {
-                    // Base index encodes: (β=0, x_in, x_out)
-                    let base_index = (x_in << x_out_num_vars) | x_out;
-
-                    // Iterate over all 2^N possible β prefixes
-                    //
-                    // Note: We need the index i for computing beta, not just for indexing
-                    for (i, buf) in temp_buffer.iter_mut().enumerate().take(1 << N) {
-                        let beta = i << x_num_vars;
-                        let index = beta | base_index;
-
-                        // SAFETY: index < 2^l by construction
-                        let p_val = unsafe { *poly_evals.get_unchecked(index) };
-                        *buf += e_in_val * p_val;
-                    }
-                }
-
-                // STEP 2: Distribution (large multiplications)
-                //
-                // Multiply temp[β] by E_out and add to round accumulators
-                for (r, e_out_slice) in e_out_slices.iter().enumerate().take(N) {
-                    let block_size = 1 << (N - 1 - r);
-
-                    // SAFETY: r < N by loop bound
-                    let round_accs = unsafe { local_accs.at_round_unchecked_mut(r) };
-
-                    for (acc_idx, acc) in round_accs.iter_mut().enumerate() {
-                        let start_idx = acc_idx * block_size;
-
-                        // Dot product: sum over block variations
-                        for k in 0..block_size {
-                            let e_idx = (k << x_out_num_vars) | x_out;
-                            *acc += e_out_slice[e_idx] * temp_buffer[start_idx + k];
-                        }
-                    }
-                }
-
-                local_accs
-            })
-            // REDUCTION: Merge all thread-local accumulators
-            .par_fold_reduce(SvoAccumulators::new, |a, b| a + b, |a, b| a + b)
     }
 }
 
@@ -989,7 +593,7 @@ impl<A: Copy + Send + Sync + PrimeCharacteristicRing> EvaluationsList<A> {
                 // c_0 term: product at X=0.
                 let c0_term = w_lo * e_lo;
                 // c_2 term: cross-product of differences.
-                let c2_term = (w_hi - w_lo) * (e_hi - e_lo);
+                let c2_term = (w_hi.double() - w_lo) * (e_hi.double() - e_lo);
                 (c0_term, c2_term)
             })
             .par_fold_reduce(
@@ -1132,7 +736,6 @@ where
     }
 
     let mid = num_vars / 2;
-
     let (right, left) = point.split_at(mid);
     let left = EvaluationsList::new_packed_from_point(left, EF::ONE);
     let right = EvaluationsList::new_from_point(right, EF::ONE);
@@ -1219,8 +822,7 @@ mod tests {
 
     use p3_baby_bear::BabyBear;
     use p3_field::{
-        PrimeCharacteristicRing, PrimeField64, TwoAdicField, dot_product,
-        extension::BinomialExtensionField,
+        PrimeCharacteristicRing, PrimeField64, dot_product, extension::BinomialExtensionField,
     };
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng, rngs::SmallRng};
@@ -1728,13 +1330,13 @@ mod tests {
                 MultilinearPoint::new([fold_part.clone(), eval_part.0.clone()].concat());
 
             // Fold the evaluation list over the last `k` variables
-            let folded_evals = evals_list.fold(&fold_random);
+            let folded_evals = evals_list.compress_multi(fold_random.as_slice());
 
             // Verify that the number of variables has been folded correctly
             assert_eq!(folded_evals.num_variables(), num_variables - k);
 
             // Fold the coefficients list over the last `k` variables
-            let folded_coeffs = evals_list.fold(&fold_random);
+            let folded_coeffs = evals_list.compress_multi(fold_random.as_slice());
 
             // Verify that the number of variables has been folded correctly
             assert_eq!(folded_coeffs.num_variables(), num_variables - k);
@@ -1767,7 +1369,7 @@ mod tests {
         let r1 = EF4::from_u64(5);
 
         // Perform the fold: f(x_0, 5) becomes a new function g(x_0)
-        let folded = evals_list.fold(&MultilinearPoint::new(vec![r1]));
+        let folded = evals_list.compress_multi(&[r1]);
 
         // For 10 test points x_0 = 0, 1, ..., 9
         for x0_f in 0..10 {
@@ -2311,725 +1913,6 @@ mod tests {
     }
 
     #[test]
-    fn test_skip_k1_j1_arbitrary_coords() {
-        // SETUP:
-        // - n = 2 total variables.
-        // - k_skip = 1 (folds 1 variable into a subgroup D of size 2).
-        // - j = n - k = 1 (1 remaining hypercube variable).
-        // - The polynomial is defined over the domain D × H^1, where D = {g^0, g^1} and H^1 = {0, 1}.
-
-        let k_skip = 1;
-
-        // The evaluations are laid out in natural (lexicographical) row-major order.
-        //
-        // Conceptual Grid:
-        //         y=0     y=1
-        //       ┌───────┬───────┐
-        // x=g^0 │   7   │  13   │  (Row 0)
-        //       ├───────┼───────┤
-        // x=g^1 │  19   │  29   │  (Row 1)
-        //       └───────┴───────┘
-        let evals = vec![
-            F::from_u64(7),  // f(g^0, 0)
-            F::from_u64(13), // f(g^0, 1)
-            F::from_u64(19), // f(g^1, 0)
-            F::from_u64(29), // f(g^1, 1)
-        ];
-        let evals_list = EvaluationsList::new(evals.clone());
-
-        // Test at an arbitrary point not on the grid: (x, y) = (2, 3).
-        let x = F::from_u64(2);
-        let y = F::from_u64(3);
-        let point = MultilinearPoint::new(vec![x, y]);
-
-        // Evaluate the polynomial at the arbitrary point.
-        let result = evals_list.evaluate_with_univariate_skip(&point, k_skip);
-
-        // STAGE 1: Univariate Interpolation (Collapsing the Rows)
-        //
-        // Manually compute the interpolation for each column at the point `x`.
-        // The subgroup D for k=1 is {g^0, g^1} which is {1, -1}.
-        //
-        // For a linear function through points (1, y0) and (-1, y1), the value at x is:
-        // f(x) = (y0 + y1)/2 + x*(y0 - y1)/2
-        //
-        // Column 0 (y=0): Linear interpolation through (1, 7) and (-1, 19)
-        let folded_0 = (evals[0] + evals[2]).halve() + (evals[0] - evals[2]).halve() * x;
-
-        // Column 1 (y=1): Linear interpolation through (1, 13) and (-1, 29)
-        let folded_1 = (evals[1] + evals[3]).halve() + (evals[1] - evals[3]).halve() * x;
-
-        let folded_evals_manual = vec![folded_0, folded_1];
-        assert_eq!(
-            folded_evals_manual,
-            vec![F::from_u64(1), F::from_u64(5)],
-            "Stage 1 manual calculation does not match expected folded values"
-        );
-
-        // STAGE 2: Multilinear Interpolation (Evaluating the Result)
-        //
-        // The `folded_evals` are [p(0), p(1)] for a new 1-variable polynomial p(y).
-        // We now evaluate this at y=3 using the formula: p(y) = p(0)*(1-y) + p(1)*y
-        let p_at_0 = folded_evals_manual[0];
-        let p_at_1 = folded_evals_manual[1];
-        let expected = p_at_0 * (F::ONE - y) + p_at_1 * y;
-
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_skip_k2_j1_arbitrary_coords_extension_field() {
-        // SETUP:
-        // - n = 3 total variables.
-        // - k_skip = 2 (folds 2 variables into a subgroup D of size 4).
-        // - j = n - k = 1 (1 remaining hypercube variable).
-        // - Point is in an extension field EF4.
-
-        let k_skip = 2;
-
-        // The evaluations are laid out in lexicographical (natural) row-major order.
-        // The underlying interpolation function expects this simple, intuitive layout.
-        //
-        // Conceptual Grid (Lexicographical Order):
-        //         y=0     y=1
-        //       ┌───────┬───────┐
-        // x=g^0 │   1   │   2   │
-        //       ├───────┼───────┤
-        // x=g^1 │   5   │   6   │
-        //       ├───────┼───────┤
-        // x=g^2 │   3   │   4   │
-        //       ├───────┼───────┤
-        // x=g^3 │   7   │   8   │
-        //       └───────┴───────┘
-        let evals = vec![
-            F::from_u64(1),
-            F::from_u64(2), // evals for g^0
-            F::from_u64(5),
-            F::from_u64(6), // evals for g^1
-            F::from_u64(3),
-            F::from_u64(4), // evals for g^2
-            F::from_u64(7),
-            F::from_u64(8), // evals for g^3
-        ];
-        let evals_list = EvaluationsList::new(evals.clone());
-
-        // Test at an arbitrary point (x, y) = (5, 7) in the extension field.
-        let x = EF4::from_u64(5);
-        let y = EF4::from_u64(7);
-        let point = MultilinearPoint::new(vec![x, y]);
-
-        // Evaluate the polynomial.
-        let result = evals_list.evaluate_with_univariate_skip(&point, k_skip);
-
-        // STAGE 1: Univariate Interpolation
-        // The subgroup D for k=2 is {g^0, g^1, g^2, g^3}.
-        let g = F::two_adic_generator(k_skip);
-        let domain = [F::ONE, g, g.square(), g.square() * g]; // {g^0, g^1, g^2, g^3}
-
-        // Lagrange basis polynomials L_i(x) = product_{j!=i} (x - domain[j]) / (domain[i] - domain[j])
-        let mut lagrange_at_x = Vec::with_capacity(4);
-        for i in 0..4 {
-            let mut l_i = EF4::ONE;
-            for j in 0..4 {
-                if i != j {
-                    l_i *= (x - EF4::from(domain[j]))
-                        * (EF4::from(domain[i]) - EF4::from(domain[j])).inverse();
-                }
-            }
-            lagrange_at_x.push(l_i);
-        }
-
-        // Get evaluations for each column from the lexicographically ordered `evals` vector.
-        //
-        // Column 0 (y=0): values are {1, 5, 3, 7} for {g^0, g^1, g^2, g^3}
-        let p0_evals = [evals[0], evals[2], evals[4], evals[6]];
-        // Column 1 (y=1): values are {2, 6, 4, 8} for {g^0, g^1, g^2, g^3}
-        let p1_evals = [evals[1], evals[3], evals[5], evals[7]];
-
-        // Interpolate each column polynomial: p(x) = sum(p(g^i) * L_i(x))
-        let folded_0: EF4 = (0..4)
-            .map(|i| EF4::from(p0_evals[i]) * lagrange_at_x[i])
-            .sum();
-        let folded_1: EF4 = (0..4)
-            .map(|i| EF4::from(p1_evals[i]) * lagrange_at_x[i])
-            .sum();
-
-        // STAGE 2: Multilinear Interpolation
-        //
-        // Manually evaluate the final 1-variable polynomial at y=7.
-        let expected = folded_0 * (EF4::ONE - y) + folded_1 * y;
-
-        assert_eq!(result, expected, "Manual two-stage interpolation failed");
-    }
-
-    #[test]
-    fn test_skip_all_vars_k2_j0() {
-        // SETUP:
-        // - n = 2 total variables.
-        // - k_skip = 2 (all variables are folded).
-        // - j = n - k = 0 (no remaining hypercube variables).
-        // - The polynomial is defined only over the subgroup D of size 4.
-
-        let k_skip = 2;
-
-        // Since j=0, the domain is just the subgroup D. The evaluations are a flat list
-        // in the natural (lexicographical) order of the subgroup elements.
-        //
-        // Evaluation Points: { g^0,   g^1,   g^2,   g^3 }
-        // Values:            {  10,    20,    30,    40 }
-        let evals = vec![
-            F::from_u64(10), // f(g^0)
-            F::from_u64(20), // f(g^1)
-            F::from_u64(30), // f(g^2)
-            F::from_u64(40), // f(g^3)
-        ];
-        let evals_list = EvaluationsList::new(evals.clone());
-
-        // The evaluation point only has one coordinate, `x`, since j=0.
-        let x = F::from_u64(5);
-        let point = MultilinearPoint::new(vec![x]);
-
-        // Evaluate the polynomial.
-        let result = evals_list.evaluate_with_univariate_skip(&point, k_skip);
-
-        // STAGE 1: Univariate Interpolation
-        //
-        // The logic is identical to the k=2 test above, but for a single column.
-        let g = F::two_adic_generator(k_skip);
-        let domain = [F::ONE, g, g.square(), g.square() * g];
-
-        // We compute the Lagrange basis polynomials at the evaluation point `x`.
-        // L_i(x) = product_{m!=i} (x - domain[m]) / (domain[i] - domain[m])
-        let mut lagrange_at_x = Vec::with_capacity(4);
-        for i in 0..4 {
-            let mut l_i = F::ONE;
-            for j in 0..4 {
-                if i != j {
-                    l_i *= (x - domain[j]) * (domain[i] - domain[j]).inverse();
-                }
-            }
-            lagrange_at_x.push(l_i);
-        }
-
-        // The interpolated value is the sum of each evaluation multiplied by its corresponding
-        // Lagrange basis polynomial: p(x) = sum( p(g^i) * L_i(x) )
-        let expected: F = (0..4).map(|i| evals[i] * lagrange_at_x[i]).sum();
-
-        // STAGE 2: Multilinear Interpolation
-        // This stage is trivial because there are no remaining variables (`j=0`).
-        //
-        // The result from Stage 1 is the final answer.
-
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    #[should_panic(expected = "log_skip_size must be greater than 0")]
-    fn test_evaluate_with_univariate_skip_panics_on_k0() {
-        // Verify that log_skip_size=0 is invalid, as it should use the standard `evaluate` method.
-        let evals_list = EvaluationsList::new(vec![F::ONE, F::ZERO]);
-        let point = MultilinearPoint::new(vec![F::ONE, F::ZERO]);
-        let _ = evals_list.evaluate_with_univariate_skip(&point, 0);
-    }
-
-    #[test]
-    #[should_panic(expected = "log_skip_size")]
-    fn test_evaluate_with_univariate_skip_invalid_k() {
-        // Verify that log_skip_size > n causes a panic
-        let evals_list = EvaluationsList::new(vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
-        let point = MultilinearPoint::new(vec![F::ONE]);
-        let _ = evals_list.evaluate_with_univariate_skip(&point, 3); // n=2, log_skip_size=3 is invalid
-    }
-
-    #[test]
-    fn test_compute_svo_accumulators_n2_manual() {
-        //  TEST SETUP: N=2, n=4
-        //
-        // This test computes the SVO accumulators for N=2 rounds over a
-        // 4-variable polynomial to verify the algorithm's correctness.
-        //
-        // Variable Split:
-        //   - β (prefix, 2 vars): Variables being sum-checked in rounds 0-1
-        //   - x_in (2 vars): Inner loop variables (cache-friendly iteration)
-        //   - x_out (0 vars): Outer loop variables (parallelized) - NONE in this case
-        //
-        // Memory Layout:
-        //   Variables: β_1 β_0 x_1 x_0  (lexicographic order, LSB on right)
-        //              └──┬──┘ └──┬──┘
-        //                 β      x_in
-        //
-        // Polynomial evaluations P(β_1, β_0, x_1, x_0):
-        //
-        // NOTE: In lexicographic order, the indices map as:
-        //   index = β_1·8 + β_0·4 + x_1·2 + x_0
-        const N: usize = 2;
-
-        // Define polynomial with simple values for easy manual verification:
-        //
-        //   Index | β_1 β_0 x_1 x_0 | P(index)
-        //   ------|-----------------|----------
-        //     0   |  0   0   0   0  |    1
-        //     1   |  0   0   0   1  |    2
-        //     2   |  0   0   1   0  |    3
-        //     3   |  0   0   1   1  |    4
-        //     4   |  0   1   0   0  |    5
-        //     5   |  0   1   0   1  |    6
-        //     6   |  0   1   1   0  |    7
-        //     7   |  0   1   1   1  |    8
-        //     8   |  1   0   0   0  |    9
-        //     9   |  1   0   0   1  |   10
-        //    10   |  1   0   1   0  |   11
-        //    11   |  1   0   1   1  |   12
-        //    12   |  1   1   0   0  |   13
-        //    13   |  1   1   0   1  |   14
-        //    14   |  1   1   1   0  |   15
-        //    15   |  1   1   1   1  |   16
-        let poly = EvaluationsList::new((1..=16).map(EF4::from_u64).collect());
-
-        // Define E_in (equality polynomial for x_in = x_1 x_0):
-        //
-        // For a random point (r_1, r_0), E_in evaluates the equality polynomial
-        // at each Boolean assignment:
-        //
-        //   E_in[00] = (1-r_1)(1-r_0)
-        //   E_in[01] = (1-r_1)·r_0
-        //   E_in[10] = r_1·(1-r_0)
-        //   E_in[11] = r_1·r_0
-        //
-        // We use simple values for manual computation:
-        let r1 = EF4::from_u64(2);
-        let r0 = EF4::from_u64(3);
-
-        let e_in = EvaluationsList::new(vec![
-            (EF4::ONE - r1) * (EF4::ONE - r0),
-            (EF4::ONE - r1) * r0,
-            r1 * (EF4::ONE - r0),
-            r1 * r0,
-        ]);
-
-        // For N=2, we need E_out for rounds 0 and 1.
-        //
-        // Round 0: E_out[0] corresponds to β_0 (the last prefix variable)
-        //   E_out[0][0] = (1-s_0)
-        //   E_out[0][1] = s_0
-        //
-        // Round 1: E_out[1] corresponds to β_1 (the first prefix variable)
-        //   E_out[1][0] = (1-s_1)
-        //   E_out[1][1] = s_1
-        let s0 = EF4::from_u64(5);
-        let s1 = EF4::from_u64(7);
-
-        let e_out = [
-            EvaluationsList::new(vec![EF4::ONE - s0, s0]), // Round 0: [(1-s_0), s_0]
-            EvaluationsList::new(vec![EF4::ONE - s1, s1]), // Round 1: [(1-s_1), s_1]
-        ];
-
-        //  CALL FUNCTION UNDER TEST
-        let result = poly.compute_svo_accumulators::<EF4, N>(&e_in, &e_out);
-
-        //  MANUAL COMPUTATION: Round 0 Accumulators
-        //
-        // Round 0 computes accumulators for the first variable β_0.
-        //
-        // For each value of u (the next variable to be evaluated):
-        //   A_0[u] = Σ_{x_in} E_in[x_in] · P(u, x_in)
-        //
-        // Since β has 2 bits and we're in round 0, u ranges over {00, 01}.
-        //
-        // A_0[00] = Σ_{x_1 x_0} E_in[x_1 x_0] · P(0,0,x_1,x_0)
-        //         = E_in[00]·P(0,0,0,0) + E_in[01]·P(0,0,0,1) + E_in[10]·P(0,0,1,0) + E_in[11]·P(0,0,1,1)
-        let a0_00 = e_in.0[0] * poly.0[0]
-            + e_in.0[1] * poly.0[1]
-            + e_in.0[2] * poly.0[2]
-            + e_in.0[3] * poly.0[3];
-
-        // A_0[01] = Σ_{x_1 x_0} E_in[x_1 x_0] · P(0,1,x_1,x_0)
-        //         = E_in[00]·P(0,1,0,0) + E_in[01]·P(0,1,0,1) + E_in[10]·P(0,1,1,0) + E_in[11]·P(0,1,1,1)
-        let a0_01 = e_in.0[0] * poly.0[4]
-            + e_in.0[1] * poly.0[5]
-            + e_in.0[2] * poly.0[6]
-            + e_in.0[3] * poly.0[7];
-
-        // A_0[10] = Σ_{x_1 x_0} E_in[x_1 x_0] · P(1,0,x_1,x_0)
-        //         = E_in[00]·P(1,0,0,0) + E_in[01]·P(1,0,0,1) + E_in[10]·P(1,0,1,0) + E_in[11]·P(1,0,1,1)
-        let a0_10 = e_in.0[0] * poly.0[8]
-            + e_in.0[1] * poly.0[9]
-            + e_in.0[2] * poly.0[10]
-            + e_in.0[3] * poly.0[11];
-
-        // A_0[11] = Σ_{x_1 x_0} E_in[x_1 x_0] · P(1,1,x_1,x_0)
-        //         = E_in[00]·P(1,1,0,0) + E_in[01]·P(1,1,0,1) + E_in[10]·P(1,1,1,0) + E_in[11]·P(1,1,1,1)
-        let a0_11 = e_in.0[0] * poly.0[12]
-            + e_in.0[1] * poly.0[13]
-            + e_in.0[2] * poly.0[14]
-            + e_in.0[3] * poly.0[15];
-
-        // The round 0 polynomial is obtained by multiplying by E_out[0]:
-        //
-        // Round 0 evaluates over β_1 (the MSB of β):
-        //   Round0[0] (for β_1=0) = A_0[00]·E_out[0][0] + A_0[01]·E_out[0][1]
-        //   Round0[1] (for β_1=1) = A_0[10]·E_out[0][0] + A_0[11]·E_out[0][1]
-        let round0_0 = a0_00 * e_out[0].0[0] + a0_01 * e_out[0].0[1];
-        let round0_1 = a0_10 * e_out[0].0[0] + a0_11 * e_out[0].0[1];
-
-        // Verify against computed result (Round 0 is at index 0-1):
-        let computed_round0 = result.at_round(0);
-        assert_eq!(computed_round0[0], round0_0);
-        assert_eq!(computed_round0[1], round0_1);
-
-        // MANUAL COMPUTATION: Round 1 Accumulators
-        //
-        // Round 1 evaluates over β_0 (the LSB of β).
-        //
-        // With block_size=1, each accumulator uses a single temp value:
-        //
-        //   Round1[0] = A_0[00]·E_out[1][0]
-        //   Round1[1] = A_0[01]·E_out[1][0]
-        //   Round1[2] = A_0[10]·E_out[1][0]
-        //   Round1[3] = A_0[11]·E_out[1][0]
-        let round1_0 = a0_00 * e_out[1].0[0];
-        let round1_1 = a0_01 * e_out[1].0[0];
-        let round1_2 = a0_10 * e_out[1].0[0];
-        let round1_3 = a0_11 * e_out[1].0[0];
-
-        // Verify against computed result (Round 1 is at index 2-5):
-        let computed_round1 = result.at_round(1);
-        assert_eq!(computed_round1[0], round1_0);
-        assert_eq!(computed_round1[1], round1_1);
-        assert_eq!(computed_round1[2], round1_2);
-        assert_eq!(computed_round1[3], round1_3);
-    }
-
-    #[test]
-    fn test_compute_svo_accumulators_n3_six_variables() {
-        //  TEST SETUP: N=3, n=6
-        //
-        // This test verifies N=3 (three-round precomputation) on a 6-variable polynomial.
-        //
-        // Variable Split:
-        //   - β (3 vars): β_2 β_1 β_0 - prefix variables for rounds 0-2
-        //   - x_in (3 vars): x_2 x_1 x_0 - inner loop variables
-        //   - x_out (0 vars): None - no parallelization in this small example
-        //
-        // We use a simple polynomial where P(i) = i + 1 for manual verification.
-        const N: usize = 3;
-
-        let poly = EvaluationsList::new((1..=64).map(EF4::from_u64).collect());
-
-        // Define E_in (equality polynomial for x_in = x_2 x_1 x_0):
-        //
-        // For a random point (r_2, r_1, r_0), E_in evaluates the equality polynomial
-        // at each Boolean assignment:
-        //
-        //   E_in[000] = (1-r_2)(1-r_1)(1-r_0)
-        //   E_in[001] = (1-r_2)(1-r_1)·r_0
-        //   E_in[010] = (1-r_2)·r_1·(1-r_0)
-        //   E_in[011] = (1-r_2)·r_1·r_0
-        //   E_in[100] = r_2·(1-r_1)(1-r_0)
-        //   E_in[101] = r_2·(1-r_1)·r_0
-        //   E_in[110] = r_2·r_1·(1-r_0)
-        //   E_in[111] = r_2·r_1·r_0
-        //
-        // We use simple values for manual computation:
-        let r2 = EF4::from_u64(2);
-        let r1 = EF4::from_u64(3);
-        let r0 = EF4::from_u64(5);
-
-        let e_in = EvaluationsList::new(vec![
-            (EF4::ONE - r2) * (EF4::ONE - r1) * (EF4::ONE - r0),
-            (EF4::ONE - r2) * (EF4::ONE - r1) * r0,
-            (EF4::ONE - r2) * r1 * (EF4::ONE - r0),
-            (EF4::ONE - r2) * r1 * r0,
-            r2 * (EF4::ONE - r1) * (EF4::ONE - r0),
-            r2 * (EF4::ONE - r1) * r0,
-            r2 * r1 * (EF4::ONE - r0),
-            r2 * r1 * r0,
-        ]);
-
-        // For N=3, we need E_out for rounds 0, 1, and 2.
-        //
-        // Round 0: block_size=4, so E_out[0] has 4 elements
-        //   Represents eq(β_1, β_0; s_1, s_0) evaluated at all 4 Boolean combinations
-        //   E_out[0][00] = (1-s_1)(1-s_0)
-        //   E_out[0][01] = (1-s_1)·s_0
-        //   E_out[0][10] = s_1·(1-s_0)
-        //   E_out[0][11] = s_1·s_0
-        //
-        // Round 1: block_size=2, so E_out[1] has 2 elements
-        //   Represents eq(β_0; s_0) evaluated at 2 Boolean values
-        //   E_out[1][0] = (1-s_0)
-        //   E_out[1][1] = s_0
-        //
-        // Round 2: block_size=1, so E_out[2] has 1 element
-        //   Just a constant value (no variables left to evaluate)
-        //   E_out[2][0] = 1
-        let s0 = EF4::from_u64(7);
-        let s1 = EF4::from_u64(11);
-
-        let e_out = [
-            // Round 0: 4 elements for block_size=4
-            EvaluationsList::new(vec![
-                (EF4::ONE - s1) * (EF4::ONE - s0), // 00
-                (EF4::ONE - s1) * s0,              // 01
-                s1 * (EF4::ONE - s0),              // 10
-                s1 * s0,                           // 11
-            ]),
-            // Round 1: 2 elements for block_size=2
-            EvaluationsList::new(vec![
-                EF4::ONE - s0, // 0
-                s0,            // 1
-            ]),
-            // Round 2: 1 element for block_size=1
-            EvaluationsList::new(vec![EF4::ONE]),
-        ];
-
-        //  CALL FUNCTION UNDER TEST
-        let result = poly.compute_svo_accumulators::<EF4, N>(&e_in, &e_out);
-
-        //  MANUAL COMPUTATION: Verify Structure
-        //
-        // For N=3:
-        //   - Round 0: 2^(0+1) = 2 elements
-        //   - Round 1: 2^(1+1) = 4 elements
-        //   - Round 2: 2^(2+1) = 8 elements
-        //   - Total: 2 + 4 + 8 = 14 elements
-
-        assert_eq!(result.at_round(0).len(), 2);
-        assert_eq!(result.at_round(1).len(), 4);
-        assert_eq!(result.at_round(2).len(), 8);
-
-        //  MANUAL COMPUTATION: Verify Round 2 Accumulators
-        //
-        // Round 2 evaluates over β_0 (the LSB of β). With block_size=1, each
-        // accumulator uses a single temp value.
-        //
-        // First, compute intermediate accumulators A_0[β] for all 8 β values:
-        //
-        // A_0[000] = Σ_{x_2 x_1 x_0} E_in[x_2 x_1 x_0] · P(000, x_2 x_1 x_0)
-        //          = E_in[000]·P(0) + E_in[001]·P(1) + ... + E_in[111]·P(7)
-        let a0_000: EF4 = (0..8).map(|i| e_in.0[i] * poly.0[i]).sum();
-
-        // A_0[001] = Σ_{x_2 x_1 x_0} E_in[x_2 x_1 x_0] · P(001, x_2 x_1 x_0)
-        //          = E_in[000]·P(8) + E_in[001]·P(9) + ... + E_in[111]·P(15)
-        let a0_001: EF4 = (0..8).map(|i| e_in.0[i] * poly.0[8 + i]).sum();
-        assert_eq!(a0_001, EF4::from_u64(28));
-
-        // Similarly for the other β values (we'll compute all for full verification):
-        let a0_010: EF4 = (0..8).map(|i| e_in.0[i] * poly.0[16 + i]).sum();
-        let a0_011: EF4 = (0..8).map(|i| e_in.0[i] * poly.0[24 + i]).sum();
-        let a0_100: EF4 = (0..8).map(|i| e_in.0[i] * poly.0[32 + i]).sum();
-        let a0_101: EF4 = (0..8).map(|i| e_in.0[i] * poly.0[40 + i]).sum();
-        let a0_110: EF4 = (0..8).map(|i| e_in.0[i] * poly.0[48 + i]).sum();
-        let a0_111: EF4 = (0..8).map(|i| e_in.0[i] * poly.0[56 + i]).sum();
-
-        // Round 2 uses block_size=1, so each accumulator is:
-        //   Round2[i] = A_0[i] · E_out[2][0]  (only uses E_out[2][0])
-        //
-        // Round2[0] = A_0[000] · E_out[2][0] = 20 · (-12) = -240
-        // Round2[1] = A_0[001] · E_out[2][0] = 28 · (-12) = -336
-        // ... and so on
-        let expected_round2_0 = a0_000 * e_out[2].0[0];
-        let expected_round2_1 = a0_001 * e_out[2].0[0];
-        let expected_round2_2 = a0_010 * e_out[2].0[0];
-        let expected_round2_3 = a0_011 * e_out[2].0[0];
-        let expected_round2_4 = a0_100 * e_out[2].0[0];
-        let expected_round2_5 = a0_101 * e_out[2].0[0];
-        let expected_round2_6 = a0_110 * e_out[2].0[0];
-        let expected_round2_7 = a0_111 * e_out[2].0[0];
-
-        let computed_round2 = result.at_round(2);
-        assert_eq!(computed_round2[0], expected_round2_0);
-        assert_eq!(computed_round2[1], expected_round2_1);
-        assert_eq!(computed_round2[2], expected_round2_2);
-        assert_eq!(computed_round2[3], expected_round2_3);
-        assert_eq!(computed_round2[4], expected_round2_4);
-        assert_eq!(computed_round2[5], expected_round2_5);
-        assert_eq!(computed_round2[6], expected_round2_6);
-        assert_eq!(computed_round2[7], expected_round2_7);
-
-        assert_eq!(computed_round2.len(), 8);
-    }
-
-    #[test]
-    fn test_compute_svo_accumulators_extension_field() {
-        //  TEST: Extension Field Correctness
-        //
-        // This test verifies that compute_svo_accumulators works correctly when:
-        // - the polynomial is over the base field
-        // - the equality polynomials are over the extension field
-        //
-        // Setup: N=2, n=4
-        //
-        // Variable ordering: β_1 β_0 x_1 x_0
-        //
-        // Polynomial table (base field):
-        //
-        //   Index | β_1 β_0 x_1 x_0 | P(index)
-        //   ------|-----------------|----------
-        //     0   |  0   0   0   0  |    1
-        //     1   |  0   0   0   1  |    2
-        //     2   |  0   0   1   0  |    3
-        //     3   |  0   0   1   1  |    4
-        //     4   |  0   1   0   0  |    5
-        //     5   |  0   1   0   1  |    6
-        //     6   |  0   1   1   0  |    7
-        //     7   |  0   1   1   1  |    8
-        //     8   |  1   0   0   0  |    9
-        //     9   |  1   0   0   1  |   10
-        //    10   |  1   0   1   0  |   11
-        //    11   |  1   0   1   1  |   12
-        //    12   |  1   1   0   0  |   13
-        //    13   |  1   1   0   1  |   14
-        //    14   |  1   1   1   0  |   15
-        //    15   |  1   1   1   1  |   16
-        const N: usize = 2;
-
-        // Polynomial with base field values
-        let poly_f = EvaluationsList::new((1..=16).map(F::from_u64).collect());
-
-        //  E_IN SETUP
-        //
-        // We use r_1, r_0 (in extension field)
-        //
-        // E_in factorizes over x_in = (x_1, x_0):
-        //
-        //   E_in[x_1 x_0] = E_in[x_1, x_0] = (1-x_1·r_1 - (1-x_1)·(1-r_1)) · (1-x_0·r_0 - (1-x_0)·(1-r_0))
-        //
-        // Expanded form:
-        //   E_in[0 0] = (1-r_1) · (1-r_0)
-        //   E_in[0 1] = (1-r_1) ·    r_0
-        //   E_in[1 0] =    r_1  · (1-r_0)
-        //   E_in[1 1] =    r_1  ·    r_0
-        let r1 = EF4::from_u64(2);
-        let r0 = EF4::from_u64(3);
-
-        let e_in = EvaluationsList::new(vec![
-            (EF4::ONE - r1) * (EF4::ONE - r0),
-            (EF4::ONE - r1) * r0,
-            r1 * (EF4::ONE - r0),
-            r1 * r0,
-        ]);
-
-        //  E_OUT SETUP
-        //
-        // We use s_0, s_1 (in extension field)
-        //
-        // E_out[0] factorizes over x_0 (the first outer variable after β):
-        //   E_out[0][0] = 1 - s_0
-        //   E_out[0][1] =     s_0
-        //
-        // E_out[1] factorizes over β_0 (the last β variable):
-        //   E_out[1][0] = 1 - s_1
-        //   E_out[1][1] =     s_1
-        let s0 = EF4::from_u64(5);
-        let s1 = EF4::from_u64(7);
-
-        let e_out = [
-            EvaluationsList::new(vec![EF4::ONE - s0, s0]),
-            EvaluationsList::new(vec![EF4::ONE - s1, s1]),
-        ];
-
-        //  CALL FUNCTION
-        let result = poly_f.compute_svo_accumulators::<EF4, N>(&e_in, &e_out);
-
-        //  MANUAL COMPUTATION
-        //
-        // Step 1: Compute intermediate accumulators A_0[β_1 β_0]
-        //
-        // A_0[β_1 β_0] = Σ_{x_in} E_in[x_in] · P[β || x_in || 0...0]
-        //
-        // For each β value, we sum over x_in ∈ {00, 01, 10, 11}:
-        //
-        // A_0[0 0] = E_in[00]·P[0] + E_in[01]·P[1] + E_in[10]·P[2] + E_in[11]·P[3]
-        // A_0[0 1] = E_in[00]·P[4] + E_in[01]·P[5] + E_in[10]·P[6] + E_in[11]·P[7]
-        // A_0[1 0] = E_in[00]·P[8] + E_in[01]·P[9] + E_in[10]·P[10] + E_in[11]·P[11]
-        // A_0[1 1] = E_in[00]·P[12] + E_in[01]·P[13] + E_in[10]·P[14] + E_in[11]·P[15]
-
-        //  ROUND 0 COMPUTATION
-        //
-        // Round 0 (r=0) has block_size = 2^(N-1-0) = 2^1 = 2.
-        // We group pairs of A_0 accumulators and sum over β_0.
-        //
-        // Round_0[β_1] = Σ_{β_0 ∈ {0,1}} A_0[β_1, β_0] · E_out[0][β_0]
-        //
-        // Round0[0] = A_0[0,0]·E_out[0][0] + A_0[0,1]·E_out[0][1]
-        // Round0[1] = A_0[1,0]·E_out[0][0] + A_0[1,1]·E_out[0][1]
-        assert_eq!(result.at_round(0)[0], EF4::from_u64(28));
-        assert_eq!(result.at_round(0)[1], EF4::from_u64(36));
-
-        //  ROUND 1 COMPUTATION
-        //
-        // Round 1 (r=1) has block_size = 2^(N-1-1) = 2^0 = 1.
-        //
-        // With block_size=1, each accumulator is evaluated individually with only the first
-        // element of E_out[1] (since we're evaluating at a specific point, not summing).
-        //
-        // Round1[0] = A_0[0,0] · E_out[1][0]
-        // Round1[1] = A_0[0,1] · E_out[1][0]
-        // Round1[2] = A_0[1,0] · E_out[1][0]
-        // Round1[3] = A_0[1,1] · E_out[1][0]
-        assert_eq!(result.at_round(1)[0], EF4::from_u64(8) * (EF4::ONE - s1));
-        assert_eq!(result.at_round(1)[1], EF4::from_u64(12) * (EF4::ONE - s1));
-        assert_eq!(result.at_round(1)[2], EF4::from_u64(16) * (EF4::ONE - s1));
-        assert_eq!(result.at_round(1)[3], EF4::from_u64(20) * (EF4::ONE - s1));
-    }
-
-    #[test]
-    fn test_compute_svo_accumulators_edge_case_all_ones() {
-        //  TEST: Edge Case - All Ones
-        //
-        // This test verifies behavior when:
-        //   - Polynomial evaluations are all 1
-        //   - Equality polynomials have specific uniform structure
-        //
-        // This is an edge case that stresses the accumulation logic.
-        const N: usize = 2;
-
-        // Polynomial: all evaluations = 1
-        let poly = EvaluationsList::new(vec![EF4::ONE; 16]);
-
-        // E_in: all equal values
-        let e_in = EvaluationsList::new(vec![EF4::from_u64(2); 4]);
-
-        // E_out: simple alternating pattern
-        let e_out = [
-            EvaluationsList::new(vec![EF4::from_u64(3), EF4::from_u64(5)]),
-            EvaluationsList::new(vec![EF4::from_u64(7), EF4::from_u64(11)]),
-        ];
-
-        //  CALL FUNCTION
-        let result = poly.compute_svo_accumulators::<EF4, N>(&e_in, &e_out);
-
-        //  VERIFY: Manual computation
-        //
-        // For round 0:
-        //   Each accumulator A_0[β] = Σ_{x_in} E_in[x_in] · 1
-        //
-        // So all four intermediate accumulators are 8.
-        //
-        // Round 0 polynomial:
-        //   Round0[0] = 8·3 + 8·5 = 24 + 40 = 64
-        //   Round0[1] = 8·3 + 8·5 = 24 + 40 = 64
-        let expected_round0_0 = EF4::from_u64(8) * e_out[0].0[0] + EF4::from_u64(8) * e_out[0].0[1];
-        let expected_round0_1 = EF4::from_u64(8) * e_out[0].0[0] + EF4::from_u64(8) * e_out[0].0[1];
-
-        assert_eq!(result.at_round(0)[0], expected_round0_0);
-        assert_eq!(result.at_round(0)[1], expected_round0_1);
-        assert_eq!(result.at_round(0)[0], EF4::from_u64(64));
-        assert_eq!(result.at_round(0)[1], EF4::from_u64(64));
-
-        // Round 1 (with block_size=1, each uses only e_out[1][0]):
-        //   Round1[0] = 8·7 = 56
-        //   Round1[1] = 8·7 = 56
-        //   Round1[2] = 8·7 = 56
-        //   Round1[3] = 8·7 = 56
-        assert_eq!(result.at_round(1)[0], EF4::from_u64(56));
-        assert_eq!(result.at_round(1)[1], EF4::from_u64(56));
-        assert_eq!(result.at_round(1)[2], EF4::from_u64(56));
-        assert_eq!(result.at_round(1)[3], EF4::from_u64(56));
-    }
-
-    #[test]
     fn test_fold_batch_no_challenges() {
         // Setup: 3-variable polynomial p(x_2, x_1, x_0) with simple values
         let poly = EvaluationsList::new(vec![
@@ -3045,7 +1928,7 @@ mod tests {
 
         // Fold with empty challenges (k=0)
         let challenges: &[EF4] = &[];
-        let result = poly.fold_batch(challenges);
+        let result = poly.compress_multi(challenges);
 
         // VERIFY: Result should have same length and values (just lifted to EF4)
         assert_eq!(result.0.len(), 8, "Result should have 8 evaluations");
@@ -3092,7 +1975,7 @@ mod tests {
         let r2 = EF4::from_u64(3);
         let challenges = vec![r2];
 
-        let result = poly.fold_batch(&challenges);
+        let result = poly.compress_multi(&challenges);
 
         // VERIFY: Result has 2^(3-1) = 4 evaluations
         assert_eq!(
@@ -3165,7 +2048,7 @@ mod tests {
         let r1 = EF4::from_u64(3);
         let challenges = vec![r2, r1];
 
-        let result = poly.fold_batch(&challenges);
+        let result = poly.compress_multi(&challenges);
 
         // VERIFY: Result has 2^(3-2) = 2 evaluations
         assert_eq!(
@@ -3228,7 +2111,7 @@ mod tests {
         let r0 = EF4::from_u64(7);
         let challenges = vec![r1, r0];
 
-        let result = poly.fold_batch(&challenges);
+        let result = poly.compress_multi(&challenges);
 
         // VERIFY: Result should have exactly 1 evaluation
         assert_eq!(
@@ -3265,7 +2148,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "fold_batch: challenges.len() = 3 exceeds num_variables() = 2")]
+    #[should_panic(expected = "assertion failed: point.len() <= self.num_variables()")]
     fn test_fold_batch_too_many_challenges() {
         // 2-variable polynomial
         let poly = EvaluationsList::new(vec![
@@ -3279,7 +2162,7 @@ mod tests {
         let challenges = vec![EF4::from_u64(2), EF4::from_u64(3), EF4::from_u64(5)];
 
         // This should panic
-        let _ = poly.fold_batch(&challenges);
+        let _ = poly.compress_multi(&challenges);
     }
 
     #[test]
@@ -3327,7 +2210,7 @@ mod tests {
                 .par_chunks(<F as Field>::Packing::WIDTH)
                 .map(<EF4 as ExtensionField<F>>::ExtensionPacking::from_ext_slice)
                 .collect();
-            let e1 = EvaluationsList::new(packed).eval_hypercube_packed::<F, _>(&point);
+            let e1 = EvaluationsList::new(packed).evaluate_hypercube_packed::<F, _>(&point);
             assert_eq!(e0, e1);
         }
     }
@@ -3342,13 +2225,9 @@ mod tests {
         //   f(X) = e0 + (e1 - e0)*X
         //   g(X) = w0 + (w1 - w0)*X
         //
-        // h(X) = [e0 + (e1-e0)*X] * [w0 + (w1-w0)*X]
-        //      = e0*w0 + [e0*(w1-w0) + (e1-e0)*w0]*X + (e1-e0)*(w1-w0)*X^2
-        //      = c0 + c1*X + c2*X^2
-        //
-        // where:
-        //   c0 = e0 * w0
-        //   c2 = (e1 - e0) * (w1 - w0)
+        // sumcheck_coefficients returns (h(0), h(2)) where:
+        //   h(0) = e0 * w0
+        //   h(2) = f(2) * g(2) = (2*e1 - e0) * (2*w1 - w0)
         let e0 = EF4::from_u64(3);
         let e1 = EF4::from_u64(7);
         let w0 = EF4::from_u64(2);
@@ -3357,15 +2236,15 @@ mod tests {
         let evals = EvaluationsList::new(vec![e0, e1]);
         let weights = EvaluationsList::new(vec![w0, w1]);
 
-        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+        let (h0, h2) = evals.sumcheck_coefficients(&weights);
 
-        // c0 = e0 * w0
-        let expected_c0 = e0 * w0;
-        assert_eq!(c0, expected_c0);
+        // h(0) = e0 * w0
+        let expected_h0 = e0 * w0;
+        assert_eq!(h0, expected_h0);
 
-        // c2 = (e1 - e0) * (w1 - w0)
-        let expected_c2 = (e1 - e0) * (w1 - w0);
-        assert_eq!(c2, expected_c2);
+        // h(2) = (2*e1 - e0) * (2*w1 - w0)
+        let expected_h2 = (e1.double() - e0) * (w1.double() - w0);
+        assert_eq!(h2, expected_h2);
     }
 
     #[test]
@@ -3378,16 +2257,10 @@ mod tests {
         //   f(0,0) = e0, f(0,1) = e1 (lo half)
         //   f(1,0) = e2, f(1,1) = e3 (hi half)
         //
-        // The sumcheck polynomial for X (first variable):
-        //   h(X) = Σ_{x1∈{0,1}} f(X, x1) * g(X, x1)
-        //
-        // At X=0: h(0) = f(0,0)*g(0,0) + f(0,1)*g(0,1) = e0*w0 + e1*w1
-        // At X=1: h(1) = f(1,0)*g(1,0) + f(1,1)*g(1,1) = e2*w2 + e3*w3
-        //
-        // Coefficients:
-        //   c0 = h(0) = e0*w0 + e1*w1
-        //   c2 = Σ_{x1} (f(1,x1) - f(0,x1)) * (g(1,x1) - g(0,x1))
-        //      = (e2-e0)*(w2-w0) + (e3-e1)*(w3-w1)
+        // sumcheck_coefficients returns (h(0), h(2)) where:
+        //   h(0) = Σ_{x1} f(0,x1) * g(0,x1) = e0*w0 + e1*w1
+        //   h(2) = Σ_{x1} f(2,x1) * g(2,x1) where f(2,x1) = 2*f(1,x1) - f(0,x1)
+        //        = (2*e2-e0)*(2*w2-w0) + (2*e3-e1)*(2*w3-w1)
         let e0 = EF4::from_u64(1);
         let e1 = EF4::from_u64(2);
         let e2 = EF4::from_u64(5);
@@ -3400,15 +2273,16 @@ mod tests {
         let evals = EvaluationsList::new(vec![e0, e1, e2, e3]);
         let weights = EvaluationsList::new(vec![w0, w1, w2, w3]);
 
-        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+        let (h0, h2) = evals.sumcheck_coefficients(&weights);
 
-        // c0 = e0*w0 + e1*w1
-        let expected_c0 = e0 * w0 + e1 * w1;
-        assert_eq!(c0, expected_c0);
+        // h(0) = e0*w0 + e1*w1
+        let expected_h0 = e0 * w0 + e1 * w1;
+        assert_eq!(h0, expected_h0);
 
-        // c2 = (e2-e0)*(w2-w0) + (e3-e1)*(w3-w1)
-        let expected_c2 = (e2 - e0) * (w2 - w0) + (e3 - e1) * (w3 - w1);
-        assert_eq!(c2, expected_c2);
+        // h(2) = (2*e2-e0)*(2*w2-w0) + (2*e3-e1)*(2*w3-w1)
+        let expected_h2 =
+            (e2.double() - e0) * (w2.double() - w0) + (e3.double() - e1) * (w3.double() - w1);
+        assert_eq!(h2, expected_h2);
     }
 
     #[test]
@@ -3421,11 +2295,10 @@ mod tests {
         //   lo half: e0, e1, e2, e3 = f(0, x1, x2)
         //   hi half: e4, e5, e6, e7 = f(1, x1, x2)
         //
-        // c0 = h(0) = Σ_{x1,x2} f(0,x1,x2) * g(0,x1,x2)
-        //    = e0*w0 + e1*w1 + e2*w2 + e3*w3
-        //
-        // c2 = Σ_{x1,x2} (f(1,x1,x2) - f(0,x1,x2)) * (g(1,x1,x2) - g(0,x1,x2))
-        //    = (e4-e0)*(w4-w0) + (e5-e1)*(w5-w1) + (e6-e2)*(w6-w2) + (e7-e3)*(w7-w3)
+        // sumcheck_coefficients returns (h(0), h(2)) where:
+        //   h(0) = Σ_{x1,x2} f(0,x1,x2) * g(0,x1,x2) = e0*w0 + e1*w1 + e2*w2 + e3*w3
+        //   h(2) = Σ_{x1,x2} f(2,x1,x2) * g(2,x1,x2) where f(2,.) = 2*f(1,.) - f(0,.)
+        //        = (2*e4-e0)*(2*w4-w0) + ... + (2*e7-e3)*(2*w7-w3)
         let e0 = EF4::from_u64(1);
         let e1 = EF4::from_u64(2);
         let e2 = EF4::from_u64(3);
@@ -3446,18 +2319,18 @@ mod tests {
         let evals = EvaluationsList::new(vec![e0, e1, e2, e3, e4, e5, e6, e7]);
         let weights = EvaluationsList::new(vec![w0, w1, w2, w3, w4, w5, w6, w7]);
 
-        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+        let (h0, h2) = evals.sumcheck_coefficients(&weights);
 
-        // c0 = e0*w0 + e1*w1 + e2*w2 + e3*w3
-        let expected_c0 = e0 * w0 + e1 * w1 + e2 * w2 + e3 * w3;
-        assert_eq!(c0, expected_c0);
+        // h(0) = e0*w0 + e1*w1 + e2*w2 + e3*w3
+        let expected_h0 = e0 * w0 + e1 * w1 + e2 * w2 + e3 * w3;
+        assert_eq!(h0, expected_h0);
 
-        // c2 = (e4-e0)*(w4-w0) + (e5-e1)*(w5-w1) + (e6-e2)*(w6-w2) + (e7-e3)*(w7-w3)
-        let expected_c2 = (e4 - e0) * (w4 - w0)
-            + (e5 - e1) * (w5 - w1)
-            + (e6 - e2) * (w6 - w2)
-            + (e7 - e3) * (w7 - w3);
-        assert_eq!(c2, expected_c2);
+        // h(2) = (2*e4-e0)*(2*w4-w0) + (2*e5-e1)*(2*w5-w1) + ...
+        let expected_h2 = (e4.double() - e0) * (w4.double() - w0)
+            + (e5.double() - e1) * (w5.double() - w1)
+            + (e6.double() - e2) * (w6.double() - w2)
+            + (e7.double() - e3) * (w7.double() - w3);
+        assert_eq!(h2, expected_h2);
     }
 
     #[test]
@@ -3506,18 +2379,17 @@ mod tests {
 
     #[test]
     fn test_sumcheck_coefficients_evaluate_at_challenge() {
-        // Verify that h(r) can be computed correctly from (c0, c2) and claimed_sum.
+        // Verify that h(r) can be computed correctly from (h0, h2) and claimed_sum.
         //
         // Given:
-        //   c0 = h(0)
-        //   c2 = quadratic coefficient
+        //   h0 = h(0) = c0
+        //   h2 = h(2) = c2 (now returns h(2), not the quadratic coefficient)
         //   claimed_sum = h(0) + h(1)
         //
-        // We can derive:
-        //   h(1) = claimed_sum - c0
-        //   c1 = h(1) - c0 - c2 = claimed_sum - 2*c0 - c2
+        // We can derive h(1) = claimed_sum - h0
         //
-        // Then: h(r) = c0 + c1*r + c2*r^2
+        // Then use Lagrange interpolation: h(r) = h0*L0(r) + h1*L1(r) + h2*L2(r)
+        // where L0, L1, L2 are Lagrange basis polynomials for domain {0, 1, 2}.
         let e0 = EF4::from_u64(1);
         let e1 = EF4::from_u64(2);
         let e2 = EF4::from_u64(5);
@@ -3530,17 +2402,19 @@ mod tests {
         let evals = EvaluationsList::new(vec![e0, e1, e2, e3]);
         let weights = EvaluationsList::new(vec![w0, w1, w2, w3]);
 
-        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+        let (h0, h2) = evals.sumcheck_coefficients(&weights);
 
         // h(1) = e2*w2 + e3*w3
-        let h_1 = e2 * w2 + e3 * w3;
+        let h1 = e2 * w2 + e3 * w3;
 
-        // Derive c1 = h(1) - c0 - c2
-        let c1 = h_1 - c0 - c2;
-
-        // Evaluate at challenge r
+        // Evaluate at challenge r using Lagrange interpolation
         let r = EF4::from_u64(7);
-        let h_r = c0 + c1 * r + c2 * r.square();
+        // L0(r) = (r-1)(r-2)/2, L1(r) = r(2-r), L2(r) = r(r-1)/2
+        let two = EF4::TWO;
+        let l0 = (r - EF4::ONE) * (r - two) / two;
+        let l1 = r * (two - r);
+        let l2 = r * (r - EF4::ONE) / two;
+        let h_r = h0 * l0 + h1 * l1 + h2 * l2;
 
         // Alternative: compute h(r) by folding and computing inner product
         // After folding evals with challenge r:
@@ -3569,8 +2443,9 @@ mod tests {
         //   evals   = [e0, e1] in F (base field)
         //   weights = [w0, w1] in EF4 (extension field)
         //
-        // c0 = w0 * e0
-        // c2 = (w1 - w0) * (e1 - e0)
+        // Returns (h(0), h(2)) where:
+        //   h(0) = w0 * e0
+        //   h(2) = (2*w1 - w0) * (2*e1 - e0)
         let e0 = F::from_u64(3);
         let e1 = F::from_u64(7);
         let w0 = EF4::from_u64(2);
@@ -3579,15 +2454,15 @@ mod tests {
         let evals = EvaluationsList::new(vec![e0, e1]);
         let weights = EvaluationsList::new(vec![w0, w1]);
 
-        let (c0, c2): (EF4, EF4) = evals.sumcheck_coefficients(&weights);
+        let (h0, h2): (EF4, EF4) = evals.sumcheck_coefficients(&weights);
 
-        // c0 = w0 * e0 (extension field * base field)
-        let expected_c0 = w0 * e0;
-        assert_eq!(c0, expected_c0);
+        // h(0) = w0 * e0 (extension field * base field)
+        let expected_h0 = w0 * e0;
+        assert_eq!(h0, expected_h0);
 
-        // c2 = (w1 - w0) * (e1 - e0)
-        let expected_c2 = (w1 - w0) * (e1 - e0);
-        assert_eq!(c2, expected_c2);
+        // h(2) = (2*w1 - w0) * (2*e1 - e0)
+        let expected_h2 = (w1.double() - w0) * (e1.double() - e0);
+        assert_eq!(h2, expected_h2);
     }
 
     #[test]
@@ -3622,27 +2497,23 @@ mod tests {
         let (c0, c2) = evals.sumcheck_coefficients(&weights);
 
         // c0 = 2 * c * d (sum over 2 elements in lo half)
-        let expected_c0 = c * d + c * d;
-        assert_eq!(c0, expected_c0);
+        assert_eq!(c0, c * d + c * d);
 
-        // c2 = 0 (all differences are zero)
-        assert_eq!(c2, EF4::ZERO);
+        // c2 = (2*c - c) * (2*d - d) + (2*c - c) * (2*d - d)
+        assert_eq!(c2, c * d + c * d);
     }
 
     #[test]
     fn test_sumcheck_coefficients_linear_in_first_variable() {
         // If f(X, b) = X for all b (linear in first variable):
-        //   f(0, b) = 0, f(1, b) = 1
+        //   f(0, b) = 0, f(1, b) = 1, f(2, b) = 2
         //
         // And g(X, b) = 1 for all b:
-        //   g(0, b) = 1, g(1, b) = 1
+        //   g(0, b) = 1, g(1, b) = 1, g(2, b) = 1
         //
-        // Then h(X) = Σ_b f(X, b) * g(X, b) = Σ_b X * 1 = 2^{n-1} * X
-        //
-        // For n=2 (4 evals): h(X) = 2 * X
-        //   c0 = h(0) = 0
-        //   c2 = 0 (linear polynomial has no quadratic term)
-        //   c1 = 2
+        // sumcheck_coefficients returns (h(0), h(2)) where:
+        //   h(0) = Σ_b f(0,b) * g(0,b) = 0
+        //   h(2) = Σ_b f(2,b) * g(2,b) = 2*1 + 2*1 = 4 (for n=2)
         let zero = EF4::ZERO;
         let one = EF4::ONE;
 
@@ -3651,16 +2522,18 @@ mod tests {
         // g: [g(0,0), g(0,1), g(1,0), g(1,1)] = [1, 1, 1, 1]
         let weights = EvaluationsList::new(vec![one, one, one, one]);
 
-        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+        let (h0, h2) = evals.sumcheck_coefficients(&weights);
 
-        // c0 = f(0,0)*g(0,0) + f(0,1)*g(0,1) = 0*1 + 0*1 = 0
-        let expected_c0 = zero * one + zero * one;
-        assert_eq!(c0, expected_c0);
+        // h(0) = f(0,0)*g(0,0) + f(0,1)*g(0,1) = 0*1 + 0*1 = 0
+        let expected_h0 = zero * one + zero * one;
+        assert_eq!(h0, expected_h0);
 
-        // c2 = (f(1,0)-f(0,0))*(g(1,0)-g(0,0)) + (f(1,1)-f(0,1))*(g(1,1)-g(0,1))
-        //    = (1-0)*(1-1) + (1-0)*(1-1) = 0 + 0 = 0
-        let expected_c2 = (one - zero) * (one - one) + (one - zero) * (one - one);
-        assert_eq!(c2, expected_c2);
+        // h(2) = (2*f(1,0)-f(0,0))*(2*g(1,0)-g(0,0)) + (2*f(1,1)-f(0,1))*(2*g(1,1)-g(0,1))
+        //      = (2*1-0)*(2*1-1) + (2*1-0)*(2*1-1) = 2*1 + 2*1 = 4
+        let two = EF4::TWO;
+        let expected_h2 =
+            (two * one - zero) * (two * one - one) + (two * one - zero) * (two * one - one);
+        assert_eq!(h2, expected_h2);
     }
 
     #[test]
