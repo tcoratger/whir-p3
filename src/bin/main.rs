@@ -27,6 +27,12 @@ use whir_p3::{
         verifier::Verifier,
     },
 };
+use std::fmt::Debug;
+use p3_commit::{BatchOpening, ExtensionMmcs, Pcs, PolynomialSpace};
+use p3_fri::{FriParameters, FriProof, TwoAdicFriPcs};
+use p3_merkle_tree::MerkleTreeMmcs;
+use p3_matrix::dense::RowMajorMatrix;
+use p3_field::coset::TwoAdicMultiplicativeCoset;
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, 4>;
@@ -41,6 +47,18 @@ type Poseidon24 = Poseidon2KoalaBear<24>;
 type MerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
 type MerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
 type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
+type DFT = Radix2DFTSmallBatch<F>;
+
+
+pub(crate) type Poseidon2Sponge<Perm24> = PaddingFreeSponge<Perm24, 24, 16, 8>;
+pub(crate) type Poseidon2Compression<Perm16> = TruncatedPermutation<Perm16, 2, 8, 16>;
+pub(crate) type Poseidon2MerkleMmcs<F, Poseidon16, Poseidon24> = MerkleTreeMmcs<
+    <F as Field>::Packing,
+    <F as Field>::Packing,
+    Poseidon2Sponge<Poseidon24>,
+    Poseidon2Compression<Poseidon16>,
+    8,
+>;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -68,6 +86,9 @@ struct Args {
 
     #[arg(long = "initial-rs-reduction", default_value = "3")]
     rs_domain_initial_reduction_factor: usize,
+
+    #[arg(short = 'i', long, default_value = "classic")]
+    initial_phase: InitialPhaseConfig,
 }
 
 struct Context {
@@ -117,29 +138,50 @@ fn protocol_params_setup(ctx: &Context) -> ProtocolParameters<MerkleHash, Merkle
     // Runs as a PCS
     let security_level = args.security_level;
     let pow_bits = args.pow_bits.unwrap();
-    let starting_rate = args.rate;
+    let rate = args.rate;
     let folding_factor = FoldingFactor::Constant(args.folding_factor);
     let soundness_type = args.soundness_type;
     let rs_domain_initial_reduction_factor = args.rs_domain_initial_reduction_factor;
+    let initial_phase_config = args.initial_phase;
 
     let merkle_hash = MerkleHash::new(ctx.poseidon24.clone());
     let merkle_compress = MerkleCompress::new(ctx.poseidon16.clone());
 
     // Construct WHIR protocol parameters
     let protocol_params = ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+        initial_phase_config,
         security_level,
         pow_bits,
         folding_factor,
         merkle_hash,
         merkle_compress,
         soundness_type,
-        starting_log_inv_rate: starting_rate,
+        starting_log_inv_rate: rate,
         rs_domain_initial_reduction_factor,
     };
     protocol_params
 }
 
+
+#[allow(clippy::too_many_lines)]
+fn main() {
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+
+    Registry::default()
+        .with(env_filter)
+        .with(ForestLayer::default())
+        .init();
+
+    let mut context = init();
+    let protocol_parameters = protocol_params_setup(&context);
+
+    run_whir(&protocol_parameters, &mut context);
+
+    if protocol_parameters.initial_phase_config.has_initial_statement() { return; }
+    run_fri(&protocol_parameters, &mut context);
+}
 
 fn run_whir(protocol_parameters: &ProtocolParameters<MerkleHash, MerkleCompress>, ctx: &mut Context) {
     let params = WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(
@@ -252,18 +294,108 @@ fn run_whir(protocol_parameters: &ProtocolParameters<MerkleHash, MerkleCompress>
     println!("Verification time: {} μs", verify_time.as_micros());
 }
 
-#[allow(clippy::too_many_lines)]
-fn main() {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
+fn run_fri(protocol_parameters: &ProtocolParameters<MerkleHash, MerkleCompress>, ctx: &mut Context) {
 
-    Registry::default()
-        .with(env_filter)
-        .with(ForestLayer::default())
-        .init();
+    // Define the number of columns we split the evaluations into
+    // NOTE: In KoalaBear the F::TWO_ADICITY is 24. So the height can at most be 2^{23}.
+    // so using batch FRI here to split into 2^5 = 32 columns, Proving time: 1366 ms
+    // can be split 2^2 = 4 columns, Proving time: 7055 ms
+    // setting 1 will give assertion failed: bits <= Self::TWO_ADICITY at this line (https://github.com/Plonky3/Plonky3/blob/c8a3032e5e5faca21b4d86123e95172b8b39ec63/monty-31/src/monty_31.rs#L648)
+    const LOG_NUM_COLS: usize = 5;
 
-    let mut context = init();
-    let protocol_parameters = protocol_params_setup(&context);
-    run_whir(&protocol_parameters, &mut context);
+    let log_height = ctx.num_variables;
+
+    // Initialize the DFT (Discrete Fourier Transform) engine
+    let dft = Radix2DFTSmallBatch::<F>::new(1 << log_height - LOG_NUM_COLS);
+
+    let val_mmcs = Poseidon2MerkleMmcs::<F, Poseidon16, Poseidon24>::new(
+        protocol_parameters.merkle_hash.clone(),
+        protocol_parameters.merkle_compress.clone(),
+    );
+
+    let challenge_mmcs = ExtensionMmcs::<F, EF, _>::new(val_mmcs.clone());
+
+    let POW_BIT = 8;
+    let fri_params =  FriParameters {
+        log_blowup: 1,
+        log_final_poly_len: 0,
+        num_queries: protocol_parameters.security_level - POW_BIT,
+        commit_proof_of_work_bits: POW_BIT,
+        query_proof_of_work_bits: POW_BIT,
+        mmcs: challenge_mmcs.clone(),
+    };
+
+    let pcs = TwoAdicFriPcs::<F, DFT, _, _>::new(dft, val_mmcs, fri_params);
+
+    println!("\n\n=========================================");
+    println!("FRI (PCS) 🍳️");
+
+    // Construct a domain of the required size based on the height of the "trace". We split the evaluations
+    // `Context::polynomial` into a `trace_height x NUM_COLS` `RowMajorMatrix`.
+    // NOTE: In KoalaBear the F::TWO_ADICITY is 24. So the height can at most be 2^{23}.
+    let domain = TwoAdicMultiplicativeCoset::new(F::GENERATOR, log_height - LOG_NUM_COLS)
+        .expect("log height too large");
+
+    // Convert the polynomial evaluations into a RowMajorMatrix, as used by FRI with `NUM_COLS` columns.
+    // We need an iterator for the Pcs::commit, so wrap with `once`
+    let matrix_iter = std::iter::once((
+        domain,
+        RowMajorMatrix::new(ctx.polynomial.as_slice().to_vec(), 1 << LOG_NUM_COLS),
+    ));
+
+    // Commit to the matrix
+    let commit_time = Instant::now();
+    let (commitment, prover_data) = Pcs::<EF, MyChallenger>::commit(&pcs, matrix_iter.clone());
+    let commitment_time = commit_time.elapsed();
+
+    let mut rng = StdRng::seed_from_u64(0);
+    // Randomly sample the correct number of opening points
+    let open_points: Vec<EF> = (0..ctx.num_evaluations)
+        .map(|_| rng.random::<EF>())
+        .collect();
+
+    let trace_height = 1 << log_height;
+    let num_chunks = ctx.polynomial.num_evals() / trace_height;
+    let points = vec![open_points.clone(); num_chunks];
+    // Generate the opening proof
+    let open_time = Instant::now();
+    let (opened_values, proof) =
+        pcs.open(vec![(&prover_data, points)], &mut ctx.challenger.clone());
+    let opening_time = open_time.elapsed();
+
+    // Construct the points needed for the verifier
+    let verifier_points = matrix_iter
+        .zip(&opened_values[0]) // first and only commitment
+        .map(|((domain, _), mat_openings)| {
+            let openings = open_points
+                .iter()
+                .copied()
+                .zip(mat_openings.iter().cloned())
+                .collect();
+            (domain, openings)
+        })
+        .collect();
+
+    // Verify the opening proof
+    let verif_time = Instant::now();
+    pcs.verify(
+        vec![(commitment, verifier_points)],
+        &proof,
+        &mut ctx.challenger.clone(),
+    ).unwrap();
+    let verify_time = verif_time.elapsed();
+
+    println!(
+        "\nProving time: {} ms (commit: {} ms, opening: {} ms)",
+        commitment_time.as_millis() + opening_time.as_millis(),
+        commitment_time.as_millis(),
+        opening_time.as_millis()
+    );
+    let proof_bytes = bincode::serialize(&proof).expect("Failed to serialize proof");
+    println!(
+        "Proof size: {} bytes ({:.2} KB)",
+        proof_bytes.len(),
+        proof_bytes.len() as f64 / 1024.0
+    );
+    println!("Verification time: {} μs", verify_time.as_micros());
 }

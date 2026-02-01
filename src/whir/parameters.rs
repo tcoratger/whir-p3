@@ -1,5 +1,5 @@
-use alloc::vec::Vec;
-use core::{f64::consts::LOG2_10, marker::PhantomData};
+use alloc::{format, string::String, vec::Vec};
+use core::{f64::consts::LOG2_10, fmt::Display, marker::PhantomData, str::FromStr};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -54,6 +54,31 @@ impl InitialPhaseConfig {
     #[must_use]
     pub const fn is_svo(&self) -> bool {
         matches!(self, Self::WithStatementSvo)
+    }
+}
+
+impl Display for InitialPhaseConfig {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::WithStatementClassic => write!(f, "classic"),
+            Self::WithStatementUnivariateSkip => write!(f, "skip"),
+            Self::WithStatementSvo => write!(f, "svo"),
+            Self::WithoutStatement => write!(f, "ldt"),
+        }
+    }
+}
+
+impl FromStr for InitialPhaseConfig {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "classic" => Ok(Self::WithStatementClassic),
+            "skip" => Ok(Self::WithStatementUnivariateSkip),
+            "svo" => Ok(Self::WithStatementSvo),
+            "ldt" => Ok(Self::WithoutStatement),
+            _ => Err(format!("Unknown initial phase config: {}", s)),
+        }
     }
 }
 
