@@ -158,6 +158,8 @@ impl<F: Field, EF: ExtensionField<F>> SplitEq<F, EF> {
 
 #[cfg(test)]
 mod test {
+    use alloc::vec::Vec;
+
     use p3_field::{PrimeCharacteristicRing, dot_product, extension::BinomialExtensionField};
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::SmallRng};
