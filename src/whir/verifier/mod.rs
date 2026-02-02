@@ -21,7 +21,7 @@ use crate::{
         EqStatement,
         constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
         parameters::WhirConfig,
-        proof::{QueryOpening, WhirProof},
+        proof::{InitialPhase, QueryOpening, WhirProof},
         verifier::sumcheck::{
             verify_final_sumcheck_rounds, verify_initial_sumcheck_rounds_without_statement,
             verify_sumcheck_rounds,
@@ -85,7 +85,7 @@ where
         let mut prev_commitment = parsed_commitment.clone();
 
         let folding_randomness = match &proof.initial_phase {
-            crate::whir::proof::InitialPhase::WithoutStatement { pow_witness } => {
+            InitialPhase::WithoutStatement { pow_witness } => {
                 assert!(prev_commitment.ood_statement.is_empty());
                 assert!(statement.is_empty());
 
@@ -96,7 +96,7 @@ where
                     self.starting_folding_pow_bits,
                 )
             }
-            crate::whir::proof::InitialPhase::WithStatement { data, .. } => {
+            InitialPhase::WithStatement { data, .. } => {
                 statement.concatenate(&prev_commitment.ood_statement);
 
                 let constraint = Constraint::new(

@@ -23,14 +23,6 @@ pub enum SumcheckStrategy {
     SVO,
 }
 
-// impl SumcheckStrategy {
-//     /// Returns `true` if this configuration includes an initial statement.
-//     #[must_use]
-//     pub const fn has_initial_statement(&self) -> bool {
-//         !matches!(self, Self::WithoutStatement)
-//     }
-// }
-
 #[derive(Debug, Clone)]
 pub struct RoundConfig<F> {
     pub pow_bits: usize,
@@ -493,7 +485,7 @@ mod tests {
         assert_eq!(config.security_level, 100);
         assert_eq!(config.max_pow_bits, 20);
         assert_eq!(config.soundness_type, SecurityAssumption::CapacityBound);
-        // assert!(config.initial_statement);
+        assert!(config.initial_statement);
     }
 
     #[test]

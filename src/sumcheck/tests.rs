@@ -1,12 +1,11 @@
 use alloc::{vec, vec::Vec};
 
+use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
 use p3_field::{PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField};
-use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 
-// use super::sumcheck_single::SumcheckSingle;
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
@@ -24,9 +23,9 @@ use crate::{
     },
 };
 
-type F = KoalaBear;
+type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
-type Perm = Poseidon2KoalaBear<16>;
+type Perm = Poseidon2BabyBear<16>;
 
 type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
 type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
@@ -522,7 +521,7 @@ fn run_sumcheck_test(
 fn test_sumcheck_prover() {
     let mut rng = SmallRng::seed_from_u64(0);
 
-    for num_vars in 1..=10 {
+    for num_vars in 0..=10 {
         for folding_factor in 1..=num_vars {
             for _ in 0..100 {
                 let folding_factor = FoldingFactor::Constant(folding_factor);

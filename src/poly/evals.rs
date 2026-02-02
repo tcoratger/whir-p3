@@ -199,82 +199,6 @@ impl<A: Clone + Copy + Default + Send + Sync> EvaluationsList<A> {
         }
         EvaluationsList(out)
     }
-
-    /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
-    ///
-    /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
-    ///
-    /// ```text
-    ///     g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
-    /// ```
-    ///
-    /// # Arguments
-    /// - `point`: The extension-field values to substitute for the last `k` variables.
-    ///
-    /// # Returns
-    /// - A new `EvaluationsList<EF>` representing the folded function over the remaining `n - k` variables.
-    pub(crate) fn compress_multi<EF>(&self, point: &[EF]) -> EvaluationsList<EF>
-    where
-        A: Field,
-        EF: ExtensionField<A>,
-    {
-        assert!(point.len() <= self.num_variables());
-        let eq = EvaluationsList::new_from_point(point, EF::ONE);
-        let mut out = EF::zero_vec(1 << (self.num_variables() - point.len()));
-        self.0
-            .chunks(self.num_evals() / eq.num_evals())
-            .zip_eq(eq.iter())
-            .for_each(|(chunk, &r)| {
-                out.par_iter_mut()
-                    .zip_eq(chunk.par_iter())
-                    .for_each(|(acc, &poly)| *acc += r * poly);
-            });
-        EvaluationsList(out)
-    }
-
-    /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
-    ///
-    /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
-    ///
-    /// ```text
-    ///     g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
-    /// ```
-    ///
-    /// # Arguments
-    /// - `point`: The extension-field values to substitute for the last `k` variables.
-    ///
-    /// # Returns
-    /// - A new `EvaluationsList<EF::ExtensionPacking>` representing the folded function over the remaining `n - k` variables.
-    pub fn compress_multi_into_packed<EF>(
-        &self,
-        point: &[EF],
-    ) -> EvaluationsList<EF::ExtensionPacking>
-    where
-        A: Field,
-        EF: ExtensionField<A>,
-    {
-        assert!(point.len() <= self.num_variables());
-        let point = MultilinearPoint::new(point.to_vec());
-        let eq = EvaluationsList::new_from_point(point.as_slice(), EF::ONE);
-
-        let mut out = EF::ExtensionPacking::zero_vec(
-            1 << (self.num_variables()
-                - point.num_variables()
-                - log2_strict_usize(A::Packing::WIDTH)),
-        );
-
-        self.0
-            .chunks(self.num_evals() / eq.num_evals())
-            .zip_eq(eq.iter())
-            .for_each(|(chunk, &r)| {
-                let r = EF::ExtensionPacking::from(r);
-                let chunk = A::Packing::pack_slice(chunk);
-                out.par_iter_mut()
-                    .zip_eq(chunk.par_iter())
-                    .for_each(|(acc, &poly)| *acc += r * poly);
-            });
-        EvaluationsList(out)
-    }
 }
 
 impl<Packed: Copy + Send + Sync> EvaluationsList<Packed> {
@@ -459,37 +383,6 @@ where
         }
     }
 
-    // /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
-    // ///
-    // /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
-    // ///
-    // /// ```text
-    // ///     g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
-    // /// ```
-    // ///
-    // /// # Arguments
-    // /// - `folding_randomness`: The extension-field values to substitute for the last `k` variables.
-    // ///
-    // /// # Returns
-    // /// - A new `EvaluationsList<EF>` representing the folded function over the remaining `n - k` variables.
-    // ///
-    // /// # Panics
-    // /// - If the evaluation list is not sized `2^n` for some `n`.
-    // #[instrument(skip_all)]
-    // #[inline]
-    // pub fn fold<EF>(&self, folding_randomness: &MultilinearPoint<EF>) -> EvaluationsList<EF>
-    // where
-    //     EF: ExtensionField<F>,
-    // {
-    //     assert_ne!(folding_randomness.num_variables(), 0);
-    //     assert!(folding_randomness.num_variables() <= self.num_variables());
-    //     let mut poly = self.compress_ext(folding_randomness.as_slice()[0]);
-    //     for &r in &folding_randomness.as_slice()[1..] {
-    //         poly.compress(r);
-    //     }
-    //     poly
-    // }
-
     /// Folds a list of evaluations from a base field `F` into an extension field `EF`.
     ///
     /// ## Arguments
@@ -522,6 +415,77 @@ where
                 .map(|(&a0, &a1)| r * (a1 - a0) + a0)
                 .collect()
         })
+    }
+
+    /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
+    ///
+    /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
+    ///
+    /// ```text
+    ///     g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
+    /// ```
+    ///
+    /// # Arguments
+    /// - `point`: The extension-field values to substitute for the last `k` variables.
+    ///
+    /// # Returns
+    /// - A new `EvaluationsList<EF>` representing the folded function over the remaining `n - k` variables.
+    pub(crate) fn compress_multi<EF: ExtensionField<F>>(
+        &self,
+        point: &[EF],
+    ) -> EvaluationsList<EF> {
+        assert!(point.len() <= self.num_variables());
+        let eq = EvaluationsList::new_from_point(point, EF::ONE);
+        let mut out = EF::zero_vec(1 << (self.num_variables() - point.len()));
+        self.0
+            .chunks(self.num_evals() / eq.num_evals())
+            .zip_eq(eq.iter())
+            .for_each(|(chunk, &r)| {
+                out.par_iter_mut()
+                    .zip_eq(chunk.par_iter())
+                    .for_each(|(acc, &poly)| *acc += r * poly);
+            });
+        EvaluationsList(out)
+    }
+
+    /// Folds a multilinear polynomial stored in evaluation form along the last `k` variables.
+    ///
+    /// Given evaluations `f: {0,1}^n → F`, this method returns a new evaluation list `g` such that:
+    ///
+    /// ```text
+    ///     g(x_0, ..., x_{n-k-1}) = f(x_0, ..., x_{n-k-1}, r_0, ..., r_{k-1})
+    /// ```
+    ///
+    /// # Arguments
+    /// - `point`: The extension-field values to substitute for the last `k` variables.
+    ///
+    /// # Returns
+    /// - A new `EvaluationsList<EF::ExtensionPacking>` representing the folded function over the remaining `n - k` variables.
+    pub fn compress_multi_into_packed<EF: ExtensionField<F>>(
+        &self,
+        point: &[EF],
+    ) -> EvaluationsList<EF::ExtensionPacking> {
+        assert!(point.len() <= self.num_variables());
+        let point = MultilinearPoint::new(point.to_vec());
+        let eq = EvaluationsList::new_from_point(point.as_slice(), EF::ONE);
+
+        let mut out = EF::ExtensionPacking::zero_vec(
+            1 << (self.num_variables()
+                - point.num_variables()
+                - log2_strict_usize(F::Packing::WIDTH)),
+        );
+
+        self.0
+            .chunks(self.num_evals() / eq.num_evals())
+            .zip_eq(eq.iter())
+            .for_each(|(chunk, &r)| {
+                let r = EF::ExtensionPacking::from(r);
+                let chunk = F::Packing::pack_slice(chunk);
+                out.par_iter_mut()
+                    .zip_eq(chunk.par_iter())
+                    .for_each(|(acc, &poly)| *acc += r * poly);
+            });
+        EvaluationsList(out)
     }
 }
 

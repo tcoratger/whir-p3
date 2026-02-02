@@ -1,4 +1,4 @@
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue, dot_product};
@@ -230,7 +230,7 @@ where
         // TODO:
         // We already evaluatate poly at those points before sumcheck.
         // Partial evals could be calculated and passed here.
-        // This should bring ~40% more speedus and for exchange we should expect tiny increase in poly evaluation time.
+        // This should bring ~40% more speedup and for exchange we should expect tiny increase in poly evaluation time.
         let partial_evals: Vec<Vec<EF>> = split_eqs
             .iter()
             .map(|split_eq| split_eq.partial_evals(poly))
@@ -255,7 +255,7 @@ where
                 .collect::<Vec<_>>()
         });
 
-        let mut rs = vec![];
+        let mut rs = Vec::with_capacity(folding_factor);
         tracing::info_span!("svo rounds").in_scope(|| {
             for round_idx in 0..folding_factor {
                 let (mut c0, mut c2): (EF, EF) = Default::default();

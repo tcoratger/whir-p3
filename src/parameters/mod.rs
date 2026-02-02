@@ -145,10 +145,6 @@ impl FoldingFactor {
 /// Configuration parameters for WHIR proofs.
 #[derive(Clone, Debug)]
 pub struct ProtocolParameters<H, C> {
-    /// Configuration for the initial phase of the protocol.
-    ///
-    /// Determines sumcheck optimisation strategy
-    // pub sumcheck_strategy: SumcheckStrategy,
     /// Determines whether an initial statement is included
     pub initial_statement: bool,
     /// The logarithmic inverse rate for sampling.
