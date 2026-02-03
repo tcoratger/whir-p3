@@ -189,7 +189,7 @@ fn main() {
     prover
         .prove::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
             &dft,
-            SumcheckStrategy::default(),
+            SumcheckStrategy::SVO,
             &mut proof,
             &mut prover_challenger,
             statement.clone(),
