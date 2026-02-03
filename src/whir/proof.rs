@@ -86,13 +86,6 @@ impl<F, EF> InitialPhase<F, EF> {
             Self::WithoutStatement { .. } => None,
         }
     }
-
-    pub(crate) const fn sumcheck_data(&mut self) -> Option<&mut SumcheckData<F, EF>> {
-        match self {
-            Self::WithStatement { data, .. } => Some(data),
-            Self::WithoutStatement { .. } => None,
-        }
-    }
 }
 
 /// Data for a single WHIR round
