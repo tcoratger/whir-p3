@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use itertools::Itertools;
 use p3_field::{
     ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing,
-    TwoAdicField, dot_product,
+    dot_product,
 };
 use p3_matrix::{
     Matrix,
@@ -378,55 +378,6 @@ impl<F: Field> EqStatement<F> {
     pub fn combine_evals(&self, claimed_eval: &mut F, gamma: F) {
         *claimed_eval += dot_product(self.evaluations.iter().copied(), gamma.powers());
     }
-
-    /// Computes the equality polynomial for a point over a multiplicative subgroup domain.
-    ///
-    /// This function evaluates the unique polynomial `eq_D(X, y)` which is `1` if `X=y`
-    /// and `0` at all other points `X` in the subgroup `D`. This implementation correctly
-    /// interpolates the polynomial, allowing the constraint point `y` to be an arbitrary
-    /// field element, not necessarily in `D`.
-    ///
-    /// The formula is:
-    /// ```text
-    /// eq_D(X, y) = (1/|D|) * Σ_{i=0}^{|D|-1} (X * y^{-1})^i
-    /// ```
-    ///
-    /// # Arguments
-    /// * `x`: The evaluation point, which is an element of the subgroup `D`.
-    /// * `y`: The target constraint point, which is an arbitrary field element.
-    /// * `subgroup_size`: The size of the multiplicative subgroup, `|D|`.
-    ///
-    /// # Returns
-    /// The value of the equality polynomial `eq_D` evaluated at `x`.
-    fn eq_d(x: F, y: F, subgroup_size: usize) -> F
-    where
-        F: TwoAdicField,
-    {
-        // Calculate the modular inverse of the subgroup's order, `1/|D|`.
-        //
-        // As `subgroup_size` is a power of two, this inversion is guaranteed to exist.
-        let order = F::from_usize(subgroup_size);
-        let order_inv = order
-            .try_inverse()
-            .expect("subgroup size must be invertible in the field");
-
-        // Calculate the modular inverse of the target point `y`.
-        let y_inv = y.inverse();
-
-        // Calculate the base for the polynomial evaluation, `X * y^{-1}`.
-        let base = x * y_inv;
-
-        // Evaluate the polynomial `P(z) = Σ z^i` for `i` from 0 to `|D|-1` at the point `z = base`.
-        let mut total_sum = F::ZERO;
-        let mut power = F::ONE;
-        for _ in 0..subgroup_size {
-            total_sum += power;
-            power *= base;
-        }
-
-        // Multiply by `1/|D|` to get the final evaluation.
-        total_sum * order_inv
-    }
 }
 
 #[cfg(test)]
@@ -631,30 +582,6 @@ mod tests {
 
         // Verify: 3*1 + 7*2 = 17
         assert_eq!(claimed_eval, F::from_u64(17));
-    }
-
-    #[test]
-    fn test_eq_d_basic() {
-        // Test the eq_D function with a small subgroup of size 4
-        let subgroup_size = 4;
-
-        // Generate the subgroup: {1, g, g^2, g^3} where g is the 4th root of unity
-        let generator = F::two_adic_generator(2); // 2^2 = 4
-        let subgroup: Vec<F> = (0..subgroup_size)
-            .map(|i| generator.exp_u64(i as u64))
-            .collect();
-
-        // Test that eq_D(x, y) = 1 when x == y
-        for &y in &subgroup {
-            for &x in &subgroup {
-                let result = EqStatement::<F>::eq_d(x, y, subgroup_size);
-                if x == y {
-                    assert_eq!(result, F::ONE, "eq_D({x:?}, {y:?}) should be 1");
-                } else {
-                    assert_eq!(result, F::ZERO, "eq_D({x:?}, {y:?}) should be 0");
-                }
-            }
-        }
     }
 
     proptest! {
