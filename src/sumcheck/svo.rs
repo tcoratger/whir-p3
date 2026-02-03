@@ -5,10 +5,7 @@ use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue, dot_pro
 use p3_maybe_rayon::prelude::*;
 use p3_util::log2_strict_usize;
 
-use crate::{
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    sumcheck::lagrange_weights_012,
-};
+use crate::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
 /// Grid points for SVO accumulators: returns [pts_0, pts_2] where
 /// pts_0 has 3^(l-1) points in {0,1,2}^(l-1) × {0} (for h(0))
@@ -30,19 +27,6 @@ pub(super) fn points_012<F: Field>(l: usize) -> [Vec<MultilinearPoint<F>>; 2] {
     let mut pts = vec![MultilinearPoint::new(vec![])];
     (0..l - 1).for_each(|_| pts = expand(pts.as_slice(), &[0, 1, 2]));
     [expand(pts.as_slice(), &[0]), expand(pts.as_slice(), &[2])]
-}
-
-/// Lagrange weights for domain {0,1,2}^k where k = rs.len().
-/// Returns 3^k weights for interpolating to point (rs[0], rs[1], ...).
-pub(super) fn lagrange_weights_012_multi<F: Field>(rs: &[F]) -> Vec<F> {
-    let mut weights = vec![F::ONE];
-    for &r in rs {
-        weights = lagrange_weights_012(r)
-            .iter()
-            .flat_map(|li| weights.iter().map(|&w| w * *li))
-            .collect();
-    }
-    weights
 }
 
 /// Compute f(u) * eq(u, point) for each grid point u in `us`.

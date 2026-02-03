@@ -8,8 +8,9 @@ use crate::{
     poly::{evals::EvaluationsList as Poly, multilinear::MultilinearPoint as Point},
     sumcheck::{
         extrapolate_012,
+        lagrange::lagrange_weights_012_multi,
         product_polynomial::ProductPolynomial,
-        svo::{SplitEq, lagrange_weights_012_multi},
+        svo::SplitEq,
     },
     whir::{
         constraints::{Constraint, statement::EqStatement},
