@@ -2,8 +2,7 @@ use alloc::vec::Vec;
 
 use itertools::Itertools;
 use p3_field::{
-    ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing,
-    dot_product,
+    ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing, dot_product,
 };
 use p3_matrix::{
     Matrix,
