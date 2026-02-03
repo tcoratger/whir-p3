@@ -8,78 +8,19 @@ use crate::parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssum
 
 /// Configuration for the initial phase of the WHIR protocol.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InitialPhaseConfig {
+pub enum SumcheckStrategy {
     /// Protocol with statement using classic sumcheck (no optimization).
     ///
     /// This is the standard baseline implementation where the prover proves
     /// both polynomial commitment validity and evaluation statements.
-    #[default]
-    WithStatementClassic,
-
-    /// Protocol with statement using univariate skip optimization.
-    ///
-    /// Uses the univariate skip optimization from <https://eprint.iacr.org/2024/108>
-    /// to skip the first k variables in the sumcheck by using a univariate representation.
-    WithStatementUnivariateSkip,
+    Classic,
 
     /// Protocol with statement using Small Value Optimization (SVO).
     ///
     /// Uses SVO from Algorithm 6 of <https://eprint.iacr.org/2025/1117> with
     /// specialized accumulators for the first three rounds to reduce prover work.
-    ///
-    /// TODO: Full SVO implementation is not yet complete in the codebase.
-    WithStatementSvo,
-
-    /// Protocol without statement (direct folding).
-    ///
-    /// The commitment proves only that it is a valid low-degree polynomial,
-    /// without any additional evaluation statements.
-    WithoutStatement,
-}
-
-impl InitialPhaseConfig {
-    /// Returns `true` if this configuration includes an initial statement.
-    #[must_use]
-    pub const fn has_initial_statement(&self) -> bool {
-        !matches!(self, Self::WithoutStatement)
-    }
-
-    /// Returns `true` if univariate skip optimization is enabled.
-    #[must_use]
-    pub const fn is_univariate_skip(&self) -> bool {
-        matches!(self, Self::WithStatementUnivariateSkip)
-    }
-
-    /// Returns `true` if SVO optimization is enabled.
-    #[must_use]
-    pub const fn is_svo(&self) -> bool {
-        matches!(self, Self::WithStatementSvo)
-    }
-}
-
-impl Display for InitialPhaseConfig {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::WithStatementClassic => write!(f, "classic"),
-            Self::WithStatementUnivariateSkip => write!(f, "skip"),
-            Self::WithStatementSvo => write!(f, "svo"),
-            Self::WithoutStatement => write!(f, "ldt"),
-        }
-    }
-}
-
-impl FromStr for InitialPhaseConfig {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "classic" => Ok(Self::WithStatementClassic),
-            "skip" => Ok(Self::WithStatementUnivariateSkip),
-            "svo" => Ok(Self::WithStatementSvo),
-            "ldt" => Ok(Self::WithoutStatement),
-            _ => Err(format!("Unknown initial phase config: {}", s)),
-        }
-    }
+    #[default]
+    SVO,
 }
 
 #[derive(Debug, Clone)]
@@ -112,7 +53,7 @@ where
     /// 1. The commitment is a valid low degree polynomial (WithoutStatement).
     /// 2. The commitment is a valid folded polynomial, and an additional polynomial evaluation
     ///    statement (any of the WithStatement* variants).
-    pub initial_phase_config: InitialPhaseConfig,
+    pub initial_statement: bool,
     pub starting_log_inv_rate: usize,
     pub starting_folding_pow_bits: usize,
 
@@ -180,9 +121,7 @@ where
             .folding_factor
             .compute_number_of_rounds(num_variables);
 
-        let has_initial_statement = whir_parameters.initial_phase_config.has_initial_statement();
-
-        let commitment_ood_samples = if has_initial_statement {
+        let commitment_ood_samples = if whir_parameters.initial_statement {
             whir_parameters.soundness_type.determine_ood_samples(
                 whir_parameters.security_level,
                 num_variables,
@@ -193,7 +132,7 @@ where
             0
         };
 
-        let starting_folding_pow_bits = if has_initial_statement {
+        let starting_folding_pow_bits = if whir_parameters.initial_statement {
             Self::folding_pow_bits(
                 whir_parameters.security_level,
                 whir_parameters.soundness_type,
@@ -297,7 +236,7 @@ where
         Self {
             security_level: whir_parameters.security_level,
             max_pow_bits: whir_parameters.pow_bits,
-            initial_phase_config: whir_parameters.initial_phase_config,
+            initial_statement: whir_parameters.initial_statement,
             commitment_ood_samples,
             num_variables: initial_num_variables,
             soundness_type: whir_parameters.soundness_type,
@@ -522,7 +461,7 @@ mod tests {
     const fn default_whir_params()
     -> ProtocolParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
         ProtocolParameters {
-            initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+            initial_statement: true,
             security_level: 100,
             pow_bits: 20,
             rs_domain_initial_reduction_factor: 1,
@@ -546,7 +485,7 @@ mod tests {
         assert_eq!(config.security_level, 100);
         assert_eq!(config.max_pow_bits, 20);
         assert_eq!(config.soundness_type, SecurityAssumption::CapacityBound);
-        assert!(config.initial_phase_config.has_initial_statement());
+        assert!(config.initial_statement);
     }
 
     #[test]

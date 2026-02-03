@@ -21,7 +21,7 @@ use whir_p3::{
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         constraints::statement::EqStatement,
-        parameters::{InitialPhaseConfig, WhirConfig},
+        parameters::{SumcheckStrategy, WhirConfig},
         proof::WhirProof,
         prover::Prover,
         verifier::Verifier,
@@ -87,8 +87,13 @@ struct Args {
     #[arg(long = "initial-rs-reduction", default_value = "3")]
     rs_domain_initial_reduction_factor: usize,
 
-    #[arg(short = 'i', long, default_value = "classic")]
-    initial_phase: InitialPhaseConfig,
+    #[arg(
+        short = 'i', 
+        long, 
+        default_value = "true",
+        action = clap::ArgAction::Set
+    )]
+    initial_statement: bool,
 }
 
 struct Context {
@@ -142,14 +147,14 @@ fn protocol_params_setup(ctx: &Context) -> ProtocolParameters<MerkleHash, Merkle
     let folding_factor = FoldingFactor::Constant(args.folding_factor);
     let soundness_type = args.soundness_type;
     let rs_domain_initial_reduction_factor = args.rs_domain_initial_reduction_factor;
-    let initial_phase_config = args.initial_phase;
+    let initial_statement = args.initial_statement;
 
     let merkle_hash = MerkleHash::new(ctx.poseidon24.clone());
     let merkle_compress = MerkleCompress::new(ctx.poseidon16.clone());
 
     // Construct WHIR protocol parameters
     let protocol_params = ProtocolParameters {
-        initial_phase_config,
+        initial_statement,
         security_level,
         pow_bits,
         folding_factor,
@@ -179,7 +184,7 @@ fn main() {
 
     run_whir(&protocol_parameters, &mut context);
 
-    if protocol_parameters.initial_phase_config.has_initial_statement() { return; }
+    if protocol_parameters.initial_statement { return; }
     run_fri(&protocol_parameters, &mut context);
 }
 
@@ -244,6 +249,7 @@ fn run_whir(protocol_parameters: &ProtocolParameters<MerkleHash, MerkleCompress>
     prover
         .prove::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
             &dft,
+            SumcheckStrategy::default(),
             &mut proof,
             &mut prover_challenger,
             statement.clone(),

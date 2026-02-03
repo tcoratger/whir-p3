@@ -16,7 +16,7 @@ use crate::{
         WhirConfig,
         committer::{Witness, writer::CommitmentWriter},
         constraints::statement::EqStatement,
-        parameters::InitialPhaseConfig,
+        parameters::SumcheckStrategy,
         proof::WhirProof,
         prover::{Prover, round_state::RoundState},
     },
@@ -44,7 +44,6 @@ const DIGEST_ELEMS: usize = 8;
 /// for round state construction in WHIR tests.
 fn make_test_config(
     num_variables: usize,
-    initial_phase_config: InitialPhaseConfig,
     folding_factor: usize,
     pow_bits: usize,
 ) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger> {
@@ -57,7 +56,7 @@ fn make_test_config(
     // Define the core protocol parameters for WHIR, customizing behavior based
     // on whether to start with an initial sumcheck and how to fold the polynomial.
     let protocol_params = ProtocolParameters {
-        initial_phase_config,
+        initial_statement: true,
         security_level: 80,
         pow_bits,
         rs_domain_initial_reduction_factor: 1,
@@ -92,7 +91,7 @@ fn setup_domain_and_commitment(
 ) {
     // Build ProtocolParameters from WhirConfig fields
     let protocol_params = ProtocolParameters {
-        initial_phase_config: params.initial_phase_config,
+        initial_statement: params.initial_statement,
         security_level: params.security_level,
         pow_bits: params.starting_folding_pow_bits,
         folding_factor: params.folding_factor,
@@ -149,7 +148,7 @@ fn test_no_initial_statement_no_sumcheck() {
     // - no initial sumcheck,
     // - folding factor 2,
     // - no PoW grinding.
-    let config = make_test_config(num_variables, InitialPhaseConfig::WithoutStatement, 2, 0);
+    let config = make_test_config(num_variables, 2, 0);
 
     // Define a polynomial
     let poly = EvaluationsList::new(vec![F::from_u64(3); 1 << num_variables]);
@@ -164,10 +163,9 @@ fn test_no_initial_statement_no_sumcheck() {
     let statement = EqStatement::<EF4>::initialize(num_variables);
 
     // Initialize the round state using the setup configuration and witness
-    let dft = Radix2DFTSmallBatch::<F>::default();
     let state = RoundState::initialize_first_round_state(
-        &dft,
         &Prover(&config),
+        SumcheckStrategy::default(),
         &mut proof,
         &mut challenger,
         statement,
@@ -191,12 +189,7 @@ fn test_initial_statement_with_folding_factor_3() {
     // - initial statement enabled (sumcheck will run),
     // - folding factor = 3 (fold all variables in the first round),
     // - PoW disabled.
-    let config = make_test_config(
-        num_variables,
-        InitialPhaseConfig::WithStatementClassic,
-        3,
-        0,
-    );
+    let config = make_test_config(num_variables, 3, 0);
 
     // Define the multilinear polynomial:
     // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
@@ -244,10 +237,9 @@ fn test_initial_statement_with_folding_factor_3() {
     let (mut proof, mut challenger_rf, witness) = setup_domain_and_commitment(&config, poly);
 
     // Run the first round state initialization (this will trigger sumcheck)
-    let dft = Radix2DFTSmallBatch::<F>::default();
     let state = RoundState::initialize_first_round_state(
-        &dft,
         &Prover(&config),
+        SumcheckStrategy::default(),
         &mut proof,
         &mut challenger_rf,
         statement,
@@ -295,12 +287,7 @@ fn test_zero_poly_multiple_constraints() {
     let num_variables = 3;
 
     // Build a WHIR config with an initial statement, folding factor 1, and no PoW
-    let config = make_test_config(
-        num_variables,
-        InitialPhaseConfig::WithStatementClassic,
-        1,
-        0,
-    );
+    let config = make_test_config(num_variables, 1, 0);
 
     // Define a zero polynomial: f(X) = 0 for all X
     let poly = EvaluationsList::new(vec![F::ZERO; 1 << num_variables]);
@@ -320,10 +307,9 @@ fn test_zero_poly_multiple_constraints() {
     }
 
     // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
-    let dft = Radix2DFTSmallBatch::<F>::default();
     let state = RoundState::initialize_first_round_state(
-        &dft,
         &Prover(&config),
+        SumcheckStrategy::default(),
         &mut proof,
         &mut challenger_rf,
         statement,
@@ -369,12 +355,7 @@ fn test_initialize_round_state_with_initial_statement() {
     // - initial statement enabled,
     // - folding factor of 1 (fold one variable in the first round),
     // - PoW bits enabled.
-    let config = make_test_config(
-        num_variables,
-        InitialPhaseConfig::WithStatementClassic,
-        1,
-        pow_bits,
-    );
+    let config = make_test_config(num_variables, 1, pow_bits);
 
     // Define a multilinear polynomial:
     // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2 + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
@@ -422,10 +403,9 @@ fn test_initialize_round_state_with_initial_statement() {
     let (mut proof, mut challenger_rf, witness) = setup_domain_and_commitment(&config, poly);
 
     // Run the first round initialization
-    let dft = Radix2DFTSmallBatch::<F>::default();
     let state = RoundState::initialize_first_round_state(
-        &dft,
         &Prover(&config),
+        SumcheckStrategy::default(),
         &mut proof,
         &mut challenger_rf,
         statement,

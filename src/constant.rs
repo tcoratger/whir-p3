@@ -1,12 +1,3 @@
-/// Number of variables skipped in the first round of the Sumcheck protocol using univariate skip.
-///
-/// Instead of reducing one variable per round, we reduce `K_SKIP_SUMCHECK` variables at once
-/// by evaluating over a multiplicative subgroup of size `2^k`.
-///
-/// This optimization keeps the work in the base field and reduces the number of expensive
-/// extension field rounds.
-pub const K_SKIP_SUMCHECK: usize = 5;
-
 /// The number of variables at which the multilinear evaluation algorithm switches
 /// from a recursive to a non-recursive, chunk-based strategy.
 ///
