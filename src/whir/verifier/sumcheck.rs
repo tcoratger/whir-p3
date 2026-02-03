@@ -342,7 +342,7 @@ mod tests {
         }
 
         let randomness = verify_sumcheck_rounds(
-            proof.initial_phase.sumcheck_data().unwrap(),
+            initial_sumcheck_data,
             &mut verifier_challenger_for_verify,
             &mut expected_initial_sum,
             pow_bits,

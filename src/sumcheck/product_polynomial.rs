@@ -111,65 +111,6 @@ pub(crate) enum ProductPolynomial<F: Field, EF: ExtensionField<F>> {
 }
 
 impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
-    /// Creates a new [`ProductPolynomial`] from extension field evaluations.
-    ///
-    /// Automatically selects the optimal representation (packed or scalar) based on
-    /// the polynomial size relative to the SIMD width.
-    ///
-    /// # Decision Criteria
-    ///
-    /// ```text
-    /// if num_variables > log_2(SIMD_WIDTH):
-    ///     -> Packed (SIMD benefits outweigh overhead)
-    /// else:
-    ///     -> Small (scalar operations are more efficient)
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `evals` - Evaluations of the polynomial `f(x)` over the boolean hypercube.
-    /// * `weights` - Evaluations of the weight polynomial `w(x)`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `evals` and `weights` have different numbers of variables.
-    pub(crate) fn new(evals: EvaluationsList<EF>, weights: EvaluationsList<EF>) -> Self {
-        // Validate that both polynomials have the same number of variables.
-        //
-        // This is essential since they must be multiplied pointwise.
-        assert_eq!(evals.num_variables(), weights.num_variables());
-
-        // Determine the SIMD threshold: log_2(packing width).
-        //
-        // If num_variables > threshold, SIMD packing is beneficial.
-        let simd_threshold = log2_strict_usize(F::Packing::WIDTH);
-
-        if evals.num_variables() > simd_threshold {
-            // Convert scalar evaluations to packed format.
-            //
-            // We chunk consecutive evaluations into groups of SIMD_WIDTH and pack them.
-            // This enables parallel arithmetic on all elements within a chunk.
-            let evals = EvaluationsList::new(
-                evals
-                    .0
-                    .chunks(F::Packing::WIDTH)
-                    .map(EF::ExtensionPacking::from_ext_slice)
-                    .collect(),
-            );
-            let weights = EvaluationsList::new(
-                weights
-                    .0
-                    .chunks(F::Packing::WIDTH)
-                    .map(EF::ExtensionPacking::from_ext_slice)
-                    .collect(),
-            );
-            Self::new_packed(evals, weights)
-        } else {
-            // Polynomial is small enough that scalar operations are more efficient.
-            Self::new_small(evals, weights)
-        }
-    }
-
     /// Creates a packed variant and checks for immediate transition.
     ///
     /// This constructor is used when we know the data is already in packed format.
@@ -516,103 +457,11 @@ mod tests {
 
     use p3_baby_bear::BabyBear;
     use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
-    use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
 
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;
-
-    #[test]
-    fn test_new_selects_small_variant_for_small_polynomials() {
-        // Create polynomials at the SIMD threshold boundary.
-        //
-        // The Small variant is selected when: num_variables <= log_2(SIMD_WIDTH)
-        // We create a polynomial with exactly simd_log variables to ensure Small variant.
-        let simd_width = <F as Field>::Packing::WIDTH;
-        let simd_log = log2_strict_usize(simd_width);
-        let num_evals = 1 << simd_log;
-
-        // Create evaluation vectors at the threshold size.
-        let evals_vec: Vec<EF> = (0..num_evals).map(|i| EF::from_u64(i as u64 + 1)).collect();
-        let weights_vec: Vec<EF> = (0..num_evals)
-            .map(|i| EF::from_u64(i as u64 + num_evals as u64 + 1))
-            .collect();
-
-        let evals = EvaluationsList::new(evals_vec.clone());
-        let weights = EvaluationsList::new(weights_vec.clone());
-
-        let poly = ProductPolynomial::<F, EF>::new(evals, weights);
-
-        // Verify it selected the Small variant and check internal state.
-        match &poly {
-            ProductPolynomial::Small { evals, weights } => {
-                // Verify stored evaluations match input.
-                assert_eq!(evals.as_slice(), &evals_vec);
-                assert_eq!(weights.as_slice(), &weights_vec);
-            }
-            ProductPolynomial::Packed { .. } => {
-                panic!(
-                    "Expected Small variant for {simd_log}-variable polynomial (SIMD threshold = {simd_log})",
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_new_selects_packed_variant_for_large_polynomials() {
-        // Create polynomials above the SIMD threshold.
-        //
-        // The Packed variant is selected when: num_variables > log_2(SIMD_WIDTH)
-        // We create a polynomial with simd_log + 2 variables to ensure Packed variant.
-        let simd_width = <F as Field>::Packing::WIDTH;
-        let simd_log = log2_strict_usize(simd_width);
-        let num_vars = simd_log + 2;
-        let num_evals = 1 << num_vars;
-
-        let evals_vec: Vec<EF> = (0..num_evals).map(|i| EF::from_u64(i as u64)).collect();
-        let weights_vec: Vec<EF> = (0..num_evals)
-            .map(|i| EF::from_u64(100 + i as u64))
-            .collect();
-
-        let evals = EvaluationsList::new(evals_vec.clone());
-        let weights = EvaluationsList::new(weights_vec.clone());
-
-        let poly = ProductPolynomial::<F, EF>::new(evals, weights);
-
-        // Verify it selected the Packed variant.
-        match &poly {
-            ProductPolynomial::Packed {
-                evals: packed_evals,
-                weights: packed_weights,
-            } => {
-                // With num_evals elements and SIMD width, we get num_evals/simd_width packed elements.
-                let expected_packed_len = num_evals / simd_width;
-                assert_eq!(packed_evals.num_evals(), expected_packed_len);
-                assert_eq!(packed_weights.num_evals(), expected_packed_len);
-            }
-            ProductPolynomial::Small { .. } => {
-                panic!(
-                    "Expected Packed variant for {num_vars}-variable polynomial (SIMD threshold = {simd_log})",
-                );
-            }
-        }
-
-        // Verify evals() correctly unpacks to original values.
-        assert_eq!(poly.evals().as_slice(), &evals_vec);
-        assert_eq!(poly.weights().as_slice(), &weights_vec);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_new_panics_on_mismatched_sizes() {
-        // Evals has 4 elements (2 variables), weights has 8 elements (3 variables).
-        let evals = EvaluationsList::new(vec![EF::ONE; 4]);
-        let weights = EvaluationsList::new(vec![EF::TWO; 8]);
-
-        // This should panic because evals and weights have different num_variables.
-        let _ = ProductPolynomial::<F, EF>::new(evals, weights);
-    }
 
     #[test]
     fn test_num_variables_small_variant() {
@@ -625,24 +474,6 @@ mod tests {
 
         // The logical number of variables should be 3 (since 2^3 = 8).
         assert_eq!(poly.num_variables(), 3);
-    }
-
-    #[test]
-    fn test_num_variables_packed_variant() {
-        // Create a Packed variant with 6 variables (64 evaluations).
-        //
-        // After packing with SIMD width 16, we have:
-        //   - 64 / 16 = 4 packed elements
-        //   - stored_variables = log_2(4) = 2
-        //   - total_variables = stored_variables + log_2(16) = 2 + 4 = 6
-        let evals = EvaluationsList::new(vec![EF::ONE; 64]);
-        let weights = EvaluationsList::new(vec![EF::TWO; 64]);
-
-        let poly = ProductPolynomial::<F, EF>::new(evals, weights);
-
-        // Verify it's Packed and has correct num_variables.
-        assert!(matches!(poly, ProductPolynomial::Packed { .. }));
-        assert_eq!(poly.num_variables(), 6);
     }
 
     #[test]
@@ -823,18 +654,34 @@ mod tests {
         //
         // The SIMD threshold is log_2(F::Packing::WIDTH).
         // We need a polynomial large enough to start in Packed mode.
+        type EP = <EF as ExtensionField<F>>::ExtensionPacking;
+
         let simd_width = <F as Field>::Packing::WIDTH;
         let simd_log = log2_strict_usize(simd_width);
 
         // Start with simd_log + 2 variables (e.g., if simd_width=16, start with 6 vars = 64 evals).
-        // This gives us 2 packed elements initially (1 stored variable).
+        // This gives us 4 packed elements initially (2 stored variables).
         let num_vars = simd_log + 2;
         let num_evals = 1 << num_vars;
 
-        let evals = EvaluationsList::new(vec![EF::ONE; num_evals]);
-        let weights = EvaluationsList::new(vec![EF::ONE; num_evals]);
+        // Create scalar evaluations and pack them
+        let evals_scalar = vec![EF::ONE; num_evals];
+        let weights_scalar = vec![EF::ONE; num_evals];
 
-        let mut poly = ProductPolynomial::<F, EF>::new(evals, weights);
+        let packed_evals = EvaluationsList::new(
+            evals_scalar
+                .chunks(simd_width)
+                .map(EP::from_ext_slice)
+                .collect(),
+        );
+        let packed_weights = EvaluationsList::new(
+            weights_scalar
+                .chunks(simd_width)
+                .map(EP::from_ext_slice)
+                .collect(),
+        );
+
+        let mut poly = ProductPolynomial::<F, EF>::new_packed(packed_evals, packed_weights);
 
         // Initially should be Packed with correct internal structure.
         match &poly {
@@ -913,43 +760,5 @@ mod tests {
 
         // Should have log_2(simd_width) variables.
         assert_eq!(poly.num_variables(), log2_strict_usize(simd_width));
-    }
-
-    #[test]
-    fn test_consistency_between_variants() {
-        // Create the same logical polynomial in both variants and verify they behave identically.
-        let mut rng = SmallRng::seed_from_u64(999);
-
-        // Use 4 variables (16 elements) - at SIMD boundary.
-        let evals_vec: Vec<EF> = (0..16).map(|_| rng.random()).collect();
-        let weights_vec: Vec<EF> = (0..16).map(|_| rng.random()).collect();
-
-        // Create Small variant directly.
-        let small = ProductPolynomial::<F, EF>::new_small(
-            EvaluationsList::new(evals_vec.clone()),
-            EvaluationsList::new(weights_vec.clone()),
-        );
-
-        // The auto-selection might choose either variant depending on SIMD width.
-        let auto = ProductPolynomial::<F, EF>::new(
-            EvaluationsList::new(evals_vec),
-            EvaluationsList::new(weights_vec),
-        );
-
-        // Both should have the same num_variables.
-        assert_eq!(small.num_variables(), auto.num_variables());
-
-        // Both should have the same num_evals.
-        assert_eq!(small.num_evals(), auto.num_evals());
-
-        // Both should have the same dot_product.
-        assert_eq!(small.dot_product(), auto.dot_product());
-
-        // Both should evaluate to the same value at the same point.
-        let point = MultilinearPoint::new(vec![EF::from_u64(3); 4]);
-        assert_eq!(small.eval(&point), auto.eval(&point));
-
-        // Both should extract the same evals.
-        assert_eq!(small.evals().as_slice(), auto.evals().as_slice());
     }
 }

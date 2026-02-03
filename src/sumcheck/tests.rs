@@ -18,7 +18,7 @@ use crate::{
             statement::{EqStatement, SelectStatement},
         },
         parameters::SumcheckStrategy,
-        proof::{SumcheckData, WhirProof},
+        proof::{InitialPhase, SumcheckData, WhirProof},
         verifier::sumcheck::{verify_final_sumcheck_rounds, verify_sumcheck_rounds},
     },
 };
@@ -328,10 +328,12 @@ fn run_sumcheck_test(
     // ROUND 0
     let folding0 = folding_factor.at_round(0);
     // Extract sumcheck data from the initial phase
-    let sumcheck_data = proof
-        .initial_phase
-        .sumcheck_data()
-        .expect("Expected WithStatement variant");
+    let InitialPhase::WithStatement {
+        data: sumcheck_data,
+    } = &mut proof.initial_phase
+    else {
+        panic!("Expected WithStatement variant");
+    };
 
     let (mut sumcheck, mut prover_randomness) = Sumcheck::from_base_evals(
         strategy,
@@ -443,14 +445,15 @@ fn run_sumcheck_test(
 
         // Verify initial sumcheck rounds using the initial phase
         let folding = folding_factor.at_round(0);
+        let InitialPhase::WithStatement {
+            data: initial_sumcheck_data,
+        } = &proof.initial_phase
+        else {
+            panic!("Expected WithStatement variant");
+        };
         verifier_randomness.extend(
-            &verify_sumcheck_rounds(
-                proof.initial_phase.sumcheck_data().unwrap(),
-                &mut verifer_challenger,
-                &mut sum,
-                0,
-            )
-            .unwrap(),
+            &verify_sumcheck_rounds(initial_sumcheck_data, &mut verifer_challenger, &mut sum, 0)
+                .unwrap(),
         );
 
         num_vars_inter -= folding;
