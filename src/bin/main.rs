@@ -27,6 +27,12 @@ use whir_p3::{
         verifier::Verifier,
     },
 };
+use std::fmt::Debug;
+use p3_commit::{BatchOpening, ExtensionMmcs, Pcs, PolynomialSpace};
+use p3_fri::{FriParameters, FriProof, TwoAdicFriPcs};
+use p3_merkle_tree::MerkleTreeMmcs;
+use p3_matrix::dense::RowMajorMatrix;
+use p3_field::coset::TwoAdicMultiplicativeCoset;
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, 4>;
@@ -41,6 +47,18 @@ type Poseidon24 = Poseidon2KoalaBear<24>;
 type MerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
 type MerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
 type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
+type DFT = Radix2DFTSmallBatch<F>;
+
+
+pub(crate) type Poseidon2Sponge<Perm24> = PaddingFreeSponge<Perm24, 24, 16, 8>;
+pub(crate) type Poseidon2Compression<Perm16> = TruncatedPermutation<Perm16, 2, 8, 16>;
+pub(crate) type Poseidon2MerkleMmcs<F, Poseidon16, Poseidon24> = MerkleTreeMmcs<
+    <F as Field>::Packing,
+    <F as Field>::Packing,
+    Poseidon2Sponge<Poseidon24>,
+    Poseidon2Compression<Poseidon16>,
+    8,
+>;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -68,7 +86,87 @@ struct Args {
 
     #[arg(long = "initial-rs-reduction", default_value = "3")]
     rs_domain_initial_reduction_factor: usize,
+
+    #[arg(
+        short = 'i', 
+        long, 
+        default_value = "true",
+        action = clap::ArgAction::Set
+    )]
+    initial_statement: bool,
 }
+
+struct Context {
+    polynomial: EvaluationsList<F>,
+    poseidon16: Poseidon16,
+    poseidon24: Poseidon24,
+    num_variables: usize,
+    num_evaluations: usize,
+    challenger: MyChallenger,
+}
+
+fn init() -> Context {
+    let args = Args::parse();
+    let num_variables = args.num_variables;
+    let num_evaluations = args.num_evaluations;
+
+    if num_evaluations == 0 {
+        println!("Warning: running as PCS but no evaluations specified.");
+    }
+
+    let mut rng = SmallRng::seed_from_u64(1);
+    let poseidon16 = Poseidon16::new_from_rng_128(&mut rng);
+    let poseidon24 = Poseidon24::new_from_rng_128(&mut rng);
+    let challenger = MyChallenger::new(poseidon16.clone());
+
+    let num_coeffs = 1 <<num_variables;
+    let mut rng = StdRng::seed_from_u64(0);
+    let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
+
+    Context {
+        polynomial,
+        poseidon16,
+        poseidon24,
+        num_variables,
+        num_evaluations,
+        challenger,
+    }
+
+}
+
+fn protocol_params_setup(ctx: &Context) -> ProtocolParameters<MerkleHash, MerkleCompress> {
+    let mut args = Args::parse();
+    if args.pow_bits.is_none() {
+        args.pow_bits = Some(DEFAULT_MAX_POW);
+    }
+
+    // Runs as a PCS
+    let security_level = args.security_level;
+    let pow_bits = args.pow_bits.unwrap();
+    let rate = args.rate;
+    let folding_factor = FoldingFactor::Constant(args.folding_factor);
+    let soundness_type = args.soundness_type;
+    let rs_domain_initial_reduction_factor = args.rs_domain_initial_reduction_factor;
+    let initial_statement = args.initial_statement;
+
+    let merkle_hash = MerkleHash::new(ctx.poseidon24.clone());
+    let merkle_compress = MerkleCompress::new(ctx.poseidon16.clone());
+
+    // Construct WHIR protocol parameters
+    let protocol_params = ProtocolParameters {
+        initial_statement,
+        security_level,
+        pow_bits,
+        folding_factor,
+        merkle_hash,
+        merkle_compress,
+        soundness_type,
+        starting_log_inv_rate: rate,
+        rs_domain_initial_reduction_factor,
+    };
+    protocol_params
+}
+
 
 #[allow(clippy::too_many_lines)]
 fn main() {
@@ -81,70 +179,20 @@ fn main() {
         .with(ForestLayer::default())
         .init();
 
-    let mut args = Args::parse();
+    let mut context = init();
+    let protocol_parameters = protocol_params_setup(&context);
 
-    if args.pow_bits.is_none() {
-        args.pow_bits = Some(DEFAULT_MAX_POW);
-    }
+    run_whir(&protocol_parameters, &mut context);
 
-    // Runs as a PCS
-    let security_level = args.security_level;
-    let pow_bits = args.pow_bits.unwrap();
-    let num_variables = args.num_variables;
-    let starting_rate = args.rate;
-    let folding_factor = FoldingFactor::Constant(args.folding_factor);
-    let soundness_type = args.soundness_type;
-    let num_evaluations = args.num_evaluations;
+    if protocol_parameters.initial_statement { return; }
+    run_fri(&protocol_parameters, &mut context);
+}
 
-    if num_evaluations == 0 {
-        println!("Warning: running as PCS but no evaluations specified.");
-    }
-
-    // Create hash and compression functions for the Merkle tree
-    let mut rng = SmallRng::seed_from_u64(1);
-    let poseidon16 = Poseidon16::new_from_rng_128(&mut rng);
-    let poseidon24 = Poseidon24::new_from_rng_128(&mut rng);
-
-    let merkle_hash = MerkleHash::new(poseidon24);
-    let merkle_compress = MerkleCompress::new(poseidon16.clone());
-
-    let rs_domain_initial_reduction_factor = args.rs_domain_initial_reduction_factor;
-
-    let num_coeffs = 1 << num_variables;
-
-    // Construct WHIR protocol parameters
-    let whir_params = ProtocolParameters {
-        initial_statement: true,
-        security_level,
-        pow_bits,
-        folding_factor,
-        merkle_hash,
-        merkle_compress,
-        soundness_type,
-        starting_log_inv_rate: starting_rate,
-        rs_domain_initial_reduction_factor,
-    };
-
+fn run_whir(protocol_parameters: &ProtocolParameters<MerkleHash, MerkleCompress>, ctx: &mut Context) {
     let params = WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(
-        num_variables,
-        whir_params.clone(),
+        ctx.num_variables,
+        protocol_parameters.clone(),
     );
-
-    let mut rng = StdRng::seed_from_u64(0);
-    let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
-
-    // Sample `num_points` random multilinear points in the Boolean hypercube
-    let points: Vec<_> = (0..num_evaluations)
-        .map(|_| MultilinearPoint::rand(&mut rng, num_variables))
-        .collect();
-
-    // Construct a new statement with the correct number of variables
-    let mut statement = EqStatement::<EF>::initialize(num_variables);
-
-    // Add constraints for each sampled point (equality constraints)
-    for point in &points {
-        statement.add_unevaluated_constraint_hypercube(point.clone(), &polynomial);
-    }
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
     let mut domainsep = DomainSeparator::new(vec![]);
@@ -157,10 +205,8 @@ fn main() {
         println!("WARN: more PoW bits required than what specified.");
     }
 
-    let challenger = MyChallenger::new(poseidon16);
-
     // Initialize the prover's challenger with domain separator
-    let mut prover_challenger = challenger.clone();
+    let mut prover_challenger = ctx.challenger.clone();
     domainsep.observe_domain_separator(&mut prover_challenger);
 
     // Commit to the polynomial and produce a witness
@@ -168,7 +214,7 @@ fn main() {
 
     let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
 
-    let mut proof = WhirProof::<F, EF, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+    let mut proof = WhirProof::<F, EF, F, 8>::from_protocol_parameters(&protocol_parameters, ctx.num_variables);
 
     let time = Instant::now();
     let witness = committer
@@ -176,10 +222,24 @@ fn main() {
             &dft,
             &mut proof,
             &mut prover_challenger,
-            polynomial,
+            ctx.polynomial.clone(),
         )
         .unwrap();
     let commit_time = time.elapsed();
+
+    let mut rng = StdRng::seed_from_u64(0);
+    // Sample `num_points` random multilinear points in the Boolean hypercube
+    let points: Vec<_> = (0..ctx.num_evaluations)
+        .map(|_| MultilinearPoint::rand(&mut rng, ctx.num_variables))
+        .collect();
+
+    // Construct a new statement with the correct number of variables
+    let mut statement = EqStatement::<EF>::initialize(ctx.num_variables);
+
+    // Add constraints for each sampled point (equality constraints)
+    for point in &points {
+        statement.add_unevaluated_constraint_hypercube(point.clone(), &ctx.polynomial);
+    }
 
     // Generate a proof using the prover
     let prover = Prover(&params);
@@ -199,6 +259,7 @@ fn main() {
 
     let opening_time = time.elapsed();
 
+    // Verify
     // Create a commitment reader
     let commitment_reader = CommitmentReader::new(&params);
 
@@ -206,7 +267,7 @@ fn main() {
     let verifier = Verifier::new(&params);
 
     // Initialize the verifier's challenger with domain separator
-    let mut verifier_challenger = challenger;
+    let mut verifier_challenger = ctx.challenger.clone();
     domainsep.observe_domain_separator(&mut verifier_challenger);
 
     // Parse the commitment
@@ -228,6 +289,112 @@ fn main() {
         "\nProving time: {} ms (commit: {} ms, opening: {} ms)",
         commit_time.as_millis() + opening_time.as_millis(),
         commit_time.as_millis(),
+        opening_time.as_millis()
+    );
+    let proof_bytes = bincode::serialize(&proof).expect("Failed to serialize proof");
+    println!(
+        "Proof size: {} bytes ({:.2} KB)",
+        proof_bytes.len(),
+        proof_bytes.len() as f64 / 1024.0
+    );
+    println!("Verification time: {} μs", verify_time.as_micros());
+}
+
+fn run_fri(protocol_parameters: &ProtocolParameters<MerkleHash, MerkleCompress>, ctx: &mut Context) {
+
+    // Define the number of columns we split the evaluations into
+    // NOTE: In KoalaBear the F::TWO_ADICITY is 24. So the height can at most be 2^{23}.
+    // so using batch FRI here to split into 2^5 = 32 columns, Proving time: 1366 ms
+    // can be split 2^2 = 4 columns, Proving time: 7055 ms
+    // setting 1 will give assertion failed: bits <= Self::TWO_ADICITY at this line (https://github.com/Plonky3/Plonky3/blob/c8a3032e5e5faca21b4d86123e95172b8b39ec63/monty-31/src/monty_31.rs#L648)
+    const LOG_NUM_COLS: usize = 5;
+
+    let log_height = ctx.num_variables;
+
+    // Initialize the DFT (Discrete Fourier Transform) engine
+    let dft = Radix2DFTSmallBatch::<F>::new(1 << log_height - LOG_NUM_COLS);
+
+    let val_mmcs = Poseidon2MerkleMmcs::<F, Poseidon16, Poseidon24>::new(
+        protocol_parameters.merkle_hash.clone(),
+        protocol_parameters.merkle_compress.clone(),
+    );
+
+    let challenge_mmcs = ExtensionMmcs::<F, EF, _>::new(val_mmcs.clone());
+
+    let POW_BIT = 8;
+    let fri_params =  FriParameters {
+        log_blowup: 1,
+        log_final_poly_len: 0,
+        num_queries: protocol_parameters.security_level - POW_BIT,
+        commit_proof_of_work_bits: POW_BIT,
+        query_proof_of_work_bits: POW_BIT,
+        mmcs: challenge_mmcs.clone(),
+    };
+
+    let pcs = TwoAdicFriPcs::<F, DFT, _, _>::new(dft, val_mmcs, fri_params);
+
+    println!("\n\n=========================================");
+    println!("FRI (PCS) 🍳️");
+
+    // Construct a domain of the required size based on the height of the "trace". We split the evaluations
+    // `Context::polynomial` into a `trace_height x NUM_COLS` `RowMajorMatrix`.
+    // NOTE: In KoalaBear the F::TWO_ADICITY is 24. So the height can at most be 2^{23}.
+    let domain = TwoAdicMultiplicativeCoset::new(F::GENERATOR, log_height - LOG_NUM_COLS)
+        .expect("log height too large");
+
+    // Convert the polynomial evaluations into a RowMajorMatrix, as used by FRI with `NUM_COLS` columns.
+    // We need an iterator for the Pcs::commit, so wrap with `once`
+    let matrix_iter = std::iter::once((
+        domain,
+        RowMajorMatrix::new(ctx.polynomial.as_slice().to_vec(), 1 << LOG_NUM_COLS),
+    ));
+
+    // Commit to the matrix
+    let commit_time = Instant::now();
+    let (commitment, prover_data) = Pcs::<EF, MyChallenger>::commit(&pcs, matrix_iter.clone());
+    let commitment_time = commit_time.elapsed();
+
+    let mut rng = StdRng::seed_from_u64(0);
+    // Randomly sample the correct number of opening points
+    let open_points: Vec<EF> = (0..ctx.num_evaluations)
+        .map(|_| rng.random::<EF>())
+        .collect();
+
+    let trace_height = 1 << log_height;
+    let num_chunks = ctx.polynomial.num_evals() / trace_height;
+    let points = vec![open_points.clone(); num_chunks];
+    // Generate the opening proof
+    let open_time = Instant::now();
+    let (opened_values, proof) =
+        pcs.open(vec![(&prover_data, points)], &mut ctx.challenger.clone());
+    let opening_time = open_time.elapsed();
+
+    // Construct the points needed for the verifier
+    let verifier_points = matrix_iter
+        .zip(&opened_values[0]) // first and only commitment
+        .map(|((domain, _), mat_openings)| {
+            let openings = open_points
+                .iter()
+                .copied()
+                .zip(mat_openings.iter().cloned())
+                .collect();
+            (domain, openings)
+        })
+        .collect();
+
+    // Verify the opening proof
+    let verif_time = Instant::now();
+    pcs.verify(
+        vec![(commitment, verifier_points)],
+        &proof,
+        &mut ctx.challenger.clone(),
+    ).unwrap();
+    let verify_time = verif_time.elapsed();
+
+    println!(
+        "\nProving time: {} ms (commit: {} ms, opening: {} ms)",
+        commitment_time.as_millis() + opening_time.as_millis(),
+        commitment_time.as_millis(),
         opening_time.as_millis()
     );
     let proof_bytes = bincode::serialize(&proof).expect("Failed to serialize proof");

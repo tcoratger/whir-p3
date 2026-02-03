@@ -1,5 +1,5 @@
-use alloc::vec::Vec;
-use core::{f64::consts::LOG2_10, marker::PhantomData};
+use alloc::{format, string::String, vec::Vec};
+use core::{f64::consts::LOG2_10, fmt::Display, marker::PhantomData, str::FromStr};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
