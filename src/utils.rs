@@ -1,7 +1,4 @@
 //! Utility functions for the WHIR library.
-//!
-//! This module provides general-purpose utility functions used throughout the codebase,
-//! including memory allocation helpers and mathematical utilities.
 
 use alloc::vec::Vec;
 
@@ -41,15 +38,8 @@ pub unsafe fn uninitialized_vec<A>(len: usize) -> Vec<A> {
 /// - `n` is not a power of 3
 #[must_use]
 pub fn log3_strict_usize(n: usize) -> usize {
-    // Zero has no logarithm.
-    debug_assert_ne!(n, 0, "log3_strict_usize: input must be non-zero");
-
-    // Verify that n is a power of 3 before computing the logarithm.
-    // This check is done upfront to provide a clear error message.
-    debug_assert!(
-        is_power_of_3(n),
-        "log3_strict_usize: {n} is not a power of 3"
-    );
+    // Zero has no logarithm - check explicitly for a clear error message.
+    assert_ne!(n, 0, "log3_strict_usize: input must be non-zero");
 
     // Exponent counter: tracks how many times we've divided by 3.
     let mut res = 0usize;
@@ -58,6 +48,7 @@ pub fn log3_strict_usize(n: usize) -> usize {
     let mut t = n;
 
     // Main loop: divide by 3 and count iterations.
+    // This is the fast path - no validation inside the loop.
     loop {
         // Integer division by 3. When t < 3, this yields 0.
         t /= 3;
@@ -71,27 +62,16 @@ pub fn log3_strict_usize(n: usize) -> usize {
         res += 1;
     }
 
+    // Verify the result: 3^res must equal n.
+    //
+    // This catches non-powers of 3 with a single O(log log n) check at the end.
+    assert_eq!(
+        3usize.pow(res as u32),
+        n,
+        "log3_strict_usize: {n} is not a power of 3"
+    );
+
     res
-}
-
-/// Checks if `n` is a power of 3.
-///
-/// Returns `true` if `n == 3^k` for some non-negative integer `k`.
-#[inline]
-const fn is_power_of_3(n: usize) -> bool {
-    // Zero is not a power of 3.
-    if n == 0 {
-        return false;
-    }
-
-    // Repeatedly divide by 3 until we can't anymore.
-    let mut value = n;
-    while value.is_multiple_of(3) {
-        value /= 3;
-    }
-
-    // If we end up at 1, n was a power of 3.
-    value == 1
 }
 
 #[cfg(test)]
