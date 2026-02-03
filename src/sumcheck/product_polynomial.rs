@@ -26,6 +26,7 @@ use tracing::instrument;
 
 use crate::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    sumcheck::extrapolate_012,
     whir::{constraints::Constraint, proof::SumcheckData},
 };
 
@@ -241,7 +242,7 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
     /// * `point` - The evaluation point as a [`MultilinearPoint`].
     pub(crate) fn eval(&self, point: &MultilinearPoint<EF>) -> EF {
         match self {
-            Self::Packed { evals, .. } => evals.eval_hypercube_packed(point),
+            Self::Packed { evals, .. } => evals.evaluate_hypercube_packed(point),
             Self::Small { evals, .. } => evals.evaluate_hypercube_ext(point),
         }
     }
@@ -373,7 +374,7 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
     #[instrument(skip_all)]
     pub(crate) fn round<Challenger>(
         &mut self,
-        sumcheck_data: &mut SumcheckData<EF, F>,
+        sumcheck_data: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
         sum: &mut EF,
         pow_bits: usize,
@@ -415,17 +416,8 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
         //
         // Recall: h(X) = c_0 + c_1 * X + c_2 * X^2
         //
-        // From the sumcheck constraint: h(0) + h(1) = claimed_sum
-        //   -> c_0 + (c_0 + c_1 + c_2) = claimed_sum
-        //   -> c_1 = claimed_sum - 2 * c_0 - c_2
-        //
-        // Therefore: h(r) = c_0 + c_1 * r + c_2 * r^2
-        //                 = c_0 + (claimed_sum - 2 * c_0 - c_2) * r + c_2 * r^2
-        //                 = c_2 * r^2 + (h(1) - c_0 - c_2) * r + c_0
-        //
-        // where h(1) = claimed_sum - c_0.
-        let h_1 = *sum - c0;
-        *sum = c2 * r.square() + (h_1 - c0 - c2) * r + c0;
+        // Update sum := h(r)
+        *sum = extrapolate_012(c0, *sum - c0, c2, r);
 
         // Sanity check: the updated sum should equal the inner product after folding.
         debug_assert_eq!(*sum, self.dot_product());
@@ -561,8 +553,7 @@ mod tests {
             }
             ProductPolynomial::Packed { .. } => {
                 panic!(
-                    "Expected Small variant for {}-variable polynomial (SIMD threshold = {})",
-                    simd_log, simd_log
+                    "Expected Small variant for {simd_log}-variable polynomial (SIMD threshold = {simd_log})",
                 );
             }
         }
@@ -602,8 +593,7 @@ mod tests {
             }
             ProductPolynomial::Small { .. } => {
                 panic!(
-                    "Expected Packed variant for {}-variable polynomial (SIMD threshold = {})",
-                    num_vars, simd_log
+                    "Expected Packed variant for {num_vars}-variable polynomial (SIMD threshold = {simd_log})",
                 );
             }
         }
@@ -688,19 +678,9 @@ mod tests {
         //   evals   = [e0, e1] where f(0) = e0, f(1) = e1
         //   weights = [w0, w1] where g(0) = w0, g(1) = w1
         //
-        // The sumcheck polynomial h(X) = f(X) * g(X) where:
-        //   f(X) = e0 + (e1 - e0)*X
-        //   g(X) = w0 + (w1 - w0)*X
-        //
-        // h(X) = [e0 + (e1-e0)*X] * [w0 + (w1-w0)*X]
-        //      = e0*w0 + [e0*(w1-w0) + (e1-e0)*w0]*X + (e1-e0)*(w1-w0)*X^2
-        //      = c0 + c1*X + c2*X^2
-        //
-        // where:
-        //   c0 = e0 * w0
-        //   c2 = (e1 - e0) * (w1 - w0)
-        //
-        // The sumcheck_coefficients function returns (c0, c2).
+        // sumcheck_coefficients returns (h(0), h(2)) where:
+        //   h(0) = f(0) * g(0) = e0 * w0
+        //   h(2) = f(2) * g(2) = (2*e1 - e0) * (2*w1 - w0)
         let e0 = EF::from_u64(3);
         let e1 = EF::from_u64(7);
         let w0 = EF::from_u64(2);
@@ -709,21 +689,21 @@ mod tests {
         let evals = EvaluationsList::new(vec![e0, e1]);
         let weights = EvaluationsList::new(vec![w0, w1]);
 
-        let (c0, c2) = evals.sumcheck_coefficients(&weights);
+        let (h0, h2) = evals.sumcheck_coefficients(&weights);
 
-        // c0 = e0 * w0
-        let expected_c0 = e0 * w0;
-        assert_eq!(c0, expected_c0);
+        // h(0) = e0 * w0
+        let expected_h0 = e0 * w0;
+        assert_eq!(h0, expected_h0);
 
-        // c2 = (e1 - e0) * (w1 - w0)
-        let expected_c2 = (e1 - e0) * (w1 - w0);
-        assert_eq!(c2, expected_c2);
+        // h(2) = (2*e1 - e0) * (2*w1 - w0)
+        let expected_h2 = (e1.double() - e0) * (w1.double() - w0);
+        assert_eq!(h2, expected_h2);
 
         // Verify consistency: h(0) + h(1) should equal the claimed sum.
         // h(0) = c0
         // h(1) = e1 * w1
         // sum = e0*w0 + e1*w1
-        let h_0 = c0;
+        let h_0 = h0;
         let h_1 = e1 * w1;
         let sum = e0 * w0 + e1 * w1;
         assert_eq!(h_0 + h_1, sum);

@@ -21,7 +21,7 @@ use whir_p3::{
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
         constraints::statement::EqStatement,
-        parameters::{InitialPhaseConfig, WhirConfig},
+        parameters::{SumcheckStrategy, WhirConfig},
         proof::WhirProof,
         prover::Prover,
         verifier::Verifier,
@@ -114,7 +114,7 @@ fn main() {
 
     // Construct WHIR protocol parameters
     let whir_params = ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+        initial_statement: true,
         security_level,
         pow_bits,
         folding_factor,
@@ -189,6 +189,7 @@ fn main() {
     prover
         .prove::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
             &dft,
+            SumcheckStrategy::default(),
             &mut proof,
             &mut prover_challenger,
             statement.clone(),

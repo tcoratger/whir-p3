@@ -12,7 +12,7 @@ use whir_p3::{
     whir::{
         committer::writer::CommitmentWriter,
         constraints::statement::EqStatement,
-        parameters::{InitialPhaseConfig, WhirConfig},
+        parameters::{SumcheckStrategy, WhirConfig},
         proof::WhirProof,
         prover::Prover,
     },
@@ -74,7 +74,7 @@ fn prepare_inputs() -> (
 
     // Assemble the protocol-level parameters.
     let whir_params = ProtocolParameters {
-        initial_phase_config: InitialPhaseConfig::WithStatementClassic,
+        initial_statement: true,
         security_level,
         pow_bits,
         folding_factor,
@@ -170,6 +170,7 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
             prover
                 .prove::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(
                     &dft,
+                    SumcheckStrategy::SVO,
                     &mut proof,
                     &mut challenger_clone,
                     statement.clone(),

@@ -3,8 +3,6 @@ use core::fmt::Display;
 use errors::SecurityAssumption;
 use thiserror::Error;
 
-use crate::whir::parameters::InitialPhaseConfig;
-
 pub mod errors;
 
 /// Each WHIR steps folds the polymomial, which reduces the number of variables.
@@ -147,11 +145,8 @@ impl FoldingFactor {
 /// Configuration parameters for WHIR proofs.
 #[derive(Clone, Debug)]
 pub struct ProtocolParameters<H, C> {
-    /// Configuration for the initial phase of the protocol.
-    ///
-    /// This determines whether an initial statement is included and which optimization
-    /// strategy to use for the sumcheck protocol.
-    pub initial_phase_config: InitialPhaseConfig,
+    /// Determines whether an initial statement is included
+    pub initial_statement: bool,
     /// The logarithmic inverse rate for sampling.
     pub starting_log_inv_rate: usize,
     /// The value v such that that the size of the Reed Solomon domain on which

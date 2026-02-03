@@ -331,28 +331,6 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
         (combined, eval)
     }
 
-    /// Validates that this constraint is compatible with univariate skip optimization.
-    ///
-    /// The univariate skip optimization requires that only equality constraints
-    /// are present. Select constraints are not supported in this mode.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the select statement is not empty.
-    ///
-    /// # Usage
-    ///
-    /// Call this method before applying univariate skip optimization to ensure
-    /// the constraint system is in a valid state.
-    pub const fn validate_for_skip_case(&self) {
-        // Verify that no select constraints are present.
-        // Select constraints cannot be efficiently handled with univariate skip.
-        assert!(
-            self.sel_statement.is_empty(),
-            "select constraints not supported in skip case"
-        );
-    }
-
     /// Iterates over equality constraints with their challenge weights.
     ///
     /// This produces pairs `(z_i, γ^i)` for each equality constraint where:
@@ -659,49 +637,6 @@ mod tests {
             assert_eq!(combined_new.0[i], combined_manual.0[i]);
         }
         assert_eq!(eval_new, eval_manual);
-    }
-
-    #[test]
-    fn test_constraint_validate_for_skip_case_valid() {
-        // Create a constraint suitable for univariate skip (eq-only)
-
-        // Random challenge
-        let challenge = EF::from_u64(11);
-
-        // Create equality-only constraint
-        let eq_point =
-            MultilinearPoint::new(vec![EF::from_u64(1), EF::from_u64(2), EF::from_u64(3)]);
-        let eq_eval = EF::from_u64(99);
-        let eq_statement = EqStatement::new_hypercube(vec![eq_point], vec![eq_eval]);
-        let constraint: Constraint<F, EF> = Constraint::new_eq_only(challenge, eq_statement);
-
-        // This should not panic because select statement is empty
-        constraint.validate_for_skip_case();
-    }
-
-    #[test]
-    #[should_panic(expected = "select constraints not supported in skip case")]
-    fn test_constraint_validate_for_skip_case_invalid() {
-        // Create a constraint with select statements (not suitable for skip)
-
-        // Number of variables
-        let num_variables = 2;
-
-        // Random challenge
-        let challenge = EF::from_u64(13);
-
-        // Create both eq and select statements
-        let eq_statement = EqStatement::initialize(num_variables);
-
-        // Add a select constraint (this makes it invalid for skip)
-        let sel_var = F::from_u64(5);
-        let sel_eval = EF::from_u64(25);
-        let sel_statement = SelectStatement::new(num_variables, vec![sel_var], vec![sel_eval]);
-
-        let constraint: Constraint<F, EF> = Constraint::new(challenge, eq_statement, sel_statement);
-
-        // This should panic because select statement is not empty
-        constraint.validate_for_skip_case();
     }
 
     #[test]
