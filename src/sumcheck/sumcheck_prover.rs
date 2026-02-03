@@ -7,10 +7,8 @@ use p3_util::log2_strict_usize;
 use crate::{
     poly::{evals::EvaluationsList as Poly, multilinear::MultilinearPoint as Point},
     sumcheck::{
-        extrapolate_012,
-        lagrange::lagrange_weights_012_multi,
-        product_polynomial::ProductPolynomial,
-        svo::SplitEq,
+        extrapolate_012, lagrange::lagrange_weights_012_multi,
+        product_polynomial::ProductPolynomial, svo::SplitEq,
     },
     whir::{
         constraints::{Constraint, statement::EqStatement},
