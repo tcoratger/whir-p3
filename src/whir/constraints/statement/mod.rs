@@ -1,5 +1,6 @@
 /// Equality statement for polynomial evaluation constraints.
 pub mod eq;
+pub mod initial;
 
 /// Selection statement for conditional constraints.
 pub mod select;

@@ -15,12 +15,15 @@ use round_state::RoundState;
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
-use super::{committer::Witness, constraints::statement::EqStatement, parameters::WhirConfig};
+use super::{committer::ProverData, constraints::statement::EqStatement, parameters::WhirConfig};
 use crate::{
     fiat_shamir::errors::FiatShamirError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        constraints::{Constraint, statement::SelectStatement},
+        constraints::{
+            Constraint,
+            statement::{SelectStatement, initial::InitialStatement},
+        },
         parameters::SumcheckStrategy,
         proof::{QueryOpening, SumcheckData, WhirProof},
         utils::get_challenge_stir_queries,
@@ -85,33 +88,14 @@ where
     /// `true` if the statement structure is valid for this protocol instance.
     const fn validate_statement(&self, statement: &EqStatement<EF>) -> bool {
         statement.num_variables() == self.0.num_variables
-            && (self.0.initial_statement || statement.is_empty())
     }
 
-    /// Validates that the witness satisfies the structural requirements of the WHIR prover.
-    ///
-    /// Checks the following conditions:
-    /// - The number of OOD (out-of-domain) points equals the number of OOD answers
-    /// - If no initial statement is used, the OOD data must be empty
-    /// - The multilinear witness polynomial must match the expected number of variables
-    ///
-    /// # Parameters
-    /// - `witness`: The private witness to be verified for structural consistency
-    ///
-    /// # Returns
-    /// `true` if the witness structure matches expectations.
-    ///
-    /// # Panics
-    /// - Panics if OOD lengths are inconsistent
-    /// - Panics if OOD data is non-empty despite `initial_statement = false`
-    const fn validate_witness<W, const DIGEST_ELEMS: usize>(
+    const fn initial_statement(
         &self,
-        witness: &Witness<EF, F, DenseMatrix<F>, W, DIGEST_ELEMS>,
-    ) -> bool {
-        if !self.0.initial_statement {
-            assert!(witness.ood_statement.is_empty());
-        }
-        witness.polynomial.num_variables() == self.0.num_variables
+        polynomial: EvaluationsList<F>,
+        sumcheck_strategy: SumcheckStrategy,
+    ) -> InitialStatement<F, EF> {
+        self.0.initial_statement(polynomial, sumcheck_strategy)
     }
 
     /// Executes the full WHIR prover protocol to produce the proof.
@@ -138,11 +122,10 @@ where
     pub fn prove<Dft, P, W, PW, const DIGEST_ELEMS: usize>(
         &self,
         dft: &Dft,
-        sumcheck_strategy: SumcheckStrategy,
         proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
-        statement: EqStatement<EF>,
-        witness: Witness<EF, F, DenseMatrix<F>, W, DIGEST_ELEMS>,
+        statement: &InitialStatement<F, EF>,
+        prover_data: ProverData<F, DenseMatrix<F>, W, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
     where
         Dft: TwoAdicSubgroupDft<F>,
@@ -159,21 +142,16 @@ where
         [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
     {
         // Validate parameters
-        assert!(
-            self.validate_parameters()
-                && self.validate_statement(&statement)
-                && self.validate_witness(&witness),
-            "Invalid prover parameters, statement, or witness"
-        );
+        assert!(self.validate_parameters(), "Invalid prover parameters");
 
         // Initialize the round state with inputs and initial polynomial data
         let mut round_state = RoundState::initialize_first_round_state(
-            self,
-            sumcheck_strategy,
-            proof,
+            &mut proof.initial_sumcheck,
             challenger,
             statement,
-            witness,
+            prover_data,
+            self.folding_factor.at_round(0),
+            self.starting_folding_pow_bits,
         )?;
 
         // Run the WHIR protocol round-by-round

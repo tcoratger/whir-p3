@@ -13,6 +13,7 @@ use crate::{parameters::ProtocolParameters, poly::evals::EvaluationsList};
     serialize = "F: Serialize, EF: Serialize, W: Serialize, [W; DIGEST_ELEMS]: Serialize",
     deserialize = "F: Deserialize<'de>, EF: Deserialize<'de>, W: Deserialize<'de>, [W; DIGEST_ELEMS]: Deserialize<'de>"
 ))]
+// TODO: add initial claims?
 pub struct WhirProof<F, EF, W, const DIGEST_ELEMS: usize> {
     /// Initial polynomial commitment (Merkle root)
     pub initial_commitment: [W; DIGEST_ELEMS],
@@ -21,7 +22,7 @@ pub struct WhirProof<F, EF, W, const DIGEST_ELEMS: usize> {
     pub initial_ood_answers: Vec<EF>,
 
     /// Initial phase data - captures the protocol variant
-    pub initial_phase: InitialPhase<F, EF>,
+    pub initial_sumcheck: SumcheckData<F, EF>,
 
     /// One proof per WHIR round
     pub rounds: Vec<WhirRoundProof<F, EF, W, DIGEST_ELEMS>>,
@@ -46,44 +47,12 @@ impl<F: Default, EF: Default, W: Default, const DIGEST_ELEMS: usize> Default
         Self {
             initial_commitment: array::from_fn(|_| W::default()),
             initial_ood_answers: Vec::new(),
-            initial_phase: InitialPhase::default(),
+            initial_sumcheck: SumcheckData::default(),
             rounds: Vec::new(),
             final_poly: None,
             final_pow_witness: F::default(),
             final_queries: Vec::new(),
             final_sumcheck: None,
-        }
-    }
-}
-
-/// Initial phase of WHIR protocol
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum InitialPhase<F, EF> {
-    #[serde(rename = "with_statement")]
-    WithStatement {
-        /// Standard sumcheck data
-        data: SumcheckData<F, EF>,
-    },
-
-    /// Protocol without statement (direct folding)
-    #[serde(rename = "without_statement")]
-    WithoutStatement { pow_witness: F },
-}
-
-impl<F: Default, EF: Default> Default for InitialPhase<F, EF> {
-    fn default() -> Self {
-        Self::WithStatement {
-            data: SumcheckData::default(),
-        }
-    }
-}
-
-impl<F, EF> InitialPhase<F, EF> {
-    pub(crate) const fn number_of_rounds(&self) -> Option<usize> {
-        match self {
-            Self::WithStatement { data, .. } => Some(data.polynomial_evaluations.len()),
-            Self::WithoutStatement { .. } => None,
         }
     }
 }
@@ -249,9 +218,6 @@ impl<F: Default, EF: Default, W: Default, const DIGEST_ELEMS: usize>
         params: &ProtocolParameters<H, C>,
         num_variables: usize,
     ) -> Self {
-        // Create empty initial phase
-        let initial_phase = InitialPhase::new_empty(params.initial_statement);
-
         // Use the actual FoldingFactor method to calculate rounds correctly
         let (num_rounds, _final_sumcheck_rounds) = params
             .folding_factor
@@ -268,7 +234,7 @@ impl<F: Default, EF: Default, W: Default, const DIGEST_ELEMS: usize>
         Self {
             initial_commitment: array::from_fn(|_| W::default()),
             initial_ood_answers: Vec::new(),
-            initial_phase,
+            initial_sumcheck: SumcheckData::default(),
             rounds: (0..num_rounds).map(|_| WhirRoundProof::default()).collect(),
             final_poly: None,
             final_pow_witness: F::default(),
@@ -307,24 +273,6 @@ impl<F: Clone, EF, W, const DIGEST_ELEMS: usize> WhirProof<F, EF, W, DIGEST_ELEM
     /// - `data`: The sumcheck data to store
     pub fn set_final_sumcheck_data(&mut self, data: SumcheckData<F, EF>) {
         self.final_sumcheck = Some(data);
-    }
-}
-
-impl<F: Default, EF: Default> InitialPhase<F, EF> {
-    #[must_use]
-    pub fn new_empty(with_statement: bool) -> Self
-    where
-        F: Default,
-    {
-        if with_statement {
-            Self::WithStatement {
-                data: SumcheckData::default(),
-            }
-        } else {
-            Self::WithoutStatement {
-                pow_witness: F::default(),
-            }
-        }
     }
 }
 
@@ -368,20 +316,15 @@ mod tests {
     /// for testing different proof initialization scenarios.
     ///
     /// # Parameters
-    /// - `initial_phase_config`: Configuration for the initial phase
     /// - `folding_factor`: The folding strategy for the protocol
     ///
     /// # Returns
     /// A `ProtocolParameters` instance configured for testing
-    fn create_test_params(
-        folding_factor: FoldingFactor,
-        initial_statement: bool,
-    ) -> ProtocolParameters<MyHash, MyCompress> {
+    fn create_test_params(folding_factor: FoldingFactor) -> ProtocolParameters<MyHash, MyCompress> {
         // Create the permutation for hash and compress
         let perm = Perm::new_from_rng_128(&mut rand::rngs::SmallRng::seed_from_u64(42));
 
         ProtocolParameters {
-            initial_statement,
             starting_log_inv_rate: 2,
             rs_domain_initial_reduction_factor: 1,
             folding_factor,
@@ -402,24 +345,24 @@ mod tests {
         let num_variables = 16;
 
         // Create protocol parameters
-        let params = create_test_params(folding_factor, true);
+        let params = create_test_params(folding_factor);
 
         // Create proof structure from parameters
         let proof: WhirProof<F, EF, F, DIGEST_ELEMS> =
             WhirProof::from_protocol_parameters(&params, num_variables);
 
         // Verify that initial_phase is WithStatement variant
-        match proof.initial_phase {
-            InitialPhase::WithStatement { data } => {
-                // sumcheck should have empty polynomial_evaluations
-                assert_eq!(data.polynomial_evaluations.len(), 0);
-                // sumcheck should have empty PoW witnesses
-                assert!(data.pow_witnesses.is_empty());
-            }
-            InitialPhase::WithoutStatement { .. } => {
-                panic!("Expected WithStatement variant, not WithStatementSkip")
-            }
-        }
+        // match proof.initial_phase {
+        //     InitialPhase::WithStatement { data } => {
+        //         // sumcheck should have empty polynomial_evaluations
+        //         assert_eq!(data.polynomial_evaluations.len(), 0);
+        //         // sumcheck should have empty PoW witnesses
+        //         assert!(data.pow_witnesses.is_empty());
+        //     }
+        //     InitialPhase::WithoutStatement { .. } => {
+        //         panic!("Expected WithStatement variant, not WithStatementSkip")
+        //     }
+        // }
 
         // Verify rounds length
         // Formula: ((num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS) / folding_factor) - 1
@@ -445,7 +388,7 @@ mod tests {
         let num_variables = 18;
 
         // Create protocol parameters without initial statement
-        let params = create_test_params(folding_factor, false);
+        let params = create_test_params(folding_factor);
 
         // Create proof structure from parameters
         let proof: WhirProof<F, EF, F, DIGEST_ELEMS> =
@@ -453,15 +396,15 @@ mod tests {
 
         // Verify that initial_phase is WithoutStatement variant
         // This is because initial_phase_config = WithoutStatement
-        match proof.initial_phase {
-            InitialPhase::WithoutStatement { pow_witness } => {
-                // pow_witness should be default (not populated yet)
-                assert_eq!(pow_witness, F::default());
-            }
-            InitialPhase::WithStatement { .. } => {
-                panic!("Expected WithoutStatement variant")
-            }
-        }
+        // match proof.initial_phase {
+        //     InitialPhase::WithoutStatement { pow_witness } => {
+        //         // pow_witness should be default (not populated yet)
+        //         assert_eq!(pow_witness, F::default());
+        //     }
+        //     InitialPhase::WithStatement { .. } => {
+        //         panic!("Expected WithoutStatement variant")
+        //     }
+        // }
 
         // Verify rounds length
         // Formula: ((num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS) / folding_factor) - 1
@@ -481,9 +424,7 @@ mod tests {
         let proof: WhirProof<F, EF, F, DIGEST_ELEMS> = WhirProof {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
-            initial_phase: InitialPhase::WithoutStatement {
-                pow_witness: F::default(),
-            },
+            initial_sumcheck: SumcheckData::default(),
             rounds: vec![WhirRoundProof {
                 commitment: array::from_fn(|_| F::default()),
                 ood_answers: Vec::new(),
@@ -513,9 +454,7 @@ mod tests {
         let proof: WhirProof<F, EF, F, DIGEST_ELEMS> = WhirProof {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
-            initial_phase: InitialPhase::WithoutStatement {
-                pow_witness: F::default(),
-            },
+            initial_sumcheck: SumcheckData::default(),
             rounds: vec![WhirRoundProof {
                 commitment: array::from_fn(|_| F::default()),
                 ood_answers: Vec::new(),
@@ -537,29 +476,6 @@ mod tests {
 
         // Verify that we get None because the round doesn't exist
         assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_initial_phase_constructors() {
-        // Construct WithStatement variant
-        let phase: InitialPhase<F, F> = InitialPhase::new_empty(true);
-
-        // Verify it's the correct variant
-        match phase {
-            InitialPhase::WithStatement { data } => {
-                assert!(data.polynomial_evaluations.is_empty());
-            }
-            InitialPhase::WithoutStatement { .. } => panic!("Expected WithStatement variant"),
-        }
-
-        // Construct WithoutStatement variant
-        let phase: InitialPhase<F, F> = InitialPhase::new_empty(false);
-
-        // Verify it's the correct variant
-        match phase {
-            InitialPhase::WithoutStatement { pow_witness } => assert_eq!(pow_witness, F::default()),
-            InitialPhase::WithStatement { .. } => panic!("Expected WithoutStatement variant"),
-        }
     }
 
     #[test]
@@ -686,9 +602,7 @@ mod tests {
         let mut proof: WhirProof<F, EF, F, DIGEST_ELEMS> = WhirProof {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
-            initial_phase: InitialPhase::WithoutStatement {
-                pow_witness: F::default(),
-            },
+            initial_sumcheck: SumcheckData::default(),
             rounds: Vec::new(),
             final_poly: None,
             final_pow_witness: F::default(),
@@ -718,9 +632,7 @@ mod tests {
         let mut proof: WhirProof<F, EF, F, DIGEST_ELEMS> = WhirProof {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
-            initial_phase: InitialPhase::WithoutStatement {
-                pow_witness: F::default(),
-            },
+            initial_sumcheck: SumcheckData::default(),
             rounds: vec![WhirRoundProof::default(), WhirRoundProof::default()],
             final_poly: None,
             final_pow_witness: F::default(),
@@ -757,9 +669,7 @@ mod tests {
         let mut proof: WhirProof<F, EF, F, DIGEST_ELEMS> = WhirProof {
             initial_commitment: array::from_fn(|_| F::default()),
             initial_ood_answers: Vec::new(),
-            initial_phase: InitialPhase::WithoutStatement {
-                pow_witness: F::default(),
-            },
+            initial_sumcheck: SumcheckData::default(),
             rounds: Vec::new(),
             final_poly: None,
             final_pow_witness: F::default(),

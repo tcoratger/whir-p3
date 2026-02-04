@@ -196,9 +196,12 @@ mod tests {
 
     use super::*;
     use crate::{
+        fiat_shamir::domain_separator::DomainSeparator,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
         poly::evals::EvaluationsList,
-        whir::{DomainSeparator, committer::writer::CommitmentWriter, proof::WhirProof},
+        whir::{
+            committer::writer::CommitmentWriter, parameters::SumcheckStrategy, proof::WhirProof,
+        },
     };
 
     type F = BabyBear;
@@ -232,7 +235,6 @@ mod tests {
 
         // Define core protocol parameters for WHIR.
         let whir_params = ProtocolParameters {
-            initial_statement: true,
             security_level: 100,
             pow_bits: 10,
             rs_domain_initial_reduction_factor: 1,
@@ -281,13 +283,14 @@ mod tests {
         let mut prover_challenger = challenger.clone();
         ds.observe_domain_separator(&mut prover_challenger);
 
+        let mut statement = params.initial_statement(polynomial, SumcheckStrategy::Classic);
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
-        let witness = committer
+        let prover_data = committer
             .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
                 &dft,
                 &mut proof,
                 &mut prover_challenger,
-                polynomial,
+                &mut statement,
             )
             .unwrap();
 
@@ -300,10 +303,10 @@ mod tests {
         let parsed = reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
         // Ensure the Merkle root matches between prover and parsed result.
-        assert_eq!(parsed.root, witness.prover_data.root());
+        assert_eq!(parsed.root, prover_data.root());
 
         // Ensure the out-of-domain points and their answers match what was committed.
-        assert_eq!(parsed.ood_statement, witness.ood_statement);
+        assert_eq!(parsed.ood_statement, statement.normalize());
     }
 
     #[test]
@@ -328,13 +331,14 @@ mod tests {
         let mut prover_challenger = challenger.clone();
         ds.observe_domain_separator(&mut prover_challenger);
 
+        let mut statement = params.initial_statement(polynomial, SumcheckStrategy::Classic);
         // Commit the polynomial to obtain the witness.
-        let witness = committer
+        let prover_data = committer
             .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
                 &dft,
                 &mut proof,
                 &mut prover_challenger,
-                polynomial,
+                &mut statement,
             )
             .unwrap();
 
@@ -347,7 +351,7 @@ mod tests {
         let parsed = reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
         // Validate the Merkle root matches.
-        assert_eq!(parsed.root, witness.prover_data.root());
+        assert_eq!(parsed.root, prover_data.root());
 
         // OOD samples should be empty since none were requested.
         assert!(parsed.ood_statement.is_empty());
@@ -375,13 +379,14 @@ mod tests {
         let mut prover_challenger = challenger.clone();
         ds.observe_domain_separator(&mut prover_challenger);
 
+        let mut statement = params.initial_statement(polynomial, SumcheckStrategy::Classic);
         // Commit the polynomial and obtain the witness.
-        let witness = committer
+        let prover_data = committer
             .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
                 &dft,
                 &mut proof,
                 &mut prover_challenger,
-                polynomial,
+                &mut statement,
             )
             .unwrap();
 
@@ -394,8 +399,8 @@ mod tests {
         let parsed = reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
         // Check Merkle root and OOD answers match.
-        assert_eq!(parsed.root, witness.prover_data.root());
-        assert_eq!(parsed.ood_statement, witness.ood_statement);
+        assert_eq!(parsed.root, prover_data.root());
+        assert_eq!(parsed.ood_statement, statement.normalize());
     }
 
     #[test]
@@ -420,12 +425,13 @@ mod tests {
         let mut prover_challenger = challenger.clone();
         ds.observe_domain_separator(&mut prover_challenger);
 
-        let witness = committer
+        let mut statement = params.initial_statement(polynomial, SumcheckStrategy::Classic);
+        let _ = committer
             .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
                 &dft,
                 &mut proof,
                 &mut prover_challenger,
-                polynomial,
+                &mut statement,
             )
             .unwrap();
 
@@ -439,8 +445,9 @@ mod tests {
 
         // Each constraint should have correct univariate weight, sum, and flag.
         for (i, (point, &eval)) in parsed.ood_statement.iter().enumerate() {
-            let expected_point = witness.ood_statement.points[i].clone();
-            let expected_eval = witness.ood_statement.evaluations[i];
+            let statement = statement.normalize();
+            let expected_point = statement.points[i].clone();
+            let expected_eval = statement.evaluations[i];
             assert_eq!(
                 point.clone(),
                 expected_point,

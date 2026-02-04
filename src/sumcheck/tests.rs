@@ -15,10 +15,10 @@ use crate::{
         constraints::{
             Constraint,
             evaluator::ConstraintPolyEvaluator,
-            statement::{EqStatement, SelectStatement},
+            statement::{EqStatement, SelectStatement, initial::InitialStatement},
         },
         parameters::SumcheckStrategy,
-        proof::{InitialPhase, SumcheckData, WhirProof},
+        proof::{SumcheckData, WhirProof},
         verifier::sumcheck::{verify_final_sumcheck_rounds, verify_sumcheck_rounds},
     },
 };
@@ -48,13 +48,11 @@ fn domainsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
 
 fn create_test_protocol_params(
     folding_factor: FoldingFactor,
-    initial_statement: bool,
 ) -> ProtocolParameters<MyHash, MyCompress> {
     let mut rng = SmallRng::seed_from_u64(1);
     let perm = Perm::new_from_rng_128(&mut rng);
 
     ProtocolParameters {
-        initial_statement,
         security_level: 32,
         pow_bits: 0,
         rs_domain_initial_reduction_factor: 1,
@@ -307,42 +305,36 @@ fn run_sumcheck_test(
     let mut prover_challenger = challenger.clone();
 
     // Initialize proof and challenger
-    let params = create_test_protocol_params(folding_factor, true);
+    let params = create_test_protocol_params(folding_factor);
     let mut proof = WhirProof::<F, EF, F, 8>::from_protocol_parameters(&params, num_vars);
     domsep.observe_domain_separator(&mut prover_challenger);
 
     // Store constraint evaluations for each round (prover writes, verifier reads)
+    // TODO: read from proof in verifier side
     let mut all_constraint_evals: Vec<Vec<EF>> = Vec::new();
 
     // Sample and add eq constraints
-    let mut eq_statement = EqStatement::initialize(num_vars);
-    (0..num_eqs[0]).for_each(|_| {
-        let point: EF = prover_challenger.sample_algebra_element();
-        let point = MultilinearPoint::expand_from_univariate(point, num_vars);
-        let eval = poly.evaluate_hypercube_base(&point);
-        prover_challenger.observe_algebra_element(eval);
-        eq_statement.add_evaluated_constraint(point, eval);
-    });
-    all_constraint_evals.push(eq_statement.evaluations.clone());
+    let folding0 = folding_factor.at_round(0);
+    let mut initial_statement = InitialStatement::new(poly.clone(), folding0, strategy);
+
+    let constaint_evals = (0..num_eqs[0])
+        .map(|_| {
+            let point: EF = prover_challenger.sample_algebra_element();
+            let point = MultilinearPoint::expand_from_univariate(point, num_vars);
+            let eval = initial_statement.evaluate(&point);
+            prover_challenger.observe_algebra_element(eval);
+            eval
+        })
+        .collect();
+    all_constraint_evals.push(constaint_evals);
 
     // ROUND 0
-    let folding0 = folding_factor.at_round(0);
-    // Extract sumcheck data from the initial phase
-    let InitialPhase::WithStatement {
-        data: sumcheck_data,
-    } = &mut proof.initial_phase
-    else {
-        panic!("Expected WithStatement variant");
-    };
-
     let (mut sumcheck, mut prover_randomness) = Sumcheck::from_base_evals(
-        strategy,
-        &poly,
-        sumcheck_data,
+        &mut proof.initial_sumcheck,
         &mut prover_challenger,
         folding0,
         0,
-        &eq_statement,
+        &initial_statement,
     );
 
     // Track how many variables remain to fold
@@ -411,7 +403,7 @@ fn run_sumcheck_test(
     prover_challenger.observe_algebra_element(final_folded_value);
 
     // VERIFIER
-    let mut verifer_challenger = challenger;
+    let mut verifier_challenger = challenger;
 
     // Running total for the verifier’s sum of constraint combinations
     let mut sum = EF::ZERO;
@@ -426,13 +418,13 @@ fn run_sumcheck_test(
     let mut num_vars_inter = num_vars;
 
     // Apply domain separator to verifier challenger
-    domsep.observe_domain_separator(&mut verifer_challenger);
+    domsep.observe_domain_separator(&mut verifier_challenger);
 
     // VERIFY INITIAL ROUND (round 0)
     {
         // Reconstruct round constraint from transcript
         let constraint = read_constraint(
-            &mut verifer_challenger,
+            &mut verifier_challenger,
             &all_constraint_evals[0],
             num_vars_inter,
             num_eqs[0],
@@ -444,19 +436,17 @@ fn run_sumcheck_test(
         constraints.push(constraint);
 
         // Verify initial sumcheck rounds using the initial phase
-        let folding = folding_factor.at_round(0);
-        let InitialPhase::WithStatement {
-            data: initial_sumcheck_data,
-        } = &proof.initial_phase
-        else {
-            panic!("Expected WithStatement variant");
-        };
         verifier_randomness.extend(
-            &verify_sumcheck_rounds(initial_sumcheck_data, &mut verifer_challenger, &mut sum, 0)
-                .unwrap(),
+            &verify_sumcheck_rounds(
+                &proof.initial_sumcheck,
+                &mut verifier_challenger,
+                &mut sum,
+                0,
+            )
+            .unwrap(),
         );
 
-        num_vars_inter -= folding;
+        num_vars_inter -= folding_factor.at_round(0);
     }
 
     // VERIFY INTERMEDIATE ROUNDS (rounds 1 to num_rounds)
@@ -466,7 +456,7 @@ fn run_sumcheck_test(
         let round = round + 1;
         // Reconstruct round constraint from transcript
         let constraint = read_constraint(
-            &mut verifer_challenger,
+            &mut verifier_challenger,
             &all_constraint_evals[round],
             num_vars_inter,
             num_eq_points,
@@ -483,7 +473,7 @@ fn run_sumcheck_test(
         verifier_randomness.extend(
             &verify_sumcheck_rounds(
                 &proof.rounds[round - 1].sumcheck,
-                &mut verifer_challenger,
+                &mut verifier_challenger,
                 &mut sum,
                 0,
             )
@@ -497,7 +487,7 @@ fn run_sumcheck_test(
     verifier_randomness.extend(
         &verify_final_sumcheck_rounds(
             proof.final_sumcheck.as_ref(),
-            &mut verifer_challenger,
+            &mut verifier_challenger,
             &mut sum,
             final_rounds,
             0,
@@ -547,7 +537,7 @@ fn test_sumcheck_prover() {
                     folding_factor,
                     &num_eq_points,
                     &num_sel_points,
-                    SumcheckStrategy::SVO,
+                    SumcheckStrategy::Svo,
                 );
                 assert_eq!(randomness_classic, randomness_svo);
             }

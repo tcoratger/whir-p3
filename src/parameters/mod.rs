@@ -145,8 +145,6 @@ impl FoldingFactor {
 /// Configuration parameters for WHIR proofs.
 #[derive(Clone, Debug)]
 pub struct ProtocolParameters<H, C> {
-    /// Determines whether an initial statement is included
-    pub initial_statement: bool,
     /// The logarithmic inverse rate for sampling.
     pub starting_log_inv_rate: usize,
     /// The value v such that that the size of the Reed Solomon domain on which

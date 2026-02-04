@@ -125,6 +125,7 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
         evals: EvaluationsList<EF::ExtensionPacking>,
         weights: EvaluationsList<EF::ExtensionPacking>,
     ) -> Self {
+        assert_eq!(evals.num_variables(), weights.num_variables());
         let mut poly = Self::Packed { evals, weights };
 
         // Check if we should immediately transition to scalar mode.

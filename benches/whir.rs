@@ -11,7 +11,6 @@ use whir_p3::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::writer::CommitmentWriter,
-        constraints::statement::EqStatement,
         parameters::{SumcheckStrategy, WhirConfig},
         proof::WhirProof,
         prover::Prover,
@@ -34,8 +33,7 @@ fn prepare_inputs() -> (
     ProtocolParameters<MerkleHash, MerkleCompress>,
     usize,
     Radix2DFTSmallBatch<F>,
-    EvaluationsList<F>,
-    EqStatement<EF>,
+    whir_p3::whir::constraints::statement::initial::InitialStatement<F, EF>,
     MyChallenger,
     DomainSeparator<EF, F>,
 ) {
@@ -74,7 +72,6 @@ fn prepare_inputs() -> (
 
     // Assemble the protocol-level parameters.
     let whir_params = ProtocolParameters {
-        initial_statement: true,
         security_level,
         pow_bits,
         folding_factor,
@@ -99,14 +96,9 @@ fn prepare_inputs() -> (
     // Sample a random multilinear polynomial over `F`, represented by its evaluations.
     let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
 
-    // Build a simple constraint system with one point
-
-    // Sample a random Boolean point in {0,1}^num_variables.
-    let point = MultilinearPoint::rand(&mut rng, num_variables);
-
-    // Create a new WHIR `Statement` with one constraint.
-    let mut statement = EqStatement::<EF>::initialize(num_variables);
-    statement.add_unevaluated_constraint_hypercube(point, &polynomial);
+    // Build a simple initial statement with one evaluation constraint.
+    let mut initial_statement = params.initial_statement(polynomial, SumcheckStrategy::Svo);
+    let _ = initial_statement.evaluate(&MultilinearPoint::rand(&mut rng, num_variables));
 
     // Fiat-Shamir setup
 
@@ -131,15 +123,14 @@ fn prepare_inputs() -> (
         whir_params,
         num_variables,
         dft,
-        polynomial,
-        statement,
+        initial_statement,
         challenger,
         domainsep,
     )
 }
 
 fn benchmark_commit_and_prove(c: &mut Criterion) {
-    let (params, whir_params, num_variables, dft, polynomial, statement, challenger, domainsep) =
+    let (params, whir_params, num_variables, dft, initial_statement, challenger, domainsep) =
         prepare_inputs();
 
     c.bench_function("commit", |b| {
@@ -149,8 +140,14 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
             let mut proof =
                 WhirProof::<F, EF, F, 8>::from_protocol_parameters(&whir_params, num_variables);
             let committer = CommitmentWriter::new(&params);
-            let _witness = committer
-                .commit::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(&dft, &mut proof, &mut challenger_clone, polynomial.clone())
+            let mut initial_statement = initial_statement.clone();
+            let _prover_data = committer
+                .commit::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(
+                    &dft,
+                    &mut proof,
+                    &mut challenger_clone,
+                    &mut initial_statement,
+                )
                 .unwrap();
         });
     });
@@ -162,19 +159,24 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
             let mut proof =
                 WhirProof::<F, EF, F, 8>::from_protocol_parameters(&whir_params, num_variables);
             let committer = CommitmentWriter::new(&params);
-            let witness = committer
-                .commit::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(&dft, &mut proof, &mut challenger_clone, polynomial.clone())
+            let mut initial_statement = initial_statement.clone();
+            let prover_data = committer
+                .commit::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(
+                    &dft,
+                    &mut proof,
+                    &mut challenger_clone,
+                    &mut initial_statement,
+                )
                 .unwrap();
 
             let prover = Prover(&params);
             prover
                 .prove::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(
                     &dft,
-                    SumcheckStrategy::SVO,
                     &mut proof,
                     &mut challenger_clone,
-                    statement.clone(),
-                    witness,
+                    &initial_statement,
+                    prover_data,
                 )
                 .unwrap();
         });
