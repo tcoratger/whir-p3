@@ -13,12 +13,11 @@ use crate::{
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        WhirConfig,
-        committer::{Witness, writer::CommitmentWriter},
-        constraints::statement::EqStatement,
-        parameters::SumcheckStrategy,
+        committer::{ProverData, writer::CommitmentWriter},
+        constraints::statement::initial::InitialStatement,
+        parameters::{SumcheckStrategy, WhirConfig},
         proof::WhirProof,
-        prover::{Prover, round_state::RoundState},
+        prover::round_state::RoundState,
     },
 };
 
@@ -56,7 +55,6 @@ fn make_test_config(
     // Define the core protocol parameters for WHIR, customizing behavior based
     // on whether to start with an initial sumcheck and how to fold the polynomial.
     let protocol_params = ProtocolParameters {
-        initial_statement: true,
         security_level: 80,
         pow_bits,
         rs_domain_initial_reduction_factor: 1,
@@ -87,11 +85,10 @@ fn setup_domain_and_commitment(
 ) -> (
     WhirProof<F, EF4, F, DIGEST_ELEMS>,
     MyChallenger,
-    Witness<EF4, F, DenseMatrix<F>, F, DIGEST_ELEMS>,
+    ProverData<F, DenseMatrix<F>, F, DIGEST_ELEMS>,
 ) {
     // Build ProtocolParameters from WhirConfig fields
     let protocol_params = ProtocolParameters {
-        initial_statement: params.initial_statement,
         security_level: params.security_level,
         pow_bits: params.starting_folding_pow_bits,
         folding_factor: params.folding_factor,
@@ -121,22 +118,23 @@ fn setup_domain_and_commitment(
 
     // Create a committer using the protocol configuration (Merkle parameters, hashers, etc.).
     let committer = CommitmentWriter::new(params);
+    let mut initial_statement = InitialStatement::new(poly, 0, SumcheckStrategy::default());
+    let mut proof =
+        WhirProof::from_protocol_parameters(&protocol_params, initial_statement.num_variables());
 
-    let mut proof = WhirProof::from_protocol_parameters(&protocol_params, poly.num_variables());
-
-    // Perform DFT-based commitment to the polynomial, producing a witness
+    // Perform DFT-based commitment to the polynomial, producing a prover data
     // which includes the Merkle tree and polynomial values.
-    let witness = committer
+    let prover_data = committer
         .commit::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, DIGEST_ELEMS>(
             &Radix2DFTSmallBatch::<F>::default(),
             &mut proof,
             &mut prover_challenger,
-            poly,
+            &mut initial_statement,
         )
         .unwrap();
 
     // Return all initialized components needed for round state setup.
-    (whir_proof, prover_challenger, witness)
+    (whir_proof, prover_challenger, prover_data)
 }
 
 #[test]
@@ -149,6 +147,7 @@ fn test_no_initial_statement_no_sumcheck() {
     // - folding factor 2,
     // - no PoW grinding.
     let config = make_test_config(num_variables, 2, 0);
+    let folding0 = config.folding_factor.at_round(0);
 
     // Define a polynomial
     let poly = EvaluationsList::new(vec![F::from_u64(3); 1 << num_variables]);
@@ -156,20 +155,21 @@ fn test_no_initial_statement_no_sumcheck() {
     // Initialize:
     // - domain separator for Fiat-Shamir transcript,
     // - prover state,
-    // - witness containing Merkle tree for `poly`.
-    let (mut proof, mut challenger, witness) = setup_domain_and_commitment(&config, poly);
+    // - prover data containing Merkle tree for `poly`.
+    let (mut proof, mut challenger, prover_data) =
+        setup_domain_and_commitment(&config, poly.clone());
 
     // Create an empty public statement (no constraints)
-    let statement = EqStatement::<EF4>::initialize(num_variables);
+    let statement = InitialStatement::new(poly, folding0, SumcheckStrategy::default());
 
-    // Initialize the round state using the setup configuration and witness
+    // Initialize the round state using the setup configuration and prover data
     let state = RoundState::initialize_first_round_state(
-        &Prover(&config),
-        SumcheckStrategy::default(),
-        &mut proof,
+        &mut proof.initial_sumcheck,
         &mut challenger,
-        statement,
-        witness,
+        &statement,
+        prover_data,
+        config.folding_factor.at_round(0),
+        0,
     )
     .unwrap();
 
@@ -190,6 +190,7 @@ fn test_initial_statement_with_folding_factor_3() {
     // - folding factor = 3 (fold all variables in the first round),
     // - PoW disabled.
     let config = make_test_config(num_variables, 3, 0);
+    let folding0 = config.folding_factor.at_round(0);
 
     // Define the multilinear polynomial:
     // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2
@@ -226,24 +227,24 @@ fn test_initial_statement_with_folding_factor_3() {
             + e1
     };
 
-    // Add a single equality constraint to the statement: f(1,1,1) = expected value
-    let mut statement = EqStatement::<EF4>::initialize(num_variables);
-    statement.add_evaluated_constraint(
-        MultilinearPoint::new(vec![EF4::ONE, EF4::ONE, EF4::ONE]),
-        f(EF4::ONE, EF4::ONE, EF4::ONE),
-    );
+    // Set up the domain separator, prover state, and prover data for this configuration
+    let (mut proof, mut challenger_rf, prover_data) =
+        setup_domain_and_commitment(&config, poly.clone());
 
-    // Set up the domain separator, prover state, and witness for this configuration
-    let (mut proof, mut challenger_rf, witness) = setup_domain_and_commitment(&config, poly);
+    // Add a single equality constraint to the statement: f(1,1,1) = expected value
+    // Create an empty public statement (no constraints)
+    let mut statement = InitialStatement::new(poly, folding0, SumcheckStrategy::default());
+    // Evaluate at point (1, 1, 1)
+    let _ = statement.evaluate(&MultilinearPoint::new(vec![EF4::ONE, EF4::ONE, EF4::ONE]));
 
     // Run the first round state initialization (this will trigger sumcheck)
     let state = RoundState::initialize_first_round_state(
-        &Prover(&config),
-        SumcheckStrategy::default(),
-        &mut proof,
+        &mut proof.initial_sumcheck,
         &mut challenger_rf,
-        statement,
-        witness,
+        &statement,
+        prover_data,
+        config.folding_factor.at_round(0),
+        0,
     )
     .unwrap();
 
@@ -288,32 +289,35 @@ fn test_zero_poly_multiple_constraints() {
 
     // Build a WHIR config with an initial statement, folding factor 1, and no PoW
     let config = make_test_config(num_variables, 1, 0);
+    let folding0 = config.folding_factor.at_round(0);
 
     // Define a zero polynomial: f(X) = 0 for all X
     let poly = EvaluationsList::new(vec![F::ZERO; 1 << num_variables]);
 
     // Generate domain separator, prover state, and Merkle commitment witness for the poly
-    let (mut proof, mut challenger_rf, witness) = setup_domain_and_commitment(&config, poly);
+    let (mut proof, mut challenger_rf, prover_data) =
+        setup_domain_and_commitment(&config, poly.clone());
 
     // Create a new statement with multiple constraints
-    let mut statement = EqStatement::<EF4>::initialize(num_variables);
+    let mut statement = InitialStatement::new(poly, folding0, SumcheckStrategy::default());
 
     // Add one equality constraint per Boolean input: f(x) = 0 for all x ∈ {0,1}³
     for i in 0..1 << num_variables {
         let point = (0..num_variables)
             .map(|b| EF4::from_u64(((i >> b) & 1) as u64))
             .collect();
-        statement.add_evaluated_constraint(MultilinearPoint::new(point), EF4::ZERO);
+        let eval = statement.evaluate(&MultilinearPoint::new(point));
+        assert_eq!(eval, EF4::ZERO);
     }
 
     // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
     let state = RoundState::initialize_first_round_state(
-        &Prover(&config),
-        SumcheckStrategy::default(),
-        &mut proof,
+        &mut proof.initial_sumcheck,
         &mut challenger_rf,
-        statement,
-        witness,
+        &statement,
+        prover_data,
+        folding0,
+        0,
     )
     .unwrap();
 
@@ -356,6 +360,7 @@ fn test_initialize_round_state_with_initial_statement() {
     // - folding factor of 1 (fold one variable in the first round),
     // - PoW bits enabled.
     let config = make_test_config(num_variables, 1, pow_bits);
+    let folding0 = config.folding_factor.at_round(0);
 
     // Define a multilinear polynomial:
     // f(X0, X1, X2) = 1 + 2*X2 + 3*X1 + 4*X1*X2 + 5*X0 + 6*X0*X2 + 7*X0*X1 + 8*X0*X1*X2
@@ -391,25 +396,23 @@ fn test_initialize_round_state_with_initial_statement() {
             + e1
     };
 
-    // Construct a statement with one evaluation constraint at the point (1, 0, 1)
-    let mut statement = EqStatement::<EF4>::initialize(num_variables);
-    statement.add_evaluated_constraint(
-        MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE]),
-        f(EF4::ONE, EF4::ZERO, EF4::ONE),
-    );
+    // Set up Fiat-Shamir domain and produce commitment + prover data
+    // Generate domain separator, prover state, and Merkle commitment prover data for the poly
+    let (mut proof, mut challenger_rf, prover_data) =
+        setup_domain_and_commitment(&config, poly.clone());
 
-    // Set up Fiat-Shamir domain and produce commitment + witness
-    // Generate domain separator, prover state, and Merkle commitment witness for the poly
-    let (mut proof, mut challenger_rf, witness) = setup_domain_and_commitment(&config, poly);
+    // Construct a statement with one evaluation constraint at the point (1, 0, 1)
+    let mut statement = InitialStatement::new(poly, folding0, SumcheckStrategy::default());
+    let _ = statement.evaluate(&MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE]));
 
     // Run the first round initialization
     let state = RoundState::initialize_first_round_state(
-        &Prover(&config),
-        SumcheckStrategy::default(),
-        &mut proof,
+        &mut proof.initial_sumcheck,
         &mut challenger_rf,
-        statement,
-        witness,
+        &statement,
+        prover_data,
+        folding0,
+        pow_bits,
     )
     .expect("RoundState initialization failed");
 

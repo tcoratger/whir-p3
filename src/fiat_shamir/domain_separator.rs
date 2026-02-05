@@ -100,7 +100,6 @@ where
         // TODO: Add params
         self.observe(DIGEST_ELEMS, Observe::MerkleDigest);
         if params.commitment_ood_samples > 0 {
-            assert!(params.initial_statement);
             self.add_ood(params.commitment_ood_samples);
         }
     }
@@ -113,17 +112,11 @@ where
         EF: TwoAdicField,
         F: TwoAdicField,
     {
-        // TODO: Add statement
-        if params.initial_statement {
-            self.sample(1, Sample::InitialCombinationRandomness);
-            self.add_sumcheck(&SumcheckParams {
-                rounds: params.folding_factor.at_round(0),
-                pow_bits: params.starting_folding_pow_bits,
-            });
-        } else {
-            self.sample(params.folding_factor.at_round(0), Sample::FoldingRandomness);
-            self.pow(params.starting_folding_pow_bits);
-        }
+        self.sample(1, Sample::InitialCombinationRandomness);
+        self.add_sumcheck(&SumcheckParams {
+            rounds: params.folding_factor.at_round(0),
+            pow_bits: params.starting_folding_pow_bits,
+        });
 
         let mut domain_size = params.starting_domain_size();
         for (round, r) in params.round_parameters.iter().enumerate() {

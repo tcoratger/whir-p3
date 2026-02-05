@@ -11,8 +11,13 @@ use crate::{
         product_polynomial::ProductPolynomial, svo::SplitEq,
     },
     whir::{
-        constraints::{Constraint, statement::EqStatement},
-        parameters::SumcheckStrategy,
+        constraints::{
+            Constraint,
+            statement::{
+                EqStatement,
+                initial::{InitialStatement, InitialStatementInner},
+            },
+        },
         proof::SumcheckData,
     },
 };
@@ -189,106 +194,69 @@ where
     }
 
     #[tracing::instrument(skip_all)]
-    #[allow(clippy::too_many_lines)]
-    fn new_svo<Challenger>(
+    pub(super) fn new_svo<Challenger>(
         poly: &Poly<F>,
         proof: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
-        statement: &EqStatement<EF>,
+        statements: &[SplitEq<F, EF>],
     ) -> (Self, Point<EF>)
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
         assert_ne!(folding_factor, 0);
         let alpha: EF = challenger.sample_algebra_element();
+
         let k = poly.num_variables();
         assert!(
             folding_factor <= k,
             "number of rounds must be less than or equal to instance size"
         );
-        assert_eq!(statement.num_variables(), k);
+        for statement in statements {
+            assert_eq!(statement.num_variables(), k);
+        }
         let k_pack = log2_strict_usize(F::Packing::WIDTH);
         assert!(k >= 2 * k_pack + folding_factor);
 
-        let mut sum = EF::ZERO;
-        statement.combine_evals(&mut sum, alpha);
-
-        let (z_svos, split_eqs): (Vec<_>, Vec<_>) = statement
-            .points
+        let mut sum = statements
             .iter()
             .zip(alpha.powers())
-            .map(|(point, alpha)| {
-                let (z_svo, z_split) = point.split_at(folding_factor);
-                let split_eq = SplitEq::<F, EF>::new(&z_split, alpha);
-                (z_svo, split_eq)
-            })
-            .unzip();
+            .map(|(statement, alpha)| statement.eval * alpha)
+            .sum::<EF>();
 
-        // TODO:
-        // We already evaluatate poly at those points before sumcheck.
-        // Partial evals could be calculated and passed here.
-        // This should bring ~40% more speedup and for exchange we should expect tiny increase in poly evaluation time.
-        let partial_evals: Vec<Vec<EF>> = split_eqs
+        let accumulators = statements
             .iter()
-            .map(|split_eq| split_eq.partial_evals(poly))
-            .collect();
-
-        let accumulators = tracing::info_span!("calc accumulators").in_scope(|| {
-            z_svos
-                .iter()
-                .zip(partial_evals.iter())
-                .map(|(z_svo, partial_evals)| {
-                    (0..folding_factor)
-                        .map(|i| {
-                            let us = super::svo::points_012::<F>(i + 1);
-                            let acc0 =
-                                super::svo::calculate_accumulators(&us[0], partial_evals, z_svo);
-                            let acc2 =
-                                super::svo::calculate_accumulators(&us[1], partial_evals, z_svo);
-                            [acc0, acc2]
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>()
-        });
+            .map(SplitEq::accumulators)
+            .collect::<Vec<_>>();
 
         let mut rs = Vec::with_capacity(folding_factor);
         tracing::info_span!("svo rounds").in_scope(|| {
             for round_idx in 0..folding_factor {
                 let (mut c0, mut c2): (EF, EF) = Default::default();
                 let weights = lagrange_weights_012_multi(rs.as_slice());
-                for accumulators in &accumulators {
+                for (accumulators, alpha) in accumulators.iter().zip(alpha.powers()) {
                     let acc0 = &accumulators[round_idx][0];
                     let acc2 = &accumulators[round_idx][1];
-                    c0 += dot_product::<EF, _, _>(acc0.iter().copied(), weights.iter().copied());
-                    c2 += dot_product::<EF, _, _>(acc2.iter().copied(), weights.iter().copied());
+                    c0 += alpha
+                        * dot_product::<EF, _, _>(acc0.iter().copied(), weights.iter().copied());
+                    c2 += alpha
+                        * dot_product::<EF, _, _>(acc2.iter().copied(), weights.iter().copied());
                 }
+
                 let r = proof.observe_and_sample(challenger, c0, c2, pow_bits);
                 sum = extrapolate_012(c0, sum - c0, c2, r);
                 rs.push(r);
             }
         });
 
-        let poly = poly.compress_multi_into_packed(rs.as_slice());
-
-        // Split eqs are combined here, so we move to classic sumcheck.
-        // We expect large number of stir contributions in the following rounds.
-        // Maintaining single combined weights would cost more less the same as dealing with
-        // growing number of split eqs.
-        let rs = Point::new(rs);
-        let svo_scales = z_svos
-            .iter()
-            .map(|z| Poly::new_from_point(z.as_slice(), EF::ONE).evaluate_hypercube_ext(&rs))
-            .collect::<Vec<_>>();
+        let poly = poly.compress_multi_into_packed(&rs);
         let mut weights = Poly::<EF::ExtensionPacking>::zero(poly.num_variables());
-        SplitEq::into_packed(&mut weights.0, &split_eqs, &svo_scales);
-
+        SplitEq::combine_into_packed(&mut weights.0, statements, alpha, &rs);
         let poly = ProductPolynomial::<F, EF>::new_packed(poly, weights);
-        debug_assert_eq!(poly.dot_product(), sum);
 
-        (Self { poly, sum }, rs)
+        assert_eq!(poly.dot_product(), sum);
+        (Self { poly, sum }, Point::new(rs))
     }
 
     /// Constructs a new `SumcheckSingle` instance from evaluations in the base field.
@@ -300,47 +268,31 @@ where
     /// - Applies first set of sumcheck rounds
     #[tracing::instrument(skip_all)]
     pub fn from_base_evals<Challenger>(
-        strategy: SumcheckStrategy,
-        poly: &Poly<F>,
-        proof: &mut SumcheckData<F, EF>,
+        proof: &mut SumcheckData<F, EF>, // TODO: rename SumcheckData var the same everywhere
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
-        statement: &EqStatement<EF>,
+        statement: &InitialStatement<F, EF>,
     ) -> (Self, Point<EF>)
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        let k = poly.num_variables();
+        let k = statement.num_variables();
         assert_ne!(folding_factor, 0, "number of rounds must be non-zero");
         assert!(
             folding_factor <= k,
             "number of rounds must be less than or equal to instance size"
         );
-        assert_eq!(
-            statement.num_variables(),
-            k,
-            "statement dimnension must match polynomial"
-        );
 
         let k_pack = log2_strict_usize(F::Packing::WIDTH);
-        match strategy {
-            SumcheckStrategy::SVO => {
-                if k > 2 * k_pack + folding_factor {
-                    Self::new_svo(poly, proof, challenger, folding_factor, pow_bits, statement)
-                } else {
-                    // Fallback to classic for small instances
-                    Self::new_classic_small(
-                        poly,
-                        proof,
-                        challenger,
-                        folding_factor,
-                        pow_bits,
-                        statement,
-                    )
-                }
+        let poly = &statement.poly;
+        match &statement.inner {
+            InitialStatementInner::Svo { split_eqs, l0 } => {
+                assert_eq!(*l0, folding_factor);
+                assert!(k > 2 * k_pack + folding_factor);
+                Self::new_svo(poly, proof, challenger, folding_factor, pow_bits, split_eqs)
             }
-            SumcheckStrategy::Classic => {
+            InitialStatementInner::Classic(statement) => {
                 if k > k_pack {
                     Self::new_classic_packed(
                         poly,

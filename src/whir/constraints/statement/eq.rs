@@ -199,6 +199,8 @@ impl<F: Field> EqStatement<F> {
     ///
     /// # Panics
     /// Panics if the number of variables in the `point` does not match the statement.
+    ///
+    // TODO: remove this since it has no practical use and we can't send the evaluation as prover message like this
     pub fn add_unevaluated_constraint_hypercube<BF>(
         &mut self,
         point: MultilinearPoint<F>,

@@ -18,14 +18,14 @@ use crate::{
     alloc::string::ToString,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        EqStatement,
-        constraints::{Constraint, evaluator::ConstraintPolyEvaluator, statement::SelectStatement},
-        parameters::WhirConfig,
-        proof::{InitialPhase, QueryOpening, WhirProof},
-        verifier::sumcheck::{
-            verify_final_sumcheck_rounds, verify_initial_sumcheck_rounds_without_statement,
-            verify_sumcheck_rounds,
+        constraints::{
+            Constraint,
+            evaluator::ConstraintPolyEvaluator,
+            statement::{EqStatement, SelectStatement},
         },
+        parameters::WhirConfig,
+        proof::{QueryOpening, WhirProof},
+        verifier::sumcheck::{verify_final_sumcheck_rounds, verify_sumcheck_rounds},
     },
 };
 
@@ -84,42 +84,23 @@ where
         let mut claimed_eval = EF::ZERO;
         let mut prev_commitment = parsed_commitment.clone();
 
-        let folding_randomness = match &proof.initial_phase {
-            InitialPhase::WithoutStatement { pow_witness } => {
-                assert!(prev_commitment.ood_statement.is_empty());
-                assert!(statement.is_empty());
+        statement.concatenate(&prev_commitment.ood_statement);
 
-                verify_initial_sumcheck_rounds_without_statement(
-                    *pow_witness,
-                    challenger,
-                    self.folding_factor.at_round(0),
-                    self.starting_folding_pow_bits,
-                )
-            }
-            InitialPhase::WithStatement { data, .. } => {
-                statement.concatenate(&prev_commitment.ood_statement);
+        let constraint = Constraint::new(
+            challenger.sample_algebra_element(),
+            statement,
+            SelectStatement::initialize(self.num_variables),
+        );
+        // Combine claimed evals with combination randomness
+        constraint.combine_evals(&mut claimed_eval);
+        constraints.push(constraint);
 
-                let constraint = Constraint::new(
-                    challenger.sample_algebra_element(),
-                    statement,
-                    SelectStatement::initialize(self.num_variables),
-                );
-                // Combine claimed evals with combination randomness
-                constraint.combine_evals(&mut claimed_eval);
-                constraints.push(constraint);
-
-                assert_eq!(
-                    proof.initial_phase.number_of_rounds().unwrap(),
-                    self.folding_factor.at_round(0)
-                );
-                verify_sumcheck_rounds(
-                    data,
-                    challenger,
-                    &mut claimed_eval,
-                    self.starting_folding_pow_bits,
-                )
-            }
-        }?;
+        let folding_randomness = verify_sumcheck_rounds(
+            &proof.initial_sumcheck,
+            challenger,
+            &mut claimed_eval,
+            self.starting_folding_pow_bits,
+        )?;
 
         round_folding_randomness.push(folding_randomness);
 
@@ -194,8 +175,6 @@ where
                 details: "STIR constraint verification failed on final polynomial".to_string(),
             })?;
 
-        // TODO: SVO optimization is not yet fully implemented
-        // Falls back to classic sumcheck for all optimization modes
         let final_sumcheck_randomness = verify_final_sumcheck_rounds(
             proof.final_sumcheck.as_ref(),
             challenger,

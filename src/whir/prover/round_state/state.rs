@@ -2,12 +2,9 @@
 //!
 //! This module implements the core round state management for the WHIR protocol.
 
-use alloc::{sync::Arc, vec::Vec};
-
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
-use p3_merkle_tree::MerkleTree;
 use tracing::instrument;
 
 use crate::{
@@ -15,11 +12,9 @@ use crate::{
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_prover::Sumcheck,
     whir::{
-        committer::{RoundMerkleTree, Witness},
-        constraints::statement::EqStatement,
-        parameters::SumcheckStrategy,
-        proof::{InitialPhase, WhirProof},
-        prover::Prover,
+        committer::{ProverData, ProverDataView},
+        constraints::statement::initial::InitialStatement,
+        proof::SumcheckData,
     },
 };
 
@@ -66,7 +61,7 @@ where
     /// In WHIR's proximity testing, this commitment proves the prover knows some
     /// polynomial that is purportedly close to a Reed-Solomon codeword. The verifier
     /// can later query specific positions to verify proximity claims.
-    pub commitment_merkle_prover_data: Arc<MerkleTree<F, W, M, DIGEST_ELEMS>>,
+    pub commitment_merkle_prover_data: ProverData<F, M, W, DIGEST_ELEMS>,
 
     /// Merkle tree commitment for extension field polynomials f': (EF)^{n-k} → EF.
     ///
@@ -76,7 +71,7 @@ where
     ///
     /// The extension field structure enables efficient constraint batching while
     /// preserving the Reed-Solomon proximity properties necessary for soundness.
-    pub merkle_prover_data: Option<RoundMerkleTree<F, EF, W, DIGEST_ELEMS>>,
+    pub merkle_prover_data: Option<ProverDataView<F, EF, W, DIGEST_ELEMS>>,
 }
 
 #[allow(clippy::mismatching_type_param_order)]
@@ -99,62 +94,24 @@ where
     ///
     /// Returns the complete `RoundState` ready for the first WHIR folding round.
     #[instrument(skip_all)]
-    pub fn initialize_first_round_state<MyChallenger, C, Challenger>(
-        prover: &Prover<'_, EF, F, MyChallenger, C, Challenger>,
-        sumcheck_strategy: SumcheckStrategy,
-        proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
+    pub fn initialize_first_round_state<Challenger>(
+        sumcheck_data: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
-        mut statement: EqStatement<EF>,
-        witness: Witness<EF, F, DenseMatrix<F>, W, DIGEST_ELEMS>,
+        statement: &InitialStatement<F, EF>,
+        prover_data: ProverData<F, DenseMatrix<F>, W, DIGEST_ELEMS>,
+        folding_factor: usize,
+        pow_bits: usize,
     ) -> Result<Self, FiatShamirError>
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-        MyChallenger: Clone,
-        C: Clone,
     {
-        // Append OOD constraints to statement for Reed-Solomon proximity testing
-        statement.concatenate(&witness.ood_statement);
-
-        // Protocol branching based on initial phase variant in proof
-        let (sumcheck_prover, folding_randomness) = match &mut proof.initial_phase {
-            InitialPhase::WithStatement { data } => Sumcheck::from_base_evals(
-                sumcheck_strategy,
-                &witness.polynomial,
-                data,
-                challenger,
-                prover.folding_factor.at_round(0),
-                prover.starting_folding_pow_bits,
-                &statement,
-            ),
-            InitialPhase::WithoutStatement { pow_witness } => {
-                // Sample folding challenges α_1, ..., α_k
-                let folding_randomness = MultilinearPoint::new(
-                    (0..prover.folding_factor.at_round(0))
-                        .map(|_| challenger.sample_algebra_element())
-                        .collect::<Vec<_>>(),
-                );
-
-                // Apply folding transformation: f(X_0, ..., X_{n-1}) → f'(X_k, ..., X_{n-1})
-                let poly = witness
-                    .polynomial
-                    .compress_multi(folding_randomness.as_slice());
-                let num_variables = poly.num_variables();
-
-                // Create trivial sumcheck prover (no constraints to batch)
-                let sumcheck = Sumcheck::from_extension_evals(
-                    poly,
-                    EqStatement::initialize(num_variables),
-                    EF::ONE,
-                );
-
-                // Apply proof-of-work grinding and store witness (only if pow_bits > 0)
-                if prover.starting_folding_pow_bits > 0 {
-                    *pow_witness = challenger.grind(prover.starting_folding_pow_bits);
-                }
-
-                (sumcheck, folding_randomness)
-            }
-        };
+        let (sumcheck_prover, folding_randomness) = Sumcheck::from_base_evals(
+            sumcheck_data,
+            challenger,
+            folding_factor,
+            pow_bits,
+            statement,
+        );
 
         // Initialize complete round state for first WHIR protocol round
         Ok(Self {
@@ -163,7 +120,7 @@ where
             // Current round's folding challenges (α_1, ..., α_k)
             folding_randomness,
             // Merkle commitment from witness for base field polynomial
-            commitment_merkle_prover_data: witness.prover_data,
+            commitment_merkle_prover_data: prover_data,
             // No extension field commitment yet (first round operates in base field)
             merkle_prover_data: None,
         })

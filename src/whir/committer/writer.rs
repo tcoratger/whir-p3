@@ -1,4 +1,3 @@
-use alloc::sync::Arc;
 use core::ops::Deref;
 
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
@@ -11,12 +10,14 @@ use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
-use super::Witness;
+use super::ProverData;
 use crate::{
     fiat_shamir::errors::FiatShamirError,
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::multilinear::MultilinearPoint,
     whir::{
-        committer::DenseMatrix, constraints::statement::EqStatement, parameters::WhirConfig,
+        committer::DenseMatrix,
+        constraints::statement::{EqStatement, initial::InitialStatement},
+        parameters::WhirConfig,
         proof::WhirProof,
     },
 };
@@ -62,8 +63,8 @@ where
         dft: &Dft,
         proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
-        polynomial: EvaluationsList<F>,
-    ) -> Result<Witness<EF, F, DenseMatrix<F>, W, DIGEST_ELEMS>, FiatShamirError>
+        statement: &mut InitialStatement<F, EF>,
+    ) -> Result<ProverData<F, DenseMatrix<F>, W, DIGEST_ELEMS>, FiatShamirError>
     where
         Dft: TwoAdicSubgroupDft<F>,
         P: PackedValue<Value = F> + Eq + Send + Sync,
@@ -82,9 +83,9 @@ where
         // And then pad with zeros
 
         let padded = info_span!("transpose & pad").in_scope(|| {
-            let num_vars = polynomial.num_variables();
+            let num_vars = statement.num_variables();
             let mut mat = RowMajorMatrixView::new(
-                polynomial.as_slice(),
+                statement.poly.as_slice(),
                 1 << (num_vars - self.folding_factor.at_round(0)),
             )
             .transpose();
@@ -111,6 +112,7 @@ where
         // Use CanObserve<Hash<F, W, N>> which both DuplexChallenger and SerializingChallenger implement
         challenger.observe(root);
 
+        // TODO: consider moving ood sampling to whir::Prover::prove
         let mut ood_statement = EqStatement::initialize(self.num_variables);
         (0..self.0.commitment_ood_samples).for_each(|_| {
             // Generate OOD points from ProverState randomness
@@ -118,19 +120,14 @@ where
                 challenger.sample_algebra_element(),
                 self.num_variables,
             );
-            let eval = info_span!("ood evaluation")
-                .in_scope(|| polynomial.evaluate_hypercube_base(&point));
+            let eval = info_span!("ood evaluation").in_scope(|| statement.evaluate(&point));
             proof.initial_ood_answers.push(eval);
             challenger.observe_algebra_element(eval);
             ood_statement.add_evaluated_constraint(point, eval);
         });
 
-        // Return the witness containing the polynomial, Merkle tree, and OOD results.
-        Ok(Witness {
-            polynomial,
-            prover_data: Arc::new(prover_data),
-            ood_statement,
-        })
+        // Return the prover data
+        Ok(prover_data)
     }
 }
 
@@ -160,6 +157,8 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+        poly::evals::EvaluationsList,
+        whir::parameters::SumcheckStrategy,
     };
 
     type F = BabyBear;
@@ -185,7 +184,6 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_statement: true,
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
@@ -221,34 +219,34 @@ mod tests {
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         domainsep.observe_domain_separator(&mut challenger);
 
+        let mut statement = params.initial_statement(polynomial, SumcheckStrategy::Classic);
         // Run the Commitment Phase
         let committer = CommitmentWriter::new(&params);
         let dft = Radix2DFTSmallBatch::<F>::default();
-        let witness = committer
+        let _ = committer
             .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
                 &dft,
                 &mut proof,
                 &mut challenger,
-                polynomial.clone(),
+                &mut statement,
             )
             .unwrap();
 
         // Ensure OOD (out-of-domain) points are generated.
-        assert!(
-            !witness.ood_statement.is_empty(),
-            "OOD points should be generated"
-        );
+        assert!(!statement.is_empty(), "OOD points should be generated");
 
         // Validate the number of generated OOD points.
         assert_eq!(
-            witness.ood_statement.len(),
+            statement.len(),
             params.commitment_ood_samples,
             "OOD points count should match expected samples"
         );
 
         // Check that OOD answers match expected evaluations
-        for (i, (ood_point, ood_eval)) in witness.ood_statement.iter().enumerate() {
-            let expected_eval = polynomial.evaluate_hypercube_base(ood_point);
+        let poly = &statement.poly;
+        let statement = statement.normalize();
+        for (i, (ood_point, ood_eval)) in statement.iter().enumerate() {
+            let expected_eval = poly.evaluate_hypercube_base(ood_point);
             assert_eq!(
                 *ood_eval, expected_eval,
                 "OOD answer at index {i} should match expected evaluation"
@@ -272,8 +270,6 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_statement: true,
-
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
@@ -305,6 +301,7 @@ mod tests {
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
         domainsep.observe_domain_separator(&mut challenger);
 
+        let mut statement = params.initial_statement(polynomial, SumcheckStrategy::Classic);
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let _ = committer
@@ -312,7 +309,7 @@ mod tests {
                 &dft,
                 &mut proof,
                 &mut challenger,
-                polynomial,
+                &mut statement,
             )
             .unwrap();
     }
@@ -333,7 +330,6 @@ mod tests {
         let merkle_compress = MyCompress::new(perm);
 
         let whir_params = ProtocolParameters {
-            initial_statement: true,
             security_level,
             pow_bits,
             rs_domain_initial_reduction_factor: 1,
@@ -369,19 +365,20 @@ mod tests {
 
         domainsep.observe_domain_separator(&mut challenger);
 
+        let mut statement = params.initial_statement(polynomial, SumcheckStrategy::Classic);
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
-        let witness = committer
+        let _ = committer
             .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
                 &dft,
                 &mut proof,
                 &mut challenger,
-                polynomial,
+                &mut statement,
             )
             .unwrap();
 
         assert!(
-            witness.ood_statement.is_empty(),
+            statement.is_empty(),
             "There should be no OOD points when committment_ood_samples is 0"
         );
     }

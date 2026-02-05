@@ -4,7 +4,11 @@ use core::{f64::consts::LOG2_10, marker::PhantomData};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use crate::parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption};
+use crate::{
+    parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+    poly::evals::EvaluationsList,
+    whir::constraints::statement::initial::InitialStatement,
+};
 
 /// Configuration for the initial phase of the WHIR protocol.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,7 +24,7 @@ pub enum SumcheckStrategy {
     /// Uses SVO from Algorithm 6 of <https://eprint.iacr.org/2025/1117> with
     /// specialized accumulators for the first three rounds to reduce prover work.
     #[default]
-    SVO,
+    Svo,
 }
 
 #[derive(Debug, Clone)]
@@ -47,13 +51,6 @@ where
     pub max_pow_bits: usize,
 
     pub commitment_ood_samples: usize,
-    /// Initial phase configuration.
-    ///
-    /// The WHIR protocol can prove either:
-    /// 1. The commitment is a valid low degree polynomial (WithoutStatement).
-    /// 2. The commitment is a valid folded polynomial, and an additional polynomial evaluation
-    ///    statement (any of the WithStatement* variants).
-    pub initial_statement: bool,
     pub starting_log_inv_rate: usize,
     pub starting_folding_pow_bits: usize,
 
@@ -70,7 +67,6 @@ where
     pub merkle_hash: Hash,
     pub merkle_compress: C,
 
-    pub _base_field: PhantomData<F>,
     pub _extension_field: PhantomData<EF>,
     pub _challenger: PhantomData<Challenger>,
 }
@@ -121,37 +117,20 @@ where
             .folding_factor
             .compute_number_of_rounds(num_variables);
 
-        let commitment_ood_samples = if whir_parameters.initial_statement {
-            whir_parameters.soundness_type.determine_ood_samples(
-                whir_parameters.security_level,
-                num_variables,
-                log_inv_rate,
-                field_size_bits,
-            )
-        } else {
-            0
-        };
+        let commitment_ood_samples = whir_parameters.soundness_type.determine_ood_samples(
+            whir_parameters.security_level,
+            num_variables,
+            log_inv_rate,
+            field_size_bits,
+        );
 
-        let starting_folding_pow_bits = if whir_parameters.initial_statement {
-            Self::folding_pow_bits(
-                whir_parameters.security_level,
-                whir_parameters.soundness_type,
-                field_size_bits,
-                num_variables,
-                log_inv_rate,
-            )
-        } else {
-            {
-                let prox_gaps_error =
-                    whir_parameters.soundness_type.prox_gaps_error(
-                        num_variables,
-                        log_inv_rate,
-                        field_size_bits,
-                        2,
-                    ) + libm::log2(whir_parameters.folding_factor.at_round(0) as f64);
-                (whir_parameters.security_level as f64 - prox_gaps_error).max(0.0)
-            }
-        };
+        let starting_folding_pow_bits = Self::folding_pow_bits(
+            whir_parameters.security_level,
+            whir_parameters.soundness_type,
+            field_size_bits,
+            num_variables,
+            log_inv_rate,
+        );
 
         let mut round_parameters = Vec::with_capacity(num_rounds);
         num_variables -= whir_parameters.folding_factor.at_round(0);
@@ -236,7 +215,6 @@ where
         Self {
             security_level: whir_parameters.security_level,
             max_pow_bits: whir_parameters.pow_bits,
-            initial_statement: whir_parameters.initial_statement,
             commitment_ood_samples,
             num_variables: initial_num_variables,
             soundness_type: whir_parameters.soundness_type,
@@ -251,7 +229,6 @@ where
             final_folding_pow_bits: final_folding_pow_bits as usize,
             merkle_hash: whir_parameters.merkle_hash,
             merkle_compress: whir_parameters.merkle_compress,
-            _base_field: PhantomData,
             _extension_field: PhantomData,
             _challenger: PhantomData,
         }
@@ -438,6 +415,19 @@ where
         let num_evals = 1 << (self.num_variables - self.folding_factor.total_number(round));
         new_domain_size / num_evals
     }
+
+    // Creates the empty initial statement for the WHIR protocol
+    pub const fn initial_statement(
+        &self,
+        polynomial: EvaluationsList<F>,
+        sumcheck_strategy: SumcheckStrategy,
+    ) -> InitialStatement<F, EF> {
+        InitialStatement::new(
+            polynomial,
+            self.folding_factor.at_round(0),
+            sumcheck_strategy,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -461,7 +451,6 @@ mod tests {
     const fn default_whir_params()
     -> ProtocolParameters<Poseidon2Sponge<u8>, Poseidon2Compression<u8>> {
         ProtocolParameters {
-            initial_statement: true,
             security_level: 100,
             pow_bits: 20,
             rs_domain_initial_reduction_factor: 1,
@@ -485,7 +474,6 @@ mod tests {
         assert_eq!(config.security_level, 100);
         assert_eq!(config.max_pow_bits, 20);
         assert_eq!(config.soundness_type, SecurityAssumption::CapacityBound);
-        assert!(config.initial_statement);
     }
 
     #[test]

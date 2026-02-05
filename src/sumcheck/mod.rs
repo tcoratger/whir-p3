@@ -1,7 +1,7 @@
 pub mod lagrange;
 pub mod product_polynomial;
 pub mod sumcheck_prover;
-pub(super) mod svo;
+pub mod svo;
 
 #[cfg(test)]
 mod tests;

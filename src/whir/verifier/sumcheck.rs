@@ -62,30 +62,6 @@ where
     Ok(MultilinearPoint::new(randomness))
 }
 
-pub(crate) fn verify_initial_sumcheck_rounds_without_statement<F, EF, Challenger>(
-    pow_witness: F,
-    challenger: &mut Challenger,
-    rounds: usize,
-    pow_bits: usize,
-) -> Result<MultilinearPoint<EF>, VerifierError>
-where
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-{
-    // No sumcheck - just sample folding randomness directly
-    let randomness: Vec<EF> = (0..rounds)
-        .map(|_| challenger.sample_algebra_element())
-        .collect();
-
-    // Check PoW
-    if pow_bits > 0 && !challenger.check_witness(pow_bits, pow_witness) {
-        return Err(VerifierError::InvalidPowWitness);
-    }
-
-    Ok(MultilinearPoint::new(randomness))
-}
-
 /// Verify the final sumcheck rounds.
 ///
 /// # Returns
@@ -140,9 +116,8 @@ mod tests {
         poly::evals::EvaluationsList,
         sumcheck::sumcheck_prover::Sumcheck,
         whir::{
-            constraints::statement::EqStatement,
-            parameters::SumcheckStrategy,
-            proof::{InitialPhase, WhirProof},
+            constraints::statement::initial::InitialStatement, parameters::SumcheckStrategy,
+            proof::WhirProof,
         },
     };
 
@@ -171,7 +146,6 @@ mod tests {
 
         // Construct WHIR protocol parameters
         let whir_params = ProtocolParameters {
-            initial_statement: true,
             security_level: 32,
             pow_bits: 0,
             rs_domain_initial_reduction_factor: 1,
@@ -226,9 +200,12 @@ mod tests {
 
         let n_vars = evals.num_variables();
         assert_eq!(n_vars, 3);
+        let folding_factor = 3;
+        let pow_bits = 0;
 
         // Create a constraint system with evaluations of f at various points
-        let mut statement = EqStatement::initialize(n_vars);
+        let mut statement =
+            InitialStatement::new(evals, folding_factor, SumcheckStrategy::default());
 
         let x_000 = MultilinearPoint::new(vec![EF::ZERO, EF::ZERO, EF::ZERO]);
         let x_100 = MultilinearPoint::new(vec![EF::ONE, EF::ZERO, EF::ZERO]);
@@ -242,14 +219,11 @@ mod tests {
         let f_111 = f(EF::ONE, EF::ONE, EF::ONE);
         let f_011 = f(EF::ZERO, EF::ONE, EF::ONE);
 
-        statement.add_evaluated_constraint(x_000, f_000);
-        statement.add_evaluated_constraint(x_100, f_100);
-        statement.add_evaluated_constraint(x_110, f_110);
-        statement.add_evaluated_constraint(x_111, f_111);
-        statement.add_evaluated_constraint(x_011, f_011);
-
-        let folding_factor = 3;
-        let pow_bits = 0;
+        assert_eq!(f_000, statement.evaluate(&x_000));
+        assert_eq!(f_100, statement.evaluate(&x_100));
+        assert_eq!(f_110, statement.evaluate(&x_110));
+        assert_eq!(f_111, statement.evaluate(&x_111));
+        assert_eq!(f_011, statement.evaluate(&x_011));
 
         // Set up domain separator
         // - Add sumcheck
@@ -268,16 +242,9 @@ mod tests {
             create_proof_from_test_protocol_params(n_vars, FoldingFactor::Constant(folding_factor));
         domsep.observe_domain_separator(&mut prover_challenger);
 
-        // Extract sumcheck data from the initial phase
-        let InitialPhase::WithStatement { ref mut data, .. } = proof.initial_phase else {
-            panic!("Expected WithStatement variant");
-        };
-
         // Instantiate the prover with base field coefficients
         let (_, _) = Sumcheck::<F, EF>::from_base_evals(
-            SumcheckStrategy::default(),
-            &evals,
-            data,
+            &mut proof.initial_sumcheck,
             &mut prover_challenger,
             folding_factor,
             pow_bits,
@@ -293,23 +260,19 @@ mod tests {
 
         let mut t = EvaluationsList::zero(statement.num_variables());
         let mut expected_initial_sum = EF::ZERO;
-        statement.combine_hypercube::<F, false>(&mut t, &mut expected_initial_sum, EF::ONE);
+        statement.normalize().combine_hypercube::<F, false>(
+            &mut t,
+            &mut expected_initial_sum,
+            EF::ONE,
+        );
+
         // Start with the claimed sum before folding
         let mut current_sum = expected_initial_sum;
 
         let mut expected = Vec::with_capacity(folding_factor);
 
-        // Extract and verify each sumcheck round
-        let InitialPhase::WithStatement {
-            data: initial_sumcheck_data,
-            ..
-        } = &proof.initial_phase
-        else {
-            panic!("Expected WithStatement variant")
-        };
-
         // First round: read c_0 = h(0) and c_2 (quadratic coefficient)
-        let [c_0, c_2] = initial_sumcheck_data.polynomial_evaluations[0];
+        let [c_0, c_2] = proof.initial_sumcheck.polynomial_evaluations[0];
         let h_1 = current_sum - c_0;
 
         // Observe polynomial evaluations (must match what verify_initial_sumcheck_rounds does)
@@ -323,7 +286,7 @@ mod tests {
 
         for i in 0..folding_factor - 1 {
             // Read c_0 = h(0) and c_2 (quadratic coefficient), derive h(1) = claimed_sum - c_0
-            let [c_0, c_2] = initial_sumcheck_data.polynomial_evaluations[i + 1];
+            let [c_0, c_2] = proof.initial_sumcheck.polynomial_evaluations[i + 1];
             let h_1 = current_sum - c_0;
 
             // Observe polynomial evaluations
@@ -342,7 +305,7 @@ mod tests {
         }
 
         let randomness = verify_sumcheck_rounds(
-            initial_sumcheck_data,
+            &proof.initial_sumcheck,
             &mut verifier_challenger_for_verify,
             &mut expected_initial_sum,
             pow_bits,
