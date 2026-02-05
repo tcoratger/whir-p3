@@ -9,13 +9,13 @@ use p3_matrix::{
     Matrix,
     dense::{DenseMatrix, RowMajorMatrixView},
 };
-use p3_merkle_tree::MerkleTreeMmcs;
+use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use round_state::RoundState;
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
-use super::{committer::ProverData, constraints::statement::EqStatement, parameters::WhirConfig};
+use super::{constraints::statement::EqStatement, parameters::WhirConfig};
 use crate::{
     fiat_shamir::errors::FiatShamirError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -125,7 +125,7 @@ where
         proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         statement: &InitialStatement<F, EF>,
-        prover_data: ProverData<F, DenseMatrix<F>, W, DIGEST_ELEMS>,
+        prover_data: MerkleTree<F, W, DenseMatrix<F>, DIGEST_ELEMS>,
     ) -> Result<(), FiatShamirError>
     where
         Dft: TwoAdicSubgroupDft<F>,

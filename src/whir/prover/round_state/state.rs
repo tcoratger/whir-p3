@@ -5,6 +5,7 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_matrix::dense::DenseMatrix;
+use p3_merkle_tree::MerkleTree;
 use tracing::instrument;
 
 use crate::{
@@ -12,8 +13,7 @@ use crate::{
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_prover::Sumcheck,
     whir::{
-        committer::{ProverData, ProverDataView},
-        constraints::statement::initial::InitialStatement,
+        committer::ProverDataView, constraints::statement::initial::InitialStatement,
         proof::SumcheckData,
     },
 };
@@ -61,7 +61,7 @@ where
     /// In WHIR's proximity testing, this commitment proves the prover knows some
     /// polynomial that is purportedly close to a Reed-Solomon codeword. The verifier
     /// can later query specific positions to verify proximity claims.
-    pub commitment_merkle_prover_data: ProverData<F, M, W, DIGEST_ELEMS>,
+    pub commitment_merkle_prover_data: MerkleTree<F, W, M, DIGEST_ELEMS>,
 
     /// Merkle tree commitment for extension field polynomials f': (EF)^{n-k} → EF.
     ///
@@ -98,7 +98,7 @@ where
         sumcheck_data: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
         statement: &InitialStatement<F, EF>,
-        prover_data: ProverData<F, DenseMatrix<F>, W, DIGEST_ELEMS>,
+        prover_data: MerkleTree<F, W, DenseMatrix<F>, DIGEST_ELEMS>,
         folding_factor: usize,
         pow_bits: usize,
     ) -> Result<Self, FiatShamirError>

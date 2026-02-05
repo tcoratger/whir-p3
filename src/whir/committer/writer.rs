@@ -5,12 +5,11 @@ use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrixView};
-use p3_merkle_tree::MerkleTreeMmcs;
+use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
-use super::ProverData;
 use crate::{
     fiat_shamir::errors::FiatShamirError,
     poly::multilinear::MultilinearPoint,
@@ -64,7 +63,7 @@ where
         proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
         challenger: &mut Challenger,
         statement: &mut InitialStatement<F, EF>,
-    ) -> Result<ProverData<F, DenseMatrix<F>, W, DIGEST_ELEMS>, FiatShamirError>
+    ) -> Result<MerkleTree<F, W, DenseMatrix<F>, DIGEST_ELEMS>, FiatShamirError>
     where
         Dft: TwoAdicSubgroupDft<F>,
         P: PackedValue<Value = F> + Eq + Send + Sync,
