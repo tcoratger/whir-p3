@@ -189,34 +189,6 @@ impl<F: Field> EqStatement<F> {
 
     /// Adds an evaluation constraint `p(z) = s` to the system.
     ///
-    /// This method takes the polynomial `p` and uses it to compute the evaluation `s`.
-    ///
-    /// # Standard Hypercube Representation
-    ///
-    /// This method is for the standard case where the polynomial is represented as evaluations
-    /// over the Boolean hypercube `{0,1}^num_variables`. The polynomial is evaluated at the
-    /// arbitrary constraint point using standard multilinear interpolation.
-    ///
-    /// # Panics
-    /// Panics if the number of variables in the `point` does not match the statement.
-    ///
-    // TODO: remove this since it has no practical use and we can't send the evaluation as prover message like this
-    pub fn add_unevaluated_constraint_hypercube<BF>(
-        &mut self,
-        point: MultilinearPoint<F>,
-        poly: &EvaluationsList<BF>,
-    ) where
-        BF: Field,
-        F: ExtensionField<BF>,
-    {
-        assert_eq!(point.num_variables(), self.num_variables());
-        let eval = poly.evaluate_hypercube_base(&point);
-        self.points.push(point);
-        self.evaluations.push(eval);
-    }
-
-    /// Adds an evaluation constraint `p(z) = s` to the system.
-    ///
     /// Assumes the evaluation `s` is already known.
     ///
     /// # Panics
@@ -520,35 +492,24 @@ mod tests {
     }
 
     #[test]
-    fn test_add_constraints() {
-        // Test that add_unevaluated_constraint behaves identically to add_evaluated_constraint
+    fn test_add_evaluated_constraint() {
         let poly = EvaluationsList::new(vec![F::from_u64(1), F::from_u64(2)]);
         let point = MultilinearPoint::new(vec![F::ZERO]);
 
-        // Create two identical statements
-        let mut statement1 = EqStatement::<F>::initialize(1);
-        let mut statement2 = EqStatement::<F>::initialize(1);
+        let mut statement = EqStatement::<F>::initialize(1);
 
-        // Add same constraint using both methods
+        // Add constraint with pre-computed evaluation
         let eval = poly.evaluate_hypercube_base(&point);
-        statement1.add_evaluated_constraint(point.clone(), eval);
-        statement2.add_unevaluated_constraint_hypercube(point, &poly);
+        statement.add_evaluated_constraint(point, eval);
 
-        // Both statements should be identical
-        assert_eq!(statement1.len(), statement2.len());
-        assert_eq!(statement1.len(), 1);
+        // Statement should have one constraint
+        assert_eq!(statement.len(), 1);
 
-        // Both should verify against the polynomial
-        assert!(statement1.verify(&poly));
-        assert!(statement2.verify(&poly));
+        // Should verify against the polynomial
+        assert!(statement.verify(&poly));
 
-        // Both should have same constraints
-        let constraints1: Vec<_> = statement1.iter().collect();
-        let constraints2: Vec<_> = statement2.iter().collect();
-        assert_eq!(constraints1, constraints2);
-
-        // Test get_points consumes statement
-        assert_eq!(statement1.points.len(), 1);
+        // Points should be stored
+        assert_eq!(statement.points.len(), 1);
     }
 
     #[test]
