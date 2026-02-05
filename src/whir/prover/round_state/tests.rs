@@ -5,6 +5,7 @@ use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_matrix::dense::DenseMatrix;
+use p3_merkle_tree::MerkleTree;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{SeedableRng, rngs::SmallRng};
 
@@ -13,7 +14,7 @@ use crate::{
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        committer::{ProverData, writer::CommitmentWriter},
+        committer::writer::CommitmentWriter,
         constraints::statement::initial::InitialStatement,
         parameters::{SumcheckStrategy, WhirConfig},
         proof::WhirProof,
@@ -85,7 +86,7 @@ fn setup_domain_and_commitment(
 ) -> (
     WhirProof<F, EF4, F, DIGEST_ELEMS>,
     MyChallenger,
-    ProverData<F, DenseMatrix<F>, F, DIGEST_ELEMS>,
+    MerkleTree<F, F, DenseMatrix<F>, DIGEST_ELEMS>,
 ) {
     // Build ProtocolParameters from WhirConfig fields
     let protocol_params = ProtocolParameters {
