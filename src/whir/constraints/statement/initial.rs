@@ -178,7 +178,7 @@ impl<F: Field, EF: ExtensionField<F>> InitialStatement<F, EF> {
     ///
     /// - For classic statements, returns a clone of the inner state.
     /// - For SVO statements, extracts the (point, evaluation) pairs from each
-    /// split equality polynomial.
+    ///   split equality polynomial.
     ///
     /// Useful for verification or when the explicit constraint form is needed.
     #[must_use]
