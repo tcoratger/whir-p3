@@ -71,7 +71,8 @@ where
     for _ in 0..num_constraints {
         let point =
             MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), num_vars);
-        statement.add_unevaluated_constraint_hypercube(point, poly);
+        let eval = poly.evaluate_hypercube_base(&point);
+        statement.add_evaluated_constraint(point, eval);
     }
     statement
 }
