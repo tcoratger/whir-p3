@@ -103,7 +103,7 @@ where
     #[tracing::instrument(skip_all)]
     fn new_classic_small<Challenger>(
         poly: &Poly<F>,
-        proof: &mut SumcheckData<F, EF>,
+        sumcheck_data: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
@@ -127,7 +127,7 @@ where
         let (c0, c2) = poly.sumcheck_coefficients(&weights);
 
         // Commit to transcript, perform PoW, and receive challenge.
-        let r = proof.observe_and_sample(challenger, c0, c2, pow_bits);
+        let r = sumcheck_data.observe_and_sample(challenger, c0, c2, pow_bits);
 
         // Fold both polynomials and update the sum.
         weights.compress(r);
@@ -138,7 +138,10 @@ where
         debug_assert_eq!(poly.dot_product(), sum);
 
         let rs = core::iter::once(r)
-            .chain((1..folding_factor).map(|_| poly.round(proof, challenger, &mut sum, pow_bits)))
+            .chain(
+                (1..folding_factor)
+                    .map(|_| poly.round(sumcheck_data, challenger, &mut sum, pow_bits)),
+            )
             .collect();
 
         (Self { poly, sum }, Point::new(rs))
@@ -147,7 +150,7 @@ where
     #[tracing::instrument(skip_all)]
     fn new_classic_packed<Challenger>(
         poly: &Poly<F>,
-        proof: &mut SumcheckData<F, EF>,
+        sumcheck_data: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
@@ -176,7 +179,7 @@ where
         let c2 = EF::ExtensionPacking::to_ext_iter([c2]).sum();
 
         // Commit to transcript, perform PoW, and receive challenge.
-        let r = proof.observe_and_sample(challenger, c0, c2, pow_bits);
+        let r = sumcheck_data.observe_and_sample(challenger, c0, c2, pow_bits);
 
         // Fold both polynomials and update the sum.
         weights.compress(r);
@@ -187,7 +190,10 @@ where
         debug_assert_eq!(poly.dot_product(), sum);
 
         let rs = core::iter::once(r)
-            .chain((1..folding_factor).map(|_| poly.round(proof, challenger, &mut sum, pow_bits)))
+            .chain(
+                (1..folding_factor)
+                    .map(|_| poly.round(sumcheck_data, challenger, &mut sum, pow_bits)),
+            )
             .collect();
 
         (Self { poly, sum }, Point::new(rs))
@@ -196,7 +202,7 @@ where
     #[tracing::instrument(skip_all)]
     pub(super) fn new_svo<Challenger>(
         poly: &Poly<F>,
-        proof: &mut SumcheckData<F, EF>,
+        sumcheck_data: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
@@ -244,7 +250,7 @@ where
                         * dot_product::<EF, _, _>(acc2.iter().copied(), weights.iter().copied());
                 }
 
-                let r = proof.observe_and_sample(challenger, c0, c2, pow_bits);
+                let r = sumcheck_data.observe_and_sample(challenger, c0, c2, pow_bits);
                 sum = extrapolate_012(c0, sum - c0, c2, r);
                 rs.push(r);
             }
@@ -268,7 +274,7 @@ where
     /// - Applies first set of sumcheck rounds
     #[tracing::instrument(skip_all)]
     pub fn from_base_evals<Challenger>(
-        proof: &mut SumcheckData<F, EF>, // TODO: rename SumcheckData var the same everywhere
+        sumcheck_data: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
@@ -290,13 +296,20 @@ where
             InitialStatementInner::Svo { split_eqs, l0 } => {
                 assert_eq!(*l0, folding_factor);
                 assert!(k > 2 * k_pack + folding_factor);
-                Self::new_svo(poly, proof, challenger, folding_factor, pow_bits, split_eqs)
+                Self::new_svo(
+                    poly,
+                    sumcheck_data,
+                    challenger,
+                    folding_factor,
+                    pow_bits,
+                    split_eqs,
+                )
             }
             InitialStatementInner::Classic(statement) => {
                 if k > k_pack {
                     Self::new_classic_packed(
                         poly,
-                        proof,
+                        sumcheck_data,
                         challenger,
                         folding_factor,
                         pow_bits,
@@ -306,7 +319,7 @@ where
                     // Fallback to classic for small instances
                     Self::new_classic_small(
                         poly,
-                        proof,
+                        sumcheck_data,
                         challenger,
                         folding_factor,
                         pow_bits,
