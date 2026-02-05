@@ -331,13 +331,6 @@ impl<F: Field, EF: ExtensionField<F>> SplitEq<F, EF> {
         self.inner.k()
     }
 
-    /// Returns the number of variables handled by the split eq (excluding SVO variables).
-    ///
-    /// This is `k - l` where `l` is the SVO depth.
-    const fn k_split(&self) -> usize {
-        self.inner.k_split()
-    }
-
     /// Returns the precomputed accumulators for all SVO rounds.
     ///
     /// `accumulators()[i]` contains `[acc_0, acc_2]` for round `i+1`.
@@ -506,11 +499,6 @@ impl<F: Field, EF: ExtensionField<F>> SplitEqInner<F, EF> {
         let eq_svo = EvaluationsList::new_from_point(self.z_svo.as_slice(), EF::ONE);
         let eval = dot_product::<EF, _, _>(eq_svo.iter().copied(), partial_evals.iter().copied());
         (partial_evals, eval)
-    }
-
-    fn eval_z_svo(&self, alpha: EF, rs: &[EF]) -> EF {
-        EvaluationsList::new_from_point(self.z_svo.as_slice(), alpha)
-            .evaluate_hypercube_ext(&MultilinearPoint::new(rs.to_vec()))
     }
 
     fn combine_into_packed(
