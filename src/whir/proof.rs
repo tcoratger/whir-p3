@@ -351,18 +351,9 @@ mod tests {
         let proof: WhirProof<F, EF, F, DIGEST_ELEMS> =
             WhirProof::from_protocol_parameters(&params, num_variables);
 
-        // Verify that initial_phase is WithStatement variant
-        // match proof.initial_phase {
-        //     InitialPhase::WithStatement { data } => {
-        //         // sumcheck should have empty polynomial_evaluations
-        //         assert_eq!(data.polynomial_evaluations.len(), 0);
-        //         // sumcheck should have empty PoW witnesses
-        //         assert!(data.pow_witnesses.is_empty());
-        //     }
-        //     InitialPhase::WithoutStatement { .. } => {
-        //         panic!("Expected WithStatement variant, not WithStatementSkip")
-        //     }
-        // }
+        // Verify that initial_sumcheck has empty polynomial_evaluations and PoW witnesses
+        assert_eq!(proof.initial_sumcheck.polynomial_evaluations.len(), 0);
+        assert!(proof.initial_sumcheck.pow_witnesses.is_empty());
 
         // Verify rounds length
         // Formula: ((num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS) / folding_factor) - 1
@@ -394,17 +385,10 @@ mod tests {
         let proof: WhirProof<F, EF, F, DIGEST_ELEMS> =
             WhirProof::from_protocol_parameters(&params, num_variables);
 
-        // Verify that initial_phase is WithoutStatement variant
-        // This is because initial_phase_config = WithoutStatement
-        // match proof.initial_phase {
-        //     InitialPhase::WithoutStatement { pow_witness } => {
-        //         // pow_witness should be default (not populated yet)
-        //         assert_eq!(pow_witness, F::default());
-        //     }
-        //     InitialPhase::WithStatement { .. } => {
-        //         panic!("Expected WithoutStatement variant")
-        //     }
-        // }
+        // Verify that initial_sumcheck is empty (without initial statement)
+        // The polynomial_evaluations and pow_witnesses should be empty
+        assert!(proof.initial_sumcheck.polynomial_evaluations.is_empty());
+        assert!(proof.initial_sumcheck.pow_witnesses.is_empty());
 
         // Verify rounds length
         // Formula: ((num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS) / folding_factor) - 1
