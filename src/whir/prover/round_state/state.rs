@@ -13,8 +13,7 @@ use crate::{
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_prover::Sumcheck,
     whir::{
-        committer::ProverDataView,
-        constraints::statement::initial::InitialStatement,
+        committer::ProverDataView, constraints::statement::initial::InitialStatement,
         proof::SumcheckData,
     },
 };

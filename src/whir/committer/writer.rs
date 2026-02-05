@@ -9,6 +9,7 @@ use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
+
 use crate::{
     fiat_shamir::errors::FiatShamirError,
     poly::multilinear::MultilinearPoint,
