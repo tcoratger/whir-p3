@@ -345,6 +345,27 @@ impl<F: Field, EF: ExtensionField<F>> SplitEq<F, EF> {
         &self.accumulators
     }
 
+    /// Combines multiple split eq polynomials into a single packed output.
+    ///
+    /// This is used after the SVO rounds to merge the split eq representations
+    /// back into a single weight vector for subsequent sumcheck rounds.
+    ///
+    /// # Mathematical Operation
+    ///
+    /// For each output position, accumulates:
+    ///
+    /// ```text
+    /// out[i] += sum_j alpha^j * eq(z_svo_j, rs) * eq_split_j[i]
+    /// ```
+    ///
+    /// where `eq_split_j[i]` combines `eq0` and `eq1` from each inner split eq.
+    ///
+    /// # Arguments
+    ///
+    /// * `out` - Output buffer to accumulate into (must be correctly sized).
+    /// * `selfs` - Slice of split eq polynomials to combine.
+    /// * `alpha` - Combination challenge for merging.
+    /// * `rs` - The random challenges from the completed SVO rounds.
     #[tracing::instrument(skip_all, fields(k = log2_strict_usize(out.len()), selfs = selfs.len()))]
     pub(crate) fn combine_into_packed(
         out: &mut [EF::ExtensionPacking],
@@ -358,15 +379,33 @@ impl<F: Field, EF: ExtensionField<F>> SplitEq<F, EF> {
 }
 
 impl<F: Field, EF: ExtensionField<F>> SplitEqInner<F, EF> {
+    /// Creates a new split equality polynomial from a challenge point.
+    ///
+    /// Splits the point `z` into three parts:
+    /// 1. `z_svo`: First `l` coordinates (indices 0 to l-1), kept as a point for SVO
+    /// 2. `eq0`: Next `(k-l)/2` coordinates, stored as evaluation table
+    /// 3. `eq1`: Remaining coordinates, stored as packed evaluation table for SIMD
+    ///
+    /// # Arguments
+    ///
+    /// * `z` - The challenge point `w in EF^k` for the equality polynomial.
+    /// * `l` - The number of SVO rounds (depth of the SVO optimization).
     #[tracing::instrument(skip_all)]
     pub(crate) fn new(z: &MultilinearPoint<EF>, l: usize) -> Self {
         let k = z.num_variables();
         assert!(k > l);
         assert!(k >= 2 * log2_strict_usize(F::Packing::WIDTH));
+
+        // Split into SVO part and the rest.
         let (z_svo, z_rest) = z.split_at(l);
+
+        // Split the rest into two halves for the eq tables.
         let (z0, z1) = z_rest.split_at((k - l) / 2);
+
+        // Build evaluation tables: eq0 unpacked, eq1 packed for SIMD.
         let eq0 = EvaluationsList::new_from_point(z0.as_slice(), EF::ONE);
         let eq1 = EvaluationsList::new_packed_from_point(z1.as_slice(), EF::ONE);
+
         Self { z_svo, eq0, eq1 }
     }
 
@@ -392,9 +431,13 @@ impl<F: Field, EF: ExtensionField<F>> SplitEqInner<F, EF> {
     /// - `h(1)` is derived from the sumcheck relation `h(0) + h(1) = claimed_sum`
     #[tracing::instrument(skip_all)]
     pub(crate) fn accumulators(&self, partial_evals: &[EF]) -> Vec<[Vec<EF>; 2]> {
+        // For each SVO round i, compute accumulators at grid points.
         (1..=self.k_svo())
             .map(|i| {
+                // Grid points for round i: 3^{i-1} points ending in 0 or 2.
                 let us = points_012::<F>(i);
+
+                // Compute accumulators for h(0) and h(2).
                 let acc0 = calculate_accumulators(&us[0], partial_evals, self.z_svo.as_slice());
                 let acc2 = calculate_accumulators(&us[1], partial_evals, self.z_svo.as_slice());
                 [acc0, acc2]
@@ -427,10 +470,8 @@ impl<F: Field, EF: ExtensionField<F>> SplitEqInner<F, EF> {
     /// - `eval`: The full weighted evaluation `sum_x eq(z, x) * poly(x)`
     #[tracing::instrument(skip_all)]
     pub(crate) fn partial_evals(&self, poly: &EvaluationsList<F>) -> (Vec<EF>, EF) {
-        let chunk_size = 1
-            << (self.eq1.num_variables()
-                + self.eq0.num_variables()
-                + log2_strict_usize(F::Packing::WIDTH));
+        // Each chunk of size 2^{k-l} is processed independently.
+        let chunk_size = 1 << self.k_split();
         let partial_evals = poly
             .0
             .chunks(chunk_size)
@@ -461,6 +502,7 @@ impl<F: Field, EF: ExtensionField<F>> SplitEqInner<F, EF> {
             })
             .collect::<Vec<_>>();
 
+        // Combine partial evals with eq_svo to get the full evaluation.
         let eq_svo = EvaluationsList::new_from_point(self.z_svo.as_slice(), EF::ONE);
         let eval = dot_product::<EF, _, _>(eq_svo.iter().copied(), partial_evals.iter().copied());
         (partial_evals, eval)
@@ -477,17 +519,45 @@ impl<F: Field, EF: ExtensionField<F>> SplitEqInner<F, EF> {
         alpha: EF,
         rs: &[EF],
     ) {
+        // Nothing to do if there are no split eqs.
         if selfs.is_empty() {
             return;
         }
-        let k = selfs
+
+        // Verify all split eqs have the same k.
+        let k_split = selfs
             .iter()
             .map(|eq_split| eq_split.k_split())
             .all_equal_value()
             .unwrap();
-        assert_eq!(out.len(), 1 << (k - log2_strict_usize(F::Packing::WIDTH)));
+
+        // Verify output buffer size.
+        assert_eq!(
+            out.len(),
+            1 << (k_split - log2_strict_usize(F::Packing::WIDTH)),
+            "into_packed: output buffer has wrong size"
+        );
+
+        // Verify all split eqs have the same SVO size.
+        let k_svo = selfs
+            .iter()
+            .map(|eq_split| eq_split.k_svo())
+            .all_equal_value()
+            .unwrap();
+
+        assert_eq!(
+            rs.len(),
+            k_svo,
+            "into_packed: wrong number of SVO challenges"
+        );
+
+        // Accumulate each split eq into the output.
         for (eq_split, alpha) in selfs.iter().zip(alpha.powers()) {
-            let scale = eq_split.eval_z_svo(alpha, rs);
+            // Evaluate the SVO parts at the given sumcheck challenges and also apply merging challenge.
+            let scale = EvaluationsList::new_from_point(eq_split.z_svo.as_slice(), alpha)
+                .evaluate_hypercube_ext(&MultilinearPoint::new(rs.to_vec()));
+
+            // Process output in chunks matching the left table size.
             out.par_chunks_mut(eq_split.eq1.num_evals())
                 .zip(eq_split.eq0.0.par_iter())
                 .for_each(|(chunk, &right)| {
