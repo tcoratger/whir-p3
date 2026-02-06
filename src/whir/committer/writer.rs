@@ -14,10 +14,8 @@ use crate::{
     fiat_shamir::errors::FiatShamirError,
     poly::multilinear::MultilinearPoint,
     whir::{
-        committer::DenseMatrix,
-        constraints::statement::{EqStatement, initial::InitialStatement},
-        parameters::WhirConfig,
-        proof::WhirProof,
+        committer::DenseMatrix, constraints::statement::initial::InitialStatement,
+        parameters::WhirConfig, proof::WhirProof,
     },
 };
 
@@ -112,7 +110,6 @@ where
         challenger.observe(root);
 
         // TODO: consider moving ood sampling to whir::Prover::prove
-        let mut ood_statement = EqStatement::initialize(self.num_variables);
         (0..self.0.commitment_ood_samples).for_each(|_| {
             // Generate OOD points from ProverState randomness
             let point = MultilinearPoint::expand_from_univariate(
@@ -122,7 +119,6 @@ where
             let eval = info_span!("ood evaluation").in_scope(|| statement.evaluate(&point));
             proof.initial_ood_answers.push(eval);
             challenger.observe_algebra_element(eval);
-            ood_statement.add_evaluated_constraint(point, eval);
         });
 
         // Return the prover data
