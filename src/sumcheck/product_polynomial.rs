@@ -456,13 +456,24 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
 mod tests {
     use alloc::{vec, vec::Vec};
 
-    use p3_baby_bear::BabyBear;
+    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
+    use p3_challenger::DuplexChallenger;
     use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use proptest::prelude::*;
+    use rand::{Rng, SeedableRng, rngs::SmallRng};
 
     use super::*;
 
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;
+    type Perm = Poseidon2BabyBear<16>;
+    type TestChallenger = DuplexChallenger<F, Perm, 16, 8>;
+
+    /// Creates a test challenger with a deterministic seed.
+    fn make_challenger() -> TestChallenger {
+        let perm = Perm::new_from_rng_128(&mut SmallRng::seed_from_u64(42));
+        DuplexChallenger::new(perm)
+    }
 
     #[test]
     fn test_num_variables_small_variant() {
@@ -761,5 +772,376 @@ mod tests {
 
         // Should have log_2(simd_width) variables.
         assert_eq!(poly.num_variables(), log2_strict_usize(simd_width));
+    }
+
+    #[test]
+    fn test_round_updates_sum_correctly() {
+        // Test the round() function which is the core sumcheck protocol.
+        //
+        // The round function should:
+        // 1. Compute sumcheck coefficients (c0, c2)
+        // 2. Update the claimed sum to h(r) where r is the challenge
+        // 3. Fold both polynomials
+        // 4. Return the challenge r
+        //
+        // Verify: after round(), dot_product() == updated sum
+        let e0 = EF::from_u64(2);
+        let e1 = EF::from_u64(5);
+        let e2 = EF::from_u64(3);
+        let e3 = EF::from_u64(7);
+        let w0 = EF::from_u64(1);
+        let w1 = EF::from_u64(4);
+        let w2 = EF::from_u64(2);
+        let w3 = EF::from_u64(6);
+
+        let evals = EvaluationsList::new(vec![e0, e1, e2, e3]);
+        let weights = EvaluationsList::new(vec![w0, w1, w2, w3]);
+
+        let mut poly = ProductPolynomial::<F, EF>::new_small(evals, weights);
+
+        // Initial sum = e0*w0 + e1*w1 + e2*w2 + e3*w3
+        let mut sum = e0 * w0 + e1 * w1 + e2 * w2 + e3 * w3;
+        assert_eq!(poly.dot_product(), sum);
+
+        // Perform one round of sumcheck.
+        let mut sumcheck_data = SumcheckData::default();
+        let mut challenger = make_challenger();
+
+        let _r = poly.round(&mut sumcheck_data, &mut challenger, &mut sum, 0);
+
+        // After round:
+        // 1. sum should be updated to h(r)
+        // 2. dot_product should equal the updated sum
+        assert_eq!(poly.dot_product(), sum);
+
+        // Verify sumcheck_data was populated with polynomial evaluations.
+        assert!(!sumcheck_data.polynomial_evaluations.is_empty());
+    }
+
+    #[test]
+    fn test_round_multiple_rounds() {
+        // Test multiple rounds of sumcheck to verify protocol consistency.
+        //
+        // After each round:
+        // - Number of variables decreases by 1
+        // - dot_product() == sum
+        let mut rng = SmallRng::seed_from_u64(123);
+        let num_vars = 4;
+        let num_evals = 1 << num_vars;
+
+        let evals: Vec<EF> = (0..num_evals).map(|_| EF::from_u64(rng.random())).collect();
+        let weights: Vec<EF> = (0..num_evals).map(|_| EF::from_u64(rng.random())).collect();
+
+        let mut poly = ProductPolynomial::<F, EF>::new_small(
+            EvaluationsList::new(evals),
+            EvaluationsList::new(weights),
+        );
+
+        let mut sum = poly.dot_product();
+        let mut sumcheck_data = SumcheckData::default();
+        let mut challenger = make_challenger();
+
+        // Perform all rounds except the last (need at least 1 evaluation left).
+        for expected_vars in (1..=num_vars).rev() {
+            assert_eq!(poly.num_variables(), expected_vars);
+
+            let _ = poly.round(&mut sumcheck_data, &mut challenger, &mut sum, 0);
+
+            // Invariant: dot_product == sum after each round.
+            assert_eq!(poly.dot_product(), sum);
+        }
+
+        // After all rounds, should have 0 variables (1 evaluation).
+        assert_eq!(poly.num_variables(), 0);
+        assert_eq!(poly.num_evals(), 1);
+    }
+
+    #[test]
+    fn test_num_evals_small() {
+        // Test num_evals() for Small variant.
+        let evals = EvaluationsList::new(vec![EF::ONE; 16]);
+        let weights = EvaluationsList::new(vec![EF::TWO; 16]);
+
+        let poly = ProductPolynomial::<F, EF>::new_small(evals, weights);
+
+        assert_eq!(poly.num_evals(), 16);
+        assert_eq!(poly.num_variables(), 4); // log2(16) = 4
+    }
+
+    #[test]
+    fn test_num_evals_packed() {
+        // Test num_evals() for Packed variant.
+        type EP = <EF as ExtensionField<F>>::ExtensionPacking;
+
+        let simd_width = <F as Field>::Packing::WIDTH;
+        let num_vars = log2_strict_usize(simd_width) + 2;
+        let num_evals = 1 << num_vars;
+
+        let evals_scalar: Vec<EF> = (0..num_evals).map(|i| EF::from_u64(i as u64)).collect();
+        let weights_scalar: Vec<EF> = (0..num_evals)
+            .map(|i| EF::from_u64(i as u64 + 100))
+            .collect();
+
+        let packed_evals = EvaluationsList::new(
+            evals_scalar
+                .chunks(simd_width)
+                .map(EP::from_ext_slice)
+                .collect(),
+        );
+        let packed_weights = EvaluationsList::new(
+            weights_scalar
+                .chunks(simd_width)
+                .map(EP::from_ext_slice)
+                .collect(),
+        );
+
+        let poly = ProductPolynomial::<F, EF>::new_packed(packed_evals, packed_weights);
+
+        assert_eq!(poly.num_evals(), num_evals);
+        assert_eq!(poly.num_variables(), num_vars);
+    }
+
+    #[test]
+    fn test_dot_product_packed_matches_scalar() {
+        // Verify that Packed and Small variants compute the same dot product.
+        type EP = <EF as ExtensionField<F>>::ExtensionPacking;
+
+        let simd_width = <F as Field>::Packing::WIDTH;
+        let num_vars = log2_strict_usize(simd_width) + 1;
+        let num_evals = 1 << num_vars;
+
+        let mut rng = SmallRng::seed_from_u64(456);
+        let evals_scalar: Vec<EF> = (0..num_evals).map(|_| EF::from_u64(rng.random())).collect();
+        let weights_scalar: Vec<EF> = (0..num_evals).map(|_| EF::from_u64(rng.random())).collect();
+
+        // Compute expected dot product manually.
+        let expected: EF = evals_scalar
+            .iter()
+            .zip(weights_scalar.iter())
+            .map(|(&e, &w)| e * w)
+            .sum();
+
+        // Create Small variant and verify.
+        let small_poly = ProductPolynomial::<F, EF>::new_small(
+            EvaluationsList::new(evals_scalar.clone()),
+            EvaluationsList::new(weights_scalar.clone()),
+        );
+        assert_eq!(small_poly.dot_product(), expected);
+
+        // Create Packed variant and verify.
+        let packed_evals = EvaluationsList::new(
+            evals_scalar
+                .chunks(simd_width)
+                .map(EP::from_ext_slice)
+                .collect(),
+        );
+        let packed_weights = EvaluationsList::new(
+            weights_scalar
+                .chunks(simd_width)
+                .map(EP::from_ext_slice)
+                .collect(),
+        );
+
+        let packed_poly = ProductPolynomial::<F, EF>::new_packed(packed_evals, packed_weights);
+        assert_eq!(packed_poly.dot_product(), expected);
+    }
+
+    #[test]
+    fn test_evals_extraction() {
+        // Test that evals() returns correct values for both variants.
+        let e0 = EF::from_u64(10);
+        let e1 = EF::from_u64(20);
+        let e2 = EF::from_u64(30);
+        let e3 = EF::from_u64(40);
+
+        let evals = EvaluationsList::new(vec![e0, e1, e2, e3]);
+        let weights = EvaluationsList::new(vec![EF::ONE; 4]);
+
+        let poly = ProductPolynomial::<F, EF>::new_small(evals, weights);
+
+        let extracted = poly.evals();
+        assert_eq!(extracted.as_slice(), &[e0, e1, e2, e3]);
+    }
+
+    #[test]
+    fn test_combine_updates_weights_and_sum() {
+        // Test that combine() correctly incorporates new constraints.
+        //
+        // The combine function should:
+        // 1. Update the weight polynomial with new constraint contributions
+        // 2. Update the running sum accordingly
+        use crate::whir::constraints::{Constraint, statement::EqStatement};
+
+        let num_vars = 2;
+        let evals = EvaluationsList::new(vec![EF::ONE; 4]);
+        let weights = EvaluationsList::new(vec![EF::ONE; 4]);
+
+        let mut poly = ProductPolynomial::<F, EF>::new_small(evals.clone(), weights);
+
+        // Initial state: dot_product = 4 (all ones)
+        let initial_dot = poly.dot_product();
+        assert_eq!(initial_dot, EF::from_u64(4));
+
+        // Create an EqStatement with one constraint.
+        let mut eq_statement = EqStatement::initialize(num_vars);
+        let point = MultilinearPoint::new(vec![EF::from_u64(2), EF::from_u64(3)]);
+        let eval = evals.evaluate_hypercube_ext::<EF>(&point);
+        eq_statement.add_evaluated_constraint(point, eval);
+
+        // Create constraint with the eq_statement.
+        let challenge = EF::from_u64(7);
+        let constraint = Constraint::<F, EF>::new_eq_only(challenge, eq_statement);
+
+        let mut sum = poly.dot_product();
+        poly.combine(&mut sum, &constraint);
+
+        // After combining, the weights may have changed.
+        // The exact behavior depends on the constraint implementation.
+        // We verify the invariant: dot_product reflects the combined state.
+        assert_eq!(poly.dot_product(), sum);
+    }
+
+    #[test]
+    fn test_eval_at_boolean_points() {
+        // Test eval() at boolean points (0 and 1 coordinates).
+        //
+        // For multilinear polynomial over boolean hypercube,
+        // eval at boolean point should return the stored evaluation.
+        let e00 = EF::from_u64(1);
+        let e01 = EF::from_u64(2);
+        let e10 = EF::from_u64(3);
+        let e11 = EF::from_u64(4);
+
+        let evals = EvaluationsList::new(vec![e00, e01, e10, e11]);
+        let weights = EvaluationsList::new(vec![EF::ONE; 4]);
+
+        let poly = ProductPolynomial::<F, EF>::new_small(evals, weights);
+
+        // Evaluate at (0, 0) -> should return e00
+        let point_00 = MultilinearPoint::new(vec![EF::ZERO, EF::ZERO]);
+        assert_eq!(poly.eval(&point_00), e00);
+
+        // Evaluate at (0, 1) -> should return e01
+        let point_01 = MultilinearPoint::new(vec![EF::ZERO, EF::ONE]);
+        assert_eq!(poly.eval(&point_01), e01);
+
+        // Evaluate at (1, 0) -> should return e10
+        let point_10 = MultilinearPoint::new(vec![EF::ONE, EF::ZERO]);
+        assert_eq!(poly.eval(&point_10), e10);
+
+        // Evaluate at (1, 1) -> should return e11
+        let point_11 = MultilinearPoint::new(vec![EF::ONE, EF::ONE]);
+        assert_eq!(poly.eval(&point_11), e11);
+    }
+
+    proptest! {
+        /// Verify that dot_product is consistent across random inputs.
+        #[test]
+        fn prop_dot_product_consistency(seed in 0u64..1000) {
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let num_vars = 3;
+            let num_evals = 1 << num_vars;
+
+            let evals: Vec<EF> = (0..num_evals)
+                .map(|_| EF::from_u64(u64::from(rng.random::<u32>())))
+                .collect();
+            let weights: Vec<EF> = (0..num_evals)
+                .map(|_| EF::from_u64(u64::from(rng.random::<u32>())))
+                .collect();
+
+            let poly = ProductPolynomial::<F, EF>::new_small(
+                EvaluationsList::new(evals.clone()),
+                EvaluationsList::new(weights.clone()),
+            );
+
+            // Manual computation
+            let expected: EF = evals
+                .iter()
+                .zip(weights.iter())
+                .map(|(&e, &w)| e * w)
+                .sum();
+
+            prop_assert_eq!(poly.dot_product(), expected);
+        }
+
+        /// Verify that compress maintains the sumcheck invariant.
+        #[test]
+        fn prop_compress_maintains_invariant(seed in 0u64..1000, challenge_val in 1u64..100) {
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let num_vars = 3;
+            let num_evals = 1 << num_vars;
+
+            let evals: Vec<EF> = (0..num_evals)
+                .map(|_| EF::from_u64(u64::from(rng.random::<u32>())))
+                .collect();
+            let weights: Vec<EF> = (0..num_evals)
+                .map(|_| EF::from_u64(u64::from(rng.random::<u32>())))
+                .collect();
+
+            let mut poly = ProductPolynomial::<F, EF>::new_small(
+                EvaluationsList::new(evals),
+                EvaluationsList::new(weights),
+            );
+
+            // Compute sumcheck coefficients before folding.
+            // sumcheck_coefficients returns (h(0), h(2)) where h is the univariate
+            // polynomial h(X) = sum_{b in {0,1}^{n-1}} f(X, b) * w(X, b).
+            let (c0, c2) = match &poly {
+                ProductPolynomial::Small {
+                    evals: small_evals,
+                    weights: small_weights,
+                } => small_evals.sumcheck_coefficients(small_weights),
+                ProductPolynomial::Packed { .. } => unreachable!(),
+            };
+
+            // The sumcheck relation: h(0) + h(1) = claimed_sum
+            // So h(1) = claimed_sum - h(0) = claimed_sum - c0
+            let initial_sum = poly.dot_product();
+            let h_1 = initial_sum - c0;
+
+            // Fold with challenge r.
+            let r = EF::from_u64(challenge_val);
+            poly.compress(r);
+
+            // Use Lagrange interpolation to compute h(r) from h(0), h(1), h(2).
+            // h(r) = extrapolate_012(c0, h_1, c2, r)
+            let h_r = extrapolate_012(c0, h_1, c2, r);
+
+            // After folding, dot_product should equal h(r).
+            prop_assert_eq!(poly.dot_product(), h_r);
+        }
+
+        /// Verify that round() maintains the sumcheck invariant.
+        #[test]
+        fn prop_round_maintains_invariant(seed in 0u64..1000) {
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let num_vars = 4;
+            let num_evals = 1 << num_vars;
+
+            let evals: Vec<EF> = (0..num_evals)
+                .map(|_| EF::from_u64(u64::from(rng.random::<u32>())))
+                .collect();
+            let weights: Vec<EF> = (0..num_evals)
+                .map(|_| EF::from_u64(u64::from(rng.random::<u32>())))
+                .collect();
+
+            let mut poly = ProductPolynomial::<F, EF>::new_small(
+                EvaluationsList::new(evals),
+                EvaluationsList::new(weights),
+            );
+
+            let mut sum = poly.dot_product();
+            let mut sumcheck_data = SumcheckData::default();
+
+            // Use seed to create challenger for reproducibility.
+            let perm = Perm::new_from_rng_128(&mut SmallRng::seed_from_u64(seed + 1000));
+            let mut challenger: TestChallenger = DuplexChallenger::new(perm);
+
+            // Perform one round.
+            let _ = poly.round(&mut sumcheck_data, &mut challenger, &mut sum, 0);
+
+            // Invariant: dot_product == sum after round.
+            prop_assert_eq!(poly.dot_product(), sum);
+        }
     }
 }
