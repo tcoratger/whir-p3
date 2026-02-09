@@ -8,7 +8,7 @@ use itertools::Itertools;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrix;
 use rand::{
-    Rng,
+    RngExt,
     distr::{Distribution, StandardUniform},
 };
 
@@ -195,7 +195,7 @@ impl<F> MultilinearPoint<F>
 where
     StandardUniform: Distribution<F>,
 {
-    pub fn rand<R: Rng>(rng: &mut R, num_variables: usize) -> Self {
+    pub fn rand<R: RngExt>(rng: &mut R, num_variables: usize) -> Self {
         Self((0..num_variables).map(|_| rng.random()).collect())
     }
 }

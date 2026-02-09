@@ -7,7 +7,7 @@ use p3_field::{Field, extension::BinomialExtensionField};
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{
-    Rng, SeedableRng,
+    RngExt, SeedableRng,
     rngs::{SmallRng, StdRng},
 };
 use tracing_forest::{ForestLayer, util::LevelFilter};

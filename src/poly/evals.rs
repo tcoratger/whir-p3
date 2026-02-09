@@ -789,7 +789,7 @@ mod tests {
         PrimeCharacteristicRing, PrimeField64, dot_product, extension::BinomialExtensionField,
     };
     use proptest::prelude::*;
-    use rand::{Rng, SeedableRng, rngs::SmallRng};
+    use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
     use super::*;
 

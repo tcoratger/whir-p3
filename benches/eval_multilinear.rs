@@ -2,7 +2,7 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use p3_baby_bear::BabyBear;
 use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
 use rand::{
-    Rng, SeedableRng,
+    RngExt, SeedableRng,
     distr::{Distribution, StandardUniform},
     rngs::SmallRng,
 };

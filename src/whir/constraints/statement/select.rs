@@ -532,7 +532,7 @@ mod tests {
         PackedFieldExtension, PrimeCharacteristicRing, extension::BinomialExtensionField,
     };
     use proptest::prelude::*;
-    use rand::{SeedableRng, rngs::SmallRng};
+    use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
     use super::*;
 

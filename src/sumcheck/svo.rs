@@ -566,7 +566,7 @@ mod tests {
     use p3_field::{PrimeCharacteristicRing, dot_product, extension::BinomialExtensionField};
     use p3_koala_bear::KoalaBear;
     use proptest::prelude::*;
-    use rand::{Rng, SeedableRng, rngs::SmallRng};
+    use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
     use super::*;
 
