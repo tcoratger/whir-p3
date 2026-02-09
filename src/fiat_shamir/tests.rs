@@ -4,7 +4,7 @@ use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{CanObserve, CanSample, DuplexChallenger, GrindingChallenger};
 use p3_field::extension::BinomialExtensionField;
 use proptest::prelude::*;
-use rand::{Rng, SeedableRng, rngs::SmallRng};
+use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
 use crate::fiat_shamir::domain_separator::DomainSeparator;
 

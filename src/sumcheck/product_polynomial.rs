@@ -460,7 +460,7 @@ mod tests {
     use p3_challenger::DuplexChallenger;
     use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use proptest::prelude::*;
-    use rand::{Rng, SeedableRng, rngs::SmallRng};
+    use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
     use super::*;
 
