@@ -399,7 +399,6 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
         }
     }
 
-
     /// Computes the dot product of evaluations and weights.
     ///
     /// This computes:

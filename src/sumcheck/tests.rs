@@ -2,11 +2,11 @@ use alloc::{vec, vec::Vec};
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
-use p3_field::{PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField};
+use p3_field::{
+    ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
+};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
-
-use p3_field::{ExtensionField, Field};
 
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
