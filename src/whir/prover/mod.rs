@@ -24,7 +24,6 @@ use crate::{
             Constraint,
             statement::{SelectStatement, initial::InitialStatement},
         },
-        parameters::SumcheckStrategy,
         proof::{QueryOpening, SumcheckData, WhirProof},
         utils::get_challenge_stir_queries,
     },
@@ -73,29 +72,6 @@ where
     const fn validate_parameters(&self) -> bool {
         self.0.num_variables
             == self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
-    }
-
-    /// Validates that the public statement is compatible with the configured number of variables.
-    ///
-    /// Ensures the following:
-    /// - The number of variables in the statement matches the prover's expectations
-    /// - If no initial statement is used, the statement must be empty
-    ///
-    /// # Parameters
-    /// - `statement`: The public constraints that the prover will use
-    ///
-    /// # Returns
-    /// `true` if the statement structure is valid for this protocol instance.
-    const fn validate_statement(&self, statement: &EqStatement<EF>) -> bool {
-        statement.num_variables() == self.0.num_variables
-    }
-
-    const fn initial_statement(
-        &self,
-        polynomial: EvaluationsList<F>,
-        sumcheck_strategy: SumcheckStrategy,
-    ) -> InitialStatement<F, EF> {
-        self.0.initial_statement(polynomial, sumcheck_strategy)
     }
 
     /// Executes the full WHIR prover protocol to produce the proof.

@@ -2,7 +2,9 @@ use alloc::{vec, vec::Vec};
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
-use p3_field::{PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField};
+use p3_field::{
+    ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
+};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
@@ -22,6 +24,18 @@ use crate::{
         verifier::sumcheck::{verify_final_sumcheck_rounds, verify_sumcheck_rounds},
     },
 };
+
+impl<F: Field + Ord, EF: ExtensionField<F>> Sumcheck<F, EF> {
+    /// Returns the number of evaluations in the polynomial.
+    pub const fn num_evals(&self) -> usize {
+        self.poly.num_evals()
+    }
+
+    /// Returns the weight polynomial evaluations.
+    pub fn weights(&self) -> EvaluationsList<EF> {
+        self.poly.weights()
+    }
+}
 
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
@@ -62,76 +76,6 @@ fn create_test_protocol_params(
         soundness_type: SecurityAssumption::UniqueDecoding,
         starting_log_inv_rate: 1,
     }
-}
-
-fn make_constraint<Challenger>(
-    challenger: &mut Challenger,
-    constraint_evals: &mut Vec<EF>,
-    num_vars: usize,
-    num_eqs: usize,
-    num_sels: usize,
-    poly: &EvaluationsList<F>,
-) -> Constraint<F, EF>
-where
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-{
-    // To simulate stir point derivation derive domain generator
-    let omega = F::two_adic_generator(num_vars);
-
-    // Create a new empty eq and select statements of that arity
-    let mut eq_statement = EqStatement::initialize(num_vars);
-    let mut sel_statement = SelectStatement::initialize(num_vars);
-
-    // - Sample `num_eqs` univariate challenge points.
-    // - Evaluate the sumcheck polynomial on them.
-    // - Collect (point, eval) pairs for use in the statement and constraint aggregation.
-    (0..num_eqs).for_each(|_| {
-        // Sample a univariate field element from the prover's challenger.
-        let point: EF = challenger.sample_algebra_element();
-
-        // Expand it into a `num_vars`-dimensional multilinear point.
-        let point = MultilinearPoint::expand_from_univariate(point, num_vars);
-
-        // Evaluate the current sumcheck polynomial at the sampled point.
-        let eval = poly.evaluate_hypercube_base(&point);
-
-        // Store evaluation for verifier to read later.
-        constraint_evals.push(eval);
-
-        // Add the evaluation result to the transcript for Fiat-Shamir soundness.
-        challenger.observe_algebra_element(eval);
-
-        // Add the evaluation constraint: poly(point) == eval.
-        eq_statement.add_evaluated_constraint(point, eval);
-    });
-
-    // - Sample `num_sels` univariate challenge points.
-    // - Evaluate the sumcheck polynomial on them.
-    // - Collect (var, eval) pairs for use in the statement and constraint aggregation.
-    (0..num_sels).for_each(|_| {
-        // Simulate stir point derivation
-        let index: usize = challenger.sample_bits(num_vars);
-        let var = omega.exp_u64(index as u64);
-
-        // Evaluate the current sumcheck polynomial as univariate at the sampled variable.
-        let eval = poly
-            .iter()
-            .rfold(EF::ZERO, |result, &coeff| result * var + coeff);
-
-        // Store evaluation for verifier to read later.
-        constraint_evals.push(eval);
-
-        // Add the evaluation result to the transcript for Fiat-Shamir soundness.
-        challenger.observe_algebra_element(eval);
-
-        // Add the evaluation constraint: poly(point) == eval.
-        sel_statement.add_constraint(var, eval);
-    });
-
-    // Return the constructed constraint with the alpha used for linear combination.
-    let alpha: EF = challenger.sample_algebra_element();
-
-    Constraint::new(alpha, eq_statement, sel_statement)
 }
 
 fn make_constraint_ext<Challenger>(

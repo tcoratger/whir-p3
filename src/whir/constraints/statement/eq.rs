@@ -117,37 +117,6 @@ impl<F: Field> EqStatement<F> {
         }
     }
 
-    /// Creates a filled `EqStatement<F>` for polynomials with `num_variables` variables.
-    ///
-    /// # Standard Hypercube Representation
-    ///
-    /// This constructor is for the standard case where the polynomial is represented as evaluations
-    /// over the Boolean hypercube `{0,1}^num_variables`, and will be evaluated at arbitrary constraint
-    /// points using standard multilinear interpolation. Each point has exactly `num_variables` coordinates.
-    #[must_use]
-    pub fn new_hypercube(points: Vec<MultilinearPoint<F>>, evaluations: Vec<F>) -> Self {
-        // Validate that we have one evaluation per point.
-        assert_eq!(
-            points.len(),
-            evaluations.len(),
-            "Number of points ({}) must match number of evaluations ({})",
-            points.len(),
-            evaluations.len()
-        );
-
-        // Validate that each point has the correct number of variables.
-        let num_variables = points
-            .iter()
-            .map(MultilinearPoint::num_variables)
-            .all_equal_value()
-            .unwrap();
-        Self {
-            num_variables,
-            points,
-            evaluations,
-        }
-    }
-
     /// Returns the number of variables defining the polynomial space.
     #[must_use]
     pub const fn num_variables(&self) -> usize {
@@ -363,6 +332,40 @@ mod tests {
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
     use super::*;
+
+    impl<F: Field> EqStatement<F> {
+        /// Creates a filled `EqStatement<F>` for polynomials with `num_variables` variables.
+        ///
+        /// # Standard Hypercube Representation
+        ///
+        /// This constructor is for the standard case where the polynomial is represented as
+        /// evaluations over the Boolean hypercube `{0,1}^num_variables`, and will be evaluated
+        /// at arbitrary constraint points using standard multilinear interpolation. Each point
+        /// has exactly `num_variables` coordinates.
+        #[must_use]
+        pub fn new_hypercube(points: Vec<MultilinearPoint<F>>, evaluations: Vec<F>) -> Self {
+            // Validate that we have one evaluation per point.
+            assert_eq!(
+                points.len(),
+                evaluations.len(),
+                "Number of points ({}) must match number of evaluations ({})",
+                points.len(),
+                evaluations.len()
+            );
+
+            // Validate that each point has the correct number of variables.
+            let num_variables = points
+                .iter()
+                .map(MultilinearPoint::num_variables)
+                .all_equal_value()
+                .unwrap();
+            Self {
+                num_variables,
+                points,
+                evaluations,
+            }
+        }
+    }
 
     type F = BabyBear;
     type EF = BinomialExtensionField<F, 4>;

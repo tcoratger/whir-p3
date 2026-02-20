@@ -6,33 +6,6 @@ use p3_util::log2_strict_usize;
 
 use crate::fiat_shamir::errors::FiatShamirError;
 
-/// Computes the optimal workload size for `T` to fit in L1 cache (32 KB).
-///
-/// Ensures efficient memory access by dividing the cache size by `T`'s size.
-/// The result represents how many elements of `T` can be processed per thread.
-///
-/// Helps minimize cache misses and improve performance in parallel workloads.
-#[must_use]
-pub const fn workload_size<T: Sized>() -> usize {
-    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-    const CACHE_SIZE: usize = 1 << 17; // 128KB for Apple Silicon
-
-    #[cfg(all(target_arch = "aarch64", any(target_os = "ios", target_os = "android")))]
-    const CACHE_SIZE: usize = 1 << 16; // 64KB for mobile ARM
-
-    #[cfg(target_arch = "x86_64")]
-    const CACHE_SIZE: usize = 1 << 15; // 32KB for x86-64
-
-    #[cfg(not(any(
-        all(target_arch = "aarch64", target_os = "macos"),
-        all(target_arch = "aarch64", any(target_os = "ios", target_os = "android")),
-        target_arch = "x86_64"
-    )))]
-    const CACHE_SIZE: usize = 1 << 15; // 32KB default
-
-    CACHE_SIZE / size_of::<T>()
-}
-
 /// WHIR STIR Query Sampler: Generates cryptographically secure query indices for Reed–Solomon proximity testing.
 ///
 /// This is an optimized version that batches randomness sampling when beneficial,
