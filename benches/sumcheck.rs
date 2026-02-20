@@ -1,6 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
+use p3_challenger::{DuplexChallenger, FieldChallenger};
 use p3_field::extension::BinomialExtensionField;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
@@ -10,7 +10,7 @@ use whir_p3::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_prover::Sumcheck,
     whir::{
-        constraints::statement::{EqStatement, initial::InitialStatement},
+        constraints::statement::initial::InitialStatement,
         parameters::SumcheckStrategy,
         proof::{SumcheckData, WhirProof},
     },
@@ -54,27 +54,6 @@ fn generate_poly(num_vars: usize) -> EvaluationsList<F> {
     let mut rng = SmallRng::seed_from_u64(1);
     let evals = (0..1 << num_vars).map(|_| rng.random()).collect();
     EvaluationsList::new(evals)
-}
-
-/// Helper to generate an initial statement with a few constraints.
-fn generate_statement<C>(
-    challenger: &mut C,
-    num_vars: usize,
-    poly: &EvaluationsList<F>,
-    num_constraints: usize,
-    _strategy: SumcheckStrategy,
-) -> EqStatement<EF>
-where
-    C: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-{
-    let mut statement = EqStatement::initialize(num_vars);
-    for _ in 0..num_constraints {
-        let point =
-            MultilinearPoint::expand_from_univariate(challenger.sample_algebra_element(), num_vars);
-        let eval = poly.evaluate_hypercube_base(&point);
-        statement.add_evaluated_constraint(point, eval);
-    }
-    statement
 }
 
 /// Main benchmark function to test the sumcheck prover.

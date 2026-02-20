@@ -158,22 +158,6 @@ impl<F: Field, EF: ExtensionField<F>> InitialStatement<F, EF> {
         self.poly.num_variables()
     }
 
-    /// Returns true if no constraints have been added yet.
-    pub(crate) const fn is_empty(&self) -> bool {
-        match &self.inner {
-            InitialStatementInner::Classic(statement) => statement.is_empty(),
-            InitialStatementInner::Svo { split_eqs, .. } => split_eqs.is_empty(),
-        }
-    }
-
-    /// Returns the number of constraints currently recorded.
-    pub(crate) const fn len(&self) -> usize {
-        match &self.inner {
-            InitialStatementInner::Classic(statement) => statement.len(),
-            InitialStatementInner::Svo { split_eqs, .. } => split_eqs.len(),
-        }
-    }
-
     /// Converts the statement to a normalized equality statement representation.
     ///
     /// - For classic statements, returns a clone of the inner state.
@@ -245,6 +229,24 @@ mod tests {
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 
     use super::*;
+
+    impl<F: Field, EF: ExtensionField<F>> InitialStatement<F, EF> {
+        /// Returns true if no constraints have been added yet.
+        pub(crate) const fn is_empty(&self) -> bool {
+            match &self.inner {
+                InitialStatementInner::Classic(statement) => statement.is_empty(),
+                InitialStatementInner::Svo { split_eqs, .. } => split_eqs.is_empty(),
+            }
+        }
+
+        /// Returns the number of constraints currently recorded.
+        pub(crate) const fn len(&self) -> usize {
+            match &self.inner {
+                InitialStatementInner::Classic(statement) => statement.len(),
+                InitialStatementInner::Svo { split_eqs, .. } => split_eqs.len(),
+            }
+        }
+    }
 
     type F = BabyBear;
     type EF = BinomialExtensionField<F, 4>;

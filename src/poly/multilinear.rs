@@ -221,15 +221,13 @@ mod tests {
     use alloc::vec;
 
     use p3_baby_bear::BabyBear;
-    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::PrimeCharacteristicRing;
     use proptest::prelude::*;
     use rand::{SeedableRng, rngs::SmallRng};
 
     use super::*;
 
     type F = BabyBear;
-    type EF4 = BinomialExtensionField<F, 4>;
-
     #[test]
     fn test_num_variables() {
         let point = MultilinearPoint::<F>(vec![F::from_u64(1), F::from_u64(0), F::from_u64(1)]);
