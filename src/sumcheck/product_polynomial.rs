@@ -225,16 +225,6 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
         }
     }
 
-    /// Returns the total number of evaluations in the polynomial.
-    ///
-    /// This is `2^n` where `n` is the number of variables.
-    pub(crate) const fn num_evals(&self) -> usize {
-        match self {
-            Self::Packed { evals, .. } => evals.num_evals() * F::Packing::WIDTH,
-            Self::Small { evals, .. } => evals.num_evals(),
-        }
-    }
-
     /// Transitions from packed to scalar mode if the polynomial is small enough.
     ///
     /// This is called after each fold operation to check if we should switch representations.
@@ -409,18 +399,6 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
         }
     }
 
-    /// Extracts the weight polynomial as a scalar [`EvaluationsList`].
-    ///
-    /// This unpacks the weights if in packed mode. Only available in tests.
-    #[cfg(test)]
-    pub(crate) fn weights(&self) -> EvaluationsList<EF> {
-        match &self {
-            Self::Packed { weights, .. } => EvaluationsList::new(
-                EF::ExtensionPacking::to_ext_iter(weights.as_slice().iter().copied()).collect(),
-            ),
-            Self::Small { weights, .. } => weights.clone(),
-        }
-    }
 
     /// Computes the dot product of evaluations and weights.
     ///
@@ -463,6 +441,26 @@ mod tests {
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
     use super::*;
+
+    impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
+        /// Returns the total number of evaluations in the polynomial.
+        pub(crate) const fn num_evals(&self) -> usize {
+            match self {
+                Self::Packed { evals, .. } => evals.num_evals() * F::Packing::WIDTH,
+                Self::Small { evals, .. } => evals.num_evals(),
+            }
+        }
+
+        /// Extracts the weight polynomial as a scalar [`EvaluationsList`].
+        pub(crate) fn weights(&self) -> EvaluationsList<EF> {
+            match &self {
+                Self::Packed { weights, .. } => EvaluationsList::new(
+                    EF::ExtensionPacking::to_ext_iter(weights.as_slice().iter().copied()).collect(),
+                ),
+                Self::Small { weights, .. } => weights.clone(),
+            }
+        }
+    }
 
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;

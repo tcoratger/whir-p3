@@ -6,6 +6,8 @@ use p3_field::{PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensi
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
+use p3_field::{ExtensionField, Field};
+
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
@@ -22,6 +24,18 @@ use crate::{
         verifier::sumcheck::{verify_final_sumcheck_rounds, verify_sumcheck_rounds},
     },
 };
+
+impl<F: Field + Ord, EF: ExtensionField<F>> Sumcheck<F, EF> {
+    /// Returns the number of evaluations in the polynomial.
+    pub const fn num_evals(&self) -> usize {
+        self.poly.num_evals()
+    }
+
+    /// Returns the weight polynomial evaluations.
+    pub fn weights(&self) -> EvaluationsList<EF> {
+        self.poly.weights()
+    }
+}
 
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;

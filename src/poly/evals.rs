@@ -4,7 +4,7 @@ use itertools::Itertools;
 use p3_field::{
     Algebra, ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing,
 };
-use p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixView};
+use p3_matrix::dense::RowMajorMatrixView;
 use p3_maybe_rayon::prelude::*;
 use p3_multilinear_util::eq_batch::eval_eq_batch;
 use p3_util::log2_strict_usize;
@@ -57,17 +57,6 @@ impl<F: Copy + Clone + Send + Sync> EvaluationsList<F> {
         Self(evals)
     }
 
-    /// Evaluates the polynomial as a constant.
-    ///
-    /// This is only valid for constant polynomials (i.e., when `num_variables` is 0).
-    ///
-    /// Returns None in other cases.
-    #[must_use]
-    #[inline]
-    pub fn as_constant(&self) -> Option<F> {
-        (self.num_evals() == 1).then_some(self.0[0])
-    }
-
     /// Returns the total number of stored evaluations.
     #[must_use]
     #[inline]
@@ -81,13 +70,6 @@ impl<F: Copy + Clone + Send + Sync> EvaluationsList<F> {
     pub const fn num_variables(&self) -> usize {
         // Safety: The length is guaranteed to be a power of two.
         self.0.len().ilog2() as usize
-    }
-
-    /// Create a matrix representation of the evaluation list.
-    #[inline]
-    #[must_use]
-    pub fn into_mat(self, width: usize) -> RowMajorMatrix<F> {
-        RowMajorMatrix::new(self.0, width)
     }
 
     /// Returns a reference to the underlying slice of evaluations.
@@ -792,6 +774,19 @@ mod tests {
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
     use super::*;
+
+    impl<F: Copy + Clone + Send + Sync> EvaluationsList<F> {
+        /// Evaluates the polynomial as a constant.
+        ///
+        /// This is only valid for constant polynomials (i.e., when `num_variables` is 0).
+        ///
+        /// Returns None in other cases.
+        #[must_use]
+        #[inline]
+        pub fn as_constant(&self) -> Option<F> {
+            (self.num_evals() == 1).then_some(self.0[0])
+        }
+    }
 
     type F = BabyBear;
     type EF4 = BinomialExtensionField<F, 4>;

@@ -61,45 +61,6 @@ where
     F: Field + Ord,
     EF: ExtensionField<F>,
 {
-    /// Constructs a new `SumcheckSingle` instance from evaluations in the extension field.
-    ///
-    /// This function:
-    /// - Uses precomputed evaluations of the polynomial `p` over the Boolean hypercube,
-    ///   where `p` is already represented over the extension field `EF`.
-    /// - Applies the provided `Statement` to compute equality weights and the expected sum.
-    /// - Initializes the internal state used in the sumcheck protocol.
-    ///
-    /// This is the entry point when the polynomial is defined directly over `EF`.
-    pub fn from_extension_evals(
-        evals: Poly<EF>,
-        statement: EqStatement<EF>,
-        challenge: EF,
-    ) -> Self {
-        let k = evals.num_variables();
-
-        let constraint = Constraint::new_eq_only(challenge, statement);
-        if k > log2_strict_usize(F::Packing::WIDTH) {
-            let (weights, sum) = constraint.combine_new_packed();
-            let evals = Poly::new(
-                evals
-                    .0
-                    .chunks(<F as Field>::Packing::WIDTH)
-                    .map(EF::ExtensionPacking::from_ext_slice)
-                    .collect(),
-            );
-            Self {
-                poly: ProductPolynomial::<F, EF>::new_packed(evals, weights),
-                sum,
-            }
-        } else {
-            let (weights, sum) = constraint.combine_new();
-            Self {
-                poly: ProductPolynomial::<F, EF>::new_small(evals, weights),
-                sum,
-            }
-        }
-    }
-
     #[tracing::instrument(skip_all)]
     fn new_classic_small<Challenger>(
         poly: &Poly<F>,
@@ -335,21 +296,10 @@ where
         self.poly.num_variables()
     }
 
-    /// Returns the number of evaluations in the polynomial.
-    pub const fn num_evals(&self) -> usize {
-        self.poly.num_evals()
-    }
-
     /// Returns the polynomial evaluations.
     #[tracing::instrument(skip_all)]
     pub fn evals(&self) -> Poly<EF> {
         self.poly.evals()
-    }
-
-    /// Returns the weight polynomial evaluations (test only).
-    #[cfg(test)]
-    pub fn weights(&self) -> Poly<EF> {
-        self.poly.weights()
     }
 
     /// Evaluates the sumcheck polynomial at a given multilinear point.

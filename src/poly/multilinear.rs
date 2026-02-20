@@ -57,15 +57,6 @@ where
         Self(self.0[range].to_vec())
     }
 
-    /// Return a reference to the last variable in the point, if it exists.
-    ///
-    /// Returns None if the point is empty.
-    #[inline]
-    #[must_use]
-    pub fn last_variable(&self) -> Option<&F> {
-        self.0.last()
-    }
-
     /// Converts a univariate evaluation point into a multilinear one.
     ///
     /// Uses the bijection:
