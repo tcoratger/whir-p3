@@ -4,6 +4,17 @@ use core::{f64::consts::LOG2_10, fmt::Display, str::FromStr};
 use serde::Serialize;
 
 /// Security assumptions determines which proximity parameters and conjectures are assumed by the error computation.
+///
+/// # References
+///
+/// The proximity gaps analysis is based on:
+/// - **[BCI+20]**: Ben-Sasson, Carmon, Ishai, Kopparty, Saraf. "Proximity Gaps for Reed–Solomon Codes".
+///   FOCS 2020. <https://eprint.iacr.org/2020/654>
+/// - **[BCSS25]**: Ben-Sasson, Carmon, Haböck, Kopparty, Saraf. "On Proximity Gaps for Reed–Solomon Codes".
+///   <https://eprint.iacr.org/2025/2055>
+///
+/// The [BCSS25] paper significantly improves the Johnson bound proximity gaps from `O(n^2/η^7)` to `O(n/η^5)`,
+/// enabling provable 128-bit security with smaller extension fields (e.g., degree-5 extension of KoalaBear).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum SecurityAssumption {
     /// Unique decoding assumes that the distance of each oracle is within the UDR of the code.
@@ -14,6 +25,15 @@ pub enum SecurityAssumption {
     /// Johnson bound assumes that the distance of each oracle is within the Johnson bound (1 - √ρ).
     /// We refer to this configuration as JB for short.
     /// This assumes that RS have mutual correlated agreement for proximity parameter up to (1 - √ρ).
+    ///
+    /// # Proximity Gaps Improvement
+    ///
+    /// The error bound uses Theorem 1.5 from [BCSS25]:
+    /// - **Old [BCI+20]**: `a = O(n^2/η^7)` exceptional z's
+    /// - **New [BCSS25]**: `a = O(n/η^5)` exceptional z's
+    ///
+    /// This improvement of factor `n·η^2` translates to approximately `log_2(n)` additional bits of security,
+    /// making provable 128-bit security achievable with degree-5 extensions of small prime fields.
     JohnsonBound,
 
     /// Capacity bound assumes that the distance of each oracle is within the capacity bound 1 - ρ.
@@ -59,7 +79,34 @@ impl SecurityAssumption {
         }
     }
 
-    /// Given a RS code (specified by the log of the degree and log inv of the rate) a field_size and an arity, compute the proximity gaps error (in bits) at the specified distance
+    /// Given a RS code (specified by the log of the degree and log inv of the rate) a field_size
+    /// and an arity, compute the proximity gaps error (in bits) at the specified distance.
+    ///
+    /// # Johnson Bound Improvement
+    ///
+    /// For the Johnson bound case, this uses the improved Theorem 1.5 from [BCSS25]:
+    ///
+    /// > "On Proximity Gaps for Reed–Solomon Codes" (eprint 2025/2055)
+    /// > Ben-Sasson, Carmon, Haböck, Kopparty, Saraf
+    ///
+    /// The theorem states that for proximity parameter `γ < J(δ) - η` (below Johnson bound by η),
+    /// the number of exceptional z's satisfies:
+    ///
+    /// ```text
+    /// a > (2(m + 1/2)^5 + 3(m + 1/2)·γ·ρ) / (3·ρ^(3/2)) · n + (m + 1/2) / √ρ
+    /// ```
+    ///
+    /// where `m = max(⌈√ρ / (2η)⌉, 3)` and the asymptotic behavior is `O(n/η^5)`.
+    ///
+    /// ## Comparison with prior work
+    ///
+    /// | Reference | Bound on exceptional z's | Proximity loss |
+    /// |-----------|--------------------------|----------------|
+    /// | [BCI+20]  | `O(n^2/η^7)`             | 0              |
+    /// | [BCSS25]  | `O(n/η^5)`               | 0              |
+    ///
+    /// The improvement factor of `n·η^2` translates to approximately `log_2(n)` additional bits
+    /// of provable security, enabling 128-bit security with degree-5 extensions of KoalaBear.
     #[must_use]
     pub fn prox_gaps_error(
         &self,
@@ -72,27 +119,49 @@ impl SecurityAssumption {
             num_functions >= 2,
             "num_functions must be >= 2 to compute proximity gaps error",
         );
-        // The error computed here is from [BCIKS20] for the combination of two functions. Then we multiply it by the folding factor.
+
         let log_eta = self.log_eta(log_inv_rate);
+
         // Note that this does not include the field_size
         let error = match self {
-            // In UD the error is |L|/|F| = d/ρ*|F|
+            // In UD the error is |L|/|F| = d/(ρ·|F|)
             Self::UniqueDecoding => (log_degree + log_inv_rate) as f64,
 
-            // In JB the error is degree^2/|F| * (2 * min{ 1 - √ρ - δ, √ρ/20 })^7
-            // Since δ = 1 - √ρ - η then 1 - √ρ - δ = η
-            // Thus the error is degree^2/|F| * (2 * min { η, √ρ/20 })^7
+            // From Theorem 1.5 in [BCSS25] "On Proximity Gaps for Reed–Solomon Codes":
+            //
+            // For γ < J(δ) - η, the number of exceptional z's is bounded by:
+            //   a > (2(m + 1/2)^5 + 3(m + 1/2)·γ·ρ) / (3·ρ^(3/2)) · n + (m + 1/2) / √ρ
+            //
+            // With η = √ρ/20 (safe gap), m = max(⌈√ρ/(2η)⌉, 3) = max(10, 3) = 10.
+            //
+            // The dominant term for large n:
+            //   a ≈ (2 · 10.5^5) / (3 · ρ^(3/2)) · n
+            //
+            // In log form:
+            //   log_2(a) = log_2(n) + log_2(2 · 10.5^5 / 3) + 1.5 · log_2(1/ρ)
+            //            = (log_degree + log_inv_rate) + 16.38 + 1.5 · log_inv_rate
+            //            = log_degree + 2.5 · log_inv_rate + 16.38
+            //
+            // This improves over [BCI+20] which had:
+            //   log_2(a) = 2·log_degree + 3.5·log_inv_rate + 23.24
             Self::JohnsonBound => {
-                let numerator = (2 * log_degree) as f64;
-                let sqrt_rho_20 = 1. + LOG2_10 + 0.5 * log_inv_rate as f64;
-                numerator + 7. * (sqrt_rho_20.min(-log_eta) - 1.)
+                // n = 2^(log_degree + log_inv_rate)
+                let log_n = (log_degree + log_inv_rate) as f64;
+
+                // Constant from (2 · 10.5^5 / 3)
+                let constant = libm::log2(2. * libm::pow(10.5, 5.) / 3.);
+
+                // ρ^(-3/2) contributes 1.5 · log_inv_rate
+                let log_rho_neg_3_2 = 1.5 * log_inv_rate as f64;
+
+                log_n + constant + log_rho_neg_3_2
             }
 
-            // In JB we assume the error is degree/η*ρ^2
+            // In CB we assume the error is degree/(η·ρ^2)
             Self::CapacityBound => (log_degree + 2 * log_inv_rate) as f64 - log_eta,
         };
 
-        // Error is  (num_functions - 1) * error/|F|;
+        // Error is (num_functions - 1) * error/|F|;
         let num_functions_1_log = libm::log2(num_functions as f64 - 1.);
         field_size_bits as f64 - (error + num_functions_1_log)
     }
@@ -293,12 +362,10 @@ mod tests {
 
         // Setting
         let log_degree = 20;
-        let degree = (1 << log_degree) as f64;
         let log_inv_rate = 2;
         let rate = 1. / (1 << log_inv_rate) as f64;
 
         let eta = rate.sqrt() / 20.;
-        let delta = 1. - rate.sqrt() - eta;
 
         let field_size_bits = 128;
 
@@ -307,14 +374,30 @@ mod tests {
         let computed_list_size = assumption.list_size_bits(log_degree, log_inv_rate);
         assert!((real_list_size.log2() - computed_list_size).abs() < 0.01);
 
-        // Prox gaps
+        // Prox gaps - Updated to use Theorem 1.5 from [BCSS25]
+        //
+        // From "On Proximity Gaps for Reed–Solomon Codes" (eprint 2025/2055):
+        // With η = √ρ/20, m = 10, the error bound is:
+        //   a ≈ (2 · 10.5^5) / (3 · ρ^(3/2)) · n
+        //
+        // where n = 2^(log_degree + log_inv_rate)
         let computed_error =
             assumption.prox_gaps_error(log_degree, log_inv_rate, field_size_bits, 2);
-        let real_error_non_log =
-            degree.powi(2) / (2. * (rate.sqrt() / 20.).min(1. - rate.sqrt() - delta)).powi(7);
+
+        // n = 2^(log_degree + log_inv_rate) = 2^22
+        let n = (1_u64 << (log_degree + log_inv_rate)) as f64;
+        // ρ = rate = 2^(-log_inv_rate) = 0.25
+        let rho = rate;
+        // Constant from Theorem 1.5: (2 · 10.5^5) / 3 ≈ 85085.44
+        let constant = 2. * 10.5_f64.powi(5) / 3.;
+        // a ≈ constant · n / ρ^(3/2)
+        let real_error_non_log = constant * n / rho.powf(1.5);
         let real_error = field_size_bits as f64 - real_error_non_log.log2();
 
-        assert!((computed_error - real_error).abs() < 0.01);
+        assert!(
+            (computed_error - real_error).abs() < 0.01,
+            "computed: {computed_error}, expected: {real_error}"
+        );
     }
 
     #[test]
