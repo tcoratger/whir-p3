@@ -18,7 +18,7 @@ jobs:
     name: Build & Test (${{ matrix.features }})
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install nightly toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -36,7 +36,7 @@ jobs:
       target: thumbv7em-none-eabi
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install nightly toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -54,7 +54,7 @@ jobs:
     name: Clippy (${{ matrix.features }})
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install nightly toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
