@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use core::{f64::consts::LOG2_10, marker::PhantomData};
+use core::marker::PhantomData;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -290,9 +290,26 @@ where
             .all(|r| r.pow_bits <= max_bits && r.folding_pow_bits <= max_bits)
     }
 
-    // Compute the proximity gaps term of the fold
+    /// Compute the proximity gaps term of the fold.
+    ///
+    /// # Johnson Bound Improvement
+    ///
+    /// For the Johnson bound case, this uses the improved Theorem 1.5 from [BCSS25]:
+    ///
+    /// > "On Proximity Gaps for Reed–Solomon Codes" (eprint 2025/2055)
+    /// > Ben-Sasson, Carmon, Haböck, Kopparty, Saraf
+    ///
+    /// The theorem provides tighter bounds on the number of exceptional z's:
+    /// - **Old [BCI+20]**: `a = O(n^2/η^7)`
+    /// - **New [BCSS25]**: `a = O(n/η^5)`
+    ///
+    /// With `η = √ρ/20` and `m = 10`, the error becomes:
+    /// ```text
+    /// log_2(a) = log_2(n) + 1.5·log_inv_rate + 16.38
+    ///          = num_variables + 2.5·log_inv_rate + 16.38
+    /// ```
     #[must_use]
-    pub const fn rbr_soundness_fold_prox_gaps(
+    pub fn rbr_soundness_fold_prox_gaps(
         soundness_type: SecurityAssumption,
         field_size_bits: usize,
         num_variables: usize,
@@ -302,9 +319,24 @@ where
         // Recall, at each round we are only folding by two at a time
         let error = match soundness_type {
             SecurityAssumption::CapacityBound => (num_variables + log_inv_rate) as f64 - log_eta,
+
+            // From Theorem 1.5 in [BCSS25] "On Proximity Gaps for Reed–Solomon Codes":
+            //
+            // With η = √ρ/20, m = 10, the dominant term is:
+            //   a ≈ (2 · 10.5^5) / (3 · ρ^(3/2)) · n
+            //
+            // In log form (n = 2^(num_variables + log_inv_rate)):
+            //   log_2(a) = num_variables + log_inv_rate + 16.38 + 1.5·log_inv_rate
+            //            = num_variables + 2.5·log_inv_rate + 16.38
+            //
+            // This improves over the old formula:
+            //   log_2(a) = 2·num_variables + 3.5·log_inv_rate + LOG2_10
             SecurityAssumption::JohnsonBound => {
-                LOG2_10 + 3.5 * log_inv_rate as f64 + 2. * num_variables as f64
+                // Constant from (2 · 10.5^5 / 3)
+                let constant = libm::log2(2. * libm::pow(10.5, 5.) / 3.);
+                num_variables as f64 + 2.5 * log_inv_rate as f64 + constant
             }
+
             SecurityAssumption::UniqueDecoding => (num_variables + log_inv_rate) as f64,
         };
 
