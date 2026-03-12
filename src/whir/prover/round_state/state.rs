@@ -4,18 +4,13 @@
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
-use p3_matrix::dense::DenseMatrix;
-use p3_merkle_tree::MerkleTree;
 use tracing::instrument;
 
 use crate::{
     fiat_shamir::errors::FiatShamirError,
     poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_prover::Sumcheck,
-    whir::{
-        committer::ProverDataView, constraints::statement::initial::InitialStatement,
-        proof::SumcheckData,
-    },
+    whir::{constraints::statement::initial::InitialStatement, proof::SumcheckData},
 };
 
 /// Holds all per-round prover state required during the execution of the WHIR protocol.
@@ -23,7 +18,7 @@ use crate::{
 /// This structure encapsulates the complete state needed for each round of the WHIR
 /// interactive proof system.
 #[derive(Debug)]
-pub struct RoundState<EF, F, W, M, const DIGEST_ELEMS: usize>
+pub struct RoundState<EF, F, BaseData, ExtData>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
@@ -61,7 +56,7 @@ where
     /// In WHIR's proximity testing, this commitment proves the prover knows some
     /// polynomial that is purportedly close to a Reed-Solomon codeword. The verifier
     /// can later query specific positions to verify proximity claims.
-    pub commitment_merkle_prover_data: MerkleTree<F, W, M, DIGEST_ELEMS>,
+    pub commitment_merkle_prover_data: BaseData,
 
     /// Merkle tree commitment for extension field polynomials f': (EF)^{n-k} → EF.
     ///
@@ -71,11 +66,11 @@ where
     ///
     /// The extension field structure enables efficient constraint batching while
     /// preserving the Reed-Solomon proximity properties necessary for soundness.
-    pub merkle_prover_data: Option<ProverDataView<F, EF, W, DIGEST_ELEMS>>,
+    pub merkle_prover_data: Option<ExtData>,
 }
 
 #[allow(clippy::mismatching_type_param_order)]
-impl<EF, F, W, const DIGEST_ELEMS: usize> RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>
+impl<EF, F, BaseData, ExtData> RoundState<EF, F, BaseData, ExtData>
 where
     F: TwoAdicField + Ord,
     EF: ExtensionField<F> + TwoAdicField,
@@ -98,7 +93,7 @@ where
         sumcheck_data: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
         statement: &InitialStatement<F, EF>,
-        prover_data: MerkleTree<F, W, DenseMatrix<F>, DIGEST_ELEMS>,
+        commitment_merkle_prover_data: BaseData,
         folding_factor: usize,
         pow_bits: usize,
     ) -> Result<Self, FiatShamirError>
@@ -120,7 +115,7 @@ where
             // Current round's folding challenges (α_1, ..., α_k)
             folding_randomness,
             // Merkle commitment from witness for base field polynomial
-            commitment_merkle_prover_data: prover_data,
+            commitment_merkle_prover_data,
             // No extension field commitment yet (first round operates in base field)
             merkle_prover_data: None,
         })

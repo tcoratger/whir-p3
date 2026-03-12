@@ -4,11 +4,8 @@ use core::{fmt::Debug, ops::Deref, slice::from_ref};
 use errors::VerifierError;
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
-use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::Dimensions;
-use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
-use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use super::{
@@ -37,45 +34,36 @@ pub mod sumcheck;
 /// This type provides a lightweight, ergonomic interface to verification methods
 /// by wrapping a reference to the `WhirConfig`.
 #[derive(Debug)]
-pub struct Verifier<'a, EF, F, H, C, Challenger>(
+pub struct Verifier<'a, EF, F, MT, Challenger>(
     /// Reference to the verifier’s configuration containing all round parameters.
-    pub(crate) &'a WhirConfig<EF, F, H, C, Challenger>,
+    pub(crate) &'a WhirConfig<EF, F, MT, Challenger>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, Challenger> Verifier<'a, EF, F, H, C, Challenger>
+impl<'a, EF, F, MT, Challenger> Verifier<'a, EF, F, MT, Challenger>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    MT: Mmcs<F>,
 {
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, Challenger>) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, MT, Challenger>) -> Self {
         Self(params)
     }
 
     #[instrument(skip_all)]
     #[allow(clippy::too_many_lines)]
-    pub fn verify<P, W, PW, const DIGEST_ELEMS: usize>(
+    pub fn verify(
         &self,
-        proof: &WhirProof<F, EF, W, DIGEST_ELEMS>,
+        proof: &WhirProof<F, EF, MT>,
         challenger: &mut Challenger,
-        parsed_commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
+        parsed_commitment: &ParsedCommitment<EF, MT::Commitment>,
         mut statement: EqStatement<EF>,
     ) -> Result<MultilinearPoint<EF>, VerifierError>
     where
-        P: PackedValue<Value = F> + Eq + Send + Sync,
-        W: PackedValue<Value = W> + Eq + Send + Sync + Copy,
-        PW: PackedValue<Value = W> + Eq + Send + Sync,
-        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
-            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
-            + Sync,
-        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
-            + Sync,
-        Challenger: CanObserve<Hash<F, W, DIGEST_ELEMS>>,
-        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Challenger: CanObserve<MT::Commitment>,
     {
         // During the rounds we collect constraints, combination randomness, folding randomness
         // and we update the claimed sum of constraint evaluation.
@@ -109,7 +97,7 @@ where
             let round_params = &self.round_parameters[round_index];
 
             // Receive commitment to the folded polynomial (likely encoded at higher expansion)
-            let new_commitment = ParsedCommitment::<_, Hash<F, W, DIGEST_ELEMS>>::parse_with_round(
+            let new_commitment = ParsedCommitment::<_, MT::Commitment>::parse_with_round(
                 proof,
                 challenger,
                 round_params.num_variables,
@@ -118,7 +106,7 @@ where
             );
 
             // Verify in-domain challenges on the previous commitment.
-            let stir_statement = self.verify_stir_challenges::<P, W, PW, DIGEST_ELEMS>(
+            let stir_statement = self.verify_stir_challenges(
                 proof,
                 challenger,
                 round_params,
@@ -157,7 +145,7 @@ where
         challenger.observe_algebra_slice(final_evaluations.as_slice());
 
         // Verify in-domain challenges on the previous commitment.
-        let stir_statement = self.verify_stir_challenges::<P, W, PW, DIGEST_ELEMS>(
+        let stir_statement = self.verify_stir_challenges(
             proof,
             challenger,
             &self.final_round_config(),
@@ -236,27 +224,15 @@ where
     /// # Errors
     /// Returns `VerifierError::MerkleProofInvalid` if Merkle proof verification fails
     /// or the prover's data does not match the commitment.
-    pub fn verify_stir_challenges<P, W, PW, const DIGEST_ELEMS: usize>(
+    pub fn verify_stir_challenges(
         &self,
-        proof: &crate::whir::proof::WhirProof<F, EF, W, DIGEST_ELEMS>,
+        proof: &WhirProof<F, EF, MT>,
         challenger: &mut Challenger,
         params: &RoundConfig<F>,
-        commitment: &ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>,
+        commitment: &ParsedCommitment<EF, MT::Commitment>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
-    ) -> Result<SelectStatement<F, EF>, VerifierError>
-    where
-        P: PackedValue<Value = F> + Eq + Send + Sync,
-        W: PackedValue<Value = W> + Eq + Send + Sync,
-        PW: PackedValue<Value = W> + Eq + Send + Sync,
-        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
-            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
-            + Sync,
-        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
-            + Sync,
-        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-    {
+    ) -> Result<SelectStatement<F, EF>, VerifierError> {
         // CRITICAL: Verify the prover's proof-of-work before generating challenges.
         //
         // This is the verifier's counterpart to the prover's grinding step and is essential
@@ -299,7 +275,7 @@ where
             height: params.domain_size >> params.folding_factor,
             width: 1 << params.folding_factor,
         }];
-        let answers = self.verify_merkle_proof::<P, W, PW, DIGEST_ELEMS>(
+        let answers = self.verify_merkle_proof(
             proof,
             &commitment.root,
             &stir_challenges_indexes,
@@ -350,29 +326,15 @@ where
     ///
     /// # Errors
     /// Returns `VerifierError::MerkleProofInvalid` if any Merkle proof fails verification.
-    pub fn verify_merkle_proof<P, W, PW, const DIGEST_ELEMS: usize>(
+    pub fn verify_merkle_proof(
         &self,
-        proof: &WhirProof<F, EF, W, DIGEST_ELEMS>,
-        root: &Hash<F, W, DIGEST_ELEMS>,
+        proof: &WhirProof<F, EF, MT>,
+        root: &MT::Commitment,
         indices: &[usize],
         dimensions: &[Dimensions],
         round_index: usize,
-    ) -> Result<Vec<Vec<EF>>, VerifierError>
-    where
-        P: PackedValue<Value = F> + Eq + Send + Sync,
-        W: PackedValue<Value = W> + Eq + Send + Sync,
-        PW: PackedValue<Value = W> + Eq + Send + Sync,
-        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
-            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
-            + Sync,
-        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
-            + Sync,
-        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-    {
-        let mmcs: MerkleTreeMmcs<P, PW, H, C, DIGEST_ELEMS> =
-            MerkleTreeMmcs::new(self.merkle_hash.clone(), self.merkle_compress.clone());
-        let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
+    ) -> Result<Vec<Vec<EF>>, VerifierError> {
+        let extension_mmcs = ExtensionMmcs::new(self.mmcs.clone());
 
         // Determine which queries to use from the proof structure
         let queries = if round_index == self.n_rounds() {
@@ -393,19 +355,20 @@ where
         for (&index, query) in indices.iter().zip(queries.iter()) {
             let values_ef = match query {
                 QueryOpening::Base { values, proof } => {
-                    mmcs.verify_batch(
-                        root,
-                        dimensions,
-                        index,
-                        BatchOpeningRef {
-                            opened_values: from_ref(values),
-                            opening_proof: proof,
-                        },
-                    )
-                    .map_err(|_| VerifierError::MerkleProofInvalid {
-                        position: index,
-                        reason: "Base field Merkle proof verification failed".to_string(),
-                    })?;
+                    self.mmcs
+                        .verify_batch(
+                            root,
+                            dimensions,
+                            index,
+                            BatchOpeningRef {
+                                opened_values: from_ref(values),
+                                opening_proof: proof,
+                            },
+                        )
+                        .map_err(|_| VerifierError::MerkleProofInvalid {
+                            position: index,
+                            reason: "Base field Merkle proof verification failed".to_string(),
+                        })?;
 
                     // Convert F -> EF
                     values.iter().map(|&f| f.into()).collect()
@@ -437,12 +400,12 @@ where
     }
 }
 
-impl<EF, F, H, C, Challenger> Deref for Verifier<'_, EF, F, H, C, Challenger>
+impl<EF, F, MT, Challenger> Deref for Verifier<'_, EF, F, MT, Challenger>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, Challenger>;
+    type Target = WhirConfig<EF, F, MT, Challenger>;
 
     fn deref(&self) -> &Self::Target {
         self.0

@@ -105,7 +105,8 @@ mod tests {
 
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
-    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_merkle_tree::MerkleTreeMmcs;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{SeedableRng, rngs::SmallRng};
 
@@ -129,6 +130,9 @@ mod tests {
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
+    type PackedF = <F as Field>::Packing;
+    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, DIGEST_ELEMS>;
+
     // Digest size matches MyCompress output size (the 3rd parameter of TruncatedPermutation)
     const DIGEST_ELEMS: usize = 8;
 
@@ -136,13 +140,14 @@ mod tests {
     fn create_proof_from_test_protocol_params(
         num_variables: usize,
         folding_factor: FoldingFactor,
-    ) -> WhirProof<F, EF, F, DIGEST_ELEMS> {
+    ) -> WhirProof<F, EF, MyMmcs> {
         // Create hash and compression functions for the Merkle tree
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
 
         let merkle_hash = MyHash::new(perm.clone());
         let merkle_compress = MyCompress::new(perm);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
 
         // Construct WHIR protocol parameters
         let whir_params = ProtocolParameters {
@@ -150,8 +155,7 @@ mod tests {
             pow_bits: 0,
             rs_domain_initial_reduction_factor: 1,
             folding_factor,
-            merkle_hash,
-            merkle_compress,
+            mmcs,
             soundness_type: SecurityAssumption::UniqueDecoding,
             starting_log_inv_rate: 1,
         };

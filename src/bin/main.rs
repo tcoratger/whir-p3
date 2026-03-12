@@ -5,6 +5,7 @@ use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{Field, extension::BinomialExtensionField};
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
+use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{
     RngExt, SeedableRng,
@@ -34,6 +35,8 @@ type Poseidon24 = Poseidon2KoalaBear<24>;
 type MerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
 type MerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
 type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
+type PackedF = <F as Field>::Packing;
+type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MerkleHash, MerkleCompress, 8>;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -100,6 +103,7 @@ fn main() {
 
     let merkle_hash = MerkleHash::new(poseidon24);
     let merkle_compress = MerkleCompress::new(poseidon16.clone());
+    let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
 
     let rs_domain_initial_reduction_factor = args.rs_domain_initial_reduction_factor;
 
@@ -110,17 +114,13 @@ fn main() {
         security_level,
         pow_bits,
         folding_factor,
-        merkle_hash,
-        merkle_compress,
+        mmcs,
         soundness_type,
         starting_log_inv_rate: starting_rate,
         rs_domain_initial_reduction_factor,
     };
 
-    let params = WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(
-        num_variables,
-        whir_params.clone(),
-    );
+    let params = WhirConfig::<EF, F, MyMmcs, MyChallenger>::new(num_variables, whir_params.clone());
 
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
@@ -136,8 +136,8 @@ fn main() {
 
     // Define the Fiat-Shamir domain separator pattern for committing and proving
     let mut domainsep = DomainSeparator::new(vec![]);
-    domainsep.commit_statement::<_, _, _, 32>(&params);
-    domainsep.add_whir_proof::<_, _, _, 32>(&params);
+    domainsep.commit_statement::<_, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, 32>(&params);
 
     println!("=========================================");
     println!("Whir (PCS) 🌪️");
@@ -156,11 +156,12 @@ fn main() {
 
     let dft = Radix2DFTSmallBatch::<F>::new(1 << params.max_fft_size());
 
-    let mut proof = WhirProof::<F, EF, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+    let mut proof =
+        WhirProof::<F, EF, MyMmcs>::from_protocol_parameters(&whir_params, num_variables);
 
     let time = Instant::now();
     let prover_data = committer
-        .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+        .commit(
             &dft,
             &mut proof,
             &mut prover_challenger,
@@ -175,7 +176,7 @@ fn main() {
     // Generate a proof for the given statement and witness
     let time = Instant::now();
     prover
-        .prove::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+        .prove(
             &dft,
             &mut proof,
             &mut prover_challenger,
@@ -202,7 +203,7 @@ fn main() {
 
     let verif_time = Instant::now();
     verifier
-        .verify::<<F as Field>::Packing, F, <F as Field>::Packing, 8>(
+        .verify(
             &proof,
             &mut verifier_challenger,
             &parsed_commitment,

@@ -3,9 +3,9 @@ use alloc::vec;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
-use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_matrix::dense::DenseMatrix;
-use p3_merkle_tree::MerkleTree;
+use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{SeedableRng, rngs::SmallRng};
 
@@ -14,7 +14,7 @@ use crate::{
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
-        committer::writer::CommitmentWriter,
+        committer::{ProverData, ProverDataExt, writer::CommitmentWriter},
         constraints::statement::initial::InitialStatement,
         parameters::{SumcheckStrategy, WhirConfig},
         proof::WhirProof,
@@ -23,7 +23,8 @@ use crate::{
 };
 
 type F = BabyBear;
-type EF4 = BinomialExtensionField<F, 4>;
+type EF = BinomialExtensionField<F, 4>;
+
 type Perm = Poseidon2BabyBear<16>;
 
 type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
@@ -31,6 +32,9 @@ type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
 type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
 const DIGEST_ELEMS: usize = 8;
+
+type PackedF = <F as Field>::Packing;
+type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, DIGEST_ELEMS>;
 
 /// Create a WHIR protocol configuration for test scenarios.
 ///
@@ -46,12 +50,13 @@ fn make_test_config(
     num_variables: usize,
     folding_factor: usize,
     pow_bits: usize,
-) -> WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger> {
+) -> WhirConfig<EF, F, MyMmcs, MyChallenger> {
     let mut rng = SmallRng::seed_from_u64(1);
     let perm = Perm::new_from_rng_128(&mut rng);
 
     let merkle_hash = MyHash::new(perm.clone());
     let merkle_compress = MyCompress::new(perm);
+    let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
 
     // Define the core protocol parameters for WHIR, customizing behavior based
     // on whether to start with an initial sumcheck and how to fold the polynomial.
@@ -60,8 +65,7 @@ fn make_test_config(
         pow_bits,
         rs_domain_initial_reduction_factor: 1,
         folding_factor: FoldingFactor::Constant(folding_factor),
-        merkle_hash,
-        merkle_compress,
+        mmcs,
         soundness_type: SecurityAssumption::CapacityBound,
         starting_log_inv_rate: 1,
     };
@@ -81,10 +85,10 @@ fn make_test_config(
 /// This is used as a boilerplate step before running the first WHIR round.
 #[allow(clippy::type_complexity)]
 fn setup_domain_and_commitment(
-    params: &WhirConfig<EF4, F, MyHash, MyCompress, MyChallenger>,
+    params: &WhirConfig<EF, F, MyMmcs, MyChallenger>,
     poly: EvaluationsList<F>,
 ) -> (
-    WhirProof<F, EF4, F, DIGEST_ELEMS>,
+    WhirProof<F, EF, MyMmcs>,
     MyChallenger,
     MerkleTree<F, F, DenseMatrix<F>, DIGEST_ELEMS>,
 ) {
@@ -93,8 +97,7 @@ fn setup_domain_and_commitment(
         security_level: params.security_level,
         pow_bits: params.starting_folding_pow_bits,
         folding_factor: params.folding_factor,
-        merkle_hash: params.merkle_hash.clone(),
-        merkle_compress: params.merkle_compress.clone(),
+        mmcs: params.mmcs.clone(),
         soundness_type: params.soundness_type,
         starting_log_inv_rate: params.starting_log_inv_rate,
         rs_domain_initial_reduction_factor: 1,
@@ -107,10 +110,10 @@ fn setup_domain_and_commitment(
     let mut domsep = DomainSeparator::new(vec![]);
 
     // Observe the public statement into the transcript for binding.
-    domsep.commit_statement::<_, _, _, 8>(params);
+    domsep.commit_statement::<_, _, DIGEST_ELEMS>(params);
 
     // Reserve transcript space for WHIR proof messages.
-    domsep.add_whir_proof::<_, _, _, 8>(params);
+    domsep.add_whir_proof::<_, _, DIGEST_ELEMS>(params);
 
     // Convert the domain separator into a mutable prover-side transcript.
     let mut rng = SmallRng::seed_from_u64(1);
@@ -126,7 +129,7 @@ fn setup_domain_and_commitment(
     // Perform DFT-based commitment to the polynomial, producing a prover data
     // which includes the Merkle tree and polynomial values.
     let prover_data = committer
-        .commit::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, DIGEST_ELEMS>(
+        .commit(
             &Radix2DFTSmallBatch::<F>::default(),
             &mut proof,
             &mut prover_challenger,
@@ -164,7 +167,12 @@ fn test_no_initial_statement_no_sumcheck() {
     let statement = InitialStatement::new(poly, folding0, SumcheckStrategy::default());
 
     // Initialize the round state using the setup configuration and prover data
-    let state = RoundState::initialize_first_round_state(
+    let state = RoundState::<
+        _,
+        _,
+        ProverData<F,  DIGEST_ELEMS>,
+        ProverDataExt<F,  EF, DIGEST_ELEMS>,
+    >::initialize_first_round_state(
         &mut proof.initial_sumcheck,
         &mut challenger,
         &statement,
@@ -217,7 +225,7 @@ fn test_initial_statement_with_folding_factor_3() {
     ]);
 
     // Manual redefinition of the same polynomial as a function for evaluation
-    let f = |x0: EF4, x1: EF4, x2: EF4| {
+    let f = |x0: EF, x1: EF, x2: EF| {
         x2 * e2
             + x1 * e3
             + x1 * x2 * e4
@@ -236,10 +244,15 @@ fn test_initial_statement_with_folding_factor_3() {
     // Create an empty public statement (no constraints)
     let mut statement = InitialStatement::new(poly, folding0, SumcheckStrategy::default());
     // Evaluate at point (1, 1, 1)
-    let _ = statement.evaluate(&MultilinearPoint::new(vec![EF4::ONE, EF4::ONE, EF4::ONE]));
+    let _ = statement.evaluate(&MultilinearPoint::new(vec![EF::ONE, EF::ONE, EF::ONE]));
 
     // Run the first round state initialization (this will trigger sumcheck)
-    let state = RoundState::initialize_first_round_state(
+    let state = RoundState::<
+        _,
+        _,
+        ProverData<F,  DIGEST_ELEMS>,
+        ProverDataExt<F,  EF, DIGEST_ELEMS>,
+    >::initialize_first_round_state(
         &mut proof.initial_sumcheck,
         &mut challenger_rf,
         &statement,
@@ -266,7 +279,7 @@ fn test_initial_statement_with_folding_factor_3() {
     assert_eq!(eval_at_point, expected);
 
     // Check that dot product of evaluations and weights matches the final sum
-    let dot_product: EF4 = sumcheck.poly.dot_product();
+    let dot_product: EF = sumcheck.poly.dot_product();
     assert_eq!(dot_product, sumcheck.sum);
 
     // The `folding_randomness` should store values in forward order (X0, X1, X2)
@@ -305,14 +318,19 @@ fn test_zero_poly_multiple_constraints() {
     // Add one equality constraint per Boolean input: f(x) = 0 for all x ∈ {0,1}³
     for i in 0..1 << num_variables {
         let point = (0..num_variables)
-            .map(|b| EF4::from_u64(((i >> b) & 1) as u64))
+            .map(|b| EF::from_u64(((i >> b) & 1) as u64))
             .collect();
         let eval = statement.evaluate(&MultilinearPoint::new(point));
-        assert_eq!(eval, EF4::ZERO);
+        assert_eq!(eval, EF::ZERO);
     }
 
     // Initialize the first round of the WHIR protocol with the zero polynomial and constraints
-    let state = RoundState::initialize_first_round_state(
+    let state = RoundState::<
+        _,
+        _,
+        ProverData<F, DIGEST_ELEMS>,
+        ProverDataExt<F, EF, DIGEST_ELEMS>,
+    >::initialize_first_round_state(
         &mut proof.initial_sumcheck,
         &mut challenger_rf,
         &statement,
@@ -328,12 +346,12 @@ fn test_zero_poly_multiple_constraints() {
 
     for (f, w) in sumcheck.evals().iter().zip(&sumcheck.weights()) {
         // Each evaluation should be 0
-        assert_eq!(*f, EF4::ZERO);
+        assert_eq!(*f, EF::ZERO);
         // Their contribution to the weighted sum should also be 0
-        assert_eq!(*f * *w, EF4::ZERO);
+        assert_eq!(*f * *w, EF::ZERO);
     }
     // Final claimed sum is 0
-    assert_eq!(sumcheck.sum, EF4::ZERO);
+    assert_eq!(sumcheck.sum, EF::ZERO);
 
     // Folding randomness should have length equal to the folding factor (1)
     assert_eq!(sumcheck_randomness.num_variables(), 1);
@@ -386,7 +404,7 @@ fn test_initialize_round_state_with_initial_statement() {
     ]);
 
     // Equivalent function for evaluating the polynomial manually
-    let f = |x0: EF4, x1: EF4, x2: EF4| {
+    let f = |x0: EF, x1: EF, x2: EF| {
         x2 * e2
             + x1 * e3
             + x1 * x2 * e4
@@ -404,10 +422,15 @@ fn test_initialize_round_state_with_initial_statement() {
 
     // Construct a statement with one evaluation constraint at the point (1, 0, 1)
     let mut statement = InitialStatement::new(poly, folding0, SumcheckStrategy::default());
-    let _ = statement.evaluate(&MultilinearPoint::new(vec![EF4::ONE, EF4::ZERO, EF4::ONE]));
+    let _ = statement.evaluate(&MultilinearPoint::new(vec![EF::ONE, EF::ZERO, EF::ONE]));
 
     // Run the first round initialization
-    let state = RoundState::initialize_first_round_state(
+    let state = RoundState::<
+        _,
+        _,
+        ProverData<F,  DIGEST_ELEMS>,
+        ProverDataExt<F,  EF, DIGEST_ELEMS>,
+    >::initialize_first_round_state(
         &mut proof.initial_sumcheck,
         &mut challenger_rf,
         &statement,
@@ -425,13 +448,13 @@ fn test_initialize_round_state_with_initial_statement() {
     let evals_f = &sumcheck.evals();
     assert_eq!(
         evals_f.evaluate_hypercube_ext::<F>(&MultilinearPoint::new(vec![
-            EF4::from_u64(32636),
-            EF4::from_u64(9876)
+            EF::from_u64(32636),
+            EF::from_u64(9876)
         ])),
         f(
             sumcheck_randomness[0],
-            EF4::from_u64(32636),
-            EF4::from_u64(9876),
+            EF::from_u64(32636),
+            EF::from_u64(9876),
         )
     );
 

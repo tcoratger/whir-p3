@@ -1,8 +1,9 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use p3_challenger::DuplexChallenger;
 use p3_dft::Radix2DFTSmallBatch;
-use p3_field::extension::BinomialExtensionField;
+use p3_field::{Field, extension::BinomialExtensionField};
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
+use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use whir_p3::{
@@ -26,11 +27,13 @@ type Poseidon24 = Poseidon2KoalaBear<24>;
 type MerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
 type MerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
 type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
+type PackedF = <F as Field>::Packing;
+type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MerkleHash, MerkleCompress, 8>;
 
 #[allow(clippy::type_complexity)]
 fn prepare_inputs() -> (
-    WhirConfig<EF, F, MerkleHash, MerkleCompress, MyChallenger>,
-    ProtocolParameters<MerkleHash, MerkleCompress>,
+    WhirConfig<EF, F, MyMmcs, MyChallenger>,
+    ProtocolParameters<MyMmcs>,
     usize,
     Radix2DFTSmallBatch<F>,
     whir_p3::whir::constraints::statement::initial::InitialStatement<F, EF>,
@@ -66,6 +69,7 @@ fn prepare_inputs() -> (
 
     let merkle_hash = MerkleHash::new(poseidon24);
     let merkle_compress = MerkleCompress::new(poseidon16.clone());
+    let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
 
     // Type of soundness assumption used in the IOP model.
     let soundness_type = SecurityAssumption::CapacityBound;
@@ -75,8 +79,7 @@ fn prepare_inputs() -> (
         security_level,
         pow_bits,
         folding_factor,
-        merkle_hash,
-        merkle_compress,
+        mmcs,
         soundness_type,
         starting_log_inv_rate: starting_rate,
         rs_domain_initial_reduction_factor,
@@ -106,8 +109,8 @@ fn prepare_inputs() -> (
     let mut domainsep = DomainSeparator::new(vec![]);
 
     // Commit protocol parameters and proof type to the domain separator.
-    domainsep.commit_statement::<_, _, _, 32>(&params);
-    domainsep.add_whir_proof::<_, _, _, 32>(&params);
+    domainsep.commit_statement::<_, _, 32>(&params);
+    domainsep.add_whir_proof::<_, _, 32>(&params);
 
     // Instantiate the Fiat-Shamir challenger from an empty seed and Keccak.
     let challenger = MyChallenger::new(poseidon16);
@@ -138,11 +141,11 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
             let mut challenger_clone = challenger.clone();
             domainsep.observe_domain_separator(&mut challenger_clone);
             let mut proof =
-                WhirProof::<F, EF, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+                WhirProof::<F, EF, MyMmcs>::from_protocol_parameters(&whir_params, num_variables);
             let committer = CommitmentWriter::new(&params);
             let mut initial_statement = initial_statement.clone();
             let _prover_data = committer
-                .commit::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(
+                .commit(
                     &dft,
                     &mut proof,
                     &mut challenger_clone,
@@ -157,11 +160,11 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
             let mut challenger_clone = challenger.clone();
             domainsep.observe_domain_separator(&mut challenger_clone);
             let mut proof =
-                WhirProof::<F, EF, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+                WhirProof::<F, EF, MyMmcs>::from_protocol_parameters(&whir_params, num_variables);
             let committer = CommitmentWriter::new(&params);
             let mut initial_statement = initial_statement.clone();
             let prover_data = committer
-                .commit::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(
+                .commit(
                     &dft,
                     &mut proof,
                     &mut challenger_clone,
@@ -171,7 +174,7 @@ fn benchmark_commit_and_prove(c: &mut Criterion) {
 
             let prover = Prover(&params);
             prover
-                .prove::<_, <F as p3_field::Field>::Packing, F, <F as p3_field::Field>::Packing, 8>(
+                .prove(
                     &dft,
                     &mut proof,
                     &mut challenger_clone,

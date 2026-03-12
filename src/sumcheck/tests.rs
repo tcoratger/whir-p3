@@ -5,6 +5,7 @@ use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
 use p3_field::{
     ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
 };
+use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
@@ -44,6 +45,8 @@ type Perm = Poseidon2BabyBear<16>;
 type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
 type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
 type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
+type PackedF = <F as Field>::Packing;
+type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 8>;
 
 /// Creates a fresh `DomainSeparator` and `DuplexChallenger` using a fixed RNG seed.
 fn domainsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
@@ -60,19 +63,17 @@ fn domainsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
     (DomainSeparator::new(vec![]), challenger)
 }
 
-fn create_test_protocol_params(
-    folding_factor: FoldingFactor,
-) -> ProtocolParameters<MyHash, MyCompress> {
+fn create_test_protocol_params(folding_factor: FoldingFactor) -> ProtocolParameters<MyMmcs> {
     let mut rng = SmallRng::seed_from_u64(1);
     let perm = Perm::new_from_rng_128(&mut rng);
+    let mmcs = MyMmcs::new(MyHash::new(perm.clone()), MyCompress::new(perm));
 
     ProtocolParameters {
         security_level: 32,
         pow_bits: 0,
         rs_domain_initial_reduction_factor: 1,
         folding_factor,
-        merkle_hash: MyHash::new(perm.clone()),
-        merkle_compress: MyCompress::new(perm),
+        mmcs,
         soundness_type: SecurityAssumption::UniqueDecoding,
         starting_log_inv_rate: 1,
     }
@@ -250,7 +251,7 @@ fn run_sumcheck_test(
 
     // Initialize proof and challenger
     let params = create_test_protocol_params(folding_factor);
-    let mut proof = WhirProof::<F, EF, F, 8>::from_protocol_parameters(&params, num_vars);
+    let mut proof = WhirProof::<F, EF, MyMmcs>::from_protocol_parameters(&params, num_vars);
     domsep.observe_domain_separator(&mut prover_challenger);
 
     // Store constraint evaluations for each round (prover writes, verifier reads)

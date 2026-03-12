@@ -3,11 +3,8 @@ use core::ops::Deref;
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
-use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrixView};
-use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
-use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
-use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
 use crate::{
@@ -26,22 +23,23 @@ use crate::{
 ///
 /// It provides a commitment that can be used for proof generation and verification.
 #[derive(Debug)]
-pub struct CommitmentWriter<'a, EF, F, H, C, Challenger>(
+pub struct CommitmentWriter<'a, EF, F, MT: Mmcs<F>, Challenger>(
     /// Reference to the WHIR protocol configuration.
-    &'a WhirConfig<EF, F, H, C, Challenger>,
+    &'a WhirConfig<EF, F, MT, Challenger>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, Challenger> CommitmentWriter<'a, EF, F, H, C, Challenger>
+impl<'a, EF, F, MT, Challenger> CommitmentWriter<'a, EF, F, MT, Challenger>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    MT: Mmcs<F>,
 {
     /// Create a new writer that borrows the WHIR protocol configuration.
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, Challenger>) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, MT, Challenger>) -> Self {
         Self(params)
     }
 
@@ -55,26 +53,16 @@ where
     /// - Computes out-of-domain (OOD) challenge points and their evaluations.
     /// - Returns a `Witness` containing the commitment data.
     #[instrument(skip_all)]
-    pub fn commit<Dft, P, W, PW, const DIGEST_ELEMS: usize>(
+    pub fn commit<Dft>(
         &self,
         dft: &Dft,
-        proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
+        proof: &mut WhirProof<F, EF, MT>,
         challenger: &mut Challenger,
         statement: &mut InitialStatement<F, EF>,
-    ) -> Result<MerkleTree<F, W, DenseMatrix<F>, DIGEST_ELEMS>, FiatShamirError>
+    ) -> Result<MT::ProverData<DenseMatrix<F>>, FiatShamirError>
     where
         Dft: TwoAdicSubgroupDft<F>,
-        P: PackedValue<Value = F> + Eq + Send + Sync,
-        W: PackedValue<Value = W> + Eq + Send + Sync,
-        PW: PackedValue<Value = W> + Eq + Send + Sync,
-        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
-            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
-            + Sync,
-        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
-            + Sync,
-        Challenger: CanObserve<Hash<F, W, DIGEST_ELEMS>>,
-        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Challenger: CanObserve<MT::Commitment>,
     {
         // Transpose for reverse variable order
         // And then pad with zeros
@@ -97,15 +85,10 @@ where
         let folded_matrix = info_span!("dft", height = padded.height(), width = padded.width())
             .in_scope(|| dft.dft_batch(padded).to_row_major_matrix());
 
-        // Commit to the Merkle tree (using P for leaves and PW for digest SIMD)
-        let merkle_tree = MerkleTreeMmcs::<P, PW, H, C, DIGEST_ELEMS>::new(
-            self.merkle_hash.clone(),
-            self.merkle_compress.clone(),
-        );
         let (root, prover_data) =
-            info_span!("commit_matrix").in_scope(|| merkle_tree.commit_matrix(folded_matrix));
+            info_span!("commit_matrix").in_scope(|| self.mmcs.commit_matrix(folded_matrix));
 
-        proof.initial_commitment = *root.as_ref();
+        proof.initial_commitment = Some(root.clone());
         // Use CanObserve<Hash<F, W, N>> which both DuplexChallenger and SerializingChallenger implement
         challenger.observe(root);
 
@@ -126,12 +109,12 @@ where
     }
 }
 
-impl<EF, F, H, C, Challenger> Deref for CommitmentWriter<'_, EF, F, H, C, Challenger>
+impl<EF, F, MT: Mmcs<F>, Challenger> Deref for CommitmentWriter<'_, EF, F, MT, Challenger>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, Challenger>;
+    type Target = WhirConfig<EF, F, MT, Challenger>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -145,6 +128,7 @@ mod tests {
     use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
     use p3_challenger::DuplexChallenger;
     use p3_dft::Radix2DFTSmallBatch;
+    use p3_merkle_tree::MerkleTreeMmcs;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
@@ -161,6 +145,8 @@ mod tests {
     type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
+    type PackedF = <F as Field>::Packing;
+    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 8>;
 
     #[test]
     fn test_basic_commitment() {
@@ -177,6 +163,7 @@ mod tests {
 
         let merkle_hash = MyHash::new(perm.clone());
         let merkle_compress = MyCompress::new(perm);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
 
         let whir_params = ProtocolParameters {
             security_level,
@@ -186,29 +173,26 @@ mod tests {
                 first_round_folding_factor,
                 folding_factor,
             ),
-            merkle_hash,
-            merkle_compress,
+            mmcs,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
         };
 
         // Define multivariate parameters for the polynomial.
-        let params = WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(
-            num_variables,
-            whir_params.clone(),
-        );
+        let params =
+            WhirConfig::<F, F, MyMmcs, MyChallenger>::new(num_variables, whir_params.clone());
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         let mut proof =
-            WhirProof::<F, F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+            WhirProof::<F, F, MyMmcs>::from_protocol_parameters(&whir_params, num_variables);
 
         // Set up the DomainSeparator and initialize a ProverState narg_string.
         let mut domainsep: DomainSeparator<F, F> = DomainSeparator::new(vec![]);
-        domainsep.commit_statement::<_, _, _, 8>(&params);
-        domainsep.add_whir_proof::<_, _, _, 8>(&params);
+        domainsep.commit_statement::<_, _, 8>(&params);
+        domainsep.add_whir_proof::<_, _, 8>(&params);
 
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
@@ -219,12 +203,7 @@ mod tests {
         let committer = CommitmentWriter::new(&params);
         let dft = Radix2DFTSmallBatch::<F>::default();
         let _ = committer
-            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
-                &dft,
-                &mut proof,
-                &mut challenger,
-                &mut statement,
-            )
+            .commit(&dft, &mut proof, &mut challenger, &mut statement)
             .unwrap();
 
         // Ensure OOD (out-of-domain) points are generated.
@@ -263,6 +242,7 @@ mod tests {
 
         let merkle_hash = MyHash::new(perm.clone());
         let merkle_compress = MyCompress::new(perm);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
 
         let whir_params = ProtocolParameters {
             security_level,
@@ -272,25 +252,22 @@ mod tests {
                 first_round_folding_factor,
                 folding_factor,
             ),
-            merkle_hash,
-            merkle_compress,
+            mmcs,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
         };
 
-        let params = WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(
-            num_variables,
-            whir_params.clone(),
-        );
+        let params =
+            WhirConfig::<F, F, MyMmcs, MyChallenger>::new(num_variables, whir_params.clone());
 
         let mut rng = SmallRng::seed_from_u64(1);
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
 
         let mut proof =
-            WhirProof::<F, F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+            WhirProof::<F, F, MyMmcs>::from_protocol_parameters(&whir_params, num_variables);
 
         let mut domainsep = DomainSeparator::new(vec![]);
-        domainsep.commit_statement::<_, _, _, 8>(&params);
+        domainsep.commit_statement::<_, _, 8>(&params);
 
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
@@ -300,12 +277,7 @@ mod tests {
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let _ = committer
-            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
-                &dft,
-                &mut proof,
-                &mut challenger,
-                &mut statement,
-            )
+            .commit(&dft, &mut proof, &mut challenger, &mut statement)
             .unwrap();
     }
 
@@ -323,6 +295,7 @@ mod tests {
 
         let merkle_hash = MyHash::new(perm.clone());
         let merkle_compress = MyCompress::new(perm);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
 
         let whir_params = ProtocolParameters {
             security_level,
@@ -332,16 +305,13 @@ mod tests {
                 first_round_folding_factor,
                 folding_factor,
             ),
-            merkle_hash,
-            merkle_compress,
+            mmcs,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: starting_rate,
         };
 
-        let mut params = WhirConfig::<F, F, MyHash, MyCompress, MyChallenger>::new(
-            num_variables,
-            whir_params.clone(),
-        );
+        let mut params =
+            WhirConfig::<F, F, MyMmcs, MyChallenger>::new(num_variables, whir_params.clone());
 
         // Explicitly set OOD samples to 0
         params.commitment_ood_samples = 0;
@@ -350,10 +320,10 @@ mod tests {
         let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
 
         let mut proof =
-            WhirProof::<F, F, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+            WhirProof::<F, F, MyMmcs>::from_protocol_parameters(&whir_params, num_variables);
 
         let mut domainsep = DomainSeparator::new(vec![]);
-        domainsep.commit_statement::<_, _, _, 8>(&params);
+        domainsep.commit_statement::<_, _, 8>(&params);
 
         let mut rng = SmallRng::seed_from_u64(1);
         let mut challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
@@ -364,12 +334,7 @@ mod tests {
         let dft = Radix2DFTSmallBatch::<F>::default();
         let committer = CommitmentWriter::new(&params);
         let _ = committer
-            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
-                &dft,
-                &mut proof,
-                &mut challenger,
-                &mut statement,
-            )
+            .commit(&dft, &mut proof, &mut challenger, &mut statement)
             .unwrap();
 
         assert!(
