@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
@@ -91,9 +92,9 @@ where
         }
     }
 
-    pub fn commit_statement<HC, C, Challenger, const DIGEST_ELEMS: usize>(
+    pub fn commit_statement<MT: Mmcs<F>, Challenger, const DIGEST_ELEMS: usize>(
         &mut self,
-        params: &WhirConfig<EF, F, HC, C, Challenger>,
+        params: &WhirConfig<EF, F, MT, Challenger>,
     ) where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
@@ -104,9 +105,9 @@ where
         }
     }
 
-    pub fn add_whir_proof<HC, C, Challenger, const DIGEST_ELEMS: usize>(
+    pub fn add_whir_proof<MT: Mmcs<F>, Challenger, const DIGEST_ELEMS: usize>(
         &mut self,
-        params: &WhirConfig<EF, F, HC, C, Challenger>,
+        params: &WhirConfig<EF, F, MT, Challenger>,
     ) where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
         EF: TwoAdicField,

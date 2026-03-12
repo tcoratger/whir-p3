@@ -15,6 +15,7 @@ mod test {
     use p3_challenger::{DuplexChallenger, FieldChallenger};
     use p3_dft::Radix2DFTSmallBatch;
     use p3_field::{Field, extension::BinomialExtensionField};
+    use p3_merkle_tree::MerkleTreeMmcs;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
@@ -38,6 +39,9 @@ mod test {
     type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
+
+    type PackedF = <F as Field>::Packing;
+    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 8>;
 
     /// Run a complete WHIR proof lifecycle with configurable parameters.
     #[allow(clippy::too_many_arguments)]
@@ -63,6 +67,7 @@ mod test {
         let merkle_hash = MyHash::new(perm.clone());
         // Compression for leaf-to-parent hashing
         let merkle_compress = MyCompress::new(perm);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
 
         // Configure WHIR protocol with all security and performance parameters
         let whir_params = ProtocolParameters {
@@ -70,17 +75,14 @@ mod test {
             pow_bits,
             rs_domain_initial_reduction_factor,
             folding_factor,
-            merkle_hash,
-            merkle_compress,
+            mmcs,
             soundness_type,
             starting_log_inv_rate: 1,
         };
 
         // Create unified configuration combining protocol and polynomial parameters
-        let params = WhirConfig::<EF, F, MyHash, MyCompress, MyChallenger>::new(
-            num_variables,
-            whir_params.clone(),
-        );
+        let params =
+            WhirConfig::<EF, F, MyMmcs, MyChallenger>::new(num_variables, whir_params.clone());
 
         // Define test polynomial with random evaluations
         let polynomial = EvaluationsList::new((0..num_evaluations).map(|_| rng.random()).collect());
@@ -98,9 +100,9 @@ mod test {
         // Setup Fiat-Shamir transcript structure for non-interactive proof generation
         let mut domainsep = DomainSeparator::new(vec![]);
         // Add statement commitment to transcript
-        domainsep.commit_statement::<_, _, _, 8>(&params);
+        domainsep.commit_statement::<_, _, 8>(&params);
         // Add proof structure to transcript
-        domainsep.add_whir_proof::<_, _, _, 8>(&params);
+        domainsep.add_whir_proof::<_, _, 8>(&params);
 
         // Create fresh RNG and challenger for transcript randomness
         // Initialize prover's view of the Fiat-Shamir transcript
@@ -114,16 +116,11 @@ mod test {
         let dft = Radix2DFTSmallBatch::<F>::default();
 
         let mut proof =
-            WhirProof::<F, EF, F, 8>::from_protocol_parameters(&whir_params, num_variables);
+            WhirProof::<F, EF, MyMmcs>::from_protocol_parameters(&whir_params, num_variables);
 
         // Commit to polynomial evaluations and generate cryptographic witness
         let prover_data = committer
-            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
-                &dft,
-                &mut proof,
-                &mut prover_challenger,
-                &mut statement,
-            )
+            .commit(&dft, &mut proof, &mut prover_challenger, &mut statement)
             .unwrap();
 
         // Initialize WHIR prover with the configured parameters
@@ -131,7 +128,7 @@ mod test {
 
         // Generate WHIR proof
         prover
-            .prove::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
+            .prove(
                 &dft,
                 &mut proof,
                 &mut prover_challenger,
@@ -160,7 +157,7 @@ mod test {
 
         // Execute WHIR verification
         verifier
-            .verify::<<F as Field>::Packing, F, <F as Field>::Packing, 8>(
+            .verify(
                 &proof,
                 &mut verifier_challenger,
                 &parsed_commitment,
@@ -261,6 +258,7 @@ mod test {
 
         // Keccak challenger using byte-based HashChallenger
         type KeccakChallenger = SerializingChallenger32<F, HashChallenger<u8, Keccak256Hash, 32>>;
+        type MyMmcs = MerkleTreeMmcs<F, u64, KeccakFieldHash, KeccakCompress, 4>;
 
         /// Run a complete WHIR proof lifecycle with Keccak-based Merkle trees.
         #[allow(clippy::too_many_arguments)]
@@ -279,6 +277,7 @@ mod test {
             let u64_hash = U64Hash::new(KeccakF {});
             let merkle_hash = KeccakFieldHash::new(u64_hash);
             let merkle_compress = KeccakCompress::new(u64_hash);
+            let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
 
             // Configure WHIR protocol with Keccak hashing
             let whir_params = ProtocolParameters {
@@ -286,17 +285,15 @@ mod test {
                 pow_bits,
                 rs_domain_initial_reduction_factor,
                 folding_factor,
-                merkle_hash,
-                merkle_compress,
+                mmcs,
                 soundness_type,
                 starting_log_inv_rate: 1,
             };
 
-            let params =
-                WhirConfig::<EF, F, KeccakFieldHash, KeccakCompress, KeccakChallenger>::new(
-                    num_variables,
-                    whir_params.clone(),
-                );
+            let params = WhirConfig::<EF, F, MyMmcs, KeccakChallenger>::new(
+                num_variables,
+                whir_params.clone(),
+            );
 
             // Create random polynomial
             let mut rng = SmallRng::seed_from_u64(1);
@@ -315,8 +312,8 @@ mod test {
 
             // Setup Fiat-Shamir transcript
             let mut domainsep = DomainSeparator::new(vec![]);
-            domainsep.commit_statement::<_, _, _, 4>(&params);
-            domainsep.add_whir_proof::<_, _, _, 4>(&params);
+            domainsep.commit_statement::<_, _, 4>(&params);
+            domainsep.add_whir_proof::<_, _, 4>(&params);
 
             // Create prover challenger
             let inner = HashChallenger::<u8, Keccak256Hash, 32>::new(vec![], Keccak256Hash {});
@@ -328,20 +325,15 @@ mod test {
             let dft = Radix2DFTSmallBatch::<F>::default();
 
             let mut proof =
-                WhirProof::<F, EF, u64, 4>::from_protocol_parameters(&whir_params, num_variables);
+                WhirProof::<F, EF, MyMmcs>::from_protocol_parameters(&whir_params, num_variables);
 
             let prover_data = committer
-                .commit::<_, F, u64, u64, 4>(
-                    &dft,
-                    &mut proof,
-                    &mut prover_challenger,
-                    &mut statement,
-                )
+                .commit(&dft, &mut proof, &mut prover_challenger, &mut statement)
                 .unwrap();
 
             let prover = Prover(&params);
             prover
-                .prove::<_, F, u64, u64, 4>(
+                .prove(
                     &dft,
                     &mut proof,
                     &mut prover_challenger,
@@ -364,7 +356,7 @@ mod test {
                 commitment_reader.parse_commitment::<u64, 4>(&proof, &mut verifier_challenger);
 
             verifier
-                .verify::<F, u64, u64, 4>(
+                .verify(
                     &proof,
                     &mut verifier_challenger,
                     &parsed_commitment,

@@ -144,7 +144,7 @@ impl FoldingFactor {
 
 /// Configuration parameters for WHIR proofs.
 #[derive(Clone, Debug)]
-pub struct ProtocolParameters<H, C> {
+pub struct ProtocolParameters<MT> {
     /// The logarithmic inverse rate for sampling.
     pub starting_log_inv_rate: usize,
     /// The value v such that that the size of the Reed Solomon domain on which
@@ -161,13 +161,11 @@ pub struct ProtocolParameters<H, C> {
     pub security_level: usize,
     /// The number of bits required for proof-of-work (PoW).
     pub pow_bits: usize,
-    /// Hash used in the Merkle tree.
-    pub merkle_hash: H,
-    /// Compression method used in the Merkle tree.
-    pub merkle_compress: C,
+    /// Merkle tree configuration.
+    pub mmcs: MT,
 }
 
-impl<H, C> Display for ProtocolParameters<H, C> {
+impl<MT> Display for ProtocolParameters<MT> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(
             f,

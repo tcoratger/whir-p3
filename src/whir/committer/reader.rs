@@ -1,8 +1,8 @@
 use core::{fmt::Debug, ops::Deref};
 
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
+use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
-use p3_symmetric::Hash;
 
 use crate::{
     poly::multilinear::MultilinearPoint,
@@ -38,7 +38,6 @@ where
     ///
     /// # Arguments
     ///
-    /// - `verifier_state`: The verifier's Fiat-Shamir state from which data is read.
     /// - `proof`: The proof data the verifier reads (currently unused, reserved for RF flow).
     /// - `challenger`: The verifier's challenger (currently unused, reserved for RF flow).
     /// - `num_variables`: Number of variables in the committed multilinear polynomial.
@@ -53,51 +52,52 @@ where
     /// - The prover's claimed answers at those points.
     ///
     /// This is used to verify consistency of polynomial commitments in WHIR.
-    pub fn parse<EF, W, Challenger, const DIGEST_ELEMS: usize>(
-        proof: &WhirProof<F, EF, W, DIGEST_ELEMS>,
+    pub fn parse<EF, MT: Mmcs<F>, Challenger>(
+        proof: &WhirProof<F, EF, MT>,
         challenger: &mut Challenger,
         num_variables: usize,
         ood_samples: usize,
-    ) -> ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>
+    ) -> ParsedCommitment<EF, MT::Commitment>
     where
         F: TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
-        W: PackedValue<Value = W> + Eq + Copy,
-        Challenger: FieldChallenger<F>
-            + GrindingChallenger<Witness = F>
-            + CanObserve<Hash<F, W, DIGEST_ELEMS>>,
+        Challenger:
+            FieldChallenger<F> + GrindingChallenger<Witness = F> + CanObserve<MT::Commitment>,
     {
         Self::parse_with_round(proof, challenger, num_variables, ood_samples, None)
     }
 
-    pub fn parse_with_round<EF, W, Challenger, const DIGEST_ELEMS: usize>(
-        proof: &WhirProof<F, EF, W, DIGEST_ELEMS>,
+    pub fn parse_with_round<EF, MT: Mmcs<F>, Challenger>(
+        proof: &WhirProof<F, EF, MT>,
         challenger: &mut Challenger,
         num_variables: usize,
         ood_samples: usize,
         round_index: Option<usize>,
-    ) -> ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>
+    ) -> ParsedCommitment<EF, MT::Commitment>
     where
         F: TwoAdicField,
         EF: ExtensionField<F> + TwoAdicField,
-        W: PackedValue<Value = W> + Eq + Copy,
-        Challenger: FieldChallenger<F>
-            + GrindingChallenger<Witness = F>
-            + CanObserve<Hash<F, W, DIGEST_ELEMS>>,
+        Challenger:
+            FieldChallenger<F> + GrindingChallenger<Witness = F> + CanObserve<MT::Commitment>,
     {
-        let (root_array, ood_answers) = round_index.map_or_else(
-            || (proof.initial_commitment, proof.initial_ood_answers.clone()),
+        let (root, ood_answers) = round_index.map_or_else(
+            || {
+                (
+                    proof.initial_commitment.clone().unwrap(),
+                    proof.initial_ood_answers.clone(),
+                )
+            },
             |idx| {
                 let round_proof = &proof.rounds[idx];
-                (round_proof.commitment, round_proof.ood_answers.clone())
+                (
+                    round_proof.commitment.clone().unwrap(),
+                    round_proof.ood_answers.clone(),
+                )
             },
         );
 
-        // Convert to Hash type
-        let root: Hash<F, W, DIGEST_ELEMS> = root_array.into();
-
         // Observe the root in the challenger using generic CanObserve
-        challenger.observe(root);
+        challenger.observe(root.clone());
 
         // Construct equality constraints for all out-of-domain (OOD) samples.
         // Each constraint enforces that the committed polynomial evaluates to the
@@ -125,27 +125,28 @@ where
 /// The `CommitmentReader` wraps the WHIR configuration and provides a convenient
 /// method to extract a `ParsedCommitment` by reading values from the Fiat-Shamir transcript.
 #[derive(Debug)]
-pub struct CommitmentReader<'a, EF, F, H, C, Challenger>(
+pub struct CommitmentReader<'a, EF, F, MT: Mmcs<F>, Challenger>(
     /// Reference to the verifier’s configuration object.
     ///
     /// This contains all parameters needed to parse the commitment,
     /// including how many out-of-domain samples are expected.
-    &'a WhirConfig<EF, F, H, C, Challenger>,
+    &'a WhirConfig<EF, F, MT, Challenger>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<'a, EF, F, H, C, Challenger> CommitmentReader<'a, EF, F, H, C, Challenger>
+impl<'a, EF, F, MT, Challenger> CommitmentReader<'a, EF, F, MT, Challenger>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    MT: Mmcs<F>,
 {
     /// Create a new commitment reader from a WHIR configuration.
     ///
     /// This allows the verifier to parse a commitment from the Fiat-Shamir transcript.
-    pub const fn new(params: &'a WhirConfig<EF, F, H, C, Challenger>) -> Self {
+    pub const fn new(params: &'a WhirConfig<EF, F, MT, Challenger>) -> Self {
         Self(params)
     }
 
@@ -155,14 +156,14 @@ where
     /// expected for verifying the committed polynomial.
     pub fn parse_commitment<W, const DIGEST_ELEMS: usize>(
         &self,
-        proof: &WhirProof<F, EF, W, DIGEST_ELEMS>,
+        proof: &WhirProof<F, EF, MT>,
         challenger: &mut Challenger,
-    ) -> ParsedCommitment<EF, Hash<F, W, DIGEST_ELEMS>>
+    ) -> ParsedCommitment<EF, MT::Commitment>
     where
         W: PackedValue<Value = W> + Eq + Copy,
-        Challenger: CanObserve<Hash<F, W, DIGEST_ELEMS>>,
+        Challenger: CanObserve<MT::Commitment>,
     {
-        ParsedCommitment::<_, Hash<F, W, DIGEST_ELEMS>>::parse(
+        ParsedCommitment::<_, MT::Commitment>::parse(
             proof,
             challenger,
             self.num_variables,
@@ -171,12 +172,13 @@ where
     }
 }
 
-impl<EF, F, H, C, Challenger> Deref for CommitmentReader<'_, EF, F, H, C, Challenger>
+impl<EF, F, MT, Challenger> Deref for CommitmentReader<'_, EF, F, MT, Challenger>
 where
     F: Field,
     EF: ExtensionField<F>,
+    MT: Mmcs<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, Challenger>;
+    type Target = WhirConfig<EF, F, MT, Challenger>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -191,6 +193,7 @@ mod tests {
     use p3_challenger::DuplexChallenger;
     use p3_dft::Radix2DFTSmallBatch;
     use p3_field::{Field, extension::BinomialExtensionField};
+    use p3_merkle_tree::MerkleTreeMmcs;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
@@ -210,19 +213,21 @@ mod tests {
     type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
+    type PackedF = <F as Field>::Packing;
+    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 8>;
 
     /// Constructs a WHIR configuration and RNG for test purposes.
     ///
     /// This sets up the protocol parameters and multivariate polynomial settings,
     /// with control over number of variables and OOD samples.
     #[allow(clippy::type_complexity)]
-    fn make_test_params<const DIGEST_ELEMS: usize>(
+    fn make_test_params(
         num_variables: usize,
         ood_samples: usize,
     ) -> (
-        WhirConfig<EF, BabyBear, MyHash, MyCompress, MyChallenger>,
+        WhirConfig<EF, BabyBear, MyMmcs, MyChallenger>,
         SmallRng,
-        WhirProof<F, EF, F, DIGEST_ELEMS>,
+        WhirProof<F, EF, MyMmcs>,
     ) {
         let mut rng = SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
@@ -232,6 +237,7 @@ mod tests {
 
         // Set up the Merkle compression function using the same byte hash.
         let merkle_compress = MyCompress::new(perm);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
 
         // Define core protocol parameters for WHIR.
         let whir_params = ProtocolParameters {
@@ -239,8 +245,7 @@ mod tests {
             pow_bits: 10,
             rs_domain_initial_reduction_factor: 1,
             folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
-            merkle_hash,
-            merkle_compress,
+            mmcs,
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
         };
@@ -275,7 +280,7 @@ mod tests {
 
         // Set up Fiat-Shamir transcript and commit the protocol parameters.
         let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
+        ds.commit_statement::<_, _, 8>(&params);
 
         // Create the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
@@ -286,12 +291,7 @@ mod tests {
         let mut statement = params.initial_statement(polynomial, SumcheckStrategy::Classic);
         // Commit the polynomial and obtain a witness (root, Merkle proof, OOD evaluations).
         let prover_data = committer
-            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
-                &dft,
-                &mut proof,
-                &mut prover_challenger,
-                &mut statement,
-            )
+            .commit(&dft, &mut proof, &mut prover_challenger, &mut statement)
             .unwrap();
 
         // Simulate verifier state using transcript view of prover's nonce string.
@@ -323,7 +323,7 @@ mod tests {
 
         // Begin the transcript and commit to the statement parameters.
         let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
+        ds.commit_statement::<_, _, 8>(&params);
 
         // Create the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
@@ -334,12 +334,7 @@ mod tests {
         let mut statement = params.initial_statement(polynomial, SumcheckStrategy::Classic);
         // Commit the polynomial to obtain the witness.
         let prover_data = committer
-            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
-                &dft,
-                &mut proof,
-                &mut prover_challenger,
-                &mut statement,
-            )
+            .commit(&dft, &mut proof, &mut prover_challenger, &mut statement)
             .unwrap();
 
         // Initialize the verifier view of the transcript.
@@ -371,7 +366,7 @@ mod tests {
 
         // Start a new transcript and commit to the public parameters.
         let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
+        ds.commit_statement::<_, _, 8>(&params);
 
         // Create prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
@@ -382,12 +377,7 @@ mod tests {
         let mut statement = params.initial_statement(polynomial, SumcheckStrategy::Classic);
         // Commit the polynomial and obtain the witness.
         let prover_data = committer
-            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
-                &dft,
-                &mut proof,
-                &mut prover_challenger,
-                &mut statement,
-            )
+            .commit(&dft, &mut proof, &mut prover_challenger, &mut statement)
             .unwrap();
 
         // Initialize verifier view from prover's transcript string.
@@ -417,7 +407,7 @@ mod tests {
 
         // Set up Fiat-Shamir transcript and commit to the public parameters.
         let mut ds = DomainSeparator::new(vec![]);
-        ds.commit_statement::<_, _, _, 8>(&params);
+        ds.commit_statement::<_, _, 8>(&params);
 
         // Create the prover state from the transcript.
         let mut rng = SmallRng::seed_from_u64(1);
@@ -427,12 +417,7 @@ mod tests {
 
         let mut statement = params.initial_statement(polynomial, SumcheckStrategy::Classic);
         let _ = committer
-            .commit::<_, <F as Field>::Packing, F, <F as Field>::Packing, 8>(
-                &dft,
-                &mut proof,
-                &mut prover_challenger,
-                &mut statement,
-            )
+            .commit(&dft, &mut proof, &mut prover_challenger, &mut statement)
             .unwrap();
 
         // Initialize the verifier view of the transcript.

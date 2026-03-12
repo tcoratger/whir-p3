@@ -4,15 +4,13 @@ use core::ops::Deref;
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::{ExtensionMmcs, Mmcs};
 use p3_dft::TwoAdicSubgroupDft;
-use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{
     Matrix,
     dense::{DenseMatrix, RowMajorMatrixView},
+    extension::FlatMatrixView,
 };
-use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
-use p3_symmetric::{CryptographicHasher, Hash, PseudoCompressionFunction};
 use round_state::RoundState;
-use serde::{Deserialize, Serialize};
 use tracing::{info_span, instrument};
 
 use super::{constraints::statement::EqStatement, parameters::WhirConfig};
@@ -35,31 +33,32 @@ pub type Proof<W, const DIGEST_ELEMS: usize> = Vec<Vec<[W; DIGEST_ELEMS]>>;
 pub type Leafs<F> = Vec<Vec<F>>;
 
 #[derive(Debug)]
-pub struct Prover<'a, EF, F, H, C, Challenger>(
+pub struct Prover<'a, EF, F, MT, Challenger>(
     /// Reference to the protocol configuration shared across prover components.
-    pub &'a WhirConfig<EF, F, H, C, Challenger>,
+    pub &'a WhirConfig<EF, F, MT, Challenger>,
 )
 where
     F: Field,
     EF: ExtensionField<F>;
 
-impl<EF, F, H, C, Challenger> Deref for Prover<'_, EF, F, H, C, Challenger>
+impl<EF, F, MT, Challenger> Deref for Prover<'_, EF, F, MT, Challenger>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
-    type Target = WhirConfig<EF, F, H, C, Challenger>;
+    type Target = WhirConfig<EF, F, MT, Challenger>;
 
     fn deref(&self) -> &Self::Target {
         self.0
     }
 }
 
-impl<EF, F, H, C, Challenger> Prover<'_, EF, F, H, C, Challenger>
+impl<EF, F, MT, Challenger> Prover<'_, EF, F, MT, Challenger>
 where
     F: TwoAdicField + Ord,
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    MT: Mmcs<F>,
 {
     /// Validates that the total number of variables expected by the prover configuration
     /// matches the number implied by the folding schedule and the final rounds.
@@ -95,27 +94,17 @@ where
     /// # Errors
     /// Returns an error if the witness or statement are invalid, or if a round fails.
     #[instrument(skip_all)]
-    pub fn prove<Dft, P, W, PW, const DIGEST_ELEMS: usize>(
+    pub fn prove<Dft>(
         &self,
         dft: &Dft,
-        proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
+        proof: &mut WhirProof<F, EF, MT>,
         challenger: &mut Challenger,
         statement: &InitialStatement<F, EF>,
-        prover_data: MerkleTree<F, W, DenseMatrix<F>, DIGEST_ELEMS>,
+        prover_data: MT::ProverData<DenseMatrix<F>>,
     ) -> Result<(), FiatShamirError>
     where
         Dft: TwoAdicSubgroupDft<F>,
-        P: PackedValue<Value = F> + Eq + Send + Sync,
-        W: PackedValue<Value = W> + Eq + Send + Sync,
-        PW: PackedValue<Value = W> + Eq + Send + Sync,
-        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
-            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
-            + Sync,
-        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
-            + Sync,
-        Challenger: CanObserve<Hash<F, W, DIGEST_ELEMS>>,
-        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Challenger: CanObserve<MT::Commitment>,
     {
         // Validate parameters
         assert!(self.validate_parameters(), "Invalid prover parameters");
@@ -132,13 +121,7 @@ where
 
         // Run the WHIR protocol round-by-round
         for round in 0..=self.n_rounds() {
-            self.round::<P, W, PW, DIGEST_ELEMS, _>(
-                dft,
-                round,
-                proof,
-                challenger,
-                &mut round_state,
-            )?;
+            self.round(dft, round, proof, challenger, &mut round_state)?;
         }
 
         Ok(())
@@ -146,26 +129,22 @@ where
 
     #[instrument(skip_all, fields(round_number = round_index, log_size = self.num_variables - self.folding_factor.total_number(round_index)))]
     #[allow(clippy::too_many_lines)]
-    fn round<P, W, PW, const DIGEST_ELEMS: usize, Dft: TwoAdicSubgroupDft<F>>(
+    #[allow(clippy::type_complexity)]
+    fn round<Dft: TwoAdicSubgroupDft<F>>(
         &self,
         dft: &Dft,
         round_index: usize,
-        proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
+        proof: &mut WhirProof<F, EF, MT>,
         challenger: &mut Challenger,
-        round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
+        round_state: &mut RoundState<
+            EF,
+            F,
+            MT::ProverData<DenseMatrix<F>>,
+            MT::ProverData<FlatMatrixView<F, EF, DenseMatrix<EF>>>,
+        >,
     ) -> Result<(), FiatShamirError>
     where
-        P: PackedValue<Value = F> + Eq + Send + Sync,
-        W: PackedValue<Value = W> + Eq + Send + Sync,
-        PW: PackedValue<Value = W> + Eq + Send + Sync,
-        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
-            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
-            + Sync,
-        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
-            + Sync,
-        Challenger: CanObserve<Hash<F, W, DIGEST_ELEMS>>,
-        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        Challenger: CanObserve<MT::Commitment>,
     {
         let folded_evaluations = &round_state.sumcheck_prover.evals();
         let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
@@ -173,12 +152,7 @@ where
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
-            return self.final_round::<P, W, PW, DIGEST_ELEMS>(
-                round_index,
-                proof,
-                challenger,
-                round_state,
-            );
+            return self.final_round(round_index, proof, challenger, round_state);
         }
 
         let round_params = &self.round_parameters[round_index];
@@ -205,19 +179,15 @@ where
         let folded_matrix = info_span!("dft", height = padded.height(), width = padded.width())
             .in_scope(|| dft.dft_algebra_batch(padded).to_row_major_matrix());
 
-        let mmcs = MerkleTreeMmcs::<P, PW, H, C, DIGEST_ELEMS>::new(
-            self.merkle_hash.clone(),
-            self.merkle_compress.clone(),
-        );
-        let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
+        let extension_mmcs = ExtensionMmcs::new(self.mmcs.clone());
         let (root, prover_data) =
             info_span!("commit matrix").in_scope(|| extension_mmcs.commit_matrix(folded_matrix));
 
         // Observe the round merkle tree commitment
-        challenger.observe(root);
+        challenger.observe(root.clone());
 
         // Store commitment in proof
-        proof.rounds[round_index].commitment = root.into();
+        proof.rounds[round_index].commitment = Some(root);
 
         // Handle OOD (Out-Of-Domain) samples
         let mut ood_statement = EqStatement::initialize(num_variables);
@@ -279,8 +249,9 @@ where
             None => {
                 let mut answers = Vec::with_capacity(stir_challenges_indexes.len());
                 for challenge in &stir_challenges_indexes {
-                    let commitment =
-                        mmcs.open_batch(*challenge, &round_state.commitment_merkle_prover_data);
+                    let commitment = self
+                        .mmcs
+                        .open_batch(*challenge, &round_state.commitment_merkle_prover_data);
                     let answer = commitment.opened_values[0].clone();
                     answers.push(answer.clone());
 
@@ -355,25 +326,20 @@ where
     }
 
     #[instrument(skip_all)]
-    fn final_round<P, W, PW, const DIGEST_ELEMS: usize>(
+    #[allow(clippy::type_complexity)]
+    fn final_round(
         &self,
         round_index: usize,
-        proof: &mut WhirProof<F, EF, W, DIGEST_ELEMS>,
+        proof: &mut WhirProof<F, EF, MT>,
         challenger: &mut Challenger,
-        round_state: &mut RoundState<EF, F, W, DenseMatrix<F>, DIGEST_ELEMS>,
+        round_state: &mut RoundState<
+            EF,
+            F,
+            MT::ProverData<DenseMatrix<F>>,
+            MT::ProverData<FlatMatrixView<F, EF, DenseMatrix<EF>>>,
+        >,
     ) -> Result<(), FiatShamirError>
-    where
-        P: PackedValue<Value = F> + Eq + Send + Sync,
-        W: PackedValue<Value = W> + Eq + Send + Sync,
-        PW: PackedValue<Value = W> + Eq + Send + Sync,
-        H: CryptographicHasher<F, [W; DIGEST_ELEMS]>
-            + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
-            + Sync,
-        C: PseudoCompressionFunction<[W; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
-            + Sync,
-        [W; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-    {
+where {
         // Directly send coefficients of the polynomial to the verifier.
         challenger.observe_algebra_slice(round_state.sumcheck_prover.evals().as_slice());
 
@@ -408,18 +374,13 @@ where
             challenger,
         )?;
 
-        // Every query requires opening these many in the previous Merkle tree
-        let mmcs = MerkleTreeMmcs::<P, PW, H, C, DIGEST_ELEMS>::new(
-            self.merkle_hash.clone(),
-            self.merkle_compress.clone(),
-        );
-        let extension_mmcs = ExtensionMmcs::new(mmcs.clone());
-
+        let extension_mmcs = ExtensionMmcs::new(self.mmcs.clone());
         match &round_state.merkle_prover_data {
             None => {
                 for challenge in final_challenge_indexes {
-                    let commitment =
-                        mmcs.open_batch(challenge, &round_state.commitment_merkle_prover_data);
+                    let commitment = self
+                        .mmcs
+                        .open_batch(challenge, &round_state.commitment_merkle_prover_data);
 
                     proof.final_queries.push(QueryOpening::Base {
                         values: commitment.opened_values[0].clone(),
