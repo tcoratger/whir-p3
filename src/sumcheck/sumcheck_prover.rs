@@ -222,7 +222,7 @@ where
         SplitEq::combine_into_packed(&mut weights.0, statements, alpha, &rs);
         let poly = ProductPolynomial::<F, EF>::new_packed(poly, weights);
 
-        assert_eq!(poly.dot_product(), sum);
+        debug_assert_eq!(poly.dot_product(), sum);
         (Self { poly, sum }, Point::new(rs))
     }
 
