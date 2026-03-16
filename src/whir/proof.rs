@@ -484,7 +484,7 @@ mod tests {
 
         // Create sumcheck data with a distinguishable value
         let mut data: SumcheckData<F, EF> = SumcheckData::default();
-        data.push_pow_witness(F::from_u64(999));
+        data.pow_witnesses.push(F::from_u64(999));
 
         // Set as final
         proof.set_final_sumcheck_data(data);
@@ -515,12 +515,12 @@ mod tests {
 
         // Create sumcheck data with a distinguishable value for round 0
         let mut data0: SumcheckData<F, EF> = SumcheckData::default();
-        data0.push_pow_witness(F::from_u64(777));
+        data0.pow_witnesses.push(F::from_u64(777));
         proof.set_sumcheck_data_at(data0, 0);
 
         // Create sumcheck data with a distinguishable value for round 1
         let mut data1: SumcheckData<F, EF> = SumcheckData::default();
-        data1.push_pow_witness(F::from_u64(888));
+        data1.pow_witnesses.push(F::from_u64(888));
         proof.set_sumcheck_data_at(data1, 1);
 
         // Verify it was stored in the correct rounds

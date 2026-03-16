@@ -25,11 +25,6 @@ pub struct SumcheckData<F, EF> {
 }
 
 impl<F, EF> SumcheckData<F, EF> {
-    /// Appends a proof-of-work witness.
-    pub fn push_pow_witness(&mut self, witness: F) {
-        self.pow_witnesses.push(witness);
-    }
-
     /// Commits polynomial coefficients to the transcript and returns a challenge.
     ///
     /// This helper function handles the Fiat-Shamir interaction for a sumcheck round.
@@ -69,7 +64,7 @@ impl<F, EF> SumcheckData<F, EF> {
         //
         // This makes it expensive for a malicious prover to "mine" favorable challenges.
         if pow_bits > 0 {
-            self.push_pow_witness(challenger.grind(pow_bits));
+            self.pow_witnesses.push(challenger.grind(pow_bits));
         }
 
         // Sample the verifier's challenge for this round.
@@ -124,14 +119,14 @@ mod tests {
 
         // First push
         let witness1 = F::from_u64(42);
-        sumcheck.push_pow_witness(witness1);
+        sumcheck.pow_witnesses.push(witness1);
 
         assert_eq!(sumcheck.pow_witnesses.len(), 1);
         assert_eq!(sumcheck.pow_witnesses[0], witness1);
 
         // Second push should append to existing vector
         let witness2 = F::from_u64(123);
-        sumcheck.push_pow_witness(witness2);
+        sumcheck.pow_witnesses.push(witness2);
 
         assert_eq!(sumcheck.pow_witnesses.len(), 2);
         assert_eq!(sumcheck.pow_witnesses[1], witness2);
