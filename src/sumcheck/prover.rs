@@ -365,7 +365,7 @@ where
         // Materialize the weight polynomial in packed form by combining all split eq
         // constraints into a single packed weight array.
         let mut weights = EvaluationsList::<EF::ExtensionPacking>::zero(poly.num_variables());
-        SplitEq::combine_into_packed(weights.as_mut_slice(), statements, alpha, &rs);
+        SplitEq::combine_into_packed(statements, weights.as_mut_slice(), alpha, &rs);
 
         // Wrap into a paired polynomial (packed) for subsequent standard rounds.
         let poly = ProductPolynomial::<F, EF>::new_packed(poly, weights);

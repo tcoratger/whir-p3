@@ -359,15 +359,15 @@ impl<F: Field, EF: ExtensionField<F>> SplitEq<F, EF> {
     ///
     /// # Arguments
     ///
+    /// * `selfs` - Slice of split eq representations to combine.
     /// * `out` - Output buffer of packed extension field elements to accumulate into.
     ///   Must have size `2^{k_split - log_2(SIMD_WIDTH)}`.
-    /// * `selfs` - Slice of split eq representations to combine.
     /// * `alpha` - Batching challenge for merging multiple constraints.
     /// * `rs` - The `k_svo` random challenges from the completed SVO rounds.
     #[tracing::instrument(skip_all, fields(k = log2_strict_usize(out.len()), selfs = selfs.len()))]
     pub(crate) fn combine_into_packed(
-        out: &mut [EF::ExtensionPacking],
         selfs: &[Self],
+        out: &mut [EF::ExtensionPacking],
         alpha: EF,
         rs: &[EF],
     ) {
