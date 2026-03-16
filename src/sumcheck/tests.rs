@@ -71,13 +71,13 @@ fn create_test_protocol_params(folding_factor: FoldingFactor) -> ProtocolParamet
     let mmcs = MyMmcs::new(MyHash::new(perm.clone()), MyCompress::new(perm), 0);
 
     ProtocolParameters {
-        security_level: 32,             // Low security for fast testing.
-        pow_bits: 0,                    // No proof-of-work grinding.
+        security_level: 32,                    // Low security for fast testing.
+        pow_bits: 0,                           // No proof-of-work grinding.
         rs_domain_initial_reduction_factor: 1, // No initial domain reduction.
         folding_factor,
         mmcs,
         soundness_type: SecurityAssumption::UniqueDecoding,
-        starting_log_inv_rate: 1,       // Rate = 1/2 (log inverse rate = 1).
+        starting_log_inv_rate: 1, // Rate = 1/2 (log inverse rate = 1).
     }
 }
 
