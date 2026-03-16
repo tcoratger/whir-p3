@@ -9,7 +9,7 @@ use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use whir_p3::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    sumcheck::sumcheck_prover::Sumcheck,
+    sumcheck::prover::Sumcheck,
     whir::{
         constraints::statement::initial::InitialStatement,
         parameters::SumcheckStrategy,

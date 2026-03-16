@@ -10,17 +10,14 @@ use p3_util::log2_strict_usize;
 use crate::{
     sumcheck::{
         extrapolate_012, lagrange::lagrange_weights_012_multi,
-        product_polynomial::ProductPolynomial, svo::SplitEq,
+        product_polynomial::ProductPolynomial, proof::SumcheckData, svo::SplitEq,
     },
-    whir::{
-        constraints::{
-            Constraint,
-            statement::{
-                EqStatement,
-                initial::{InitialStatement, InitialStatementInner},
-            },
+    whir::constraints::{
+        Constraint,
+        statement::{
+            EqStatement,
+            initial::{InitialStatement, InitialStatementInner},
         },
-        proof::SumcheckData,
     },
 };
 

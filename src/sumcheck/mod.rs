@@ -22,12 +22,17 @@
 //!
 //! After `l` rounds, the verifier holds `(r_1, ..., r_l)` and queries `g` directly.
 
+pub mod error;
 pub mod lagrange;
 pub mod product_polynomial;
-pub mod sumcheck_prover;
+pub mod proof;
+pub mod prover;
 pub mod svo;
+pub mod verifier;
 
 #[cfg(test)]
 mod tests;
 
+pub use error::SumcheckError;
 pub(crate) use lagrange::extrapolate_012;
+pub use proof::SumcheckData;

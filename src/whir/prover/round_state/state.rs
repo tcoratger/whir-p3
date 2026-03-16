@@ -9,8 +9,8 @@ use tracing::instrument;
 
 use crate::{
     fiat_shamir::errors::FiatShamirError,
-    sumcheck::sumcheck_prover::Sumcheck,
-    whir::{constraints::statement::initial::InitialStatement, proof::SumcheckData},
+    sumcheck::{SumcheckData, prover::Sumcheck},
+    whir::constraints::statement::initial::InitialStatement,
 };
 
 /// Holds all per-round prover state required during the execution of the WHIR protocol.

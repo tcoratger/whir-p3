@@ -4,7 +4,7 @@ use alloc::string::String;
 
 use thiserror::Error;
 
-use crate::fiat_shamir::errors::FiatShamirError;
+use crate::{fiat_shamir::errors::FiatShamirError, sumcheck::SumcheckError};
 
 /// Errors for WHIR protocol verification.
 #[derive(Error, Debug)]
@@ -27,6 +27,10 @@ pub enum VerifierError {
         challenge_id: usize,
         details: String,
     },
+
+    /// Sumcheck verification error.
+    #[error(transparent)]
+    Sumcheck(#[from] SumcheckError),
 
     /// Fiat-Shamir transcript error during verification.
     #[error(transparent)]

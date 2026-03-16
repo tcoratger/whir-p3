@@ -4,10 +4,7 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
 use p3_multilinear_util::multilinear::MultilinearPoint;
 
-use crate::{
-    sumcheck::extrapolate_012,
-    whir::{proof::SumcheckData, verifier::VerifierError},
-};
+use super::{error::SumcheckError, extrapolate_012, proof::SumcheckData};
 
 /// Verifies standard sumcheck rounds and extracts folding randomness from the transcript.
 ///
@@ -28,12 +25,12 @@ use crate::{
 ///
 /// - A `MultilinearPoint` of folding randomness values in reverse order.
 ///   Common helper function to verify standard sumcheck rounds
-pub(crate) fn verify_sumcheck_rounds<F, EF, Challenger>(
+pub fn verify_sumcheck_rounds<F, EF, Challenger>(
     sumcheck: &SumcheckData<F, EF>,
     challenger: &mut Challenger,
     claimed_sum: &mut EF,
     pow_bits: usize,
-) -> Result<MultilinearPoint<EF>, VerifierError>
+) -> Result<MultilinearPoint<EF>, SumcheckError>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
@@ -49,7 +46,7 @@ where
 
         // Verify PoW (only if pow_bits > 0)
         if pow_bits > 0 && !challenger.check_witness(pow_bits, sumcheck.pow_witnesses[i]) {
-            return Err(VerifierError::InvalidPowWitness);
+            return Err(SumcheckError::InvalidPowWitness);
         }
 
         // Sample challenge
@@ -67,13 +64,13 @@ where
 /// # Returns
 ///
 /// - A `MultilinearPoint` of folding randomness values in reverse order.
-pub(crate) fn verify_final_sumcheck_rounds<F, EF, Challenger>(
+pub fn verify_final_sumcheck_rounds<F, EF, Challenger>(
     final_sumcheck: Option<&SumcheckData<F, EF>>,
     challenger: &mut Challenger,
     claimed_sum: &mut EF,
     rounds: usize,
     pow_bits: usize,
-) -> Result<MultilinearPoint<EF>, VerifierError>
+) -> Result<MultilinearPoint<EF>, SumcheckError>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
@@ -84,14 +81,14 @@ where
         return Ok(MultilinearPoint::new(Vec::new()));
     }
 
-    let sumcheck = final_sumcheck.ok_or_else(|| VerifierError::SumcheckFailed {
+    let sumcheck = final_sumcheck.ok_or_else(|| SumcheckError::SumcheckFailed {
         round: 0,
         expected: format!("{rounds} final sumcheck rounds"),
         actual: "None".to_string(),
     })?;
 
     if sumcheck.polynomial_evaluations.len() != rounds {
-        return Err(VerifierError::SumcheckFailed {
+        return Err(SumcheckError::SumcheckFailed {
             round: 0,
             expected: format!("{rounds} rounds"),
             actual: format!("{} rounds in proof", sumcheck.polynomial_evaluations.len()),
@@ -99,6 +96,7 @@ where
     }
     verify_sumcheck_rounds(sumcheck, challenger, claimed_sum, pow_bits)
 }
+
 #[cfg(test)]
 mod tests {
     use alloc::vec;
@@ -115,7 +113,7 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::{DomainSeparator, SumcheckParams},
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        sumcheck::sumcheck_prover::Sumcheck,
+        sumcheck::prover::Sumcheck,
         whir::{
             constraints::statement::initial::InitialStatement, parameters::SumcheckStrategy,
             proof::WhirProof,

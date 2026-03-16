@@ -14,6 +14,7 @@ use super::{
 };
 use crate::{
     alloc::string::ToString,
+    sumcheck::verifier::{verify_final_sumcheck_rounds, verify_sumcheck_rounds},
     whir::{
         constraints::{
             Constraint,
@@ -22,12 +23,10 @@ use crate::{
         },
         parameters::WhirConfig,
         proof::{QueryOpening, WhirProof},
-        verifier::sumcheck::{verify_final_sumcheck_rounds, verify_sumcheck_rounds},
     },
 };
 
 pub mod errors;
-pub mod sumcheck;
 
 /// Wrapper around the WHIR verifier configuration.
 ///
