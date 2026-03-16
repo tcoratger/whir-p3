@@ -1,32 +1,21 @@
 //! Split-Value Optimization (SVO) for the sumcheck protocol.
 //!
-//! This module implements Algorithm 5 from "Speeding Up Sum-Check Proving"
-//! (https://eprint.iacr.org/2025/1117), which optimizes sumcheck proving when
-//! the polynomial includes an equality polynomial factor.
+//! Optimizes sumcheck proving when the polynomial includes an equality polynomial factor.
+//! Implements Algorithm 5 from "Speeding Up Sum-Check Proving" (ePrint 2025/1117).
 //!
-//! # Mathematical Background
+//! # Key Insight
 //!
-//! Let us consider the sumcheck protocol applied to polynomials of the form:
-//!
-//! ```text
-//! g(X) = eq(w, X) * p(X)
-//! ```
-//!
-//! where `eq` is the multilinear extension of the equality function. The SVO exploits
-//! the special structure of the equality polynomial to reduce prover costs.
-//!
-//! ## Key Insight: Splitting the Equality Polynomial
-//!
-//! The equality polynomial can be decomposed as:
+//! For polynomials of the form `g(X) = eq(w, X) * p(X)`,
+//! the equality polynomial can be decomposed as:
 //!
 //! ```text
 //! eq(w, (r_{<i}, X, x')) = eq(w_{<i}, r_{<i}) * eq(w_i, X) * eq(w_{>i}, x')
 //! ```
 //!
-//! This allows us to:
-//! 1. Pre-compute smaller tables for the left and right components
-//! 2. Avoid materializing the full 2^l-sized equality table
-//! 3. Use Lagrange interpolation to reconstruct round polynomials from accumulators
+//! This allows:
+//! 1. Pre-computing smaller tables for the left and right components.
+//! 2. Avoiding the full `2^l`-sized equality table.
+//! 3. Reconstructing round polynomials from compact accumulators via Lagrange interpolation.
 
 use alloc::{vec, vec::Vec};
 
@@ -40,41 +29,20 @@ use crate::utils::log3_strict_usize;
 
 /// Generates grid points for SVO accumulator evaluation.
 ///
-/// For a given depth `l`, generates two arrays of multilinear points:
-/// - `pts_0`: Points in `{0,1,2}^{l-1} x {0}` (used to compute `h(0)`)
-/// - `pts_2`: Points in `{0,1,2}^{l-1} x {2}` (used to compute `h(2)`)
+/// Returns two arrays of `3^{l-1}` points each:
+/// - First array: points in `{0,1,2}^{l-1} x {0}` (for computing `h(0)`)
+/// - Second array: points in `{0,1,2}^{l-1} x {2}` (for computing `h(2)`)
 ///
-/// # Why These Specific Points?
-///
-/// In the sumcheck protocol, each round's polynomial `h(X)` is quadratic (degree 2).
-/// To uniquely determine `h(X)`, we need evaluations at 3 points. We choose:
-/// - `h(0)`: Computed from `pts_0` accumulators
-/// - `h(1)`: Derived from the sumcheck constraint `h(0) + h(1) = claimed_sum`
-/// - `h(2)`: Computed from `pts_2` accumulators
-///
-/// This avoids explicitly computing `h(1)`, saving work.
-///
-/// # Grid Structure
-///
-/// For `l` rounds, we need to evaluate at points where the last coordinate is fixed
-/// (either 0 or 2), while the first `l-1` coordinates range over `{0, 1, 2}`.
-/// This gives `3^{l-1}` points in each array.
-///
-/// # Arguments
-///
-/// * `l` - The number of SVO rounds (must be positive).
-///
-/// # Returns
-///
-/// An array `[pts_0, pts_2]` where:
-/// - `pts_0` contains `3^{l-1}` points ending in 0
-/// - `pts_2` contains `3^{l-1}` points ending in 2
+/// The round polynomial `h(X)` is quadratic (degree 2).
+/// Three evaluations determine it uniquely.
+/// We compute `h(0)` and `h(2)` from accumulators.
+/// The verifier derives `h(1) = claimed_sum - h(0)`.
 ///
 /// # Panics
 ///
 /// Panics if `l == 0`.
 ///
-/// # Complexity
+/// # Performance
 ///
 /// Time: O(3^l), Space: O(3^l)
 pub(super) fn points_012<F: Field>(l: usize) -> [Vec<Vec<F>>; 2] {
@@ -112,38 +80,27 @@ pub(super) fn points_012<F: Field>(l: usize) -> [Vec<Vec<F>>; 2] {
 
 /// Computes SVO accumulators for a set of grid points.
 ///
-/// For each grid point `u` in `us`, computes:
+/// For each grid point `u`, computes:
 ///
 /// ```text
 /// A(u) = f(u) * eq(u, point)
 /// ```
 ///
-/// where `f(u)` is derived from `partial_evals` and `eq` is the equality polynomial.
-/// These accumulator values are later used with Lagrange interpolation
-/// (via [`lagrange_weights_012_multi`]) to reconstruct the round polynomial.
+/// where `f(u)` is derived from partial evaluations
+/// and `eq` is the equality polynomial.
 ///
-/// # Mathematical Details
+/// These values are later combined with Lagrange weights
+/// to reconstruct the round polynomial.
 ///
-/// The computation splits the point into two parts:
-/// - `z0`: The first `k - offset` coordinates (used for the "inner" equality)
-/// - `z1`: The remaining `offset` coordinates (used for the "outer" equality)
+/// # Algorithm
 ///
-/// The partial evaluations are first reduced over `z1` using the equality polynomial,
-/// then combined with `z0` evaluations for each grid point `u`.
-///
-/// # Arguments
-///
-/// * `us` - Grid points in `{0,1,2}^l` (typically from [`points_012`]).
-/// * `partial_evals` - Pre-computed partial evaluations from [`SplitEq::partial_evals`].
-/// * `point` - The challenge point for the equality polynomial.
+/// 1. Split the challenge point into inner (`z0`) and outer (`z1`) components.
+/// 2. Reduce partial evaluations over `z1` using the equality polynomial.
+/// 3. For each grid point `u`, compute the accumulator via Lagrange interpolation.
 ///
 /// # Returns
 ///
-/// A vector of accumulator values, one for each point in `us`.
-///
-/// # Complexity
-///
-/// Time: O(|us| * 2^{offset} + |partial_evals|)
+/// One accumulator value per grid point.
 pub(super) fn calculate_accumulators<F: Field, EF: ExtensionField<F>>(
     us: &[Vec<F>],
     partial_evals: &[EF],
@@ -195,38 +152,32 @@ pub(super) fn calculate_accumulators<F: Field, EF: ExtensionField<F>>(
 
 /// Split equality polynomial representation for optimized sumcheck proving.
 ///
-/// Implements Algorithm 5 from "Speeding Up Sum-Check Proving"
-/// (https://eprint.iacr.org/2025/1117), Section 5.2.
-///
-/// # Mathematical Background
-///
-/// The equality polynomial `eq(w, X)` for a point `w in F^k` is defined as:
+/// The equality polynomial for a point `w in F^k` is:
 ///
 /// ```text
 /// eq(w, X) = prod_{i=1}^{k} (w_i * X_i + (1 - w_i) * (1 - X_i))
 /// ```
 ///
 /// This struct exploits the product structure by splitting `w` into three parts:
-/// - `z_svo`: SVO part of `w` in point form (indices 0 to l0)
-/// - `eq0`: The first half of the rest of `w` in polynomial form (indices l0 to k-l0/2)
-/// - `eq1`: The second half of the rest of `w` in packed polynomial form (indices k-l0/2 to k)
+///
+/// - The first `l0` coordinates, kept as a raw point for SVO rounds.
+/// - The next `(k - l0) / 2` coordinates, stored as a scalar evaluation table.
+/// - The remaining coordinates, stored as a packed evaluation table for SIMD.
 ///
 /// This allows computing `eq(w, x)` for many `x` values efficiently by:
-/// 1. Pre-computing small tables for each half
-/// 2. Combining them as needed during the sumcheck protocol
+/// 1. Pre-computing small tables for each half.
+/// 2. Combining them as needed during the sumcheck protocol.
 ///
-/// # Memory Optimization
+/// # Memory
 ///
-/// Instead of storing a 2^k-sized table of `eq(w, x)` values, we store:
-/// - `z0`: 2^{(k-l0)/2} extension field elements
-/// - `z1`: 2^{(k-l0)/2} packed extension field elements
+/// Instead of storing a `2^{k-l0}`-sized table, we store:
+/// - `2^{(k-l0)/2}` scalar extension field elements for the first half.
+/// - `2^{(k-l0)/2}` packed extension field elements for the second half.
 ///
-/// This reduces memory from O(2^{k-l0}) to O(2^{(k-l0)/2}).
+/// This reduces memory from `O(2^{k-l0})` to `O(2^{(k-l0)/2})`.
 ///
-/// # Packed Representation
-///
-/// The `eq1` half uses packed field elements for SIMD acceleration.
-/// The packing width is determined by `F::Packing::WIDTH`.
+/// The packed half uses SIMD acceleration.
+/// The packing width is determined by the field's native SIMD width.
 #[derive(Debug, Clone)]
 pub(crate) struct SplitEqInner<F: Field, EF: ExtensionField<F>> {
     /// First part of the point where we apply the SVO optimization.
@@ -244,36 +195,25 @@ pub(crate) struct SplitEqInner<F: Field, EF: ExtensionField<F>> {
     eq1: EvaluationsList<EF::ExtensionPacking>,
 }
 
-/// Split equality polynomial with precomputed accumulators for optimized sumcheck proving.
+/// Split equality polynomial with precomputed accumulators.
 ///
-/// This struct wraps [`SplitEqInner`] and extends it with precomputed values needed
-/// during the sumcheck protocol. It combines the split representation with:
-/// - Precomputed accumulators for all SVO rounds
-/// - The evaluation `sum_x eq(w, x) * poly(x)` of the weighted polynomial
-/// - The original challenge point for reference
+/// Extends the inner split representation with precomputed values
+/// needed during the sumcheck protocol:
+///
+/// - Accumulator values for all SVO rounds.
+/// - The weighted evaluation `sum_x eq(w, x) * poly(x)`.
+/// - The original challenge point `w`.
 ///
 /// # Construction
 ///
-/// Created via [`SplitEq::new`], this struct:
-/// 1. Builds the inner split representation via [`SplitEqInner::new`]
-/// 2. Computes partial evaluations of the polynomial weighted by the split eq
-/// 3. Precomputes accumulators for rounds 1 through `l` (the SVO depth)
+/// 1. Build the inner split representation from the challenge point.
+/// 2. Compute partial evaluations of the polynomial weighted by the split eq.
+/// 3. Precompute accumulators for rounds 1 through `l` (the SVO depth).
 ///
 /// # Memory
 ///
-/// By precomputing all accumulators upfront, we trade memory for speed:
-/// - Memory: O(3^l) total accumulator values across all rounds
-/// - Benefit: Each SVO round can directly access its accumulators without recomputation
-///
-/// # Fields
-///
-/// - `inner`: The underlying split equality representation
-/// - `accumulators`: Precomputed accumulator values for each SVO round.
-///   `accumulators[i]` contains `[acc_0, acc_2]` for round `i+1`, where:
-///   - `acc_0`: Accumulators for grid points ending in 0 (for computing `h(0)`)
-///   - `acc_2`: Accumulators for grid points ending in 2 (for computing `h(2)`)
-/// - `eval`: The sum `sum_x eq(w, x) * poly(x)` over the boolean hypercube
-/// - `point`: The original challenge point `w`
+/// Precomputes `O(3^l)` total accumulator values upfront.
+/// Each SVO round accesses its accumulators directly without recomputation.
 #[derive(Debug, Clone)]
 pub(crate) struct SplitEq<F: Field, EF: ExtensionField<F>> {
     /// The underlying split equality polynomial representation.
@@ -338,7 +278,7 @@ impl<F: Field, EF: ExtensionField<F>> SplitEq<F, EF> {
 
     /// Combines multiple split eq polynomials into a single packed output.
     ///
-    /// This is used after the SVO rounds to merge the split eq representations
+    /// Used after the SVO rounds to merge split representations
     /// back into a single weight vector for subsequent sumcheck rounds.
     ///
     /// # Mathematical Operation
@@ -346,17 +286,10 @@ impl<F: Field, EF: ExtensionField<F>> SplitEq<F, EF> {
     /// For each output position, accumulates:
     ///
     /// ```text
-    /// out[i] += sum_j alpha^j * eq(z_svo_j, rs) * eq_split_j[i]
+    /// out[i] += sum_j alpha^j * eq(svo_point_j, rs) * eq_table_j[i]
     /// ```
     ///
-    /// where `eq_split_j[i]` combines `eq0` and `eq1` from each inner split eq.
-    ///
-    /// # Arguments
-    ///
-    /// * `out` - Output buffer to accumulate into (must be correctly sized).
-    /// * `selfs` - Slice of split eq polynomials to combine.
-    /// * `alpha` - Combination challenge for merging.
-    /// * `rs` - The random challenges from the completed SVO rounds.
+    /// where the eq table combines the inner and outer halves of each split eq.
     #[tracing::instrument(skip_all, fields(k = log2_strict_usize(out.len()), selfs = selfs.len()))]
     pub(crate) fn combine_into_packed(
         out: &mut [EF::ExtensionPacking],
@@ -372,15 +305,10 @@ impl<F: Field, EF: ExtensionField<F>> SplitEq<F, EF> {
 impl<F: Field, EF: ExtensionField<F>> SplitEqInner<F, EF> {
     /// Creates a new split equality polynomial from a challenge point.
     ///
-    /// Splits the point `z` into three parts:
-    /// 1. `z_svo`: First `l` coordinates (indices 0 to l-1), kept as a point for SVO
-    /// 2. `eq0`: Next `(k-l)/2` coordinates, stored as evaluation table
-    /// 3. `eq1`: Remaining coordinates, stored as packed evaluation table for SIMD
-    ///
-    /// # Arguments
-    ///
-    /// * `z` - The challenge point `w in EF^k` for the equality polynomial.
-    /// * `l` - The number of SVO rounds (depth of the SVO optimization).
+    /// Splits the point into three parts:
+    /// 1. First `l` coordinates — kept as a raw point for SVO.
+    /// 2. Next `(k-l)/2` coordinates — stored as a scalar evaluation table.
+    /// 3. Remaining coordinates — stored as a packed evaluation table (SIMD).
     #[tracing::instrument(skip_all)]
     pub(crate) fn new(z: &MultilinearPoint<EF>, l: usize) -> Self {
         let k = z.num_variables();
@@ -400,14 +328,34 @@ impl<F: Field, EF: ExtensionField<F>> SplitEqInner<F, EF> {
         Self { z_svo, eq0, eq1 }
     }
 
+    /// Returns the total number of variables `k` in the original point.
+    ///
+    /// Equal to the SVO depth plus the split table variables:
+    ///
+    /// ```text
+    /// k = k_svo + k_split
+    /// ```
     pub(crate) const fn k(&self) -> usize {
         self.k_split() + self.k_svo()
     }
 
+    /// Returns the number of SVO variables (`l0`).
+    ///
+    /// This is the depth of the SVO optimization.
+    /// These coordinates are processed via the accumulator-based Lagrange
+    /// interpolation path rather than the standard fold-and-sum path.
     pub(crate) const fn k_svo(&self) -> usize {
         self.z_svo.num_variables()
     }
 
+    /// Returns the number of variables covered by the split eq tables.
+    ///
+    /// ```text
+    /// k_split = inner_half_vars + outer_half_vars + log_2(SIMD_WIDTH)
+    /// ```
+    ///
+    /// The `log_2(SIMD_WIDTH)` term accounts for variables absorbed by SIMD packing.
+    /// Together with the SVO depth, this reconstructs the original `k`.
     const fn k_split(&self) -> usize {
         self.eq1.num_variables() + self.eq0.num_variables() + log2_strict_usize(F::Packing::WIDTH)
     }
@@ -438,27 +386,19 @@ impl<F: Field, EF: ExtensionField<F>> SplitEqInner<F, EF> {
 
     /// Computes partial evaluations of a polynomial weighted by the split eq.
     ///
-    /// For a polynomial `poly` over `F^n` where `n >= k`, computes partial sums
-    /// that incorporate the equality polynomial weighting. The result is used
-    /// by [`SplitEqInner::accumulators`] to build the accumulator values.
-    ///
-    /// # Mathematical Formula
-    ///
-    /// For each chunk of `poly` of size `2^{k-l}` (one per SVO hypercube point), computes:
+    /// For each chunk of the polynomial (one per SVO hypercube point), computes:
     ///
     /// ```text
-    /// sum_{x_0, x_1} eq0[x_0] * eq1[x_1] * poly[x_0, x_1]
+    /// sum_{x_inner, x_outer} eq_inner[x_inner] * eq_outer[x_outer] * poly[x_inner, x_outer]
     /// ```
     ///
-    /// where `x_0` ranges over the `eq0` indices and `x_1` over the `eq1` indices.
-    ///
-    /// Also computes the full evaluation by combining partial evals with `eq_svo`.
+    /// Also computes the full weighted evaluation by combining partial results
+    /// with the SVO portion of the equality polynomial.
     ///
     /// # Returns
     ///
-    /// A tuple `(partial_evals, eval)` where:
-    /// - `partial_evals`: One value per chunk of size `2^{k-l}` in `poly`
-    /// - `eval`: The full weighted evaluation `sum_x eq(z, x) * poly(x)`
+    /// - One partial evaluation per chunk.
+    /// - The full weighted evaluation `sum_x eq(z, x) * poly(x)`.
     #[tracing::instrument(skip_all)]
     pub(crate) fn partial_evals(&self, poly: &EvaluationsList<F>) -> (Vec<EF>, EF) {
         // Each chunk of size 2^{k-l} is processed independently.
@@ -499,6 +439,34 @@ impl<F: Field, EF: ExtensionField<F>> SplitEqInner<F, EF> {
         (partial_evals, eval)
     }
 
+    /// Merges multiple split eq representations into a single packed weight vector.
+    ///
+    /// After the SVO rounds complete, the split eq polynomials must be recombined
+    /// into a single weight vector for the subsequent standard sumcheck rounds.
+    /// This function accumulates all split eq contributions into `out`, weighted
+    /// by powers of the batching challenge `alpha`.
+    ///
+    /// # Mathematical Operation
+    ///
+    /// For each output position indexed by `(x_L, x_R)`:
+    ///
+    /// ```text
+    /// out[x_L, x_R] += sum_j alpha^j * eq(z_svo_j, rs) * eq0_j[x_L] * eq1_j[x_R]
+    /// ```
+    ///
+    /// where:
+    /// - `j` ranges over the input split eqs
+    /// - `rs` are the random challenges from the completed SVO rounds
+    /// - `eq(z_svo_j, rs)` evaluates the SVO portion at the challenge point
+    /// - `eq0_j[x_L]` and `eq1_j[x_R]` are the precomputed split eq tables
+    ///
+    /// # Arguments
+    ///
+    /// * `out` - Output buffer of packed extension field elements to accumulate into.
+    ///   Must have size `2^{k_split - log_2(SIMD_WIDTH)}`.
+    /// * `selfs` - Slice of split eq inner representations to combine.
+    /// * `alpha` - Batching challenge for merging multiple constraints.
+    /// * `rs` - The `k_svo` random challenges from the completed SVO rounds.
     fn combine_into_packed(
         out: &mut [EF::ExtensionPacking],
         selfs: &[&Self],
@@ -537,17 +505,26 @@ impl<F: Field, EF: ExtensionField<F>> SplitEqInner<F, EF> {
             "into_packed: wrong number of SVO challenges"
         );
 
-        // Accumulate each split eq into the output.
+        // Accumulate each split eq into the output, weighted by powers of alpha.
         for (eq_split, alpha) in selfs.iter().zip(alpha.powers()) {
-            // Evaluate the SVO parts at the given sumcheck challenges and also apply merging challenge.
+            // Compute the scalar factor: alpha^j * eq(z_svo_j, rs).
+            //
+            // This evaluates the SVO portion of the equality polynomial at the
+            // sumcheck challenges `rs`, and folds in the batching challenge `alpha`.
+            // We pass `alpha` as the initial value to `new_from_point` so it gets
+            // multiplied into every term of the eq evaluation.
             let scale = EvaluationsList::new_from_point(eq_split.z_svo.as_slice(), alpha)
                 .evaluate_hypercube_ext(&MultilinearPoint::new(rs.to_vec()));
 
-            // Process output in chunks matching the left table size.
+            // Process output in chunks of size |eq1|, one chunk per eq0 entry.
+            //
+            // The output is indexed as out[x_L * |eq1| + x_R], and we iterate
+            // over x_L (outer loop via chunks) and x_R (inner loop within chunk).
+            // For each position: out[x_L, x_R] += eq1[x_R] * eq0[x_L] * scale.
             out.par_chunks_mut(eq_split.eq1.num_evals())
                 .zip(eq_split.eq0.as_slice().par_iter())
                 .for_each(|(chunk, &right)| {
-                    // For each position in the chunk, add: left[pos] * right * scale
+                    // `right` is eq0[x_L]; iterate over x_R positions in this chunk.
                     chunk
                         .iter_mut()
                         .zip(eq_split.eq1.iter())
@@ -626,7 +603,9 @@ mod tests {
 
     #[test]
     fn test_points_012_values_in_range() {
-        // All coordinates should be in {0, 1, 2}.
+        // All coordinates should be in {0, 1, 2}, since the grid points live
+        // in {0, 1, 2}^{l-1} x {0 or 2}. The first l-1 coordinates are free
+        // to take any value in {0, 1, 2}, while the last is fixed.
         let [pts_0, pts_2] = points_012::<F>(4);
 
         let valid_values = [F::ZERO, F::ONE, F::TWO];
@@ -647,7 +626,9 @@ mod tests {
 
     #[test]
     fn test_points_012_unique() {
-        // All points within each array should be unique.
+        // All points within each array should be unique, since the expand
+        // function enumerates all combinations of {0,1,2}^{l-1} crossed
+        // with a fixed last coordinate.
         let [pts_0, pts_2] = points_012::<F>(4);
 
         let pts_0_set: alloc::collections::BTreeSet<_> = pts_0.iter().cloned().collect();
@@ -666,32 +647,50 @@ mod tests {
     #[test]
     fn test_accumulators_correctness() {
         // Main correctness test: verify accumulators match naive computation.
+        //
+        // For each SVO depth l, verify that the precomputed accumulators match
+        // what we'd get by directly computing eq(z, u) * f(u) via compress_multi.
         let k = 10;
         let mut rng = SmallRng::seed_from_u64(1);
 
+        // Generate a random polynomial f over the boolean hypercube {0,1}^k.
         let f = EvaluationsList::new((0..1 << k).map(|_| rng.random()).collect());
+
+        // Generate a random challenge point z and build the full eq table.
         let z = MultilinearPoint::<EF>::rand(&mut rng, f.num_variables());
         let eq = EvaluationsList::new_from_point(z.as_slice(), EF::ONE);
 
+        // Test for each SVO depth l from 1 to k/2 - 1.
         for l in 1..k / 2 {
             let split_eq = SplitEq::<F, EF>::new(&z, l, &f);
 
+            // There should be exactly l accumulator rounds (one per SVO variable).
             let accumulators = split_eq.accumulators;
             assert_eq!(accumulators.len(), l);
 
+            // For each round i, verify both the h(0) and h(2) accumulators.
             for (i, accumulator) in accumulators.iter().enumerate() {
                 let us = points_012::<F>(i + 1);
+
+                // Verify h(0) accumulators: grid points ending in 0.
+                // For each grid point u, the accumulator should equal
+                // sum_x eq(z, (u, x)) * f(u, x) computed via compress_multi.
                 us[0]
                     .iter()
                     .zip(accumulator[0].iter())
                     .for_each(|(u, &acc)| {
+                        // Lift u from base field to extension field for compress_multi.
                         let u = u.iter().copied().map(EF::from).collect::<Vec<_>>();
+                        // Partially evaluate f and eq by binding the first i+1 variables to u.
                         let f = f.compress_multi(&u);
                         let eq = eq.compress_multi(&u);
+                        // The naive accumulator is the dot product of the residual eq and f.
                         let e1: EF = dot_product(eq.iter().copied(), f.iter().copied());
                         assert_eq!(acc, e1);
                     });
 
+                // Verify h(2) accumulators: grid points ending in 2.
+                // Same logic as above, but with extrapolation point 2.
                 us[1]
                     .iter()
                     .zip(accumulator[1].iter())
@@ -709,11 +708,14 @@ mod tests {
     #[test]
     fn test_split_eq_k_calculation() {
         // Verify that k() returns the original number of variables.
+        // The splitting into z_svo, eq0, and eq1 must preserve k = k_svo + k_split,
+        // regardless of how the coordinates are distributed.
         let mut rng = SmallRng::seed_from_u64(42);
 
         for k in [8, 10, 12, 14] {
             let point = MultilinearPoint::<EF>::rand(&mut rng, k);
             let poly = EvaluationsList::new((0..1 << k).map(|_| rng.random()).collect());
+            // Use l=0 SVO depth so all variables go into the split eq tables.
             let split_eq = SplitEq::<F, EF>::new(&point, 0, &poly);
             assert_eq!(split_eq.inner.k(), k, "k() mismatch for k={k}");
         }
@@ -722,18 +724,24 @@ mod tests {
     #[test]
     fn test_split_eq_partial_evals_size() {
         // Verify partial_evals returns the correct number of elements.
+        //
+        // When the polynomial has n variables and the split eq covers k variables,
+        // partial_evals processes the polynomial in chunks of 2^k, producing
+        // one partial evaluation per chunk. So the output length is 2^{n-k}.
         let mut rng = SmallRng::seed_from_u64(42);
         let k = 10;
-        let n = 14; // Total polynomial variables.
+        let n = 14; // Total polynomial variables (larger than k).
 
+        // Build the split eq from a k-variable point.
         let point = MultilinearPoint::<EF>::rand(&mut rng, k);
         let poly = EvaluationsList::new((0..1 << k).map(|_| rng.random()).collect());
         let split_eq = SplitEq::<F, EF>::new(&point, 0, &poly);
 
+        // Now evaluate partial_evals on a larger n-variable polynomial.
         let poly = EvaluationsList::new((0..1 << n).map(|_| rng.random()).collect());
         let (partial, _) = split_eq.inner.partial_evals(&poly);
 
-        // Should have one element per 2^k chunk.
+        // Should have 2^{n-k} = 2^4 = 16 partial evaluations.
         let expected_len = 1 << (n - k);
         assert_eq!(partial.len(), expected_len);
     }
@@ -762,7 +770,7 @@ mod tests {
             }
         }
 
-        /// Verify that SplitEq::k() returns the original point dimension.
+        /// Verify that the total variable count matches the original point dimension.
         #[test]
         fn prop_split_eq_k_consistency(k in 8usize..=14) {
             let mut rng = SmallRng::seed_from_u64(k as u64);
