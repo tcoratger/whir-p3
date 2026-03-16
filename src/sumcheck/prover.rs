@@ -4,13 +4,13 @@ use alloc::vec::Vec;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue, dot_product};
-use p3_multilinear_util::{evals::EvaluationsList as Poly, multilinear::MultilinearPoint as Point};
+use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use p3_util::log2_strict_usize;
 
 use crate::{
     sumcheck::{
-        extrapolate_012, lagrange::lagrange_weights_012_multi,
-        product_polynomial::ProductPolynomial, proof::SumcheckData, svo::SplitEq,
+        SumcheckData, extrapolate_012, lagrange::lagrange_weights_012_multi,
+        product_polynomial::ProductPolynomial, svo::SplitEq,
     },
     whir::constraints::{
         Constraint,
@@ -36,7 +36,7 @@ use crate::{
 /// where `n` is the number of remaining unbound variables.
 /// It decreases by one per round as variables are bound to verifier challenges.
 #[derive(Debug, Clone)]
-pub struct Sumcheck<F: Field, EF: ExtensionField<F>> {
+pub struct SumcheckProver<F: Field, EF: ExtensionField<F>> {
     /// Paired evaluation and weight polynomials for the quadratic sumcheck.
     ///
     /// Stores both `f(x)` and `w(x)` in either SIMD-packed or scalar format.
@@ -55,7 +55,7 @@ pub struct Sumcheck<F: Field, EF: ExtensionField<F>> {
     pub(crate) sum: EF,
 }
 
-impl<F, EF> Sumcheck<F, EF>
+impl<F, EF> SumcheckProver<F, EF>
 where
     F: Field + Ord,
     EF: ExtensionField<F>,
@@ -79,13 +79,13 @@ where
     /// - The verifier challenges `(r_1, ..., r_{folding_factor})`.
     #[tracing::instrument(skip_all)]
     fn new_classic_small<Challenger>(
-        poly: &Poly<F>,
+        poly: &EvaluationsList<F>,
         sumcheck_data: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
         statement: &EqStatement<EF>,
-    ) -> (Self, Point<EF>)
+    ) -> (Self, MultilinearPoint<EF>)
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
@@ -96,7 +96,7 @@ where
         let k = poly.num_variables();
 
         // Initialize a zero weight polynomial with the same number of variables.
-        let mut weights = Poly::zero(k);
+        let mut weights = EvaluationsList::zero(k);
 
         // The claimed sum starts at zero.
         // It will be accumulated from the equality constraints below.
@@ -148,7 +148,7 @@ where
             )
             .collect();
 
-        (Self { poly, sum }, Point::new(rs))
+        (Self { poly, sum }, MultilinearPoint::new(rs))
     }
 
     /// Constructs a sumcheck instance using the classic approach with SIMD-packed arithmetic.
@@ -169,13 +169,13 @@ where
     /// - The verifier challenges `(r_1, ..., r_{folding_factor})`.
     #[tracing::instrument(skip_all)]
     fn new_classic_packed<Challenger>(
-        poly: &Poly<F>,
+        poly: &EvaluationsList<F>,
         sumcheck_data: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
         statement: &EqStatement<EF>,
-    ) -> (Self, Point<EF>)
+    ) -> (Self, MultilinearPoint<EF>)
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
@@ -189,7 +189,7 @@ where
         let k_pack = log2_strict_usize(F::Packing::WIDTH);
 
         // Initialize a zero weight polynomial in packed representation.
-        let mut weights = Poly::zero(k - k_pack);
+        let mut weights = EvaluationsList::zero(k - k_pack);
         let mut sum = EF::ZERO;
 
         // Populate packed weights from equality constraints.
@@ -197,7 +197,7 @@ where
 
         // Pack the base-field evaluations into SIMD lanes.
         // Each packed element holds SIMD_WIDTH consecutive evaluations.
-        let poly_packed = Poly::new(F::Packing::pack_slice(poly.as_slice()).to_vec());
+        let poly_packed = EvaluationsList::new(F::Packing::pack_slice(poly.as_slice()).to_vec());
 
         // Compute sumcheck coefficients in packed arithmetic.
         // The result is still in packed form (one value per SIMD lane).
@@ -235,7 +235,7 @@ where
             )
             .collect();
 
-        (Self { poly, sum }, Point::new(rs))
+        (Self { poly, sum }, MultilinearPoint::new(rs))
     }
 
     /// Constructs a sumcheck instance using the Split-Value Optimization (Algorithm 5).
@@ -273,13 +273,13 @@ where
     /// - If there are not enough variables for packed representation after folding.
     #[tracing::instrument(skip_all)]
     pub(super) fn new_svo<Challenger>(
-        poly: &Poly<F>,
+        poly: &EvaluationsList<F>,
         sumcheck_data: &mut SumcheckData<F, EF>,
         challenger: &mut Challenger,
         folding_factor: usize,
         pow_bits: usize,
         statements: &[SplitEq<F, EF>],
-    ) -> (Self, Point<EF>)
+    ) -> (Self, MultilinearPoint<EF>)
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
@@ -364,7 +364,7 @@ where
 
         // Materialize the weight polynomial in packed form by combining all split eq
         // constraints into a single packed weight array.
-        let mut weights = Poly::<EF::ExtensionPacking>::zero(poly.num_variables());
+        let mut weights = EvaluationsList::<EF::ExtensionPacking>::zero(poly.num_variables());
         SplitEq::combine_into_packed(weights.as_mut_slice(), statements, alpha, &rs);
 
         // Wrap into a paired polynomial (packed) for subsequent standard rounds.
@@ -372,7 +372,7 @@ where
 
         // Verify the sumcheck invariant after materialization.
         debug_assert_eq!(poly.dot_product(), sum);
-        (Self { poly, sum }, Point::new(rs))
+        (Self { poly, sum }, MultilinearPoint::new(rs))
     }
 
     /// Entry point: constructs a sumcheck prover from base-field evaluations.
@@ -399,7 +399,7 @@ where
         folding_factor: usize,
         pow_bits: usize,
         statement: &InitialStatement<F, EF>,
-    ) -> (Self, Point<EF>)
+    ) -> (Self, MultilinearPoint<EF>)
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
@@ -468,14 +468,14 @@ where
     ///
     /// If the internal representation is SIMD-packed, unpacks all lanes first.
     #[tracing::instrument(skip_all)]
-    pub fn evals(&self) -> Poly<EF> {
+    pub fn evals(&self) -> EvaluationsList<EF> {
         self.poly.evals()
     }
 
     /// Evaluates `f` at a given multilinear point via interpolation.
     ///
     /// The weight polynomial is not involved in this evaluation.
-    pub fn eval(&self, point: &Point<EF>) -> EF {
+    pub fn eval(&self, point: &MultilinearPoint<EF>) -> EF {
         self.poly.eval(point)
     }
 
@@ -507,7 +507,7 @@ where
         folding_factor: usize,
         pow_bits: usize,
         constraint: Option<Constraint<F, EF>>,
-    ) -> Point<EF>
+    ) -> MultilinearPoint<EF>
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
@@ -527,6 +527,6 @@ where
             .collect();
 
         // Return the collected verifier challenges.
-        Point::new(res)
+        MultilinearPoint::new(res)
     }
 }

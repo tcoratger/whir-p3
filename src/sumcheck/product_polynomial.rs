@@ -26,7 +26,7 @@ use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use crate::{
-    sumcheck::{extrapolate_012, proof::SumcheckData},
+    sumcheck::{SumcheckData, extrapolate_012},
     whir::constraints::Constraint,
 };
 
@@ -209,15 +209,15 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
     ///
     /// * `r` - The verifier's challenge for this round.
     fn compress(&mut self, r: EF) {
-        macro_rules! compress_both {
-            ($evals:expr, $weights:expr) => {{
-                $evals.compress(r);
-                $weights.compress(r);
-            }};
-        }
         match self {
-            Self::Packed { evals, weights } => compress_both!(evals, weights),
-            Self::Small { evals, weights } => compress_both!(evals, weights),
+            Self::Packed { evals, weights } => {
+                evals.compress(r);
+                weights.compress(r);
+            }
+            Self::Small { evals, weights } => {
+                evals.compress(r);
+                weights.compress(r);
+            }
         }
     }
 

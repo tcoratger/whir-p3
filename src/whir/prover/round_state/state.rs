@@ -9,7 +9,7 @@ use tracing::instrument;
 
 use crate::{
     fiat_shamir::errors::FiatShamirError,
-    sumcheck::{SumcheckData, prover::Sumcheck},
+    sumcheck::{SumcheckData, prover::SumcheckProver},
     whir::constraints::statement::initial::InitialStatement,
 };
 
@@ -34,7 +34,7 @@ where
     /// - Runs sumcheck rounds to prove S evaluates correctly over H^n
     /// - Updates constraint sets with new evaluation points from polynomial folding
     /// - Manages the transition from base field to extension field operations
-    pub sumcheck_prover: Sumcheck<F, EF>,
+    pub sumcheck_prover: SumcheckProver<F, EF>,
 
     /// Folding randomness (α_1, α_2, ..., α_k) sampled for the current round.
     ///
@@ -100,7 +100,7 @@ where
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        let (sumcheck_prover, folding_randomness) = Sumcheck::from_base_evals(
+        let (sumcheck_prover, folding_randomness) = SumcheckProver::from_base_evals(
             sumcheck_data,
             challenger,
             folding_factor,

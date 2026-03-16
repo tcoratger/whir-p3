@@ -11,7 +11,7 @@ use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    sumcheck::{SumcheckData, proof::verify_final_sumcheck_rounds, prover::Sumcheck},
+    sumcheck::{SumcheckData, prover::SumcheckProver, verify_final_sumcheck_rounds},
     whir::{
         constraints::{
             Constraint,
@@ -321,7 +321,7 @@ fn run_sumcheck_test(
     // h(X) = c0 + c1*X + c2*X^2 for each variable being folded, writes them into
     // the proof, and returns the partially folded state along with the verifier's
     // random challenges (prover_randomness) accumulated so far.
-    let (mut sumcheck, mut prover_randomness) = Sumcheck::from_base_evals(
+    let (mut sumcheck, mut prover_randomness) = SumcheckProver::from_base_evals(
         &mut proof.initial_sumcheck,
         &mut prover_challenger,
         folding0,

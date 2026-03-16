@@ -1,11 +1,11 @@
-use alloc::{format, string::ToString, vec::Vec};
+use alloc::vec::Vec;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_multilinear_util::multilinear::MultilinearPoint;
 use serde::{Deserialize, Serialize};
 
-use super::{error::SumcheckError, extrapolate_012};
+use super::{SumcheckError, extrapolate_012};
 
 /// Sumcheck polynomial data
 ///
@@ -20,14 +20,26 @@ pub struct SumcheckData<F, EF> {
     /// `h(1)` is derived as `claimed_sum - h(0)` by the verifier
     ///
     /// Length: folding_factor
-    pub polynomial_evaluations: Vec<[EF; 2]>,
+    pub(crate) polynomial_evaluations: Vec<[EF; 2]>,
 
     /// PoW witnesses for each sumcheck round
     /// Length: folding_factor
-    pub pow_witnesses: Vec<F>,
+    pub(crate) pow_witnesses: Vec<F>,
 }
 
 impl<F, EF> SumcheckData<F, EF> {
+    /// Returns the polynomial evaluations `[h(0), h(2)]` for each round.
+    #[must_use]
+    pub fn polynomial_evaluations(&self) -> &[[EF; 2]] {
+        &self.polynomial_evaluations
+    }
+
+    /// Returns the number of rounds stored in this proof data.
+    #[must_use]
+    pub const fn num_rounds(&self) -> usize {
+        self.polynomial_evaluations.len()
+    }
+
     /// Commits polynomial coefficients to the transcript and returns a challenge.
     ///
     /// This helper function handles the Fiat-Shamir interaction for a sumcheck round.
@@ -140,17 +152,14 @@ where
         return Ok(MultilinearPoint::new(Vec::new()));
     }
 
-    let sumcheck = final_sumcheck.ok_or_else(|| SumcheckError::SumcheckFailed {
-        round: 0,
-        expected: format!("{rounds} final sumcheck rounds"),
-        actual: "None".to_string(),
+    let sumcheck = final_sumcheck.ok_or(SumcheckError::MissingSumcheckData {
+        expected_rounds: rounds,
     })?;
 
     if sumcheck.polynomial_evaluations.len() != rounds {
-        return Err(SumcheckError::SumcheckFailed {
-            round: 0,
-            expected: format!("{rounds} rounds"),
-            actual: format!("{} rounds in proof", sumcheck.polynomial_evaluations.len()),
+        return Err(SumcheckError::RoundCountMismatch {
+            expected: rounds,
+            actual: sumcheck.polynomial_evaluations.len(),
         });
     }
     sumcheck.verify_rounds(challenger, claimed_sum, pow_bits)
@@ -172,7 +181,7 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::{DomainSeparator, SumcheckParams},
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        sumcheck::prover::Sumcheck,
+        sumcheck::prover::SumcheckProver,
         whir::{
             constraints::statement::initial::InitialStatement, parameters::SumcheckStrategy,
             proof::WhirProof,
@@ -544,7 +553,7 @@ mod tests {
         domsep.observe_domain_separator(&mut prover_challenger);
 
         // Instantiate the prover with base field coefficients
-        let (_, _) = Sumcheck::<F, EF>::from_base_evals(
+        let (_, _) = SumcheckProver::<F, EF>::from_base_evals(
             &mut proof.initial_sumcheck,
             &mut prover_challenger,
             folding_factor,

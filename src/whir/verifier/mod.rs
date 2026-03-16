@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     alloc::string::ToString,
-    sumcheck::proof::verify_final_sumcheck_rounds,
+    sumcheck::verify_final_sumcheck_rounds,
     whir::{
         constraints::{
             Constraint,

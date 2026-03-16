@@ -9,7 +9,7 @@ use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use whir_p3::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    sumcheck::prover::Sumcheck,
+    sumcheck::prover::SumcheckProver,
     whir::{
         constraints::statement::initial::InitialStatement,
         parameters::SumcheckStrategy,
@@ -105,7 +105,7 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
                         WhirProof::<F, EF, MyMmcs>::from_protocol_parameters(&params, *num_vars);
 
                     // First round - fold first half of variables
-                    let (mut sumcheck_prover, _) = Sumcheck::from_base_evals(
+                    let (mut sumcheck_prover, _) = SumcheckProver::from_base_evals(
                         &mut proof.initial_sumcheck,
                         &mut challenger,
                         classic_folding_schedule[1],
@@ -154,7 +154,7 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
                         WhirProof::<F, EF, MyMmcs>::from_protocol_parameters(&params, *num_vars);
 
                     // First round - fold first half of variables
-                    let (mut sumcheck_prover, _) = Sumcheck::from_base_evals(
+                    let (mut sumcheck_prover, _) = SumcheckProver::from_base_evals(
                         &mut proof.initial_sumcheck,
                         &mut challenger,
                         classic_folding_schedule[1],
