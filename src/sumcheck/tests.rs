@@ -11,7 +11,7 @@ use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    sumcheck::{SumcheckData, prover::Sumcheck, proof::verify_final_sumcheck_rounds},
+    sumcheck::{SumcheckData, proof::verify_final_sumcheck_rounds, prover::Sumcheck},
     whir::{
         constraints::{
             Constraint,
