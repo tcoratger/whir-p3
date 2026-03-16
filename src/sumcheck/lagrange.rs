@@ -14,7 +14,7 @@
 //!
 //! where `L_i` are the Lagrange basis polynomials satisfying `L_i(j) = δ_{i,j}`.
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 
 use p3_field::Field;
 
@@ -47,11 +47,10 @@ use p3_field::Field;
 ///
 /// Array of three field elements `[L_0(r), L_1(r), L_2(r)]`.
 fn lagrange_weights_012<F: Field>(r: F) -> [F; 3] {
-    // Precompute 1/2 for efficiency.
-    let inv_two = F::TWO.inverse();
+    let r_minus_one = r - F::ONE;
 
     // L_0(r) = (r - 1)(r - 2) / 2
-    let l0 = (r - F::ONE) * (r - F::TWO) * inv_two;
+    let l0 = (r_minus_one * (r - F::TWO)).halve();
 
     // L_1(r) = r(2 - r)
     //
@@ -59,7 +58,7 @@ fn lagrange_weights_012<F: Field>(r: F) -> [F; 3] {
     let l1 = r * (F::TWO - r);
 
     // L_2(r) = r(r - 1) / 2
-    let l2 = r * (r - F::ONE) * inv_two;
+    let l2 = (r * r_minus_one).halve();
 
     [l0, l1, l2]
 }
@@ -96,24 +95,29 @@ fn lagrange_weights_012<F: Field>(r: F) -> [F; 3] {
 ///
 /// Vector of `3^k` field elements representing the tensor product Lagrange weights.
 pub fn lagrange_weights_012_multi<F: Field>(rs: &[F]) -> Vec<F> {
-    // Start with the trivial weight for the empty product (k=0 case).
-    let mut weights = vec![F::ONE];
+    let total = 3usize.pow(rs.len() as u32);
+    let mut current = Vec::with_capacity(total);
+    let mut next = Vec::with_capacity(total);
+    current.push(F::ONE);
 
     // Iteratively compute tensor products.
     //
     // After processing r_j, we have 3^(j+1) weights for the grid {0,1,2}^(j+1).
     for &r in rs {
         // Compute univariate Lagrange weights for this coordinate.
-        let uni_weights = lagrange_weights_012(r);
+        let uni = lagrange_weights_012(r);
 
-        // Tensor product: new_weights[3*i + j] = old_weights[i] * uni_weights[j]
-        weights = uni_weights
-            .iter()
-            .flat_map(|&li| weights.iter().map(move |&w| w * li))
-            .collect();
+        // Tensor product: new_weights[3*i + j] = old_weights[i] * uni[j]
+        next.clear();
+        for &li in &uni {
+            for &w in &current {
+                next.push(w * li);
+            }
+        }
+        core::mem::swap(&mut current, &mut next);
     }
 
-    weights
+    current
 }
 
 /// Evaluates a quadratic polynomial at point `r` given its evaluations at `{0, 1, 2}`.
