@@ -3,9 +3,10 @@ use alloc::vec::Vec;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field};
+use p3_multilinear_util::evals::EvaluationsList;
 use serde::{Deserialize, Serialize};
 
-use crate::{parameters::ProtocolParameters, poly::evals::EvaluationsList};
+use crate::parameters::ProtocolParameters;
 
 /// Complete WHIR proof
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -296,7 +297,7 @@ mod tests {
     /// Type alias for the compression function
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type PackedF = <F as Field>::Packing;
-    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, DIGEST_ELEMS>;
+    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 2, DIGEST_ELEMS>;
 
     /// Type alias for the challenger used in observe_and_sample tests.
     type TestChallenger = DuplexChallenger<F, Perm, 16, 8>;
@@ -320,6 +321,7 @@ mod tests {
         let mmcs = MyMmcs::new(
             PaddingFreeSponge::new(perm.clone()),
             TruncatedPermutation::new(perm),
+            0,
         );
 
         ProtocolParameters {

@@ -1,8 +1,7 @@
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_multilinear_util::multilinear::MultilinearPoint;
 
-use crate::{
-    parameters::FoldingFactor, poly::multilinear::MultilinearPoint, whir::constraints::Constraint,
-};
+use crate::{parameters::FoldingFactor, whir::constraints::Constraint};
 
 /// Evaluate a single round's constraint.
 fn eval_round<F: Field, EF: ExtensionField<F> + TwoAdicField>(
@@ -68,13 +67,13 @@ mod tests {
 
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_multilinear_util::evals::EvaluationsList;
     use proptest::prelude::*;
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
     use super::*;
     use crate::{
         parameters::FoldingFactor,
-        poly::evals::EvaluationsList,
         whir::constraints::statement::{EqStatement, SelectStatement},
     };
 
@@ -145,9 +144,10 @@ mod tests {
             .iter()
             .map(|constraint| {
                 let num_vars = constraint.num_variables();
-                let mut combined = EvaluationsList::zero(num_vars);
+                let mut combined_vec = EF::zero_vec(1 << num_vars);
                 let mut eval = EF::ZERO;
-                constraint.combine(&mut combined, &mut eval);
+                constraint.combine(&mut combined_vec, &mut eval);
+                let combined = EvaluationsList::new(combined_vec);
                 let point = final_point.get_subpoint_over_range(0..num_vars).reversed();
                 combined.evaluate_hypercube_ext::<F>(&point)
             })
@@ -252,10 +252,11 @@ mod tests {
                 .enumerate()
                 .map(|(round_idx, constraint)| {
                     let point = final_point.get_subpoint_over_range(0..num_vars_at_round).reversed();
-                    let mut combined = EvaluationsList::zero(constraint.num_variables());
+                    let mut combined_vec = EF::zero_vec(1 << constraint.num_variables());
                     let mut eval = EF::ZERO;
-                    constraint.combine(&mut combined, &mut eval);
+                    constraint.combine(&mut combined_vec, &mut eval);
                     num_vars_at_round -= folding_factors_vec[round_idx];
+                    let combined = EvaluationsList::new(combined_vec);
                     combined.evaluate_hypercube_ext::<F>(&point)
                 })
                 .sum::<EF>();

@@ -6,13 +6,13 @@ use p3_field::{
     ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
 };
 use p3_merkle_tree::MerkleTreeMmcs;
+use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_prover::Sumcheck,
     whir::{
         constraints::{
@@ -38,6 +38,11 @@ impl<F: Field + Ord, EF: ExtensionField<F>> Sumcheck<F, EF> {
     }
 }
 
+/// Local test helper replicating `EvaluationsList::as_constant` which is `#[cfg(test)]`-only in p3.
+fn as_constant<F: Copy + Send + Sync>(evals: &EvaluationsList<F>) -> Option<F> {
+    (evals.num_evals() == 1).then_some(evals.as_slice()[0])
+}
+
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
 type Perm = Poseidon2BabyBear<16>;
@@ -46,7 +51,7 @@ type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
 type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
 type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 type PackedF = <F as Field>::Packing;
-type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 8>;
+type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 2, 8>;
 
 /// Creates a fresh `DomainSeparator` and `DuplexChallenger` using a fixed RNG seed.
 fn domainsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
@@ -66,7 +71,7 @@ fn domainsep_and_challenger() -> (DomainSeparator<EF, F>, MyChallenger) {
 fn create_test_protocol_params(folding_factor: FoldingFactor) -> ProtocolParameters<MyMmcs> {
     let mut rng = SmallRng::seed_from_u64(1);
     let perm = Perm::new_from_rng_128(&mut rng);
-    let mmcs = MyMmcs::new(MyHash::new(perm.clone()), MyCompress::new(perm));
+    let mmcs = MyMmcs::new(MyHash::new(perm.clone()), MyCompress::new(perm), 0);
 
     ProtocolParameters {
         security_level: 32,
@@ -334,7 +339,7 @@ fn run_sumcheck_test(
         None,
     ));
     proof.set_final_sumcheck_data(sumcheck_data);
-    let final_folded_value = sumcheck.evals().as_constant().unwrap();
+    let final_folded_value = as_constant(&sumcheck.evals()).unwrap();
 
     assert_eq!(sumcheck.num_variables(), 0);
     assert_eq!(sumcheck.num_evals(), 1);

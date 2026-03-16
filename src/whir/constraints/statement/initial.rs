@@ -19,10 +19,10 @@
 use alloc::{vec, vec::Vec};
 
 use p3_field::{ExtensionField, Field, PackedValue};
+use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use p3_util::log2_strict_usize;
 
 use crate::{
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::svo::SplitEq,
     whir::{constraints::statement::EqStatement, parameters::SumcheckStrategy},
 };

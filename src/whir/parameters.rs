@@ -4,10 +4,10 @@ use core::{f64::consts::LOG2_10, marker::PhantomData};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_multilinear_util::evals::EvaluationsList;
 
 use crate::{
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    poly::evals::EvaluationsList,
     whir::constraints::statement::initial::InitialStatement,
 };
 
@@ -447,14 +447,14 @@ mod tests {
     type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type PackedF = <F as Field>::Packing;
-    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 8>;
+    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 2, 8>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
     /// Generates default WHIR parameters
     fn default_whir_params() -> ProtocolParameters<MyMmcs> {
         let mut rng = rand::rngs::SmallRng::seed_from_u64(1);
         let perm = Perm::new_from_rng_128(&mut rng);
-        let mmcs = MyMmcs::new(MyHash::new(perm.clone()), MyCompress::new(perm));
+        let mmcs = MyMmcs::new(MyHash::new(perm.clone()), MyCompress::new(perm), 0);
 
         ProtocolParameters {
             security_level: 100,

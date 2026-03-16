@@ -1,22 +1,5 @@
 //! Utility functions for the WHIR library.
 
-use alloc::vec::Vec;
-
-/// Returns a vector of uninitialized elements of type `A` with the specified length.
-///
-/// # Safety
-///
-/// Entries should be overwritten before use.
-#[must_use]
-pub unsafe fn uninitialized_vec<A>(len: usize) -> Vec<A> {
-    #[allow(clippy::uninit_vec)]
-    unsafe {
-        let mut vec = Vec::with_capacity(len);
-        vec.set_len(len);
-        vec
-    }
-}
-
 /// Computes the strict base-3 logarithm of `n`.
 ///
 /// Returns `k` such that `3^k == n`. Panics if `n` is not a power of 3.

@@ -4,11 +4,11 @@
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
+use p3_multilinear_util::multilinear::MultilinearPoint;
 use tracing::instrument;
 
 use crate::{
     fiat_shamir::errors::FiatShamirError,
-    poly::multilinear::MultilinearPoint,
     sumcheck::sumcheck_prover::Sumcheck,
     whir::{constraints::statement::initial::InitialStatement, proof::SumcheckData},
 };

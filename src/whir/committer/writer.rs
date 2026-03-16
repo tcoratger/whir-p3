@@ -5,11 +5,11 @@ use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrixView};
+use p3_multilinear_util::multilinear::MultilinearPoint;
 use tracing::{info_span, instrument};
 
 use crate::{
     fiat_shamir::errors::FiatShamirError,
-    poly::multilinear::MultilinearPoint,
     whir::{
         committer::DenseMatrix, constraints::statement::initial::InitialStatement,
         parameters::WhirConfig, proof::WhirProof,
@@ -129,6 +129,7 @@ mod tests {
     use p3_challenger::DuplexChallenger;
     use p3_dft::Radix2DFTSmallBatch;
     use p3_merkle_tree::MerkleTreeMmcs;
+    use p3_multilinear_util::evals::EvaluationsList;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
@@ -136,7 +137,6 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::evals::EvaluationsList,
         whir::parameters::SumcheckStrategy,
     };
 
@@ -146,7 +146,7 @@ mod tests {
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
     type PackedF = <F as Field>::Packing;
-    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 8>;
+    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 2, 8>;
 
     #[test]
     fn test_basic_commitment() {
@@ -163,7 +163,7 @@ mod tests {
 
         let merkle_hash = MyHash::new(perm.clone());
         let merkle_compress = MyCompress::new(perm);
-        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress, 0);
 
         let whir_params = ProtocolParameters {
             security_level,
@@ -242,7 +242,7 @@ mod tests {
 
         let merkle_hash = MyHash::new(perm.clone());
         let merkle_compress = MyCompress::new(perm);
-        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress, 0);
 
         let whir_params = ProtocolParameters {
             security_level,
@@ -295,7 +295,7 @@ mod tests {
 
         let merkle_hash = MyHash::new(perm.clone());
         let merkle_compress = MyCompress::new(perm);
-        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress, 0);
 
         let whir_params = ProtocolParameters {
             security_level,

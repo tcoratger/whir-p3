@@ -2,9 +2,9 @@ use alloc::{format, string::ToString, vec::Vec};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
+use p3_multilinear_util::multilinear::MultilinearPoint;
 
 use crate::{
-    poly::multilinear::MultilinearPoint,
     sumcheck::extrapolate_012,
     whir::{proof::SumcheckData, verifier::VerifierError},
 };
@@ -107,6 +107,7 @@ mod tests {
     use p3_challenger::DuplexChallenger;
     use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_merkle_tree::MerkleTreeMmcs;
+    use p3_multilinear_util::evals::EvaluationsList;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{SeedableRng, rngs::SmallRng};
 
@@ -114,7 +115,6 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::{DomainSeparator, SumcheckParams},
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::evals::EvaluationsList,
         sumcheck::sumcheck_prover::Sumcheck,
         whir::{
             constraints::statement::initial::InitialStatement, parameters::SumcheckStrategy,
@@ -131,7 +131,7 @@ mod tests {
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
     type PackedF = <F as Field>::Packing;
-    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, DIGEST_ELEMS>;
+    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 2, DIGEST_ELEMS>;
 
     // Digest size matches MyCompress output size (the 3rd parameter of TruncatedPermutation)
     const DIGEST_ELEMS: usize = 8;
@@ -147,7 +147,7 @@ mod tests {
 
         let merkle_hash = MyHash::new(perm.clone());
         let merkle_compress = MyCompress::new(perm);
-        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress, 0);
 
         // Construct WHIR protocol parameters
         let whir_params = ProtocolParameters {
@@ -262,7 +262,7 @@ mod tests {
         // Save a fresh copy for verify_initial_sumcheck_rounds
         let mut verifier_challenger_for_verify = verifier_challenger.clone();
 
-        let mut t = EvaluationsList::zero(statement.num_variables());
+        let mut t = EF::zero_vec(1 << statement.num_variables());
         let mut expected_initial_sum = EF::ZERO;
         statement.normalize().combine_hypercube::<F, false>(
             &mut t,

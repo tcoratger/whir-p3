@@ -1,10 +1,8 @@
-use p3_field::{ExtensionField, Field, PackedValue};
+use p3_field::{ExtensionField, Field, PackedValue, PrimeCharacteristicRing};
+use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use p3_util::log2_strict_usize;
 
-use crate::{
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::constraints::statement::{EqStatement, SelectStatement},
-};
+use crate::whir::constraints::statement::{EqStatement, SelectStatement};
 
 /// Constraint evaluation utilities.
 pub mod evaluator;
@@ -194,7 +192,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     /// ```text
     /// eval += Σ_i γ^i · s_eq_i + Σ_j γ^{n_eq+j} · s_sel_j
     /// ```
-    pub fn combine(&self, combined: &mut EvaluationsList<EF>, eval: &mut EF) {
+    pub fn combine(&self, combined: &mut [EF], eval: &mut EF) {
         // Combine equality constraints with accumulation enabled (INITIALIZED=true).
         // This adds the equality portion of W(X) to the existing values in `combined`.
         self.eq_statement
@@ -231,11 +229,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     /// ```text
     /// eval += Σ_i γ^i · s_eq_i + Σ_j γ^{n_eq+j} · s_sel_j
     /// ```
-    pub fn combine_packed(
-        &self,
-        combined: &mut EvaluationsList<EF::ExtensionPacking>,
-        eval: &mut EF,
-    ) {
+    pub fn combine_packed(&self, combined: &mut [EF::ExtensionPacking], eval: &mut EF) {
         // Combine equality constraints with accumulation enabled (INITIALIZED=true).
         // This adds the equality portion of W(X) to the existing values in `combined`.
         self.eq_statement
@@ -265,7 +259,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     pub fn combine_new(&self) -> (EvaluationsList<EF>, EF) {
         // Initialize fresh accumulators for the weight polynomial and expected evaluation.
         // The weight polynomial needs 2^k entries for the full Boolean hypercube.
-        let mut combined = EvaluationsList::zero(self.num_variables());
+        let mut combined = EF::zero_vec(1 << self.num_variables());
         let mut eval = EF::ZERO;
 
         // Combine equality constraints without accumulation (INITIALIZED=false).
@@ -283,7 +277,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
         );
 
         // Return the completed weight polynomial and expected evaluation.
-        (combined, eval)
+        (EvaluationsList::new(combined), eval)
     }
 
     /// Creates a new combined weight polynomial in packed form and expected evaluation.
@@ -306,8 +300,8 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
         let k = self.num_variables();
 
         // Initialize fresh accumulators for the weight polynomial and expected evaluation.
-        // The weight polynomial needs 2^k entries for the full Boolean hypercube.
-        let mut combined = EvaluationsList::<EF::ExtensionPacking>::zero(k - k_pack);
+        // The weight polynomial needs 2^(k-k_pack) packed entries for the full Boolean hypercube.
+        let mut combined = EF::ExtensionPacking::zero_vec(1 << (k - k_pack));
         let mut eval = EF::ZERO;
 
         // Combine equality constraints without accumulation (INITIALIZED=false).
@@ -328,7 +322,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
         );
 
         // Return the completed weight polynomial and expected evaluation.
-        (combined, eval)
+        (EvaluationsList::new(combined), eval)
     }
 
     /// Iterates over equality constraints with their challenge weights.
@@ -596,14 +590,14 @@ mod tests {
 
         // Verify that the combined weight polynomial has the correct size
         // Should have 2^num_variables = 4 entries
-        assert_eq!(combined.0.len(), 1 << num_variables);
-        assert_eq!(combined.0.len(), 4);
+        assert_eq!(combined.num_evals(), 1 << num_variables);
+        assert_eq!(combined.num_evals(), 4);
 
         // Verify that the expected evaluation equals γ^0 * 42 = 42
         assert_eq!(eval, EF::from_u64(42));
 
         // Verify that at least some entries in the weight polynomial are non-zero
-        let non_zero_count = combined.0.iter().filter(|&&x| x != EF::ZERO).count();
+        let non_zero_count = combined.iter().filter(|&&x| x != EF::ZERO).count();
         assert!(non_zero_count > 0);
     }
 
@@ -627,14 +621,18 @@ mod tests {
         let (combined_new, eval_new) = constraint.combine_new();
 
         // Method 2: Use combine with fresh accumulators
-        let mut combined_manual = EvaluationsList::zero(num_variables);
+        let mut combined_manual_vec = EF::zero_vec(1 << num_variables);
         let mut eval_manual = EF::ZERO;
-        constraint.combine(&mut combined_manual, &mut eval_manual);
+        constraint.combine(&mut combined_manual_vec, &mut eval_manual);
 
         // Verify that both methods produce identical results
-        assert_eq!(combined_new.0.len(), combined_manual.0.len());
-        for i in 0..combined_new.0.len() {
-            assert_eq!(combined_new.0[i], combined_manual.0[i]);
+        assert_eq!(combined_new.num_evals(), combined_manual_vec.len());
+        for (new_val, manual_val) in combined_new
+            .as_slice()
+            .iter()
+            .zip(combined_manual_vec.iter())
+        {
+            assert_eq!(new_val, manual_val);
         }
         assert_eq!(eval_new, eval_manual);
     }

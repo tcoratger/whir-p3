@@ -3,12 +3,12 @@ use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger};
 use p3_field::{Field, extension::BinomialExtensionField};
 use p3_merkle_tree::MerkleTreeMmcs;
+use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use whir_p3::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     sumcheck::sumcheck_prover::Sumcheck,
     whir::{
         constraints::statement::initial::InitialStatement,
@@ -24,13 +24,13 @@ type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
 type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
 type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 type PackedF = <F as Field>::Packing;
-type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 8>;
+type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 2, 8>;
 
 /// Helper to create protocol parameters for benchmarking
 fn create_test_protocol_params(folding_factor: FoldingFactor) -> ProtocolParameters<MyMmcs> {
     let mut rng = SmallRng::seed_from_u64(1);
     let perm = Perm::new_from_rng_128(&mut rng);
-    let mmcs = MyMmcs::new(MyHash::new(perm.clone()), MyCompress::new(perm));
+    let mmcs = MyMmcs::new(MyHash::new(perm.clone()), MyCompress::new(perm), 0);
 
     ProtocolParameters {
         security_level: 32,

@@ -1,11 +1,13 @@
 use alloc::vec::Vec;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue, dot_product};
+use p3_field::{
+    ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing, dot_product,
+};
+use p3_multilinear_util::{evals::EvaluationsList as Poly, multilinear::MultilinearPoint as Point};
 use p3_util::log2_strict_usize;
 
 use crate::{
-    poly::{evals::EvaluationsList as Poly, multilinear::MultilinearPoint as Point},
     sumcheck::{
         extrapolate_012, lagrange::lagrange_weights_012_multi,
         product_polynomial::ProductPolynomial, svo::SplitEq,
@@ -77,12 +79,13 @@ where
         let k = poly.num_variables();
         // Initialize fresh accumulators for the weight polynomial and expected evaluation.
         // The weight polynomial needs 2^k entries for the full Boolean hypercube.
-        let mut weights = Poly::zero(k);
+        let mut weights_vec = EF::zero_vec(1 << k);
         let mut sum = EF::ZERO;
 
         // Combine equality constraints without accumulation (INITIALIZED=false).
         // This directly writes the equality portion of W(X) to `weights`.
-        statement.combine_hypercube::<F, false>(&mut weights, &mut sum, alpha);
+        statement.combine_hypercube::<F, false>(&mut weights_vec, &mut sum, alpha);
+        let mut weights = Poly::new(weights_vec);
 
         // Compute the constant (c₀) and quadratic (c₂) coefficients of h(X).
         let (c0, c2) = poly.sumcheck_coefficients(&weights);
@@ -125,12 +128,13 @@ where
         let k_pack = log2_strict_usize(F::Packing::WIDTH);
         // Initialize fresh accumulators for the weight polynomial and expected evaluation.
         // The weight polynomial needs 2^(k - k_pack) packed entries.
-        let mut weights = Poly::zero(k - k_pack);
+        let mut weights_vec = EF::ExtensionPacking::zero_vec(1 << (k - k_pack));
         let mut sum = EF::ZERO;
 
         // Combine equality constraints without accumulation (INITIALIZED=false).
         // This directly writes the equality portion of W(X) to `weights`.
-        statement.combine_hypercube_packed::<F, false>(&mut weights, &mut sum, alpha);
+        statement.combine_hypercube_packed::<F, false>(&mut weights_vec, &mut sum, alpha);
+        let mut weights = Poly::new(weights_vec);
 
         let poly_packed = Poly::new(F::Packing::pack_slice(poly.as_slice()).to_vec());
         // Compute the constant (c₀) and quadratic (c₂) coefficients of h(X).
@@ -218,8 +222,9 @@ where
         });
 
         let poly = poly.compress_multi_into_packed(&rs);
-        let mut weights = Poly::<EF::ExtensionPacking>::zero(poly.num_variables());
-        SplitEq::combine_into_packed(&mut weights.0, statements, alpha, &rs);
+        let mut weights_vec = EF::ExtensionPacking::zero_vec(1 << poly.num_variables());
+        SplitEq::combine_into_packed(&mut weights_vec, statements, alpha, &rs);
+        let weights = Poly::<EF::ExtensionPacking>::new(weights_vec);
         let poly = ProductPolynomial::<F, EF>::new_packed(poly, weights);
 
         debug_assert_eq!(poly.dot_product(), sum);

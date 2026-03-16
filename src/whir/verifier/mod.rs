@@ -6,6 +6,7 @@ use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::Dimensions;
+use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use tracing::instrument;
 
 use super::{
@@ -13,7 +14,6 @@ use super::{
 };
 use crate::{
     alloc::string::ToString,
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         constraints::{
             Constraint,

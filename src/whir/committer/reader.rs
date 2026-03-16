@@ -3,11 +3,9 @@ use core::{fmt::Debug, ops::Deref};
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
+use p3_multilinear_util::multilinear::MultilinearPoint;
 
-use crate::{
-    poly::multilinear::MultilinearPoint,
-    whir::{constraints::statement::EqStatement, parameters::WhirConfig, proof::WhirProof},
-};
+use crate::whir::{constraints::statement::EqStatement, parameters::WhirConfig, proof::WhirProof};
 
 /// Represents a parsed commitment from the prover in the WHIR protocol.
 ///
@@ -194,6 +192,7 @@ mod tests {
     use p3_dft::Radix2DFTSmallBatch;
     use p3_field::{Field, extension::BinomialExtensionField};
     use p3_merkle_tree::MerkleTreeMmcs;
+    use p3_multilinear_util::evals::EvaluationsList;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
@@ -201,7 +200,6 @@ mod tests {
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::evals::EvaluationsList,
         whir::{
             committer::writer::CommitmentWriter, parameters::SumcheckStrategy, proof::WhirProof,
         },
@@ -214,7 +212,7 @@ mod tests {
     type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
     type PackedF = <F as Field>::Packing;
-    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 8>;
+    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 2, 8>;
 
     /// Constructs a WHIR configuration and RNG for test purposes.
     ///
@@ -237,7 +235,7 @@ mod tests {
 
         // Set up the Merkle compression function using the same byte hash.
         let merkle_compress = MyCompress::new(perm);
-        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress, 0);
 
         // Define core protocol parameters for WHIR.
         let whir_params = ProtocolParameters {
@@ -303,7 +301,7 @@ mod tests {
         let parsed = reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
         // Ensure the Merkle root matches between prover and parsed result.
-        assert_eq!(parsed.root, prover_data.root());
+        assert_eq!(parsed.root, prover_data.root().into());
 
         // Ensure the out-of-domain points and their answers match what was committed.
         assert_eq!(parsed.ood_statement, statement.normalize());
@@ -346,7 +344,7 @@ mod tests {
         let parsed = reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
         // Validate the Merkle root matches.
-        assert_eq!(parsed.root, prover_data.root());
+        assert_eq!(parsed.root, prover_data.root().into());
 
         // OOD samples should be empty since none were requested.
         assert!(parsed.ood_statement.is_empty());
@@ -389,7 +387,7 @@ mod tests {
         let parsed = reader.parse_commitment::<F, 8>(&proof, &mut verifier_challenger);
 
         // Check Merkle root and OOD answers match.
-        assert_eq!(parsed.root, prover_data.root());
+        assert_eq!(parsed.root, prover_data.root().into());
         assert_eq!(parsed.ood_statement, statement.normalize());
     }
 

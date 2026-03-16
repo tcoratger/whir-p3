@@ -1,12 +1,12 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
 use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
+use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use rand::{
     RngExt, SeedableRng,
     distr::{Distribution, StandardUniform},
     rngs::SmallRng,
 };
-use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;

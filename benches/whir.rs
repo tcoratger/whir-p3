@@ -4,12 +4,12 @@ use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{Field, extension::BinomialExtensionField};
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_merkle_tree::MerkleTreeMmcs;
+use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use whir_p3::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::writer::CommitmentWriter,
         parameters::{SumcheckStrategy, WhirConfig},
@@ -28,7 +28,7 @@ type MerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
 type MerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
 type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 type PackedF = <F as Field>::Packing;
-type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MerkleHash, MerkleCompress, 8>;
+type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MerkleHash, MerkleCompress, 2, 8>;
 
 #[allow(clippy::type_complexity)]
 fn prepare_inputs() -> (
@@ -69,7 +69,7 @@ fn prepare_inputs() -> (
 
     let merkle_hash = MerkleHash::new(poseidon24);
     let merkle_compress = MerkleCompress::new(poseidon16.clone());
-    let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
+    let mmcs = MyMmcs::new(merkle_hash, merkle_compress, 0);
 
     // Type of soundness assumption used in the IOP model.
     let soundness_type = SecurityAssumption::CapacityBound;

@@ -16,13 +16,13 @@ mod test {
     use p3_dft::Radix2DFTSmallBatch;
     use p3_field::{Field, extension::BinomialExtensionField};
     use p3_merkle_tree::MerkleTreeMmcs;
+    use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
         parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
         whir::{
             committer::{reader::CommitmentReader, writer::CommitmentWriter},
             parameters::{SumcheckStrategy, WhirConfig},
@@ -41,7 +41,7 @@ mod test {
     type MyChallenger = DuplexChallenger<F, Perm, 16, 8>;
 
     type PackedF = <F as Field>::Packing;
-    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 8>;
+    type MyMmcs = MerkleTreeMmcs<PackedF, PackedF, MyHash, MyCompress, 2, 8>;
 
     /// Run a complete WHIR proof lifecycle with configurable parameters.
     #[allow(clippy::too_many_arguments)]
@@ -67,7 +67,7 @@ mod test {
         let merkle_hash = MyHash::new(perm.clone());
         // Compression for leaf-to-parent hashing
         let merkle_compress = MyCompress::new(perm);
-        let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
+        let mmcs = MyMmcs::new(merkle_hash, merkle_compress, 0);
 
         // Configure WHIR protocol with all security and performance parameters
         let whir_params = ProtocolParameters {
@@ -175,7 +175,7 @@ mod test {
         use super::*;
 
         #[test]
-        fn test_whir_end_to_end1() {
+        fn test_whir_end_to_end() {
             let folding_factors = [
                 FoldingFactor::Constant(1),
                 FoldingFactor::Constant(2),
@@ -258,7 +258,7 @@ mod test {
 
         // Keccak challenger using byte-based HashChallenger
         type KeccakChallenger = SerializingChallenger32<F, HashChallenger<u8, Keccak256Hash, 32>>;
-        type MyMmcs = MerkleTreeMmcs<F, u64, KeccakFieldHash, KeccakCompress, 4>;
+        type MyMmcs = MerkleTreeMmcs<F, u64, KeccakFieldHash, KeccakCompress, 2, 4>;
 
         /// Run a complete WHIR proof lifecycle with Keccak-based Merkle trees.
         #[allow(clippy::too_many_arguments)]
@@ -277,7 +277,7 @@ mod test {
             let u64_hash = U64Hash::new(KeccakF {});
             let merkle_hash = KeccakFieldHash::new(u64_hash);
             let merkle_compress = KeccakCompress::new(u64_hash);
-            let mmcs = MyMmcs::new(merkle_hash, merkle_compress);
+            let mmcs = MyMmcs::new(merkle_hash, merkle_compress, 0);
 
             // Configure WHIR protocol with Keccak hashing
             let whir_params = ProtocolParameters {
