@@ -11,11 +11,7 @@ use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    sumcheck::{
-        SumcheckData,
-        prover::Sumcheck,
-        verifier::{verify_final_sumcheck_rounds, verify_sumcheck_rounds},
-    },
+    sumcheck::{SumcheckData, prover::Sumcheck, proof::verify_final_sumcheck_rounds},
     whir::{
         constraints::{
             Constraint,
@@ -459,13 +455,10 @@ fn run_sumcheck_test(
         // h(0) + h(1) == claimed_sum, then update sum := h(r) with the challenge r.
         // The returned challenges are appended to the verifier's random point.
         verifier_randomness.extend(
-            &verify_sumcheck_rounds(
-                &proof.initial_sumcheck,
-                &mut verifier_challenger,
-                &mut sum,
-                0,
-            )
-            .unwrap(),
+            &proof
+                .initial_sumcheck
+                .verify_rounds(&mut verifier_challenger, &mut sum, 0)
+                .unwrap(),
         );
 
         num_vars_inter -= folding_factor.at_round(0);
@@ -495,13 +488,10 @@ fn run_sumcheck_test(
         // Note: proof.rounds[round - 1] because rounds are 0-indexed but we start at round 1
         let folding = folding_factor.at_round(round);
         verifier_randomness.extend(
-            &verify_sumcheck_rounds(
-                &proof.rounds[round - 1].sumcheck,
-                &mut verifier_challenger,
-                &mut sum,
-                0,
-            )
-            .unwrap(),
+            &proof.rounds[round - 1]
+                .sumcheck
+                .verify_rounds(&mut verifier_challenger, &mut sum, 0)
+                .unwrap(),
         );
 
         num_vars_inter -= folding;

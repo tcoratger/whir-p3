@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     alloc::string::ToString,
-    sumcheck::verifier::{verify_final_sumcheck_rounds, verify_sumcheck_rounds},
+    sumcheck::proof::verify_final_sumcheck_rounds,
     whir::{
         constraints::{
             Constraint,
@@ -82,8 +82,7 @@ where
         constraint.combine_evals(&mut claimed_eval);
         constraints.push(constraint);
 
-        let folding_randomness = verify_sumcheck_rounds(
-            &proof.initial_sumcheck,
+        let folding_randomness = proof.initial_sumcheck.verify_rounds(
             challenger,
             &mut claimed_eval,
             self.starting_folding_pow_bits,
@@ -122,8 +121,7 @@ where
             constraint.combine_evals(&mut claimed_eval);
             constraints.push(constraint);
 
-            let folding_randomness = verify_sumcheck_rounds(
-                &proof.rounds[round_index].sumcheck,
+            let folding_randomness = proof.rounds[round_index].sumcheck.verify_rounds(
                 challenger,
                 &mut claimed_eval,
                 round_params.folding_pow_bits,

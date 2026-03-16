@@ -28,7 +28,6 @@ pub mod product_polynomial;
 pub mod proof;
 pub mod prover;
 pub mod svo;
-pub mod verifier;
 
 #[cfg(test)]
 mod tests;
