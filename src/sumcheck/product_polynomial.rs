@@ -19,12 +19,8 @@
 //! At each round, we compute a univariate polynomial `h(X)` that represents the partial sum
 //! over remaining variables. For quadratic sumcheck, `h(X)` is degree-2.
 
-use alloc::{vec, vec::Vec};
-
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{
-    ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing, dot_product,
-};
+use p3_field::{ExtensionField, Field, PackedFieldExtension, PackedValue, dot_product};
 use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use p3_util::log2_strict_usize;
 use tracing::instrument;
@@ -395,20 +391,10 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
     pub(crate) fn combine(&mut self, sum: &mut EF, constraint: &Constraint<F, EF>) {
         match self {
             Self::Packed { weights, .. } => {
-                // Extract the weight vec, mutate it, and put it back.
-                // We use a single-element dummy as the temporary replacement.
-                let dummy = EvaluationsList::new(vec![EF::ExtensionPacking::ZERO]);
-                let mut weight_vec: Vec<_> =
-                    core::mem::replace(weights, dummy).into_iter().collect();
-                constraint.combine_packed(&mut weight_vec, sum);
-                *weights = EvaluationsList::new(weight_vec);
+                constraint.combine_packed(weights, sum);
             }
             Self::Small { weights, .. } => {
-                let dummy = EvaluationsList::new(vec![EF::ZERO]);
-                let mut weight_vec: Vec<_> =
-                    core::mem::replace(weights, dummy).into_iter().collect();
-                constraint.combine(&mut weight_vec, sum);
-                *weights = EvaluationsList::new(weight_vec);
+                constraint.combine(weights, sum);
             }
         }
     }

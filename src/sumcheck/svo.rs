@@ -571,26 +571,6 @@ mod tests {
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 4>;
 
-    /// Local test helper replicating `EvaluationsList::compress_multi` which is `pub(crate)` in p3.
-    fn compress_multi<F: Field, EF: ExtensionField<F>>(
-        evals: &EvaluationsList<F>,
-        point: &[EF],
-    ) -> EvaluationsList<EF> {
-        assert!(point.len() <= evals.num_variables());
-        let eq = EvaluationsList::new_from_point(point, EF::ONE);
-        let mut out = EF::zero_vec(1 << (evals.num_variables() - point.len()));
-        evals
-            .as_slice()
-            .chunks(evals.num_evals() / eq.num_evals())
-            .zip(eq.iter())
-            .for_each(|(chunk, &r)| {
-                out.par_iter_mut()
-                    .zip(chunk.par_iter())
-                    .for_each(|(acc, &poly)| *acc += r * poly);
-            });
-        EvaluationsList::new(out)
-    }
-
     #[test]
     fn test_points_012_l1() {
         // For l=1: pts should have 3^0 = 1 point each.
@@ -706,8 +686,8 @@ mod tests {
                     .zip(accumulator[0].iter())
                     .for_each(|(u, &acc)| {
                         let u = u.iter().copied().map(EF::from).collect::<Vec<_>>();
-                        let f = compress_multi(&f, &u);
-                        let eq = compress_multi(&eq, &u);
+                        let f = f.compress_multi(&u);
+                        let eq = eq.compress_multi(&u);
                         let e1: EF = dot_product(eq.iter().copied(), f.iter().copied());
                         assert_eq!(acc, e1);
                     });
@@ -717,8 +697,8 @@ mod tests {
                     .zip(accumulator[1].iter())
                     .for_each(|(u, &acc)| {
                         let u = u.iter().copied().map(EF::from).collect::<Vec<_>>();
-                        let f = compress_multi(&f, &u);
-                        let eq = compress_multi(&eq, &u);
+                        let f = f.compress_multi(&u);
+                        let eq = eq.compress_multi(&u);
                         let e1: EF = dot_product(eq.iter().copied(), f.iter().copied());
                         assert_eq!(acc, e1);
                     });

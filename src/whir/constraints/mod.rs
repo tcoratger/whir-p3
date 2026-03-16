@@ -1,4 +1,4 @@
-use p3_field::{ExtensionField, Field, PackedValue, PrimeCharacteristicRing};
+use p3_field::{ExtensionField, Field, PackedValue};
 use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use p3_util::log2_strict_usize;
 
@@ -192,7 +192,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     /// ```text
     /// eval += Σ_i γ^i · s_eq_i + Σ_j γ^{n_eq+j} · s_sel_j
     /// ```
-    pub fn combine(&self, combined: &mut [EF], eval: &mut EF) {
+    pub fn combine(&self, combined: &mut EvaluationsList<EF>, eval: &mut EF) {
         // Combine equality constraints with accumulation enabled (INITIALIZED=true).
         // This adds the equality portion of W(X) to the existing values in `combined`.
         self.eq_statement
@@ -229,7 +229,11 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     /// ```text
     /// eval += Σ_i γ^i · s_eq_i + Σ_j γ^{n_eq+j} · s_sel_j
     /// ```
-    pub fn combine_packed(&self, combined: &mut [EF::ExtensionPacking], eval: &mut EF) {
+    pub fn combine_packed(
+        &self,
+        combined: &mut EvaluationsList<EF::ExtensionPacking>,
+        eval: &mut EF,
+    ) {
         // Combine equality constraints with accumulation enabled (INITIALIZED=true).
         // This adds the equality portion of W(X) to the existing values in `combined`.
         self.eq_statement
@@ -259,7 +263,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
     pub fn combine_new(&self) -> (EvaluationsList<EF>, EF) {
         // Initialize fresh accumulators for the weight polynomial and expected evaluation.
         // The weight polynomial needs 2^k entries for the full Boolean hypercube.
-        let mut combined = EF::zero_vec(1 << self.num_variables());
+        let mut combined = EvaluationsList::zero(self.num_variables());
         let mut eval = EF::ZERO;
 
         // Combine equality constraints without accumulation (INITIALIZED=false).
@@ -277,7 +281,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
         );
 
         // Return the completed weight polynomial and expected evaluation.
-        (EvaluationsList::new(combined), eval)
+        (combined, eval)
     }
 
     /// Creates a new combined weight polynomial in packed form and expected evaluation.
@@ -301,7 +305,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
 
         // Initialize fresh accumulators for the weight polynomial and expected evaluation.
         // The weight polynomial needs 2^(k-k_pack) packed entries for the full Boolean hypercube.
-        let mut combined = EF::ExtensionPacking::zero_vec(1 << (k - k_pack));
+        let mut combined = EvaluationsList::zero(k - k_pack);
         let mut eval = EF::ZERO;
 
         // Combine equality constraints without accumulation (INITIALIZED=false).
@@ -322,7 +326,7 @@ impl<F: Field, EF: ExtensionField<F>> Constraint<F, EF> {
         );
 
         // Return the completed weight polynomial and expected evaluation.
-        (EvaluationsList::new(combined), eval)
+        (combined, eval)
     }
 
     /// Iterates over equality constraints with their challenge weights.
@@ -621,16 +625,16 @@ mod tests {
         let (combined_new, eval_new) = constraint.combine_new();
 
         // Method 2: Use combine with fresh accumulators
-        let mut combined_manual_vec = EF::zero_vec(1 << num_variables);
+        let mut combined_manual = EvaluationsList::zero(num_variables);
         let mut eval_manual = EF::ZERO;
-        constraint.combine(&mut combined_manual_vec, &mut eval_manual);
+        constraint.combine(&mut combined_manual, &mut eval_manual);
 
         // Verify that both methods produce identical results
-        assert_eq!(combined_new.num_evals(), combined_manual_vec.len());
+        assert_eq!(combined_new.num_evals(), combined_manual.num_evals());
         for (new_val, manual_val) in combined_new
             .as_slice()
             .iter()
-            .zip(combined_manual_vec.iter())
+            .zip(combined_manual.as_slice().iter())
         {
             assert_eq!(new_val, manual_val);
         }

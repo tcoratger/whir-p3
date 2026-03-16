@@ -38,11 +38,6 @@ impl<F: Field + Ord, EF: ExtensionField<F>> Sumcheck<F, EF> {
     }
 }
 
-/// Local test helper replicating `EvaluationsList::as_constant` which is `#[cfg(test)]`-only in p3.
-fn as_constant<F: Copy + Send + Sync>(evals: &EvaluationsList<F>) -> Option<F> {
-    (evals.num_evals() == 1).then_some(evals.as_slice()[0])
-}
-
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
 type Perm = Poseidon2BabyBear<16>;
@@ -339,7 +334,7 @@ fn run_sumcheck_test(
         None,
     ));
     proof.set_final_sumcheck_data(sumcheck_data);
-    let final_folded_value = as_constant(&sumcheck.evals()).unwrap();
+    let final_folded_value = sumcheck.evals().as_constant().unwrap();
 
     assert_eq!(sumcheck.num_variables(), 0);
     assert_eq!(sumcheck.num_evals(), 1);

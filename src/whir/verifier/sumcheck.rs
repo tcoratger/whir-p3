@@ -262,7 +262,7 @@ mod tests {
         // Save a fresh copy for verify_initial_sumcheck_rounds
         let mut verifier_challenger_for_verify = verifier_challenger.clone();
 
-        let mut t = EF::zero_vec(1 << statement.num_variables());
+        let mut t = EvaluationsList::zero(statement.num_variables());
         let mut expected_initial_sum = EF::ZERO;
         statement.normalize().combine_hypercube::<F, false>(
             &mut t,

@@ -144,10 +144,9 @@ mod tests {
             .iter()
             .map(|constraint| {
                 let num_vars = constraint.num_variables();
-                let mut combined_vec = EF::zero_vec(1 << num_vars);
+                let mut combined = EvaluationsList::zero(num_vars);
                 let mut eval = EF::ZERO;
-                constraint.combine(&mut combined_vec, &mut eval);
-                let combined = EvaluationsList::new(combined_vec);
+                constraint.combine(&mut combined, &mut eval);
                 let point = final_point.get_subpoint_over_range(0..num_vars).reversed();
                 combined.evaluate_hypercube_ext::<F>(&point)
             })
@@ -252,11 +251,10 @@ mod tests {
                 .enumerate()
                 .map(|(round_idx, constraint)| {
                     let point = final_point.get_subpoint_over_range(0..num_vars_at_round).reversed();
-                    let mut combined_vec = EF::zero_vec(1 << constraint.num_variables());
+                    let mut combined = EvaluationsList::zero(constraint.num_variables());
                     let mut eval = EF::ZERO;
-                    constraint.combine(&mut combined_vec, &mut eval);
+                    constraint.combine(&mut combined, &mut eval);
                     num_vars_at_round -= folding_factors_vec[round_idx];
-                    let combined = EvaluationsList::new(combined_vec);
                     combined.evaluate_hypercube_ext::<F>(&point)
                 })
                 .sum::<EF>();
