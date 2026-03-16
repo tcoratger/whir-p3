@@ -267,7 +267,7 @@ fn test_initial_statement_with_folding_factor_3() {
     let sumcheck_randomness = state.folding_randomness.clone();
 
     // With a folding factor of 3, all variables are collapsed in 1 round, so we expect only 1 evaluation left
-    assert_eq!(sumcheck.poly.num_evals(), 1);
+    assert_eq!(sumcheck.num_variables(), 0);
 
     // The value of f at the folding point should match the evaluation
     let eval_at_point = sumcheck.evals().as_slice()[0];
@@ -344,11 +344,9 @@ fn test_zero_poly_multiple_constraints() {
     let sumcheck = &state.sumcheck_prover;
     let sumcheck_randomness = state.folding_randomness.clone();
 
-    for (f, w) in sumcheck.evals().iter().zip(&sumcheck.weights()) {
+    for f in &sumcheck.evals() {
         // Each evaluation should be 0
         assert_eq!(*f, EF::ZERO);
-        // Their contribution to the weighted sum should also be 0
-        assert_eq!(*f * *w, EF::ZERO);
     }
     // Final claimed sum is 0
     assert_eq!(sumcheck.sum, EF::ZERO);

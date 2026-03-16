@@ -46,7 +46,7 @@ use p3_field::Field;
 /// # Returns
 ///
 /// Array of three field elements `[L_0(r), L_1(r), L_2(r)]`.
-pub fn lagrange_weights_012<F: Field>(r: F) -> [F; 3] {
+fn lagrange_weights_012<F: Field>(r: F) -> [F; 3] {
     // Precompute 1/2 for efficiency.
     let inv_two = F::TWO.inverse();
 

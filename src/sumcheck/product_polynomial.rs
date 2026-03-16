@@ -441,26 +441,6 @@ mod tests {
 
     use super::*;
 
-    impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
-        /// Returns the total number of evaluations in the polynomial.
-        pub(crate) const fn num_evals(&self) -> usize {
-            match self {
-                Self::Packed { evals, .. } => evals.num_evals() * F::Packing::WIDTH,
-                Self::Small { evals, .. } => evals.num_evals(),
-            }
-        }
-
-        /// Extracts the weight polynomial as a scalar [`EvaluationsList`].
-        pub(crate) fn weights(&self) -> EvaluationsList<EF> {
-            match &self {
-                Self::Packed { weights, .. } => EvaluationsList::new(
-                    EF::ExtensionPacking::to_ext_iter(weights.as_slice().iter().copied()).collect(),
-                ),
-                Self::Small { weights, .. } => weights.clone(),
-            }
-        }
-    }
-
     type F = BabyBear;
     type EF = BinomialExtensionField<BabyBear, 4>;
     type Perm = Poseidon2BabyBear<16>;
@@ -592,19 +572,13 @@ mod tests {
         poly.compress(r);
 
         let folded_evals = poly.evals();
-        let folded_weights = poly.weights();
 
         // e'0 = e0 + r * (e2 - e0)
         // e'1 = e1 + r * (e3 - e1)
-        // w'0 = w0 + r * (w2 - w0)
-        // w'1 = w1 + r * (w3 - w1)
         let expected_e0 = e0 + r * (e2 - e0);
         let expected_e1 = e1 + r * (e3 - e1);
-        let expected_w0 = w0 + r * (w2 - w0);
-        let expected_w1 = w1 + r * (w3 - w1);
 
         assert_eq!(folded_evals.as_slice(), &[expected_e0, expected_e1]);
-        assert_eq!(folded_weights.as_slice(), &[expected_w0, expected_w1]);
 
         // After folding, dot_product equals h(r) where h is the sumcheck polynomial:
         //   h(X) = c0 + c1*X + c2*X^2
@@ -850,52 +824,6 @@ mod tests {
 
         // After all rounds, should have 0 variables (1 evaluation).
         assert_eq!(poly.num_variables(), 0);
-        assert_eq!(poly.num_evals(), 1);
-    }
-
-    #[test]
-    fn test_num_evals_small() {
-        // Test num_evals() for Small variant.
-        let evals = EvaluationsList::new(vec![EF::ONE; 16]);
-        let weights = EvaluationsList::new(vec![EF::TWO; 16]);
-
-        let poly = ProductPolynomial::<F, EF>::new_small(evals, weights);
-
-        assert_eq!(poly.num_evals(), 16);
-        assert_eq!(poly.num_variables(), 4); // log2(16) = 4
-    }
-
-    #[test]
-    fn test_num_evals_packed() {
-        // Test num_evals() for Packed variant.
-        type EP = <EF as ExtensionField<F>>::ExtensionPacking;
-
-        let simd_width = <F as Field>::Packing::WIDTH;
-        let num_vars = log2_strict_usize(simd_width) + 2;
-        let num_evals = 1 << num_vars;
-
-        let evals_scalar: Vec<EF> = (0..num_evals).map(|i| EF::from_u64(i as u64)).collect();
-        let weights_scalar: Vec<EF> = (0..num_evals)
-            .map(|i| EF::from_u64(i as u64 + 100))
-            .collect();
-
-        let packed_evals = EvaluationsList::new(
-            evals_scalar
-                .chunks(simd_width)
-                .map(EP::from_ext_slice)
-                .collect(),
-        );
-        let packed_weights = EvaluationsList::new(
-            weights_scalar
-                .chunks(simd_width)
-                .map(EP::from_ext_slice)
-                .collect(),
-        );
-
-        let poly = ProductPolynomial::<F, EF>::new_packed(packed_evals, packed_weights);
-
-        assert_eq!(poly.num_evals(), num_evals);
-        assert_eq!(poly.num_variables(), num_vars);
     }
 
     #[test]

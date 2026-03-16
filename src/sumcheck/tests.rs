@@ -2,9 +2,7 @@ use alloc::{vec, vec::Vec};
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger, GrindingChallenger};
-use p3_field::{
-    ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField,
-};
+use p3_field::{Field, PrimeCharacteristicRing, TwoAdicField, extension::BinomialExtensionField};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
@@ -25,18 +23,6 @@ use crate::{
         verifier::sumcheck::{verify_final_sumcheck_rounds, verify_sumcheck_rounds},
     },
 };
-
-impl<F: Field + Ord, EF: ExtensionField<F>> Sumcheck<F, EF> {
-    /// Returns the number of evaluations in the polynomial.
-    pub const fn num_evals(&self) -> usize {
-        self.poly.num_evals()
-    }
-
-    /// Returns the weight polynomial evaluations.
-    pub fn weights(&self) -> EvaluationsList<EF> {
-        self.poly.weights()
-    }
-}
 
 type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
@@ -318,7 +304,6 @@ fn run_sumcheck_test(
 
         // Check that the number of variables and evaluations match the expected values
         assert_eq!(sumcheck.num_variables(), num_vars_inter);
-        assert_eq!(sumcheck.num_evals(), 1 << num_vars_inter);
     }
 
     // Ensure we've folded all variables.
@@ -337,7 +322,6 @@ fn run_sumcheck_test(
     let final_folded_value = sumcheck.evals().as_constant().unwrap();
 
     assert_eq!(sumcheck.num_variables(), 0);
-    assert_eq!(sumcheck.num_evals(), 1);
 
     // Final folded value must match f(r)
     assert_eq!(
