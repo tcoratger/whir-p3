@@ -210,10 +210,14 @@ impl<F: Field, EF: ExtensionField<F>> ProductPolynomial<F, EF> {
     /// * `r` - The verifier's challenge for this round.
     fn compress(&mut self, r: EF) {
         match self {
+            // Apply folding to both packed polynomials.
+            //
+            // The compress operation handles SIMD lanes correctly.
             Self::Packed { evals, weights } => {
                 evals.compress(r);
                 weights.compress(r);
             }
+            // Apply folding to both scalar polynomials.
             Self::Small { evals, weights } => {
                 evals.compress(r);
                 weights.compress(r);
