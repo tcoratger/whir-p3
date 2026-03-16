@@ -53,6 +53,7 @@ pub(super) fn points_012<F: Field>(l: usize) -> [Vec<Vec<F>>; 2] {
         values
             .iter()
             .flat_map(|&v| {
+                // For each value, clone all existing points and append the value.
                 pts.iter().cloned().map(move |mut p| {
                     p.push(F::from_u32(v as u32));
                     p
@@ -61,14 +62,19 @@ pub(super) fn points_012<F: Field>(l: usize) -> [Vec<Vec<F>>; 2] {
             .collect()
     }
 
+    // We need at least one round.
     assert!(l > 0, "points_012: l must be positive");
 
+    // Start with the empty point (representing 0 dimensions).
     let mut pts = vec![vec![]];
 
+    // Build up points in {0,1,2}^{l-1} by iteratively expanding.
+    // After this loop, pts contains 3^{l-1} points.
     for _ in 0..l - 1 {
         pts = expand(&pts, &[0, 1, 2]);
     }
 
+    // Create final points by appending 0 or 2 as the last coordinate.
     [expand(&pts, &[0]), expand(&pts, &[2])]
 }
 
@@ -85,27 +91,59 @@ pub(super) fn points_012<F: Field>(l: usize) -> [Vec<Vec<F>>; 2] {
 ///
 /// These values are later combined with Lagrange weights
 /// to reconstruct the round polynomial.
+///
+///
+/// # Algorithm
+///
+/// 1. Split the challenge point into inner (`z0`) and outer (`z1`) components.
+/// 2. Reduce partial evaluations over `z1` using the equality polynomial.
+/// 3. For each grid point `u`, compute the accumulator via Lagrange interpolation.
+///
+/// # Returns
+///
+/// One accumulator value per grid point.
 pub(super) fn calculate_accumulators<F: Field, EF: ExtensionField<F>>(
     us: &[Vec<F>],
     partial_evals: &[EF],
     point: &[EF],
 ) -> Vec<EF> {
+    // Determine the dimensions involved.
+    // - l0: log2 of partial_evals length (total variables in the partial evaluation domain)
+    // - offset: number of variables handled by the "outer" equality polynomial
     let l0 = log2_strict_usize(partial_evals.len());
     let offset = l0 - log3_strict_usize(us.len()) - 1;
 
+    // Split the challenge point into inner (z0) and outer (z1) components.
+    // - z0 corresponds to the variables covered by the grid points.
+    // - z1 corresponds to the remaining variables handled separately.
     let (z0, z1) = point.split_at(point.len() - offset);
 
+    // Build equality polynomial evaluation tables for both components.
+    // - eq0: evaluations of eq(z0, x) for x in {0,1}^{|z0|}
+    // - eq1: evaluations of eq(z1, x) for x in {0,1}^{|z1|}
     let eq0 = EvaluationsList::new_from_point(z0, EF::ONE);
     let eq1 = EvaluationsList::new_from_point(z1, EF::ONE);
 
+    // Reduce partial evaluations over the outer variables using eq1.
+    //
+    // This computes: sum_{x1} eq(z1, x1) * partial_evals[chunk_for_x1]
     let reduced_evals: Vec<EF> = partial_evals
         .chunks(eq1.num_evals())
         .map(|chunk| dot_product::<EF, _, _>(eq1.iter().copied(), chunk.iter().copied()))
         .collect();
 
+    // For each grid point u, compute the accumulator value.
+    //
+    // This uses parallel iteration for better performance when |us| is large.
+    // The computation for each u is independent, making it embarrassingly parallel.
     us.par_iter()
         .map(|u| {
+            // Build the Lagrange coefficient vector for this grid point.
+            // coeffs[x] = prod_{i} L_{u_i}(x_i) where L is the Lagrange basis.
             let coeffs = EvaluationsList::new_from_point(u.as_slice(), F::ONE);
+
+            // Compute: (sum_x eq(z0, x) * coeffs(x)) * (sum_x reduced_evals[x] * coeffs(x))
+            // This gives f(u) * eq(u, point) via the Lagrange interpolation formula.
             dot_product::<EF, _, _>(eq0.iter().copied(), coeffs.iter().copied())
                 * dot_product::<EF, _, _>(reduced_evals.iter().copied(), coeffs.iter().copied())
         })
@@ -437,6 +475,7 @@ mod tests {
 
     #[test]
     fn test_points_012_sizes() {
+        // Verify output sizes: each array should have 3^{l-1} points.
         for l in 1..=6 {
             let [pts_0, pts_2] = points_012::<F>(l);
             let expected_size = 3usize.pow((l - 1) as u32);
@@ -444,6 +483,7 @@ mod tests {
             assert_eq!(pts_0.len(), expected_size, "pts_0 size mismatch for l={l}");
             assert_eq!(pts_2.len(), expected_size, "pts_2 size mismatch for l={l}");
 
+            // Each point should have l coordinates.
             for pt in pts_0.iter().chain(pts_2.iter()) {
                 assert_eq!(pt.len(), l, "point dimension mismatch for l={l}");
             }
@@ -564,6 +604,7 @@ mod tests {
         for k in [8, 10, 12, 14] {
             let point = MultilinearPoint::<EF>::rand(&mut rng, k);
             let poly = EvaluationsList::new((0..1 << k).map(|_| rng.random()).collect());
+            // Use l=0 SVO depth so all variables go into the split eq tables.
             let split_eq = SplitEq::<F, EF>::new(&point, 0, &poly);
             assert_eq!(split_eq.num_variables(), k, "k() mismatch for k={k}");
         }
