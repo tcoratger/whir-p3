@@ -9,11 +9,10 @@ use p3_matrix::Dimensions;
 use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use tracing::instrument;
 
-use super::{
-    committer::reader::ParsedCommitment, parameters::RoundConfig, utils::get_challenge_stir_queries,
-};
+use super::{committer::reader::ParsedCommitment, utils::get_challenge_stir_queries};
 use crate::{
     alloc::string::ToString,
+    parameters::{RoundConfig, WhirConfig},
     sumcheck::verify_final_sumcheck_rounds,
     whir::{
         constraints::{
@@ -21,7 +20,6 @@ use crate::{
             evaluator::ConstraintPolyEvaluator,
             statement::{EqStatement, SelectStatement},
         },
-        parameters::WhirConfig,
         proof::{QueryOpening, WhirProof},
     },
 };

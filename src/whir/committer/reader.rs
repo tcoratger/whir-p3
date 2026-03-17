@@ -5,7 +5,10 @@ use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
 use p3_multilinear_util::multilinear::MultilinearPoint;
 
-use crate::whir::{constraints::statement::EqStatement, parameters::WhirConfig, proof::WhirProof};
+use crate::{
+    parameters::WhirConfig,
+    whir::{constraints::statement::EqStatement, proof::WhirProof},
+};
 
 /// Represents a parsed commitment from the prover in the WHIR protocol.
 ///
@@ -199,10 +202,8 @@ mod tests {
     use super::*;
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
-        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        whir::{
-            committer::writer::CommitmentWriter, parameters::SumcheckStrategy, proof::WhirProof,
-        },
+        parameters::{FoldingFactor, ProtocolParameters, SecurityAssumption, SumcheckStrategy},
+        whir::{committer::writer::CommitmentWriter, proof::WhirProof},
     };
 
     type F = BabyBear;

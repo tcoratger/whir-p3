@@ -9,8 +9,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
     fiat_shamir::pattern::{Hint, Observe, Pattern, Sample},
-    parameters::FoldingFactor,
-    whir::parameters::WhirConfig,
+    parameters::{FoldingFactor, WhirConfig},
 };
 
 /// Configuration for a sumcheck phase in the protocol.

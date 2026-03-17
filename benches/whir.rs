@@ -9,13 +9,11 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use whir_p3::{
     fiat_shamir::domain_separator::DomainSeparator,
-    parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    whir::{
-        committer::writer::CommitmentWriter,
-        parameters::{SumcheckStrategy, WhirConfig},
-        proof::WhirProof,
-        prover::Prover,
+    parameters::{
+        DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, SecurityAssumption, SumcheckStrategy,
+        WhirConfig,
     },
+    whir::{committer::writer::CommitmentWriter, proof::WhirProof, prover::Prover},
 };
 
 type F = KoalaBear;

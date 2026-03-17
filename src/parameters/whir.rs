@@ -6,10 +6,8 @@ use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_multilinear_util::evals::EvaluationsList;
 
-use crate::{
-    parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-    whir::constraints::statement::initial::InitialStatement,
-};
+use super::{FoldingFactor, ProtocolParameters, SecurityAssumption};
+use crate::whir::constraints::statement::initial::InitialStatement;
 
 /// Configuration for the initial phase of the WHIR protocol.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]

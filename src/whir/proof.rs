@@ -205,7 +205,7 @@ mod tests {
     use rand::SeedableRng;
 
     use super::*;
-    use crate::parameters::{FoldingFactor, errors::SecurityAssumption};
+    use crate::parameters::{FoldingFactor, SecurityAssumption};
 
     /// Type alias for the base field used in tests
     type F = BabyBear;

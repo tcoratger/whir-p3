@@ -1,6 +1,5 @@
 pub mod committer;
 pub mod constraints;
-pub mod parameters;
 pub mod proof;
 pub mod prover;
 pub mod utils;
@@ -22,10 +21,11 @@ mod test {
 
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
-        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+        parameters::{
+            FoldingFactor, ProtocolParameters, SecurityAssumption, SumcheckStrategy, WhirConfig,
+        },
         whir::{
             committer::{reader::CommitmentReader, writer::CommitmentWriter},
-            parameters::{SumcheckStrategy, WhirConfig},
             proof::WhirProof,
             prover::Prover,
             verifier::Verifier,
@@ -245,7 +245,7 @@ mod test {
         use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
         use super::*;
-        use crate::whir::parameters::WhirConfig;
+        use crate::parameters::WhirConfig;
 
         // Field types for Keccak tests
         type F = KoalaBear;

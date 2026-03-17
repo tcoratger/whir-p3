@@ -14,9 +14,10 @@ use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint}
 use round_state::RoundState;
 use tracing::{info_span, instrument};
 
-use super::{constraints::statement::EqStatement, parameters::WhirConfig};
+use super::constraints::statement::EqStatement;
 use crate::{
     fiat_shamir::errors::FiatShamirError,
+    parameters::WhirConfig,
     whir::{
         constraints::{
             Constraint,

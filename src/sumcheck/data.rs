@@ -180,12 +180,9 @@ mod tests {
     use super::*;
     use crate::{
         fiat_shamir::domain_separator::{DomainSeparator, SumcheckParams},
-        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+        parameters::{FoldingFactor, ProtocolParameters, SecurityAssumption, SumcheckStrategy},
         sumcheck::prover::SumcheckProver,
-        whir::{
-            constraints::statement::initial::InitialStatement, parameters::SumcheckStrategy,
-            proof::WhirProof,
-        },
+        whir::{constraints::statement::initial::InitialStatement, proof::WhirProof},
     };
 
     /// Type alias for the base field used in tests

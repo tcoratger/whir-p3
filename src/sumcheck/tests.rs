@@ -10,7 +10,7 @@ use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
-    parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+    parameters::{FoldingFactor, ProtocolParameters, SecurityAssumption, SumcheckStrategy},
     sumcheck::{SumcheckData, prover::SumcheckProver, verify_final_sumcheck_rounds},
     whir::{
         constraints::{
@@ -18,7 +18,6 @@ use crate::{
             evaluator::ConstraintPolyEvaluator,
             statement::{EqStatement, SelectStatement, initial::InitialStatement},
         },
-        parameters::SumcheckStrategy,
         proof::WhirProof,
     },
 };

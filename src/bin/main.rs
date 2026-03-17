@@ -16,10 +16,12 @@ use tracing_forest::{ForestLayer, util::LevelFilter};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::{
     fiat_shamir::domain_separator::DomainSeparator,
-    parameters::{DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+    parameters::{
+        DEFAULT_MAX_POW, FoldingFactor, ProtocolParameters, SecurityAssumption, SumcheckStrategy,
+        WhirConfig,
+    },
     whir::{
         committer::{reader::CommitmentReader, writer::CommitmentWriter},
-        parameters::{SumcheckStrategy, WhirConfig},
         proof::WhirProof,
         prover::Prover,
         verifier::Verifier,

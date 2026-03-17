@@ -10,9 +10,9 @@ use tracing::{info_span, instrument};
 
 use crate::{
     fiat_shamir::errors::FiatShamirError,
+    parameters::WhirConfig,
     whir::{
-        committer::DenseMatrix, constraints::statement::initial::InitialStatement,
-        parameters::WhirConfig, proof::WhirProof,
+        committer::DenseMatrix, constraints::statement::initial::InitialStatement, proof::WhirProof,
     },
 };
 
@@ -136,8 +136,7 @@ mod tests {
     use super::*;
     use crate::{
         fiat_shamir::domain_separator::DomainSeparator,
-        parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
-        whir::parameters::SumcheckStrategy,
+        parameters::{FoldingFactor, ProtocolParameters, SecurityAssumption, SumcheckStrategy},
     };
 
     type F = BabyBear;

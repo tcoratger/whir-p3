@@ -12,11 +12,12 @@ use rand::{SeedableRng, rngs::SmallRng};
 
 use crate::{
     fiat_shamir::domain_separator::DomainSeparator,
-    parameters::{FoldingFactor, ProtocolParameters, errors::SecurityAssumption},
+    parameters::{
+        FoldingFactor, ProtocolParameters, SecurityAssumption, SumcheckStrategy, WhirConfig,
+    },
     whir::{
         committer::{ProverData, ProverDataExt, writer::CommitmentWriter},
         constraints::statement::initial::InitialStatement,
-        parameters::{SumcheckStrategy, WhirConfig},
         proof::WhirProof,
         prover::round_state::RoundState,
     },
