@@ -700,10 +700,13 @@ mod tests {
                     init = true;
                 }
 
-                assert_eq!(out0.as_slice(),&<<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter(
-                    out1.as_slice().iter().copied(),
-                )
-                .collect::<Vec<_>>());
+                assert_eq!(
+                    out0.as_slice(),
+                    &<<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter(
+                        out1.as_slice().iter().copied(),
+                    )
+                    .collect::<Vec<_>>()
+                );
                 assert_eq!(sum0, sum1);
             }
         }
