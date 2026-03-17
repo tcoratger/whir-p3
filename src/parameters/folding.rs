@@ -1,3 +1,5 @@
+//! Folding factor strategies for variable reduction across WHIR rounds.
+
 use thiserror::Error;
 
 /// Each WHIR step folds the polynomial, reducing the number of variables.

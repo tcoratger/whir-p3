@@ -1,3 +1,5 @@
+//! Derived WHIR protocol configuration computed from user-facing parameters.
+
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
@@ -9,7 +11,7 @@ use p3_multilinear_util::evals::EvaluationsList;
 use super::{FoldingFactor, ProtocolParameters, SecurityAssumption};
 use crate::whir::constraints::statement::initial::InitialStatement;
 
-/// Configuration for the initial phase of the WHIR protocol.
+/// Selects which sumcheck algorithm variant to use during proving.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SumcheckStrategy {
     /// Protocol with statement using classic sumcheck (no optimization).
@@ -26,45 +28,81 @@ pub enum SumcheckStrategy {
     Svo,
 }
 
+/// Derived configuration for a single intermediate WHIR round.
+///
+/// All values are computed from the user-facing protocol parameters
+/// and the accumulated state from prior rounds.
 #[derive(Debug, Clone)]
 pub struct RoundConfig<F> {
+    /// Proof-of-work difficulty (in bits) for the STIR query phase.
     pub pow_bits: usize,
+    /// Proof-of-work difficulty (in bits) for the folding sumcheck phase.
     pub folding_pow_bits: usize,
+    /// Number of STIR proximity queries to make in this round.
     pub num_queries: usize,
+    /// Number of out-of-domain evaluation samples.
     pub ood_samples: usize,
+    /// Number of multilinear variables remaining after folding in this round.
     pub num_variables: usize,
+    /// Number of variables folded in this round.
     pub folding_factor: usize,
+    /// Size of the evaluation domain before folding in this round.
     pub domain_size: usize,
+    /// Generator of the folded evaluation domain after this round's fold.
     pub folded_domain_gen: F,
 }
 
+/// Fully derived WHIR protocol configuration.
+///
+/// Built from user-facing protocol parameters plus the polynomial size.
+///
+/// Contains all precomputed values needed by the prover and verifier.
 #[derive(Debug, Clone)]
 pub struct WhirConfig<EF, F, MT, Challenger>
 where
     F: Field,
     EF: ExtensionField<F>,
 {
+    /// Number of variables in the original multilinear polynomial.
     pub num_variables: usize,
+    /// Which proximity bound is assumed for soundness analysis.
     pub soundness_type: SecurityAssumption,
+    /// Target security level in bits.
     pub security_level: usize,
+    /// Maximum allowed proof-of-work difficulty in bits.
     pub max_pow_bits: usize,
 
+    /// Number of out-of-domain samples during the commitment phase.
     pub commitment_ood_samples: usize,
+    /// Log_2 of the inverse rate of the initial Reed-Solomon code.
     pub starting_log_inv_rate: usize,
+    /// PoW bits for the initial folding sumcheck (before any STIR rounds).
     pub starting_folding_pow_bits: usize,
 
+    /// Strategy for how many variables to fold per round.
     pub folding_factor: FoldingFactor,
+    /// By how much the RS domain shrinks at the first round.
+    ///
+    /// Subsequent rounds always halve (factor = 1).
     pub rs_domain_initial_reduction_factor: usize,
+    /// Per-round derived configuration for each intermediate STIR round.
     pub round_parameters: Vec<RoundConfig<F>>,
 
+    /// Number of STIR queries in the final proximity test.
     pub final_queries: usize,
+    /// PoW bits for the final STIR query phase.
     pub final_pow_bits: usize,
+    /// Number of sumcheck rounds in the final phase.
     pub final_sumcheck_rounds: usize,
+    /// PoW bits for the final folding sumcheck.
     pub final_folding_pow_bits: usize,
 
+    /// Merkle tree commitment scheme.
     pub mmcs: MT,
 
+    /// Phantom marker for the extension field type.
     pub _extension_field: PhantomData<EF>,
+    /// Phantom marker for the challenger type.
     pub _challenger: PhantomData<Challenger>,
 }
 
@@ -75,46 +113,76 @@ where
     MT: Mmcs<F>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
+    /// Derive a full protocol configuration from user-facing parameters.
     #[allow(clippy::too_many_lines)]
     pub fn new(num_variables: usize, whir_parameters: ProtocolParameters<MT>) -> Self {
-        // We need to store the initial number of variables for the final composition.
+        // ---------------------------------------------------------------
+        // Phase 1: Validate inputs and set up global constants.
+        // ---------------------------------------------------------------
+
+        // Preserve the original variable count; the mutable copy below
+        // tracks the remaining variables as we consume them round by round.
         let initial_num_variables = num_variables;
+
+        // Reject folding factors that are incompatible with the polynomial size.
         whir_parameters
             .folding_factor
             .check_validity(num_variables)
             .unwrap();
 
+        // The domain reduction at round 0 must not exceed the folding factor,
+        // otherwise the code rate would *increase*, weakening soundness.
         assert!(
             whir_parameters.rs_domain_initial_reduction_factor
                 <= whir_parameters.folding_factor.at_round(0),
             "Increasing the code rate is not a good idea"
         );
 
+        // PoW contributes an independent additive term to security,
+        // so the algebraic protocol only needs to cover the remainder.
         let protocol_security_level = whir_parameters
             .security_level
             .saturating_sub(whir_parameters.pow_bits);
+
+        // Number of bits in the extension field; upper-bounds all per-element errors.
         let field_size_bits = EF::bits();
+
+        // Mutable state that evolves as we derive per-round parameters.
         let mut log_inv_rate = whir_parameters.starting_log_inv_rate;
         let mut num_variables = num_variables;
 
+        // Initial evaluation domain: 2^(num_variables + log_inv_rate) points.
         let log_domain_size = num_variables + log_inv_rate;
         let mut domain_size: usize = 1 << log_domain_size;
 
-        // We could theorically tolerate a bigger `log_folded_domain_size` (up to EF::TWO_ADICITY), but this would reduce performance:
-        // 1) Because the FFT twiddle factors would be in the Extension Field
-        // 2) Because all the equality polynomials from WHIR queries would be in the Extension Field
+        // ---------------------------------------------------------------
+        // Phase 2: Two-adicity guard.
+        // ---------------------------------------------------------------
         //
-        // Note that this does not restrict the amount of data committed, as long as folding_factor_0 > EF::TWO_ADICITY - F::TWO_ADICITY
+        // After the first fold the domain has size 2^log_folded_domain_size.
+        // We restrict this to F::TWO_ADICITY so that:
+        //   - FFT twiddle factors stay in the base field (faster).
+        //   - WHIR query equality polynomials stay in the base field.
+        //
+        // A larger folding_factor_0 pushes the folded domain below the limit.
+        // This does NOT restrict how much data can be committed.
         let log_folded_domain_size = log_domain_size - whir_parameters.folding_factor.at_round(0);
         assert!(
             log_folded_domain_size <= F::TWO_ADICITY,
             "Increase folding_factor_0"
         );
 
+        // ---------------------------------------------------------------
+        // Phase 3: Determine round structure.
+        // ---------------------------------------------------------------
+
+        // How many intermediate STIR rounds, and how many variables remain
+        // for the final direct-send sumcheck.
         let (num_rounds, final_sumcheck_rounds) = whir_parameters
             .folding_factor
             .compute_number_of_rounds(num_variables);
 
+        // OOD samples for the commitment phase (before any folding).
         let commitment_ood_samples = whir_parameters.soundness_type.determine_ood_samples(
             whir_parameters.security_level,
             num_variables,
@@ -122,30 +190,52 @@ where
             field_size_bits,
         );
 
-        let starting_folding_pow_bits = Self::folding_pow_bits(
+        // PoW difficulty for the very first folding sumcheck.
+        let starting_folding_pow_bits = whir_parameters.soundness_type.folding_pow_bits(
             whir_parameters.security_level,
-            whir_parameters.soundness_type,
             field_size_bits,
             num_variables,
             log_inv_rate,
         );
 
+        // ---------------------------------------------------------------
+        // Phase 4: Per-round parameter derivation.
+        // ---------------------------------------------------------------
+        //
+        // After the initial fold, each round i:
+        //   1. Computes the new code rate after folding.
+        //   2. Determines query count from the old rate (queries test
+        //      proximity to the code *before* this round's fold).
+        //   3. Determines OOD sample count from the new rate.
+        //   4. Derives PoW for both the query and folding sub-steps.
+        //   5. Records the domain generator for the folded evaluation domain.
+
         let mut round_parameters = Vec::with_capacity(num_rounds);
+
+        // Subtract the first-round folding factor; the loop below
+        // handles subsequent rounds.
         num_variables -= whir_parameters.folding_factor.at_round(0);
+
         for round in 0..num_rounds {
-            // Queries are set w.r.t. to old rate, while the rest to the new rate
+            // Only round 0 applies the user-configured domain reduction;
+            // all later rounds halve the domain (reduction factor = 1).
             let rs_reduction_factor = if round == 0 {
                 whir_parameters.rs_domain_initial_reduction_factor
             } else {
                 1
             };
+
+            // The code rate increases by (folding_factor - rs_reduction_factor) bits.
+            // Queries use the *old* rate; OOD and folding use the *new* rate.
             let next_rate = log_inv_rate
                 + (whir_parameters.folding_factor.at_round(round) - rs_reduction_factor);
 
+            // Number of STIR proximity queries at the current (old) rate.
             let num_queries = whir_parameters
                 .soundness_type
                 .queries(protocol_security_level, log_inv_rate);
 
+            // OOD samples needed at the post-fold (new) rate.
             let ood_samples = whir_parameters.soundness_type.determine_ood_samples(
                 whir_parameters.security_level,
                 num_variables,
@@ -153,11 +243,14 @@ where
                 field_size_bits,
             );
 
+            // Two independent error sources bound the STIR round:
+            //   - query_error: (1 - delta)^num_queries proximity test.
+            //   - combination_error: random linear combination of OOD + queries.
+            // The weaker bound determines how much PoW is needed.
             let query_error = whir_parameters
                 .soundness_type
                 .queries_error(log_inv_rate, num_queries);
-            let combination_error = Self::rbr_soundness_queries_combination(
-                whir_parameters.soundness_type,
+            let combination_error = whir_parameters.soundness_type.queries_combination_error(
                 field_size_bits,
                 num_variables,
                 next_rate,
@@ -165,18 +258,22 @@ where
                 num_queries,
             );
 
+            // PoW bridges the gap between the target and the weaker bound.
             let pow_bits = 0_f64
                 .max(whir_parameters.security_level as f64 - (query_error.min(combination_error)));
 
-            let folding_pow_bits = Self::folding_pow_bits(
+            // PoW difficulty for the folding sumcheck at the new rate.
+            let folding_pow_bits = whir_parameters.soundness_type.folding_pow_bits(
                 whir_parameters.security_level,
-                whir_parameters.soundness_type,
                 field_size_bits,
                 num_variables,
                 next_rate,
             );
+
             let folding_factor = whir_parameters.folding_factor.at_round(round);
             let next_folding_factor = whir_parameters.folding_factor.at_round(round + 1);
+
+            // Generator of the two-adic subgroup for the folded domain.
             let folded_domain_gen =
                 F::two_adic_generator(domain_size.ilog2() as usize - folding_factor);
 
@@ -191,15 +288,23 @@ where
                 folded_domain_gen,
             });
 
+            // Advance mutable state for the next iteration.
             num_variables -= next_folding_factor;
             log_inv_rate = next_rate;
             domain_size >>= rs_reduction_factor;
         }
 
+        // ---------------------------------------------------------------
+        // Phase 5: Final round parameters.
+        // ---------------------------------------------------------------
+
+        // Final proximity queries at the last accumulated rate.
         let final_queries = whir_parameters
             .soundness_type
             .queries(protocol_security_level, log_inv_rate);
 
+        // PoW for the final query phase: covers the gap between the
+        // target and the query error at the final rate.
         let final_pow_bits = 0_f64.max(
             whir_parameters.security_level as f64
                 - whir_parameters
@@ -207,6 +312,8 @@ where
                     .queries_error(log_inv_rate, final_queries),
         );
 
+        // The final folding sumcheck error is bounded by 1/|F|,
+        // so PoW = max(0, security_level - (field_size - 1)).
         let final_folding_pow_bits =
             0_f64.max(whir_parameters.security_level as f64 - (field_size_bits - 1) as f64);
 
@@ -252,10 +359,15 @@ where
         1 << (self.num_variables + self.starting_log_inv_rate)
     }
 
+    /// Returns the number of intermediate STIR rounds (excludes the final round).
     pub const fn n_rounds(&self) -> usize {
         self.round_parameters.len()
     }
 
+    /// Returns how many bits the RS domain shrinks by at the given round.
+    ///
+    /// The first round uses the user-configured initial reduction factor.
+    /// All subsequent rounds halve the domain (factor = 1).
     pub const fn rs_reduction_factor(&self, round: usize) -> usize {
         if round == 0 {
             self.rs_domain_initial_reduction_factor
@@ -270,6 +382,10 @@ where
         self.num_variables + self.starting_log_inv_rate - self.folding_factor.at_round(0)
     }
 
+    /// Returns whether all PoW difficulties are within the configured maximum.
+    ///
+    /// Checks the starting, final, and per-round PoW bits against the ceiling.
+    /// Returns false if any value exceeds the limit.
     pub fn check_pow_bits(&self) -> bool {
         let max_bits = self.max_pow_bits;
 
@@ -287,109 +403,6 @@ where
             .all(|r| r.pow_bits <= max_bits && r.folding_pow_bits <= max_bits)
     }
 
-    /// Compute the proximity gaps term of the fold.
-    ///
-    /// # Johnson Bound Improvement
-    ///
-    /// For the Johnson bound case, this uses the improved Theorem 1.5 from [BCSS25]:
-    ///
-    /// > "On Proximity Gaps for Reed–Solomon Codes" (eprint 2025/2055)
-    /// > Ben-Sasson, Carmon, Haböck, Kopparty, Saraf
-    ///
-    /// The theorem provides tighter bounds on the number of exceptional z's:
-    /// - **Old [BCI+20]**: `a = O(n^2/η^7)`
-    /// - **New [BCSS25]**: `a = O(n/η^5)`
-    ///
-    /// With `η = √ρ/20` and `m = 10`, the error becomes:
-    /// ```text
-    /// log_2(a) = log_2(n) + 1.5·log_inv_rate + 16.38
-    ///          = num_variables + 2.5·log_inv_rate + 16.38
-    /// ```
-    #[must_use]
-    pub fn rbr_soundness_fold_prox_gaps(
-        soundness_type: SecurityAssumption,
-        field_size_bits: usize,
-        num_variables: usize,
-        log_inv_rate: usize,
-        log_eta: f64,
-    ) -> f64 {
-        // Recall, at each round we are only folding by two at a time
-        let error = match soundness_type {
-            SecurityAssumption::CapacityBound => (num_variables + log_inv_rate) as f64 - log_eta,
-
-            // From Theorem 1.5 in [BCSS25] "On Proximity Gaps for Reed–Solomon Codes":
-            //
-            // With η = √ρ/20, m = 10, the dominant term is:
-            //   a ≈ (2 · 10.5^5) / (3 · ρ^(3/2)) · n
-            //
-            // In log form (n = 2^(num_variables + log_inv_rate)):
-            //   log_2(a) = num_variables + log_inv_rate + 16.38 + 1.5·log_inv_rate
-            //            = num_variables + 2.5·log_inv_rate + 16.38
-            //
-            // This improves over the old formula:
-            //   log_2(a) = 2·num_variables + 3.5·log_inv_rate + LOG2_10
-            SecurityAssumption::JohnsonBound => {
-                // Constant from (2 · 10.5^5 / 3)
-                let constant = libm::log2(2. * libm::pow(10.5, 5.) / 3.);
-                num_variables as f64 + 2.5 * log_inv_rate as f64 + constant
-            }
-
-            SecurityAssumption::UniqueDecoding => (num_variables + log_inv_rate) as f64,
-        };
-
-        field_size_bits as f64 - error
-    }
-
-    #[must_use]
-    pub const fn rbr_soundness_fold_sumcheck(
-        soundness_type: SecurityAssumption,
-        field_size_bits: usize,
-        num_variables: usize,
-        log_inv_rate: usize,
-    ) -> f64 {
-        let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate);
-
-        field_size_bits as f64 - (list_size + 1.)
-    }
-
-    #[must_use]
-    pub fn folding_pow_bits(
-        security_level: usize,
-        soundness_type: SecurityAssumption,
-        field_size_bits: usize,
-        num_variables: usize,
-        log_inv_rate: usize,
-    ) -> f64 {
-        let prox_gaps_error =
-            soundness_type.prox_gaps_error(num_variables, log_inv_rate, field_size_bits, 2);
-        let sumcheck_error = Self::rbr_soundness_fold_sumcheck(
-            soundness_type,
-            field_size_bits,
-            num_variables,
-            log_inv_rate,
-        );
-
-        let error = prox_gaps_error.min(sumcheck_error);
-
-        0_f64.max(security_level as f64 - error)
-    }
-
-    #[must_use]
-    pub fn rbr_soundness_queries_combination(
-        soundness_type: SecurityAssumption,
-        field_size_bits: usize,
-        num_variables: usize,
-        log_inv_rate: usize,
-        ood_samples: usize,
-        num_queries: usize,
-    ) -> f64 {
-        let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate);
-
-        let log_combination = libm::log2((ood_samples + num_queries) as f64);
-
-        field_size_bits as f64 - (log_combination + list_size + 1.)
-    }
-
     /// Compute the synthetic or derived `RoundConfig` for the final phase.
     ///
     /// - If no folding rounds were configured, constructs a fallback config
@@ -401,7 +414,9 @@ where
     /// ensuring consistent challenge selection and STIR constraint handling.
     pub fn final_round_config(&self) -> RoundConfig<F> {
         if self.round_parameters.is_empty() {
-            // Fallback: no folding rounds, use initial domain setup
+            // No intermediate rounds: the polynomial was small enough that
+            // the initial fold leads directly to the final phase.
+            // Use the starting domain and initial folding factor.
             RoundConfig {
                 num_variables: self.num_variables - self.folding_factor.at_round(0),
                 folding_factor: self.folding_factor.at_round(self.n_rounds()),
@@ -411,41 +426,66 @@ where
                 folded_domain_gen: F::two_adic_generator(
                     self.starting_domain_size().ilog2() as usize - self.folding_factor.at_round(0),
                 ),
-                ood_samples: 0, // no OOD in synthetic final phase
+                ood_samples: 0,
                 folding_pow_bits: self.final_folding_pow_bits,
             }
         } else {
+            // Apply the last round’s domain reduction to get the domain
+            // size entering the final phase.
             let rs_reduction_factor = self.rs_reduction_factor(self.n_rounds() - 1);
             let folding_factor = self.folding_factor.at_round(self.n_rounds());
 
-            // Derive final round config from last round, adjusted for next fold
             let last = self.round_parameters.last().unwrap();
+
+            // The domain shrinks by the RS reduction factor from the last round.
             let domain_size = last.domain_size >> rs_reduction_factor;
+
+            // Generator for the final folded domain.
             let folded_domain_gen = F::two_adic_generator(
                 domain_size.ilog2() as usize - self.folding_factor.at_round(self.n_rounds()),
             );
 
             RoundConfig {
+                // Variables remaining after this final fold.
                 num_variables: last.num_variables - folding_factor,
                 folding_factor,
                 num_queries: self.final_queries,
                 pow_bits: self.final_pow_bits,
                 domain_size,
                 folded_domain_gen,
+                // Inherit OOD count from the last intermediate round.
                 ood_samples: last.ood_samples,
                 folding_pow_bits: self.final_folding_pow_bits,
             }
         }
     }
 
+    /// Returns the inverse rate of the RS code at the given round.
+    ///
+    /// The inverse rate is `domain_size / degree`, where:
+    /// - `domain_size` is the evaluation domain after the round's reduction.
+    /// - `degree` is 2^(remaining variables after all folds up to this round).
+    ///
+    /// ```text
+    /// inv_rate = (round_domain_size >> rs_reduction) / 2^(num_vars - total_folded)
+    /// ```
     pub(crate) fn inv_rate(&self, round: usize) -> usize {
+        // Shrink the domain by this round's reduction factor.
         let domain_reduction = 1 << self.rs_reduction_factor(round);
         let new_domain_size = self.round_parameters[round].domain_size / domain_reduction;
+
+        // Number of polynomial evaluations (= degree) after all folds so far.
         let num_evals = 1 << (self.num_variables - self.folding_factor.total_number(round));
+
+        // Ratio gives the inverse rate.
         new_domain_size / num_evals
     }
 
-    // Creates the empty initial statement for the WHIR protocol
+    /// Create the initial statement for the WHIR protocol.
+    ///
+    /// Wraps the polynomial with the first-round folding factor and
+    /// the chosen sumcheck strategy. Evaluation constraints are added
+    /// by the caller before proving begins.
     pub const fn initial_statement(
         &self,
         polynomial: EvaluationsList<F>,
@@ -514,23 +554,6 @@ mod tests {
         let config = WhirConfig::<F, F, MyMmcs, MyChallenger>::new(10, params);
 
         assert_eq!(config.n_rounds(), config.round_parameters.len());
-    }
-
-    #[test]
-    fn test_folding_pow_bits() {
-        let field_size_bits = 64;
-        let soundness = SecurityAssumption::CapacityBound;
-
-        let pow_bits = WhirConfig::<F, F, MyMmcs, MyChallenger>::folding_pow_bits(
-            100, // Security level
-            soundness,
-            field_size_bits,
-            10, // Number of variables
-            5,  // Log inverse rate
-        );
-
-        // PoW bits should never be negative
-        assert!(pow_bits >= 0.);
     }
 
     #[test]

@@ -1,3 +1,5 @@
+//! Protocol configuration for WHIR polynomial commitments.
+
 use core::fmt::Display;
 
 mod folding;
@@ -8,6 +10,11 @@ pub use folding::{FoldingFactor, FoldingFactorError};
 pub use soundness::SecurityAssumption;
 pub use whir::{RoundConfig, SumcheckStrategy, WhirConfig};
 
+/// Fallback proof-of-work difficulty when the user does not specify one.
+///
+/// 16 bits strikes a balance between prover cost and verifier DoS resistance.
+/// - Higher values slow down the prover;
+/// - Lower values weaken the PoW contribution to soundness.
 pub const DEFAULT_MAX_POW: usize = 16;
 
 /// Configuration parameters for WHIR proofs.

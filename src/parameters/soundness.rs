@@ -1,3 +1,5 @@
+//! Soundness analysis and security assumption models for Reed-Solomon proximity testing.
+
 use alloc::{format, string::String};
 use core::{f64::consts::LOG2_10, fmt::Display, str::FromStr};
 
@@ -253,6 +255,109 @@ impl SecurityAssumption {
 
         panic!("Could not find an appropriate number of OOD samples");
     }
+
+    /// Compute the sumcheck soundness term of the folding step (in bits).
+    ///
+    /// During folding, the verifier samples a random challenge and checks
+    /// a degree-2 sumcheck identity. An adversary controlling a list of
+    /// L codewords can bias the check with probability at most `L / |F|`.
+    ///
+    /// In log form:
+    ///
+    /// ```text
+    /// bits_of_security = field_size_bits - (list_size_bits + 1)
+    /// ```
+    ///
+    /// The `+1` accounts for the union bound over the list.
+    #[must_use]
+    pub const fn fold_sumcheck_error(
+        &self,
+        field_size_bits: usize,
+        num_variables: usize,
+        log_inv_rate: usize,
+    ) -> f64 {
+        // List size at the current proximity parameter and code rate.
+        let list_size = self.list_size_bits(num_variables, log_inv_rate);
+
+        // Security = field size minus the adversary's advantage from list decoding.
+        field_size_bits as f64 - (list_size + 1.)
+    }
+
+    /// Compute the soundness error (in bits) of the query-combination step.
+    ///
+    /// After STIR queries and OOD samples, the verifier takes a random
+    /// linear combination of all collected evaluations. An adversary must
+    /// fool this combination for every codeword in the list, giving error:
+    ///
+    /// ```text
+    /// error = (ood_samples + num_queries) * list_size / |F|
+    /// ```
+    ///
+    /// In log form (all quantities in bits):
+    ///
+    /// ```text
+    /// bits_of_security = field_size_bits - (log_2(ood + queries) + list_size_bits + 1)
+    /// ```
+    ///
+    /// The `+1` accounts for the union bound over list elements.
+    #[must_use]
+    pub fn queries_combination_error(
+        &self,
+        field_size_bits: usize,
+        num_variables: usize,
+        log_inv_rate: usize,
+        ood_samples: usize,
+        num_queries: usize,
+    ) -> f64 {
+        // List size at the current proximity parameter.
+        let list_size = self.list_size_bits(num_variables, log_inv_rate);
+
+        // Total number of evaluation points available for the combination.
+        let log_combination = libm::log2((ood_samples + num_queries) as f64);
+
+        // Security = field size minus the adversary's advantage.
+        field_size_bits as f64 - (log_combination + list_size + 1.)
+    }
+
+    /// Compute the PoW difficulty needed for the folding step.
+    ///
+    /// The folding step has two independent error sources:
+    /// - Proximity gaps: the probability that a far-from-RS function
+    ///   survives the fold (depends on the code rate and list size).
+    /// - Sumcheck: the probability that the sumcheck verifier accepts
+    ///   a wrong claim (depends on the field size and list size).
+    ///
+    /// The overall folding error is limited by the weaker bound.
+    /// PoW must bridge the gap to the target security level:
+    ///
+    /// ```text
+    /// pow_bits = max(0, security_level - min(prox_gaps_error, sumcheck_error))
+    /// ```
+    ///
+    /// Returns 0 when the algebraic bounds alone meet the target.
+    #[must_use]
+    pub fn folding_pow_bits(
+        &self,
+        security_level: usize,
+        field_size_bits: usize,
+        num_variables: usize,
+        log_inv_rate: usize,
+    ) -> f64 {
+        // Proximity gaps bound: how many bits of security the
+        // fold-and-test step provides against far-from-RS functions.
+        // Uses arity 2 because each fold combines exactly 2 evaluations.
+        let prox_gaps_error = self.prox_gaps_error(num_variables, log_inv_rate, field_size_bits, 2);
+
+        // Sumcheck bound: security from the random folding challenge.
+        // Bounded by (list_size + 1) / |F|.
+        let sumcheck_error = self.fold_sumcheck_error(field_size_bits, num_variables, log_inv_rate);
+
+        // The folding step is only as strong as its weakest component.
+        let error = prox_gaps_error.min(sumcheck_error);
+
+        // PoW covers the remaining gap; zero means no grinding needed.
+        0_f64.max(security_level as f64 - error)
+    }
 }
 
 impl Display for SecurityAssumption {
@@ -426,5 +531,21 @@ mod tests {
         let real_error = field_size_bits as f64 - real_error_non_log.log2();
 
         assert!((computed_error - real_error).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_folding_pow_bits() {
+        let field_size_bits = 64;
+        let soundness = SecurityAssumption::CapacityBound;
+
+        let pow_bits = soundness.folding_pow_bits(
+            100, // Security level
+            field_size_bits,
+            10, // Number of variables
+            5,  // Log inverse rate
+        );
+
+        // PoW bits should never be negative
+        assert!(pow_bits >= 0.);
     }
 }
