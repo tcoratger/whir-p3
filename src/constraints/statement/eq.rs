@@ -670,45 +670,108 @@ mod tests {
         let _ = EqStatement::new_hypercube(points, evaluations);
     }
 
-    #[test]
-    fn test_packed_combine() {
-        let mut rng = SmallRng::seed_from_u64(1);
-        let challenge: EF = rng.random();
-        let k_pack = log2_strict_usize(<F as Field>::Packing::WIDTH);
-
-        for k in k_pack..10 {
-            let mut out0 = EvaluationsList::<EF>::zero(k);
-            let mut out1 =
-                EvaluationsList::<<EF as ExtensionField<F>>::ExtensionPacking>::zero(k - k_pack);
-            let mut sum0 = EF::ZERO;
-            let mut sum1 = EF::ZERO;
-            let mut init = false;
-            for n in [1, 2, 10, 11] {
-                let points = (0..n)
-                    .map(|_| MultilinearPoint::rand(&mut rng, k))
-                    .collect::<Vec<_>>();
-                let evals = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
-
-                let statement = EqStatement::<EF>::new_hypercube(points, evals);
-
-                if init {
-                    statement.combine_hypercube::<F, true>(&mut out0, &mut sum0, challenge);
-                    statement.combine_hypercube_packed::<F, true>(&mut out1, &mut sum1, challenge);
-                } else {
-                    statement.combine_hypercube::<F, false>(&mut out0, &mut sum0, challenge);
-                    statement.combine_hypercube_packed::<F, false>(&mut out1, &mut sum1, challenge);
-                    init = true;
-                }
-
-                assert_eq!(
-                    out0.as_slice(),
-                    &<<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter(
-                        out1.as_slice().iter().copied(),
-                    )
-                    .collect::<Vec<_>>()
-                );
-                assert_eq!(sum0, sum1);
+    proptest! {
+        #[test]
+        fn prop_packed_combine_roundtrip(
+            // Number of variables (covers both naive and split paths).
+            k in 4usize..10,
+            // Number of constraints per batch.
+            n in 1usize..12,
+            // RNG seed for reproducible randomness.
+            seed in 0u64..100,
+        ) {
+            let k_pack = log2_strict_usize(<F as Field>::Packing::WIDTH);
+            if k < k_pack {
+                // Skip configurations where k is too small for packing.
+                return Ok(());
             }
+
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let challenge: EF = rng.random();
+
+            // Generate n random constraint points in {F}^k.
+            let points = (0..n)
+                .map(|_| MultilinearPoint::rand(&mut rng, k))
+                .collect::<Vec<_>>();
+            // Generate n random expected evaluations.
+            let evals = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
+
+            let statement = EqStatement::<EF>::new_hypercube(points, evals);
+
+            // Scalar path: combine into a 2^k evaluation list.
+            let mut scalar_weights = EvaluationsList::<EF>::zero(k);
+            let mut scalar_sum = EF::ZERO;
+            statement.combine_hypercube::<F, false>(
+                &mut scalar_weights, &mut scalar_sum, challenge,
+            );
+
+            // Packed path: combine into a 2^{k - k_pack} packed list.
+            let mut packed_weights =
+                EvaluationsList::<<EF as ExtensionField<F>>::ExtensionPacking>::zero(k - k_pack);
+            let mut packed_sum = EF::ZERO;
+            statement.combine_hypercube_packed::<F, false>(
+                &mut packed_weights, &mut packed_sum, challenge,
+            );
+
+            // Unpack the packed result and compare element-by-element.
+            let unpacked =
+                <<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter(
+                    packed_weights.as_slice().iter().copied(),
+                )
+                .collect::<Vec<_>>();
+            prop_assert_eq!(scalar_weights.as_slice(), &unpacked[..]);
+
+            // The scalar sums must match exactly.
+            prop_assert_eq!(scalar_sum, packed_sum);
+        }
+
+        #[test]
+        fn prop_packed_combine_accumulation(
+            k in 4usize..10,
+            seed in 0u64..50,
+        ) {
+            let k_pack = log2_strict_usize(<F as Field>::Packing::WIDTH);
+            if k < k_pack {
+                return Ok(());
+            }
+
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let challenge: EF = rng.random();
+
+            // First batch: INITIALIZED=false (overwrite).
+            let points1 = (0..3)
+                .map(|_| MultilinearPoint::rand(&mut rng, k))
+                .collect::<Vec<_>>();
+            let evals1 = (0..3).map(|_| rng.random()).collect::<Vec<EF>>();
+            let stmt1 = EqStatement::<EF>::new_hypercube(points1, evals1);
+
+            let mut s_wt = EvaluationsList::<EF>::zero(k);
+            let mut s_sum = EF::ZERO;
+            stmt1.combine_hypercube::<F, false>(&mut s_wt, &mut s_sum, challenge);
+
+            let mut p_wt =
+                EvaluationsList::<<EF as ExtensionField<F>>::ExtensionPacking>::zero(k - k_pack);
+            let mut p_sum = EF::ZERO;
+            stmt1.combine_hypercube_packed::<F, false>(&mut p_wt, &mut p_sum, challenge);
+
+            // Second batch: INITIALIZED=true (accumulate on top).
+            let points2 = (0..5)
+                .map(|_| MultilinearPoint::rand(&mut rng, k))
+                .collect::<Vec<_>>();
+            let evals2 = (0..5).map(|_| rng.random()).collect::<Vec<EF>>();
+            let stmt2 = EqStatement::<EF>::new_hypercube(points2, evals2);
+
+            stmt2.combine_hypercube::<F, true>(&mut s_wt, &mut s_sum, challenge);
+            stmt2.combine_hypercube_packed::<F, true>(&mut p_wt, &mut p_sum, challenge);
+
+            // Verify accumulated results match.
+            let unpacked =
+                <<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter(
+                    p_wt.as_slice().iter().copied(),
+                )
+                .collect::<Vec<_>>();
+            prop_assert_eq!(s_wt.as_slice(), &unpacked[..]);
+            prop_assert_eq!(s_sum, p_sum);
         }
     }
 }

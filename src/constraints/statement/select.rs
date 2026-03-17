@@ -1133,39 +1133,96 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_packed_combine() {
-        type PackedExt = <EF as ExtensionField<F>>::ExtensionPacking;
+    proptest! {
+        #[test]
+        fn prop_packed_combine_roundtrip(
+            // Number of variables (covers both naive and split paths).
+            k in 4usize..10,
+            // Number of select constraints per batch.
+            n in 1usize..12,
+            // Challenge power offset.
+            shift in 0usize..5,
+            // RNG seed for reproducible randomness.
+            seed in 0u64..100,
+        ) {
+            type PackedExt = <EF as ExtensionField<F>>::ExtensionPacking;
 
-        let mut rng = SmallRng::seed_from_u64(1);
-        let challenge: EF = rng.random();
-        let k_pack = log2_strict_usize(<F as Field>::Packing::WIDTH);
+            let k_pack = log2_strict_usize(<F as Field>::Packing::WIDTH);
+            if k < k_pack {
+                return Ok(());
+            }
 
-        let mut shift = 0;
-        for k in k_pack..10 {
-            let mut out0 = EvaluationsList::<EF>::zero(k);
-            let mut out1 = EvaluationsList::<PackedExt>::zero(k - k_pack);
-            let mut sum0 = EF::ZERO;
-            let mut sum1 = EF::ZERO;
-            for n in [1, 2, 10, 11] {
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let challenge: EF = rng.random();
+
+            // Generate n random evaluation points and expected values.
+            let vars = (0..n).map(|_| rng.random()).collect::<Vec<F>>();
+            let evals = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
+
+            let statement = SelectStatement::<F, EF>::new(k, vars, evals);
+
+            // Scalar path: combine into a 2^k evaluation list.
+            let mut scalar_weights = EvaluationsList::<EF>::zero(k);
+            let mut scalar_sum = EF::ZERO;
+            statement.combine(&mut scalar_weights, &mut scalar_sum, challenge, shift);
+
+            // Packed path: combine into a 2^{k - k_pack} packed list.
+            let mut packed_weights = EvaluationsList::<PackedExt>::zero(k - k_pack);
+            let mut packed_sum = EF::ZERO;
+            statement.combine_packed(&mut packed_weights, &mut packed_sum, challenge, shift);
+
+            // Unpack the packed result and compare element-by-element.
+            let unpacked =
+                <PackedExt as PackedFieldExtension<F, EF>>::to_ext_iter(
+                    packed_weights.as_slice().iter().copied(),
+                )
+                .collect::<Vec<_>>();
+            prop_assert_eq!(scalar_weights.as_slice(), &unpacked[..]);
+
+            // The scalar sums must match exactly.
+            prop_assert_eq!(scalar_sum, packed_sum);
+        }
+
+        #[test]
+        fn prop_packed_combine_accumulation(
+            k in 4usize..10,
+            seed in 0u64..50,
+        ) {
+            type PackedExt = <EF as ExtensionField<F>>::ExtensionPacking;
+
+            let k_pack = log2_strict_usize(<F as Field>::Packing::WIDTH);
+            if k < k_pack {
+                return Ok(());
+            }
+
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let challenge: EF = rng.random();
+
+            let mut s_wt = EvaluationsList::<EF>::zero(k);
+            let mut p_wt = EvaluationsList::<PackedExt>::zero(k - k_pack);
+            let mut s_sum = EF::ZERO;
+            let mut p_sum = EF::ZERO;
+            let mut shift = 0;
+
+            // Two batches with different constraint counts.
+            for n in [3, 7] {
                 let vars = (0..n).map(|_| rng.random()).collect::<Vec<F>>();
                 let evals = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
+                let stmt = SelectStatement::<F, EF>::new(k, vars, evals);
 
-                let statement = SelectStatement::<F, EF>::new(k, vars, evals);
-
-                statement.combine(&mut out0, &mut sum0, challenge, shift);
-                statement.combine_packed(&mut out1, &mut sum1, challenge, shift);
-                shift += statement.len();
-
-                assert_eq!(
-                    out0.as_slice(),
-                    &<PackedExt as PackedFieldExtension<F, EF>>::to_ext_iter(
-                        out1.as_slice().iter().copied(),
-                    )
-                    .collect::<Vec<_>>()
-                );
-                assert_eq!(sum0, sum1);
+                stmt.combine(&mut s_wt, &mut s_sum, challenge, shift);
+                stmt.combine_packed(&mut p_wt, &mut p_sum, challenge, shift);
+                shift += stmt.len();
             }
+
+            // Verify accumulated results match after both batches.
+            let unpacked =
+                <PackedExt as PackedFieldExtension<F, EF>>::to_ext_iter(
+                    p_wt.as_slice().iter().copied(),
+                )
+                .collect::<Vec<_>>();
+            prop_assert_eq!(s_wt.as_slice(), &unpacked[..]);
+            prop_assert_eq!(s_sum, p_sum);
         }
     }
 }
