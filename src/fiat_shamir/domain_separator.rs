@@ -1,3 +1,5 @@
+//! Domain separator construction for the WHIR Fiat-Shamir transcript.
+
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
@@ -10,32 +12,54 @@ use crate::{
     whir::parameters::WhirConfig,
 };
 
-/// Configuration parameters for a sumcheck phase in the protocol.
+/// Configuration for a sumcheck phase in the protocol.
 #[derive(Debug)]
 pub(crate) struct SumcheckParams {
-    /// Total number of sumcheck rounds to perform.
+    /// Number of sumcheck rounds.
     ///
-    /// Each round corresponds to a polynomial sent by the prover and a challenge
-    /// sampled by the verifier.
+    /// Each round corresponds to one prover polynomial and one verifier challenge.
     pub rounds: usize,
 
-    /// Number of bits required for the proof-of-work challenge.
+    /// Proof-of-work difficulty in bits.
     ///
-    /// - If `pow_bits > 0`, a PoW challenge is inserted after each round.
-    /// - If `pow_bits == 0`, PoW is disabled.
+    /// - Zero disables PoW.
+    /// - Positive values insert a grinding step after each round.
     pub pow_bits: usize,
 }
 
-/// The pattern of an interactive protocol.
+/// Encodes the structure of an interactive protocol as a sequence of field elements.
+///
+/// # Overview
+///
+/// Before any protocol execution, both prover and verifier build identical
+/// domain separators that describe every transcript operation (observe, sample,
+/// hint, PoW) in the exact order they occur. This sequence is absorbed into
+/// the challenger at the start, binding the sponge state to the protocol
+/// structure and preventing cross-protocol attacks.
+///
+/// # Transcript Operation Encoding
+///
+/// Each transcript step is encoded as a single field element:
+///
+/// ```text
+///     element = pattern_tag + sub_label + count
+/// ```
+///
+/// where:
+/// - `pattern_tag` distinguishes observe / sample / hint.
+/// - `sub_label` identifies the semantic role (e.g., Merkle digest, folding randomness).
+/// - `count` is the number of field elements involved (omitted for hints).
+///
+/// # Protocol Structure
+///
+/// The full WHIR proof transcript, as encoded by this separator, follows
+/// this order (matching Construction 5.1 of the WHIR paper):
 #[derive(Clone, Debug)]
 pub struct DomainSeparator<EF, F> {
-    /// The internal pattern finite field representation.
+    /// Field-element encoding of the protocol transcript pattern.
     pattern: Vec<F>,
 
-    /// Phantom marker for the extension field type `EF`.
-    ///
-    /// Provides type-level tracking of the extension degree and element structure used in
-    /// challenge generation and scalar absorption.
+    /// Phantom marker for the extension field type.
     _extension_field: PhantomData<EF>,
 }
 
@@ -44,7 +68,7 @@ where
     EF: ExtensionField<F>,
     F: Field,
 {
-    /// Create a new DomainSeparator with the domain separator.
+    /// Create a domain separator from an existing pattern vector.
     #[must_use]
     pub const fn new(pattern: Vec<F>) -> Self {
         Self {
@@ -53,7 +77,7 @@ where
         }
     }
 
-    /// Observe `count` native elements.
+    /// Record that the prover observes `count` field elements into the sponge.
     pub fn observe(&mut self, count: usize, pattern: Observe) {
         self.pattern.push(
             pattern.as_field_element::<F>()
@@ -62,7 +86,7 @@ where
         );
     }
 
-    /// Sample `count` native elements.
+    /// Record that the verifier samples `count` field elements from the sponge.
     pub fn sample(&mut self, count: usize, pattern: Sample) {
         self.pattern.push(
             pattern.as_field_element::<F>()
@@ -71,13 +95,16 @@ where
         );
     }
 
-    /// Hint `count` native elements.
+    /// Record a non-binding hint from the prover.
     pub fn hint(&mut self, pattern: Hint) {
         self.pattern
             .push(pattern.as_field_element::<F>() + Pattern::Hint.as_field_element::<F>());
     }
 
-    /// Observe the domain separator into the challenger
+    /// Absorb the entire domain separator pattern into the challenger.
+    ///
+    /// Must be called before any protocol-specific transcript operations
+    /// so the sponge state is bound to the protocol structure.
     pub fn observe_domain_separator<Challenger>(&self, challenger: &mut Challenger)
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
@@ -85,6 +112,10 @@ where
         challenger.observe_slice(&self.pattern);
     }
 
+    /// Append an out-of-domain (OOD) sampling step.
+    ///
+    /// Encodes sampling `num_samples` OOD evaluation points followed by
+    /// observing their answers. Skipped when `num_samples` is zero.
     pub fn add_ood(&mut self, num_samples: usize) {
         if num_samples > 0 {
             self.sample(num_samples, Sample::OodQuery);
@@ -92,6 +123,11 @@ where
         }
     }
 
+    /// Append the commitment phase of the protocol.
+    ///
+    /// Encodes:
+    /// 1. Observing the Merkle root of the committed polynomial.
+    /// 2. Optionally, an OOD sampling step for commitment verification.
     pub fn commit_statement<MT: Mmcs<F>, Challenger, const DIGEST_ELEMS: usize>(
         &mut self,
         params: &WhirConfig<EF, F, MT, Challenger>,
@@ -105,6 +141,22 @@ where
         }
     }
 
+    /// Append the full WHIR proof transcript to the domain separator.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Sample initial combination randomness and run the first sumcheck.
+    /// 2. For each intermediate round:
+    ///    - Observe the new Merkle commitment and optional OOD answers.
+    ///    - Perform PoW (before queries, per the WHIR security argument).
+    ///    - Draw a transcript checkpoint, then STIR query positions.
+    ///    - Record hints for query data and Merkle proofs.
+    ///    - Sample combination randomness and run the next sumcheck.
+    /// 3. For the final round:
+    ///    - Observe the final polynomial coefficients.
+    ///    - Perform PoW, then draw final query positions.
+    ///    - Record hints and run the final sumcheck.
+    ///    - Record deferred weight evaluation hints.
     pub fn add_whir_proof<MT: Mmcs<F>, Challenger, const DIGEST_ELEMS: usize>(
         &mut self,
         params: &WhirConfig<EF, F, MT, Challenger>,
@@ -113,22 +165,38 @@ where
         EF: TwoAdicField,
         F: TwoAdicField,
     {
+        // Initial combination randomness and first sumcheck phase.
         self.sample(1, Sample::InitialCombinationRandomness);
         self.add_sumcheck(&SumcheckParams {
             rounds: params.folding_factor.at_round(0),
             pow_bits: params.starting_folding_pow_bits,
         });
 
+        // Intermediate rounds: commitment → OOD → PoW → checkpoint → queries → sumcheck.
         let mut domain_size = params.starting_domain_size();
         for (round, r) in params.round_parameters.iter().enumerate() {
             let folded_domain_size = domain_size >> params.folding_factor.at_round(round);
+            // Byte length needed to encode a position in the folded domain.
             let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
+
+            // Observe the new Merkle root and optional OOD evaluations.
             self.observe(DIGEST_ELEMS, Observe::MerkleDigest);
             self.add_ood(r.ood_samples);
+
+            // PoW must precede query generation to prevent commitment shopping.
+            self.pow(r.pow_bits);
+
+            // Transcript checkpoint: a dummy sample that synchronizes the
+            // domain separator with the prover/verifier `challenger.sample()` call
+            // that occurs between PoW and query generation.
+            self.sample(1, Sample::TranscriptCheckpoint);
+
+            // Draw STIR query positions and provide opening data.
             self.sample(r.num_queries * domain_size_bytes, Sample::StirQueries);
             self.hint(Hint::StirQueries);
             self.hint(Hint::MerkleProof);
-            self.pow(r.pow_bits);
+
+            // Combination randomness for the next polynomial, then sumcheck.
             self.sample(1, Sample::CombinationRandomness);
 
             self.add_sumcheck(&SumcheckParams {
@@ -138,21 +206,26 @@ where
             domain_size >>= params.rs_reduction_factor(round);
         }
 
+        // Final round: coefficients → PoW → queries → sumcheck → deferred hints.
         let folded_domain_size = domain_size
             >> params
                 .folding_factor
                 .at_round(params.round_parameters.len());
         let domain_size_bytes = ((folded_domain_size * 2 - 1).ilog2() as usize).div_ceil(8);
 
+        // Observe all coefficients of the final folded polynomial.
         self.observe(1 << params.final_sumcheck_rounds, Observe::FinalCoeffs);
 
+        // PoW before final query generation (no transcript checkpoint in final round).
+        self.pow(params.final_pow_bits);
         self.sample(
             domain_size_bytes * params.final_queries,
             Sample::FinalQueries,
         );
         self.hint(Hint::StirAnswers);
         self.hint(Hint::MerkleProof);
-        self.pow(params.final_pow_bits);
+
+        // Final sumcheck and deferred weight evaluations.
         self.add_sumcheck(&SumcheckParams {
             rounds: params.final_sumcheck_rounds,
             pow_bits: params.final_folding_pow_bits,
@@ -160,54 +233,40 @@ where
         self.hint(Hint::DeferredWeightEvaluations);
     }
 
-    /// Append the sumcheck protocol transcript steps to the domain separator.
+    /// Append a sumcheck sub-protocol to the domain separator.
     ///
-    /// This method encodes one or more rounds of the sumcheck protocol, including:
-    /// - Absorbing polynomial coefficients sent by the prover.
-    /// - Sampling verifier challenges for folding randomness.
-    /// - Optionally performing a proof-of-work challenge for each round.
+    /// # Algorithm
     ///
-    ///
-    /// # Parameters
-    /// - `rounds`: Total number of variables folded by the sumcheck protocol.
-    /// - `pow_bits`: If greater than 0.0, a proof-of-work challenge is appended after each round.
-    ///   the first `k` rounds and replacing them with a single LDE + challenge step.
+    /// For each round:
+    /// 1. Observe 2 coefficients of the degree-2 round polynomial (c_0 and c_2).
+    ///    The third coefficient c_1 = claimed_sum - c_0 is derived by the verifier.
+    /// 2. Sample one folding randomness challenge.
+    /// 3. Optionally perform a PoW step.
     pub(crate) fn add_sumcheck(&mut self, params: &SumcheckParams) {
         let SumcheckParams { rounds, pow_bits } = *params;
 
-        // Each round:
-        // - Absorbs 3 scalars (coefficients of a degree-2 polynomial).
-        // - Samples 1 folding randomness challenge.
-        // - Optionally performs a PoW challenge.
         for _ in 0..rounds {
-            self.observe(3, Observe::SumcheckPoly);
+            // Absorb c_0 and c_2; the verifier reconstructs c_1.
+            self.observe(2, Observe::SumcheckPoly);
+            // Verifier draws the folding challenge for this variable.
             self.sample(1, Sample::FoldingRandomness);
+            // Optional grinding step after each sumcheck round.
             self.pow(pow_bits);
         }
     }
 
-    /// Optionally append a proof-of-work challenge to the domain separator.
+    /// Optionally append a proof-of-work challenge.
     ///
-    /// This function adds a transcript step that enforces a [proof-of-work (PoW)](https://en.wikipedia.org/wiki/Proof_of_work) requirement
-    /// during Fiat-Shamir transformation. If `bits` is positive, it adds:
+    /// When `bits` is positive, encodes:
+    /// 1. Sampling a 32-byte challenge from the sponge.
+    /// 2. Observing an 8-byte nonce that satisfies the grinding condition.
     ///
-    /// 1. A 32-byte challenge sampled from the transcript, labeled by `"pow-queries"`.
-    /// 2. An 8-byte observed nonce, labeled `"pow-nonce"`.
-    ///
-    /// The verifier will later check that the nonce satisfies the PoW condition relative to the challenge
-    /// and the `bits` difficulty.
-    ///
-    /// # Parameters
-    ///
-    /// - `bits`: Number of bits of PoW difficulty.
-    ///     - If `bits == 0.0`, nothing is added.
-    ///     - If `bits > 0.0`, a PoW round is added.
+    /// When `bits` is zero, nothing is appended.
     pub fn pow(&mut self, bits: usize) {
         if bits > 0 {
-            // Step 1: Sample a 32-byte challenge (typically used as PoW preimage)
+            // Sample a 32-byte PoW challenge preimage.
             self.sample(32, Sample::PowQueries);
-
-            // Step 2: Observe an 8-byte nonce in response
+            // Observe the nonce that solves the challenge.
             self.observe(8, Observe::PowNonce);
         }
     }
