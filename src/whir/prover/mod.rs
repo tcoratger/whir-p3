@@ -14,15 +14,14 @@ use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint}
 use round_state::RoundState;
 use tracing::{info_span, instrument};
 
-use super::constraints::statement::EqStatement;
 use crate::{
+    constraints::{
+        Constraint,
+        statement::{EqStatement, SelectStatement, initial::InitialStatement},
+    },
     fiat_shamir::errors::FiatShamirError,
     parameters::WhirConfig,
     whir::{
-        constraints::{
-            Constraint,
-            statement::{SelectStatement, initial::InitialStatement},
-        },
         proof::{QueryOpening, SumcheckData, WhirProof},
         utils::get_challenge_stir_queries,
     },

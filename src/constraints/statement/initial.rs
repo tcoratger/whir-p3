@@ -23,7 +23,7 @@ use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint}
 use p3_util::log2_strict_usize;
 
 use crate::{
-    parameters::SumcheckStrategy, sumcheck::svo::SplitEq, whir::constraints::statement::EqStatement,
+    constraints::statement::EqStatement, parameters::SumcheckStrategy, sumcheck::svo::SplitEq,
 };
 
 /// Manages the polynomial and constraints during the initial phase of WHIR.

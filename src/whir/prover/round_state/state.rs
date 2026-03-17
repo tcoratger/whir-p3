@@ -8,9 +8,9 @@ use p3_multilinear_util::multilinear::MultilinearPoint;
 use tracing::instrument;
 
 use crate::{
+    constraints::statement::initial::InitialStatement,
     fiat_shamir::errors::FiatShamirError,
     sumcheck::{SumcheckData, prover::SumcheckProver},
-    whir::constraints::statement::initial::InitialStatement,
 };
 
 /// Holds all per-round prover state required during the execution of the WHIR protocol.

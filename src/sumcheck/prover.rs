@@ -8,16 +8,16 @@ use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint}
 use p3_util::log2_strict_usize;
 
 use crate::{
-    sumcheck::{
-        SumcheckData, extrapolate_012, lagrange::lagrange_weights_012_multi,
-        product_polynomial::ProductPolynomial, svo::SplitEq,
-    },
-    whir::constraints::{
+    constraints::{
         Constraint,
         statement::{
             EqStatement,
             initial::{InitialStatement, InitialStatementInner},
         },
+    },
+    sumcheck::{
+        SumcheckData, extrapolate_012, lagrange::lagrange_weights_012_multi,
+        product_polynomial::ProductPolynomial, svo::SplitEq,
     },
 };
 

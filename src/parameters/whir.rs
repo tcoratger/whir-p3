@@ -9,7 +9,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_multilinear_util::evals::EvaluationsList;
 
 use super::{FoldingFactor, ProtocolParameters, SecurityAssumption};
-use crate::whir::constraints::statement::initial::InitialStatement;
+use crate::constraints::statement::initial::InitialStatement;
 
 /// Selects which sumcheck algorithm variant to use during proving.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]

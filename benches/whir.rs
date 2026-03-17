@@ -34,7 +34,7 @@ fn prepare_inputs() -> (
     ProtocolParameters<MyMmcs>,
     usize,
     Radix2DFTSmallBatch<F>,
-    whir_p3::whir::constraints::statement::initial::InitialStatement<F, EF>,
+    whir_p3::constraints::statement::initial::InitialStatement<F, EF>,
     MyChallenger,
     DomainSeparator<EF, F>,
 ) {

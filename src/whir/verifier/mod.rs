@@ -12,16 +12,14 @@ use tracing::instrument;
 use super::{committer::reader::ParsedCommitment, utils::get_challenge_stir_queries};
 use crate::{
     alloc::string::ToString,
+    constraints::{
+        Constraint,
+        evaluator::ConstraintPolyEvaluator,
+        statement::{EqStatement, SelectStatement},
+    },
     parameters::{RoundConfig, WhirConfig},
     sumcheck::verify_final_sumcheck_rounds,
-    whir::{
-        constraints::{
-            Constraint,
-            evaluator::ConstraintPolyEvaluator,
-            statement::{EqStatement, SelectStatement},
-        },
-        proof::{QueryOpening, WhirProof},
-    },
+    whir::proof::{QueryOpening, WhirProof},
 };
 
 pub mod errors;

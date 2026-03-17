@@ -26,8 +26,8 @@ use p3_util::log2_strict_usize;
 use tracing::instrument;
 
 use crate::{
+    constraints::Constraint,
     sumcheck::{SumcheckData, extrapolate_012},
-    whir::constraints::Constraint,
 };
 
 /// A paired representation of evaluation and weight polynomials for quadratic sumcheck.
@@ -895,7 +895,7 @@ mod tests {
         // The combine function should:
         // 1. Update the weight polynomial with new constraint contributions
         // 2. Update the running sum accordingly
-        use crate::whir::constraints::{Constraint, statement::EqStatement};
+        use crate::constraints::{Constraint, statement::EqStatement};
 
         let num_vars = 2;
         let evals = EvaluationsList::new(vec![EF::ONE; 4]);

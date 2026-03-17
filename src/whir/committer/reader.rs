@@ -5,10 +5,7 @@ use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
 use p3_multilinear_util::multilinear::MultilinearPoint;
 
-use crate::{
-    parameters::WhirConfig,
-    whir::{constraints::statement::EqStatement, proof::WhirProof},
-};
+use crate::{constraints::statement::EqStatement, parameters::WhirConfig, whir::proof::WhirProof};
 
 /// Represents a parsed commitment from the prover in the WHIR protocol.
 ///

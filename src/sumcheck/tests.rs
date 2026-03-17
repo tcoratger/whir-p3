@@ -9,17 +9,15 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
 use crate::{
+    constraints::{
+        Constraint,
+        evaluator::ConstraintPolyEvaluator,
+        statement::{EqStatement, SelectStatement, initial::InitialStatement},
+    },
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, SecurityAssumption, SumcheckStrategy},
     sumcheck::{SumcheckData, prover::SumcheckProver, verify_final_sumcheck_rounds},
-    whir::{
-        constraints::{
-            Constraint,
-            evaluator::ConstraintPolyEvaluator,
-            statement::{EqStatement, SelectStatement, initial::InitialStatement},
-        },
-        proof::WhirProof,
-    },
+    whir::proof::WhirProof,
 };
 
 // Base field: BabyBear (a 31-bit prime field suitable for fast arithmetic).

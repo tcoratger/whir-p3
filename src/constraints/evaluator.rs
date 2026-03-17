@@ -1,7 +1,7 @@
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_multilinear_util::multilinear::MultilinearPoint;
 
-use crate::{parameters::FoldingFactor, whir::constraints::Constraint};
+use crate::{constraints::Constraint, parameters::FoldingFactor};
 
 /// Evaluate a single round's constraint.
 fn eval_round<F: Field, EF: ExtensionField<F> + TwoAdicField>(
@@ -73,8 +73,8 @@ mod tests {
 
     use super::*;
     use crate::{
+        constraints::statement::{EqStatement, SelectStatement},
         parameters::FoldingFactor,
-        whir::constraints::statement::{EqStatement, SelectStatement},
     };
 
     type F = BabyBear;

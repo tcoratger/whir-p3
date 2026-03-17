@@ -11,13 +11,13 @@ use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{SeedableRng, rngs::SmallRng};
 
 use crate::{
+    constraints::statement::initial::InitialStatement,
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{
         FoldingFactor, ProtocolParameters, SecurityAssumption, SumcheckStrategy, WhirConfig,
     },
     whir::{
         committer::{ProverData, ProverDataExt, writer::CommitmentWriter},
-        constraints::statement::initial::InitialStatement,
         proof::WhirProof,
         prover::round_state::RoundState,
     },

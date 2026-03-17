@@ -9,11 +9,10 @@ use p3_multilinear_util::multilinear::MultilinearPoint;
 use tracing::{info_span, instrument};
 
 use crate::{
+    constraints::statement::initial::InitialStatement,
     fiat_shamir::errors::FiatShamirError,
     parameters::WhirConfig,
-    whir::{
-        committer::DenseMatrix, constraints::statement::initial::InitialStatement, proof::WhirProof,
-    },
+    whir::{committer::DenseMatrix, proof::WhirProof},
 };
 
 /// Responsible for committing polynomials using a Merkle-based scheme.

@@ -7,13 +7,11 @@ use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint}
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use whir_p3::{
+    constraints::statement::initial::InitialStatement,
     fiat_shamir::domain_separator::DomainSeparator,
     parameters::{FoldingFactor, ProtocolParameters, SecurityAssumption, SumcheckStrategy},
     sumcheck::prover::SumcheckProver,
-    whir::{
-        constraints::statement::initial::InitialStatement,
-        proof::{SumcheckData, WhirProof},
-    },
+    whir::proof::{SumcheckData, WhirProof},
 };
 
 type F = BabyBear;

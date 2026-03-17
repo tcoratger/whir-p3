@@ -1,5 +1,4 @@
 pub mod committer;
-pub mod constraints;
 pub mod proof;
 pub mod prover;
 pub mod utils;
