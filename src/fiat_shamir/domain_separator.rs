@@ -12,7 +12,7 @@ use crate::{
 
 /// Configuration parameters for a sumcheck phase in the protocol.
 #[derive(Debug)]
-pub struct SumcheckParams {
+pub(crate) struct SumcheckParams {
     /// Total number of sumcheck rounds to perform.
     ///
     /// Each round corresponds to a polynomial sent by the prover and a challenge
@@ -172,7 +172,7 @@ where
     /// - `rounds`: Total number of variables folded by the sumcheck protocol.
     /// - `pow_bits`: If greater than 0.0, a proof-of-work challenge is appended after each round.
     ///   the first `k` rounds and replacing them with a single LDE + challenge step.
-    pub fn add_sumcheck(&mut self, params: &SumcheckParams) {
+    pub(crate) fn add_sumcheck(&mut self, params: &SumcheckParams) {
         let SumcheckParams { rounds, pow_bits } = *params;
 
         // Each round:

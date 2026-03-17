@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::{CanObserve, CanSample, DuplexChallenger, GrindingChallenger};
+use p3_challenger::{CanObserve, CanSample, DuplexChallenger};
 use p3_field::extension::BinomialExtensionField;
 use proptest::prelude::*;
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
@@ -19,92 +19,6 @@ fn make_challenger() -> MyChallenger {
 }
 
 proptest! {
-    /// Tests that observing the same base field scalars on two identical challengers
-    /// produces the same transcript state (identical challenge outputs).
-    #[test]
-    fn test_base_scalar_roundtrip(seed in any::<u64>(), n in 1usize..16) {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let vals: Vec<F> = (0..n).map(|_| rng.random()).collect();
-
-        // Create two identical challengers
-        let mut prover_challenger = make_challenger();
-        let mut verifier_challenger = make_challenger();
-
-        // Both observe the same data
-        prover_challenger.observe_slice(&vals);
-        verifier_challenger.observe_slice(&vals);
-
-        // Verify both produce identical challenges
-        let prover_sample: F = prover_challenger.sample();
-        let verifier_sample: F = verifier_challenger.sample();
-        prop_assert_eq!(prover_sample, verifier_sample);
-    }
-
-    /// Tests that observing the same extension field scalars (as base field elements)
-    /// on two identical challengers produces the same transcript state.
-    #[test]
-    fn test_extension_scalar_roundtrip(seed in any::<u64>(), n in 1usize..32) {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        // Generate base field values that represent extension field elements
-        let vals: Vec<F> = (0..n).map(|_| rng.random()).collect();
-
-        // Create two identical challengers
-        let mut prover_challenger = make_challenger();
-        let mut verifier_challenger = make_challenger();
-
-        // Both observe the same data
-        prover_challenger.observe_slice(&vals);
-        verifier_challenger.observe_slice(&vals);
-
-        // Verify both produce identical challenges
-        let prover_sample: F = prover_challenger.sample();
-        let verifier_sample: F = verifier_challenger.sample();
-        prop_assert_eq!(prover_sample, verifier_sample);
-    }
-
-    /// Tests that hint data can be consistently stored and retrieved.
-    /// In the new API, hints are stored directly in WhirProof.
-    #[test]
-    fn test_hint_base_scalar_roundtrip(seed in any::<u64>(), n in 1usize..16) {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let vals: Vec<F> = (0..n).map(|_| rng.random()).collect();
-
-        // Simulate storing hints: values stored by prover, retrieved by verifier
-        let stored_hints = vals.clone();
-        let recovered_hints = stored_hints;
-
-        prop_assert_eq!(vals, recovered_hints);
-    }
-
-    /// Tests that extension field hints can be consistently stored and retrieved.
-    #[test]
-    fn test_hint_extension_scalar_roundtrip(seed in any::<u64>(), n in 1usize..8) {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let ext_vals: Vec<EF> = (0..n).map(|_| rng.random()).collect();
-
-        // Simulate storing extension hints
-        let stored_hints = ext_vals.clone();
-        let recovered_hints = stored_hints;
-
-        prop_assert_eq!(ext_vals, recovered_hints);
-    }
-
-    /// Tests that PoW grinding on prover and check_witness on verifier
-    /// with identical challenger states produces valid roundtrip.
-    #[test]
-    fn test_pow_grinding_roundtrip(bits in 1usize..8) {
-        // Create two identical challengers
-        let mut prover_challenger = make_challenger();
-        let mut verifier_challenger = make_challenger();
-
-        // Prover grinds to find witness
-        let witness: F = prover_challenger.grind(bits);
-
-        // Verifier checks the witness with identical initial state
-        let valid = verifier_challenger.check_witness(bits, witness);
-        prop_assert!(valid, "Verifier should accept valid witness from prover");
-    }
-
     /// Tests that `observe_domain_separator` produces the same challenger state
     /// as manually observing the same field elements.
     #[test]

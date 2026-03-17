@@ -18,14 +18,12 @@ impl Pattern {
 #[derive(Debug, Clone, Copy)]
 pub enum Sample {
     InitialCombinationRandomness,
-    FoldingRandomnessSkip,
     FoldingRandomness,
     CombinationRandomness,
     StirQueries,
     FinalQueries,
     PowQueries,
     OodQuery,
-    Mock,
 }
 
 impl Sample {
@@ -41,11 +39,9 @@ pub enum Observe {
     MerkleDigest,
     OodAnswers,
     SumcheckPoly,
-    SumcheckPolySkip,
     StirAnswers,
     FinalCoeffs,
     PowNonce,
-    Mock,
 }
 
 impl Observe {
@@ -62,7 +58,6 @@ pub enum Hint {
     StirAnswers,
     MerkleProof,
     DeferredWeightEvaluations,
-    Mock,
 }
 
 impl Hint {
