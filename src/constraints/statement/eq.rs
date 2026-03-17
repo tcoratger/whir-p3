@@ -15,9 +15,30 @@ use p3_multilinear_util::{
 use p3_util::log2_strict_usize;
 use tracing::instrument;
 
-/// Given multiple points in matrix form where each column is a point `P_i`,
-/// builds individual eq coefficients `eq(P_i, X)` for all points `X` in the boolean hypercube
-/// Returns a matrix where each columns is the eq coefficients of `P_i`.
+/// Batched equality polynomial evaluation via butterfly expansion.
+///
+/// # Overview
+///
+/// Given `n` points as columns of a `k × n` matrix, computes
+/// `eq(P_i, X)` for every `X in {0,1}^k` and every point `P_i`,
+/// scaled by powers of `alpha`:
+///
+/// ```text
+/// mat[X, i] = alpha^i * eq(P_i, X)
+/// ```
+///
+/// # Algorithm
+///
+/// Uses the standard eq-polynomial butterfly. Each input row `i`
+/// (variable) doubles the filled region:
+///
+/// ```text
+/// hi[j] = lo[j] * var[j]        (contribution when X_i = 1)
+/// lo[j] -= hi[j]                 (contribution when X_i = 0)
+/// ```
+///
+/// The seed row is `[alpha^0, alpha^1, ..., alpha^{n-1}]`, which
+/// bakes the batching weights directly into the expansion.
 fn batch_eqs<F: Field, EF: ExtensionField<F>>(
     points: RowMajorMatrixView<'_, EF>,
     alpha: EF,
@@ -27,14 +48,20 @@ fn batch_eqs<F: Field, EF: ExtensionField<F>>(
     assert_ne!(n, 0);
 
     let mut mat = RowMajorMatrix::new(EF::zero_vec(n * (1 << k)), n);
+
+    // Seed with alpha powers: column j starts with alpha^j.
     mat.row_mut(0).copy_from_slice(&alpha.powers().collect_n(n));
+
+    // Butterfly: process one variable per step.
     points.row_slices().enumerate().for_each(|(i, vars)| {
         let (mut lo, mut hi) = mat.split_rows_mut(1 << i);
         lo.rows_mut().zip(hi.rows_mut()).for_each(|(lo, hi)| {
             vars.iter()
                 .zip(lo.iter_mut().zip(hi.iter_mut()))
                 .for_each(|(&var, (lo, hi))| {
+                    // hi = lo * var (X_i = 1 branch)
                     *hi = *lo * var;
+                    // lo = lo * (1 - var) = lo - hi (X_i = 0 branch)
                     *lo -= *hi;
                 });
         });
@@ -42,9 +69,27 @@ fn batch_eqs<F: Field, EF: ExtensionField<F>>(
     mat
 }
 
-/// Given multiple points in matrix form where each column is a point `P_i`,
-/// builds individual eq coefficients `eq(P_i, X)` for all points `X` in the boolean hypercube
-/// Returns a matrix where each columns is the eq coefficients of `P_i` in packed form.
+/// SIMD-packed variant of the batched equality polynomial evaluation.
+///
+/// # Overview
+///
+/// Produces the same result as the scalar version, but stores each
+/// column's eq coefficients in packed form. One SIMD element covers
+/// `Packing::WIDTH` consecutive hypercube entries.
+///
+/// # Algorithm
+///
+/// 1. **Packing phase** (first `k_pack` variables): For each column,
+///    build the small scalar eq table over `{0,1}^{k_pack}`, then
+///    pack into a single SIMD element. This fills one row of the
+///    packed output.
+///
+/// 2. **Butterfly phase** (remaining `k - k_pack` variables): Same
+///    eq butterfly as the scalar version, but each multiply/subtract
+///    operates on packed elements — all SIMD lanes in parallel.
+///
+/// No alpha scaling is applied (the caller handles batching weights
+/// separately via the dot product in `combine_hypercube_packed`).
 fn packed_batch_eqs<F: Field, EF: ExtensionField<F>>(
     points: RowMajorMatrixView<'_, EF>,
 ) -> RowMajorMatrix<EF::ExtensionPacking> {
@@ -56,28 +101,41 @@ fn packed_batch_eqs<F: Field, EF: ExtensionField<F>>(
 
     let (init_vars, rest_vars) = points.split_rows(k_pack);
     let mut mat = RowMajorMatrix::new(EF::ExtensionPacking::zero_vec(n * (1 << (k - k_pack))), n);
+
     if k_pack > 0 {
+        // Packing phase: build a scalar eq table per column over
+        // the first k_pack variables, then pack into one SIMD element.
+        //
+        // The transpose gives us one row per column of the input,
+        // containing the k_pack variable values for that point.
         init_vars
             .transpose()
             .row_slices()
             .zip(mat.values.iter_mut())
             .for_each(|(vars, packed)| {
+                // Reverse order: the butterfly processes variables from
+                // MSB to LSB, but new_from_point expects LSB-first.
                 let point = vars.iter().rev().copied().collect::<Vec<_>>();
                 *packed = EF::ExtensionPacking::from_ext_slice(
                     EvaluationsList::new_from_point(&point, EF::ONE).as_slice(),
                 );
             });
     } else {
+        // No packing needed: WIDTH = 1, seed row is all ones.
         mat.row_mut(0).fill(EF::ExtensionPacking::ONE);
     }
 
+    // Butterfly phase: same eq expansion as the scalar version,
+    // but operating on packed elements for SIMD parallelism.
     rest_vars.row_slices().enumerate().for_each(|(i, vars)| {
         let (mut lo, mut hi) = mat.split_rows_mut(1 << i);
         lo.rows_mut().zip(hi.rows_mut()).for_each(|(lo, hi)| {
             vars.iter()
                 .zip(lo.iter_mut().zip(hi.iter_mut()))
                 .for_each(|(&var, (lo, hi))| {
+                    // hi = lo * var (X_i = 1 branch)
                     *hi = *lo * var;
+                    // lo = lo * (1 - var) = lo - hi (X_i = 0 branch)
                     *lo -= *hi;
                 });
         });
@@ -168,16 +226,14 @@ impl<F: Field> EqStatement<F> {
         self.evaluations.push(eval);
     }
 
-    /// Inserts multiple constraints at the front of the system.
+    /// Combine all constraints into a single batched weight polynomial and expected sum.
     ///
-    /// Panics if any constraint's number of variables does not match the system.
-    /// Combines all constraints into a single aggregated polynomial and expected sum using a challenge.
+    /// Computes `W(x) = sum_i gamma^i * eq(x, z_i)` for all `x in {0,1}^k`
+    /// using the Plonky3 `eval_eq_batch` kernel, and accumulates the
+    /// scalar sum `S = sum_i gamma^i * s_i`.
     ///
-    /// # Standard Hypercube Representation
-    ///
-    /// This method is for the standard case where the equality polynomial is computed over the
-    /// Boolean hypercube `{0,1}^num_variables`. It evaluates W(x) = ∑_i γ^i * eq(x, z_i) for all
-    /// x ∈ {0,1}^k, where the z_i are arbitrary constraint points.
+    /// The `INITIALIZED` const generic controls whether the accumulator
+    /// is added to (true) or overwritten (false).
     #[instrument(skip_all, fields(num_constraints = self.len(), num_variables = self.num_variables()))]
     pub fn combine_hypercube<Base, const INITIALIZED: bool>(
         &self,
@@ -188,62 +244,52 @@ impl<F: Field> EqStatement<F> {
         Base: Field,
         F: ExtensionField<Base>,
     {
-        // If there are no constraints, the combination is:
-        // - The combined polynomial W(X) is identically zero (all evaluations = 0).
-        // - The combined expected sum S is zero.
         if self.points.is_empty() {
             return;
         }
 
         let num_constraints = self.len();
-        let num_variables = self.num_variables();
 
-        // Precompute challenge powers γ^i for i = 0..num_constraints-1.
+        // Precompute challenge powers gamma^0, gamma^1, ..., gamma^{n-1}.
         let challenges = challenge.powers().collect_n(num_constraints);
 
-        // Create a matrix where each column is one evaluation point.
-        //
-        // Matrix layout:
-        // - rows are variables,
-        // - columns are evaluation points.
-        let points_data = F::zero_vec(num_variables * num_constraints);
-        let mut points_matrix = RowMajorMatrix::new(points_data, num_constraints);
+        // Transpose the points into a k × n matrix (rows = variables,
+        // columns = constraint points). Uses Plonky3's transpose which
+        // writes directly into a flat buffer.
+        let points_matrix = MultilinearPoint::transpose(&self.points, false);
 
-        // Parallelize the transpose operation over rows (variables).
-        //
-        // Each thread writes to its own contiguous row, which is cache-friendly.
-        points_matrix
-            .rows_mut()
-            .enumerate()
-            .for_each(|(var_idx, row_slice)| {
-                for (col_idx, point) in self.points.iter().enumerate() {
-                    row_slice[col_idx] = point[var_idx];
-                }
-            });
-
-        // Compute the batched equality polynomial evaluations.
-        // This computes W(x) = ∑_i γ^i * eq(x, z_i) for all x ∈ {0,1}^k.
+        // Delegate to Plonky3's batched eq-polynomial kernel.
+        // This is the hot path — computes all 2^k evaluations in one pass.
         eval_eq_batch::<Base, F, INITIALIZED>(
             points_matrix.as_view(),
             acc_weights.as_mut_slice(),
             &challenges,
         );
 
-        // Combine expected evaluations: S = ∑_i γ^i * s_i
+        // Accumulate the scalar target sum: S += sum_i gamma^i * s_i.
         *acc_sum +=
             dot_product::<F, _, _>(self.evaluations.iter().copied(), challenges.into_iter());
     }
 
-    /// Inserts multiple constraints at the front of the system.
+    /// SIMD-packed variant of constraint batching on the hypercube.
     ///
-    /// Panics if any constraint's number of variables does not match the system.
-    /// Combines all constraints into a single aggregated polynomial and expected sum using a challenge.
+    /// Produces the same result as the scalar version but stores the
+    /// weight polynomial in packed form (one element per
+    /// `Packing::WIDTH` consecutive hypercube entries).
     ///
-    /// # Standard Hypercube Representation
+    /// # Algorithm
     ///
-    /// This method is for the standard case where the equality polynomial is computed over the
-    /// Boolean hypercube `{0,1}^num_variables`. It evaluates W(x) = ∑_i γ^i * eq(x, z_i) for all
-    /// x ∈ {0,1}^k, where the z_i are arbitrary constraint points.
+    /// For small `k` (where `2 * k_pack > k`), falls back to a
+    /// per-constraint naive loop that builds each eq polynomial
+    /// separately and packs it chunk-by-chunk.
+    ///
+    /// For larger `k`, uses the split-and-dot strategy:
+    ///
+    /// 1. Transpose the points and split at `k / 2`.
+    /// 2. Left half  → `packed_batch_eqs` (SIMD lanes).
+    /// 3. Right half → `batch_eqs` (scalar, with alpha scaling).
+    /// 4. Parallel dot product: for each right-half row, dot all
+    ///    left-half rows weighted by the scalar eq values.
     #[instrument(skip_all, fields(num_constraints = self.len(), num_variables = self.num_variables()))]
     pub fn combine_hypercube_packed<Base, const INITIALIZED: bool>(
         &self,

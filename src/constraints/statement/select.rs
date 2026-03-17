@@ -13,20 +13,49 @@ use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint}
 use p3_util::log2_strict_usize;
 use tracing::instrument;
 
-/// Expands powers-of-two of table into full power table.
-/// Each column in `points` is powers-of-two of a variable that should be layouted in reverse order as:
-/// `[v_i^{2^{k-1}}, v_i^{2^{k-2}}, …, v_i^{2^0}]` where `k` is the height of table ie. number of variables.
-/// Returns a matrix where each column is powers of `v_i`.
+/// Expand powers-of-two seeds into the full power table via butterfly.
+///
+/// # Input
+///
+/// A `k × n` matrix where column `j` holds the squared powers of
+/// variable `v_j` in descending exponent order:
+///
+/// ```text
+/// row 0: [v_1^{2^{k-1}}, v_2^{2^{k-1}}, …, v_n^{2^{k-1}}]
+/// row 1: [v_1^{2^{k-2}}, v_2^{2^{k-2}}, …, v_n^{2^{k-2}}]
+///   ⋮
+/// row k-1: [v_1^1,         v_2^1,         …, v_n^1        ]
+/// ```
+///
+/// # Output
+///
+/// A `2^k × n` matrix where entry `[b, j] = v_j^b` (the full
+/// monomial power, not just a squared power).
+///
+/// # Algorithm
+///
+/// Uses a binary-tree butterfly. After processing row `i` of the
+/// input, the first `2^{i+1}` rows of the output are filled.
+/// Each step copies the existing rows and multiplies by the
+/// current squared power to fill the new rows:
+///
+/// ```text
+/// mat[b + 2^i, j] = mat[b, j] * points[i, j]
+/// ```
 fn batch_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> RowMajorMatrix<F> {
     let k = points.height();
     let n = points.width();
 
     let mut mat = RowMajorMatrix::new(F::zero_vec(n * (1 << k)), n);
+
+    // Base case: v_j^0 = 1 for all j.
     mat.row_mut(0).fill(F::ONE);
 
+    // Butterfly expansion: each input row doubles the number of filled rows.
     points.row_slices().enumerate().for_each(|(i, vars)| {
         let (lo, mut hi) = mat.split_rows_mut(1 << i);
         lo.rows().zip(hi.rows_mut()).for_each(|(lo, hi)| {
+            // hi[j] = lo[j] * var[j], extending the power by 2^i.
             vars.iter()
                 .zip(lo.zip(hi.iter_mut()))
                 .for_each(|(&var, (lo, hi))| *hi = lo * var);
@@ -35,10 +64,25 @@ fn batch_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> RowMajorMatrix<F> 
     mat
 }
 
-/// Expands powers-of-two of table into full power table.
-/// Each column in `points` is powers-of-two of a variable that should be layouted in reverse order as:
-/// `[v_i^{2^{k-1}}, v_i^{2^{k-2}}, …, v_i^{2^0}]` where `k` is the height of table ie. number of variables.
-/// Returns a matrix where each column is powers of `v_i` in packed form.
+/// SIMD-packed variant of the power-table butterfly expansion.
+///
+/// # Overview
+///
+/// Splits the `k` input variables into two phases:
+///
+/// 1. **Packing phase** (first `k_pack` variables): Builds a small
+///    scalar power table per column, then packs it into a single
+///    SIMD lane. This fills the first row of the packed output.
+///
+/// 2. **Butterfly phase** (remaining `k - k_pack` variables): Applies
+///    the same butterfly as the scalar version, but operates on
+///    packed elements — multiplying all SIMD lanes in one instruction.
+///
+/// # Output
+///
+/// A `2^{k - k_pack} × n` matrix of packed elements, where
+/// unpacking row `r` column `j` yields the `F::Packing::WIDTH`
+/// consecutive scalar entries `v_j^{r * WIDTH}, …, v_j^{r * WIDTH + WIDTH - 1}`.
 fn packed_batch_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> RowMajorMatrix<F::Packing> {
     let k = points.height();
     let n = points.width();
@@ -48,7 +92,10 @@ fn packed_batch_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> RowMajorMat
 
     let (init_vars, rest_vars) = points.split_rows(k_pack);
     let mut mat = RowMajorMatrix::new(F::Packing::zero_vec(n * (1 << (k - k_pack))), n);
+
     if k_pack > 0 {
+        // Packing phase: build a scalar 2^{k_pack}-row power table
+        // per column and pack it into one SIMD element.
         init_vars
             .transpose()
             .row_slices()
@@ -58,9 +105,12 @@ fn packed_batch_pows<F: Field>(points: RowMajorMatrixView<'_, F>) -> RowMajorMat
                 *packed = *F::Packing::from_slice(&batch_pows(point).values);
             });
     } else {
+        // No packing needed: WIDTH = 1, seed row is all ones.
         mat.row_mut(0).fill(F::Packing::ONE);
     }
 
+    // Butterfly phase: same expansion as the scalar version,
+    // but each multiply operates on WIDTH lanes simultaneously.
     rest_vars.row_slices().enumerate().for_each(|(i, vars)| {
         let (lo, mut hi) = mat.split_rows_mut(1 << i);
         lo.rows().zip(hi.rows_mut()).for_each(|(lo, hi)| {
@@ -291,6 +341,22 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
     ///
     /// - `shift`: Power offset for challenge. Constraint `i` uses weight `γ^{i+shift}`.
     ///   Allows multiple statement types to use non-overlapping challenge powers.
+    /// Batches all constraints into a single weighted polynomial and target sum for sumcheck.
+    ///
+    /// # Algorithm
+    ///
+    /// Three stages:
+    ///
+    /// 1. **Power map**: Build a `k × n` matrix where row `i`, column `j`
+    ///    holds `z_j^{2^i}`. Stored as a flat row-major buffer so each
+    ///    butterfly step reads a contiguous row (cache-friendly).
+    ///
+    /// 2. **Butterfly expansion**: Expand the power map into the full
+    ///    `2^k × n` select matrix using the same binary-tree doubling as
+    ///    the scalar power table. Entry `[b, j] = z_j^b`.
+    ///
+    /// 3. **Challenge combination**: Dot each row of the select matrix
+    ///    with the challenge power vector to produce the weight polynomial.
     #[instrument(skip_all, fields(num_constraints = self.len(), num_variables = self.num_variables()))]
     pub fn combine(
         &self,
@@ -313,115 +379,96 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
         // Dimension of Boolean hypercube
         let k = self.num_variables();
 
-        // STAGE 1: Compute Power Maps
+        // ---------------------------------------------------------------
+        // Stage 1: Build the k × n power-of-two matrix.
+        // ---------------------------------------------------------------
         //
-        // For each evaluation point z_i, compute pow(z_i) = [z_i, z_i^2, z_i^4, ..., z_i^{2^{k-1}}]
-        // by repeated squaring.
-        //
-        // Result: n × k matrix stored as Vec<Vec<F>>:
-        //   - Outer vector: one entry per constraint (length n)
-        //   - Inner vector: power sequence for that constraint (length k)
-        let bin_powers = self
-            .vars
-            .par_iter()
-            .copied()
-            .map(|mut var| {
-                // Generate [var, var^2, var^4, var^8, ...]
-                (0..k)
-                    .map(|_| {
-                        let current = var;
-                        // Prepare next power
-                        var = var.square();
-                        current
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+        // Row i contains [z_1^{2^i}, z_2^{2^i}, ..., z_n^{2^i}].
+        // Stored as a flat Vec<F> of size k * n in row-major order.
+        let mut pow_matrix = F::zero_vec(k * n);
+        for (j, &var) in self.vars.iter().enumerate() {
+            let mut v = var;
+            for i in 0..k {
+                // pow_matrix[i * n + j] = z_j^{2^i}
+                pow_matrix[i * n + j] = v;
+                v = v.square();
+            }
+        }
 
-        // STAGE 2: Build Select Matrix via Binary Tree Expansion
+        // ---------------------------------------------------------------
+        // Stage 2: Butterfly expansion into the 2^k × n select matrix.
+        // ---------------------------------------------------------------
         //
-        // We build a 2^k × n matrix where entry [b, i] = select(pow(z_i), b).
-        //
-        // The matrix is stored in row-major order as a flat vector of length 2^k · n.
-
-        // Allocate the matrix: 2^k rows × n columns.
+        // After iteration i, the first 2^{i+1} rows are filled.
+        // Entry [b, j] = z_j^b.
         let mut acc = F::zero_vec((1 << k) * n);
 
-        // Initialize the first row to all ones.
-        //
-        // This represents the base case: select(X, 0...0) = 1 for any X.
+        // Base case: z_j^0 = 1 for all j.
         acc[..n].fill(F::ONE);
 
-        // Expand the matrix one bit at a time using binary tree structure.
-        //
-        // After iteration i, we have 2^{i+1} rows filled.
         for i in 0..k {
-            // At the start of iteration i, we have 2^i rows already computed.
-            //
-            // We now split the buffer into:
-            //   - `lo`: the first 2^i rows (already computed)
-            //   - `hi`: the next 2^i rows (to be computed as copies of `lo`)
             let num_existing_rows = 1 << i;
             let (lo, hi) = acc.split_at_mut(num_existing_rows * n);
 
-            // Extract the i-th column of the power matrix: [pow(z_1)[i], ..., pow(z_n)[i]]
-            //
-            // These are the values z_1^{2^i}, z_2^{2^i}, ..., z_n^{2^i}.
-            let bin_powers_col = bin_powers
-                .iter()
-                .map(|powers| powers[i])
-                .collect::<Vec<_>>();
+            // Contiguous row slice — no per-iteration allocation.
+            let pow_row = &pow_matrix[i * n..(i + 1) * n];
 
-            // Process each row pair in parallel.
-            // Each chunk represents one row of n elements.
+            // For each existing row, compute the new row:
+            //   acc[b + 2^i, j] = acc[b, j] * z_j^{2^i}
             lo.par_chunks_mut(n)
                 .zip(hi.par_chunks_mut(n))
                 .for_each(|(lo_row, hi_row)| {
-                    // For each column (constraint) in this row:
-                    // - lo_row[j] already contains select(pow(z_j), b | bit_i = 0)
-                    // - hi_row[j] should contain select(pow(z_j), b | bit_i = 1)
-                    //
-                    // Since select(X, Y) multiplies X[i] when Y[i] = 1, we have:
-                    //   hi_row[j] = lo_row[j] * pow(z_j)[i]
-                    bin_powers_col
+                    pow_row
                         .iter()
-                        .zip(lo_row.iter_mut())
+                        .zip(lo_row.iter())
                         .zip(hi_row.iter_mut())
-                        .for_each(|((&z_pow, lo_val), hi_val)| {
-                            *hi_val = *lo_val * z_pow;
+                        .for_each(|((&z_pow, &lo_val), hi_val)| {
+                            *hi_val = lo_val * z_pow;
                         });
                 });
         }
 
-        // At this point, `acc` is a 2^k × n matrix where:
-        //   acc[b * n + i] = select(pow(z_i), b)
+        // ---------------------------------------------------------------
+        // Stage 3: Combine with challenge powers.
+        // ---------------------------------------------------------------
 
-        // STAGE 3: Batch with Random Challenge
-        //
-        // Combine the n columns of the select matrix using powers of the challenge γ.
-
-        // Precompute the challenge powers: [γ^shift, γ^{shift+1}, ..., γ^{shift+n-1}]
+        // Precompute [gamma^shift, gamma^{shift+1}, ..., gamma^{shift+n-1}].
         let challenges = challenge.powers().skip(shift).take(n).collect::<Vec<_>>();
 
-        // For each hypercube point b (each row of the select matrix):
-        //   W(b) += Σ_i γ^{i+shift} · select(pow(z_i), b)
+        // W(b) += sum_i gamma^{i+shift} * z_i^b
         acc.par_chunks(n)
             .zip(acc_weights.as_mut_slice().par_iter_mut())
             .for_each(|(row, weight_out)| {
-                // Compute the linear combination of this row using challenge powers.
-                *weight_out += row.iter().zip(challenges.iter()).fold(
-                    EF::ZERO,
-                    |acc_val, (&select_val, &challenge_power)| {
-                        acc_val + challenge_power * select_val
-                    },
-                );
+                *weight_out +=
+                    dot_product::<EF, _, _>(challenges.iter().copied(), row.iter().copied());
             });
 
-        // Compute the target sum: S = Σ_i γ^{i+shift} · s_i
+        // S += sum_i gamma^{i+shift} * s_i
         *acc_sum +=
             dot_product::<EF, _, _>(challenges.into_iter(), self.evaluations.iter().copied());
     }
 
+    /// SIMD-packed variant of constraint batching.
+    ///
+    /// # Overview
+    ///
+    /// Produces the same result as the scalar version, but stores the
+    /// weight polynomial in packed form (one SIMD element per
+    /// `Packing::WIDTH` consecutive hypercube entries).
+    ///
+    /// # Algorithm
+    ///
+    /// For small `k` (where `2 * k_pack > k`), falls back to a naive
+    /// per-constraint loop using shifted powers.
+    ///
+    /// For larger `k`, uses the split-and-dot approach:
+    ///
+    /// 1. Expand each evaluation point into its power-map representation.
+    /// 2. Transpose into a `k × n` matrix and split at `k / 2`.
+    /// 3. Build the packed left-half power table and the scalar right-half
+    ///    power table.
+    /// 4. For each pair of rows (left packed, right scalar), compute the
+    ///    weighted dot product with the challenge powers.
     #[instrument(skip_all, fields(num_constraints = self.len(), num_variables = self.num_variables()))]
     pub fn combine_packed(
         &self,
@@ -440,28 +487,31 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
         assert!(k >= k_pack);
         assert_eq!(weights.num_variables() + k_pack, k);
 
-        // Combine expected evaluations: S = ∑_i γ^i * s_i
+        // Accumulate the scalar target sum first.
         self.combine_evals(sum, challenge, shift);
 
-        // Apply naive method if number of variables is too small for packed split method
+        // Naive fallback: when there aren't enough variables for the
+        // split approach, compute shifted powers directly per constraint.
         if k_pack * 2 > k {
             self.vars
                 .iter()
                 .zip(challenge.powers().skip(shift))
                 .for_each(|(&var, challenge)| {
+                    // gamma^{shift+i} * [1, z, z^2, ..., z^{2^k - 1}]
                     let pow = EF::from(var).shifted_powers(challenge).collect_n(1 << k);
                     weights
                         .as_mut_slice()
                         .iter_mut()
                         .zip_eq(pow.chunks(F::Packing::WIDTH))
                         .for_each(|(out, chunk)| {
-                            let packed = EF::ExtensionPacking::from_ext_slice(chunk);
-                            *out += packed;
+                            *out += EF::ExtensionPacking::from_ext_slice(chunk);
                         });
                 });
             return;
         }
 
+        // Split approach: expand each var into its power-map form,
+        // transpose, and split into left (packed) and right (scalar) halves.
         let points = self
             .vars
             .iter()
@@ -469,9 +519,13 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
             .collect::<Vec<_>>();
         let points = MultilinearPoint::transpose(&points, true);
         let (left, right) = points.split_rows(k / 2);
+
+        // Left half → packed power table (operates in SIMD lanes).
         let left = packed_batch_pows(left);
+        // Right half → scalar power table.
         let right = batch_pows(right);
 
+        // Broadcast challenge powers into packed form for dot products.
         let alphas = challenge
             .powers()
             .skip(shift)
@@ -479,6 +533,9 @@ impl<F: Field, EF: ExtensionField<F>> SelectStatement<F, EF> {
             .map(EF::ExtensionPacking::from)
             .collect::<Vec<_>>();
 
+        // For each right-half row, dot all left-half rows against it
+        // (weighted by the challenge powers) and accumulate into the
+        // packed weight polynomial.
         weights
             .as_mut_slice()
             .par_chunks_mut(left.height())
