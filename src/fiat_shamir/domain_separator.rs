@@ -9,6 +9,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use crate::{
     fiat_shamir::pattern::{Hint, Observe, Pattern, Sample},
+    parameters::FoldingFactor,
     whir::parameters::WhirConfig,
 };
 
@@ -95,6 +96,24 @@ where
         );
     }
 
+    /// Encode a public protocol parameter into the domain separator.
+    ///
+    /// Pushes two field elements:
+    /// 1. A constant marker identifying this entry as a protocol parameter.
+    /// 2. The raw parameter value.
+    ///
+    /// This binds the Fiat-Shamir transcript to the specific protocol
+    /// configuration, preventing cross-protocol transcript reuse.
+    fn protocol_param(&mut self, value: usize) {
+        // Constant marker: observe tag + protocol-param sub-label.
+        self.pattern.push(
+            Observe::ProtocolParam.as_field_element::<F>()
+                + Pattern::Observe.as_field_element::<F>(),
+        );
+        // Raw parameter value.
+        self.pattern.push(F::from_usize(value));
+    }
+
     /// Record a non-binding hint from the prover.
     pub fn hint(&mut self, pattern: Hint) {
         self.pattern
@@ -125,16 +144,42 @@ where
 
     /// Append the commitment phase of the protocol.
     ///
-    /// Encodes:
-    /// 1. Observing the Merkle root of the committed polynomial.
-    /// 2. Optionally, an OOD sampling step for commitment verification.
+    /// # Algorithm
+    ///
+    /// 1. Encode public protocol parameters that uniquely identify this
+    ///    protocol instance. This prevents an adversary from replaying a
+    ///    proof generated for one parameter set against a verifier
+    ///    configured with different parameters.
+    /// 2. Observe the Merkle root of the committed polynomial.
+    /// 3. Optionally, encode an OOD sampling step.
     pub fn commit_statement<MT: Mmcs<F>, Challenger, const DIGEST_ELEMS: usize>(
         &mut self,
         params: &WhirConfig<EF, F, MT, Challenger>,
     ) where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        // TODO: Add params
+        // Bind the transcript to the protocol configuration.
+        self.protocol_param(params.num_variables);
+        self.protocol_param(params.security_level);
+        self.protocol_param(params.starting_log_inv_rate);
+        self.protocol_param(params.max_pow_bits);
+
+        // Encode the soundness assumption as its discriminant.
+        self.protocol_param(params.soundness_type as usize);
+
+        // Encode the folding strategy: discriminant followed by inner values.
+        match params.folding_factor {
+            FoldingFactor::Constant(f) => {
+                self.protocol_param(0);
+                self.protocol_param(f);
+            }
+            FoldingFactor::ConstantFromSecondRound(first, rest) => {
+                self.protocol_param(1);
+                self.protocol_param(first);
+                self.protocol_param(rest);
+            }
+        }
+
         self.observe(DIGEST_ELEMS, Observe::MerkleDigest);
         if params.commitment_ood_samples > 0 {
             self.add_ood(params.commitment_ood_samples);

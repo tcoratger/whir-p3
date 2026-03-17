@@ -86,6 +86,12 @@ pub enum Observe {
     FinalCoeffs,
     /// Proof-of-work nonce solving the grinding challenge.
     PowNonce,
+    /// A public protocol parameter value.
+    ///
+    /// Used in the domain separator header to bind the transcript
+    /// to the specific protocol configuration. Each parameter is
+    /// encoded as a (marker, value) pair.
+    ProtocolParam,
 }
 
 impl Observe {
