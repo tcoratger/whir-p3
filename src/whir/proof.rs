@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use p3_commit::Mmcs;
-use p3_multilinear_util::evals::Poly;
+use p3_multilinear_util::poly::Poly;
 use serde::{Deserialize, Serialize};
 
 use crate::parameters::ProtocolParameters;

@@ -5,7 +5,7 @@ use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrixView};
-use p3_multilinear_util::multilinear::Point;
+use p3_multilinear_util::point::Point;
 use tracing::{info_span, instrument};
 
 use crate::{
@@ -128,7 +128,7 @@ mod tests {
     use p3_challenger::DuplexChallenger;
     use p3_dft::Radix2DFTSmallBatch;
     use p3_merkle_tree::MerkleTreeMmcs;
-    use p3_multilinear_util::evals::Poly;
+    use p3_multilinear_util::poly::Poly;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 

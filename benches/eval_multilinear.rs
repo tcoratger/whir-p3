@@ -1,7 +1,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
 use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
-use p3_multilinear_util::{evals::Poly, multilinear::Point};
+use p3_multilinear_util::{point::Point, poly::Poly};
 use rand::{
     RngExt, SeedableRng,
     distr::{Distribution, StandardUniform},

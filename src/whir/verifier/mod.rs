@@ -6,7 +6,7 @@ use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::Dimensions;
-use p3_multilinear_util::{evals::Poly, multilinear::Point};
+use p3_multilinear_util::{point::Point, poly::Poly};
 use tracing::instrument;
 
 use super::{committer::reader::ParsedCommitment, utils::get_challenge_stir_queries};

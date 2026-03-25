@@ -41,22 +41,22 @@ serde = { version = "1.0", default-features = false, features = [
     "alloc",
 ] }
 rayon = { version = "1.0", optional = true }
-p3-field = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-baby-bear = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-koala-bear = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-merkle-tree = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-symmetric = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-matrix = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-commit = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-goldilocks = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-dft = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-util = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-maybe-rayon = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-interpolation = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-challenger = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-multilinear-util = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-keccak = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
-p3-whir = { git = "https://github.com/tcoratger/Plonky3", branch = "ml-refactor1" }
+p3-field = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/field" }
+p3-baby-bear = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/baby-bear" }
+p3-koala-bear = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/koala-bear" }
+p3-merkle-tree = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/merkle-tree" }
+p3-symmetric = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/symmetric" }
+p3-matrix = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/matrix" }
+p3-commit = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/commit" }
+p3-goldilocks = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/goldilocks" }
+p3-dft = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/dft" }
+p3-util = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/util" }
+p3-maybe-rayon = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/maybe-rayon" }
+p3-interpolation = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/interpolation" }
+p3-challenger = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/challenger" }
+p3-multilinear-util = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/multilinear-util" }
+p3-keccak = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/keccak" }
+p3-whir = { path = "/Users/tcoratger/Documents/plonky3/Plonky3/whir" }
 
 hashbrown = "0.16"
 itertools = { version = "0.14.0", default-features = false, features = [

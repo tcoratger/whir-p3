@@ -4,7 +4,7 @@
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
-use p3_multilinear_util::multilinear::Point;
+use p3_multilinear_util::point::Point;
 use tracing::instrument;
 
 use crate::{

@@ -10,7 +10,7 @@ use p3_matrix::{
     dense::{DenseMatrix, RowMajorMatrixView},
     extension::FlatMatrixView,
 };
-use p3_multilinear_util::{evals::Poly, multilinear::Point};
+use p3_multilinear_util::{point::Point, poly::Poly};
 use round_state::RoundState;
 use tracing::{info_span, instrument};
 

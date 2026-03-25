@@ -6,7 +6,7 @@ use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
-use p3_multilinear_util::{evals::Poly, multilinear::Point};
+use p3_multilinear_util::{point::Point, poly::Poly};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{SeedableRng, rngs::SmallRng};
 

@@ -1,7 +1,7 @@
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
-use p3_multilinear_util::{evals::Poly, multilinear::Point};
+use p3_multilinear_util::{point::Point, poly::Poly};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
 type F = KoalaBear;

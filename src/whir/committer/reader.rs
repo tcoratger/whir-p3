@@ -3,7 +3,7 @@ use core::{fmt::Debug, ops::Deref};
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
-use p3_multilinear_util::multilinear::Point;
+use p3_multilinear_util::point::Point;
 
 use crate::{constraints::statement::EqStatement, parameters::WhirConfig, whir::proof::WhirProof};
 
@@ -192,7 +192,7 @@ mod tests {
     use p3_dft::Radix2DFTSmallBatch;
     use p3_field::{Field, extension::BinomialExtensionField};
     use p3_merkle_tree::MerkleTreeMmcs;
-    use p3_multilinear_util::evals::Poly;
+    use p3_multilinear_util::poly::Poly;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
