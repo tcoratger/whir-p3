@@ -1,8 +1,5 @@
 #![no_std]
 extern crate alloc;
 
-pub mod constraints;
-pub mod fiat_shamir;
-pub mod parameters;
-pub mod sumcheck;
+pub use p3_whir::{constraints, fiat_shamir, parameters, sumcheck};
 pub mod whir;

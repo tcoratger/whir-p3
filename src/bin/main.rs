@@ -6,7 +6,7 @@ use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{Field, extension::BinomialExtensionField};
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use p3_multilinear_util::{evals::Poly, multilinear::Point};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{
     RngExt, SeedableRng,
@@ -125,13 +125,13 @@ fn main() {
     let params = WhirConfig::<EF, F, MyMmcs, MyChallenger>::new(num_variables, whir_params.clone());
 
     let mut rng = StdRng::seed_from_u64(0);
-    let polynomial = EvaluationsList::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
+    let polynomial = Poly::<F>::new((0..num_coeffs).map(|_| rng.random()).collect());
     let mut initial_statement = params.initial_statement(polynomial, SumcheckStrategy::default());
 
     // Sample `num_points` random multilinear points in the Boolean hypercube
     // And add constraints for each sampled point (equality constraints)
     (0..num_evaluations).for_each(|_| {
-        let _ = initial_statement.evaluate(&MultilinearPoint::rand(&mut rng, num_variables));
+        let _ = initial_statement.evaluate(&Point::rand(&mut rng, num_variables));
     });
 
     let verifier_statement = initial_statement.normalize();

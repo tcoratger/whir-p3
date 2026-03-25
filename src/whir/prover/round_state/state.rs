@@ -4,7 +4,7 @@
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
-use p3_multilinear_util::multilinear::MultilinearPoint;
+use p3_multilinear_util::multilinear::Point;
 use tracing::instrument;
 
 use crate::{
@@ -45,7 +45,7 @@ where
     /// The randomness is sampled via Fiat-Shamir from the current transcript state,
     /// ensuring both parties derive identical challenge values while maintaining
     /// cryptographic soundness. The length equals the folding factor k for this round.
-    pub folding_randomness: MultilinearPoint<EF>,
+    pub folding_randomness: Point<EF>,
 
     /// Merkle tree commitment for the base field polynomial f: F^n → F.
     ///

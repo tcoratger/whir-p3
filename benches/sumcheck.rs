@@ -3,7 +3,7 @@ use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::{DuplexChallenger, FieldChallenger};
 use p3_field::{Field, extension::BinomialExtensionField};
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use p3_multilinear_util::{evals::Poly, multilinear::Point};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use whir_p3::{
@@ -48,10 +48,10 @@ fn setup_challenger() -> MyChallenger {
 }
 
 /// Helper to generate a random multilinear polynomial.
-fn generate_poly(num_vars: usize) -> EvaluationsList<F> {
+fn generate_poly(num_vars: usize) -> Poly<F> {
     let mut rng = SmallRng::seed_from_u64(1);
     let evals = (0..1 << num_vars).map(|_| rng.random()).collect();
-    EvaluationsList::new(evals)
+    Poly::new(evals)
 }
 
 /// Main benchmark function to test the sumcheck prover.
@@ -85,7 +85,7 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
             SumcheckStrategy::Classic,
         );
         for _ in 0..3 {
-            let _ = initial_statement.evaluate(&MultilinearPoint::expand_from_univariate(
+            let _ = initial_statement.evaluate(&Point::expand_from_univariate(
                 challenger.sample_algebra_element(),
                 *num_vars,
             ));
@@ -133,7 +133,7 @@ fn bench_sumcheck_prover(c: &mut Criterion) {
             SumcheckStrategy::Svo,
         );
         for _ in 0..3 {
-            let _ = initial_statement.evaluate(&MultilinearPoint::expand_from_univariate(
+            let _ = initial_statement.evaluate(&Point::expand_from_univariate(
                 challenger.sample_algebra_element(),
                 *num_vars,
             ));

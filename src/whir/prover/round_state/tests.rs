@@ -6,7 +6,7 @@ use p3_dft::Radix2DFTSmallBatch;
 use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_matrix::dense::DenseMatrix;
 use p3_merkle_tree::{MerkleTree, MerkleTreeMmcs};
-use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use p3_multilinear_util::{evals::Poly, multilinear::Point};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{SeedableRng, rngs::SmallRng};
 
@@ -87,7 +87,7 @@ fn make_test_config(
 #[allow(clippy::type_complexity)]
 fn setup_domain_and_commitment(
     params: &WhirConfig<EF, F, MyMmcs, MyChallenger>,
-    poly: EvaluationsList<F>,
+    poly: Poly<F>,
 ) -> (
     WhirProof<F, EF, MyMmcs>,
     MyChallenger,
@@ -105,7 +105,7 @@ fn setup_domain_and_commitment(
     };
 
     // Create WhirProof structure from protocol parameters
-    let whir_proof = WhirProof::from_protocol_parameters(&protocol_params, poly.num_variables());
+    let whir_proof = WhirProof::from_protocol_parameters(&protocol_params, poly.num_vars());
 
     // Create a new Fiat-Shamir domain separator.
     let mut domsep = DomainSeparator::new(vec![]);
@@ -155,7 +155,7 @@ fn test_no_initial_statement_no_sumcheck() {
     let folding0 = config.folding_factor.at_round(0);
 
     // Define a polynomial
-    let poly = EvaluationsList::new(vec![F::from_u64(3); 1 << num_variables]);
+    let poly = Poly::new(vec![F::from_u64(3); 1 << num_variables]);
 
     // Initialize:
     // - domain separator for Fiat-Shamir transcript,
@@ -184,7 +184,7 @@ fn test_no_initial_statement_no_sumcheck() {
     .unwrap();
 
     // Folding factor was 2, so we expect 2 sampled folding randomness values
-    assert_eq!(state.folding_randomness.num_variables(), 2);
+    assert_eq!(state.folding_randomness.num_vars(), 2);
 
     // Since this is the first round, no Merkle data for folded rounds should exist
     assert!(state.merkle_prover_data.is_none());
@@ -214,7 +214,7 @@ fn test_initial_statement_with_folding_factor_3() {
     let e7 = F::from_u64(7);
     let e8 = F::from_u64(8);
 
-    let poly = EvaluationsList::new(vec![
+    let poly = Poly::new(vec![
         e1,
         e1 + e2,
         e1 + e3,
@@ -245,7 +245,7 @@ fn test_initial_statement_with_folding_factor_3() {
     // Create an empty public statement (no constraints)
     let mut statement = InitialStatement::new(poly, folding0, SumcheckStrategy::default());
     // Evaluate at point (1, 1, 1)
-    let _ = statement.evaluate(&MultilinearPoint::new(vec![EF::ONE, EF::ONE, EF::ONE]));
+    let _ = statement.evaluate(&Point::new(vec![EF::ONE, EF::ONE, EF::ONE]));
 
     // Run the first round state initialization (this will trigger sumcheck)
     let state = RoundState::<
@@ -307,7 +307,7 @@ fn test_zero_poly_multiple_constraints() {
     let folding0 = config.folding_factor.at_round(0);
 
     // Define a zero polynomial: f(X) = 0 for all X
-    let poly = EvaluationsList::new(vec![F::ZERO; 1 << num_variables]);
+    let poly = Poly::new(vec![F::ZERO; 1 << num_variables]);
 
     // Generate domain separator, prover state, and Merkle commitment witness for the poly
     let (mut proof, mut challenger_rf, prover_data) =
@@ -321,7 +321,7 @@ fn test_zero_poly_multiple_constraints() {
         let point = (0..num_variables)
             .map(|b| EF::from_u64(((i >> b) & 1) as u64))
             .collect();
-        let eval = statement.evaluate(&MultilinearPoint::new(point));
+        let eval = statement.evaluate(&Point::new(point));
         assert_eq!(eval, EF::ZERO);
     }
 
@@ -353,12 +353,12 @@ fn test_zero_poly_multiple_constraints() {
     assert_eq!(sumcheck.sum, EF::ZERO);
 
     // Folding randomness should have length equal to the folding factor (1)
-    assert_eq!(sumcheck_randomness.num_variables(), 1);
+    assert_eq!(sumcheck_randomness.num_vars(), 1);
 
     // Confirm that folding randomness matches exactly
     assert_eq!(
         state.folding_randomness,
-        MultilinearPoint::new(vec![sumcheck_randomness[0]])
+        Point::new(vec![sumcheck_randomness[0]])
     );
 
     // No Merkle commitment data for folded rounds yet
@@ -391,7 +391,7 @@ fn test_initialize_round_state_with_initial_statement() {
     let e7 = F::from_u64(7);
     let e8 = F::from_u64(8);
 
-    let poly = EvaluationsList::new(vec![
+    let poly = Poly::new(vec![
         e1,
         e1 + e2,
         e1 + e3,
@@ -421,7 +421,7 @@ fn test_initialize_round_state_with_initial_statement() {
 
     // Construct a statement with one evaluation constraint at the point (1, 0, 1)
     let mut statement = InitialStatement::new(poly, folding0, SumcheckStrategy::default());
-    let _ = statement.evaluate(&MultilinearPoint::new(vec![EF::ONE, EF::ZERO, EF::ONE]));
+    let _ = statement.evaluate(&Point::new(vec![EF::ONE, EF::ZERO, EF::ONE]));
 
     // Run the first round initialization
     let state = RoundState::<
@@ -446,10 +446,7 @@ fn test_initialize_round_state_with_initial_statement() {
     // Evaluate f at (32636, 9876, r0) and match it with the sumcheck's recovered evaluation
     let evals_f = &sumcheck.evals();
     assert_eq!(
-        evals_f.evaluate_hypercube_ext::<F>(&MultilinearPoint::new(vec![
-            EF::from_u64(32636),
-            EF::from_u64(9876)
-        ])),
+        evals_f.eval_ext::<F>(&Point::new(vec![EF::from_u64(32636), EF::from_u64(9876)])),
         f(
             sumcheck_randomness[0],
             EF::from_u64(32636),
@@ -466,6 +463,6 @@ fn test_initialize_round_state_with_initial_statement() {
     // The folding randomness must match what was sampled by the sumcheck
     assert_eq!(
         state.folding_randomness,
-        MultilinearPoint::new(vec![sumcheck_randomness[0]])
+        Point::new(vec![sumcheck_randomness[0]])
     );
 }

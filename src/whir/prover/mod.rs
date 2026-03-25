@@ -10,7 +10,7 @@ use p3_matrix::{
     dense::{DenseMatrix, RowMajorMatrixView},
     extension::FlatMatrixView,
 };
-use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use p3_multilinear_util::{evals::Poly, multilinear::Point};
 use round_state::RoundState;
 use tracing::{info_span, instrument};
 
@@ -148,7 +148,7 @@ where
     {
         let folded_evaluations = &round_state.sumcheck_prover.evals();
         let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
-        assert_eq!(num_variables, folded_evaluations.num_variables());
+        assert_eq!(num_variables, folded_evaluations.num_vars());
 
         // Base case: final round reached
         if round_index == self.n_rounds() {
@@ -164,7 +164,7 @@ where
         // Transpose for reverse variable order
         // And then pad with zeros
         let padded = info_span!("transpose & pad").in_scope(|| {
-            let num_vars = folded_evaluations.num_variables();
+            let num_vars = folded_evaluations.num_vars();
             let mut mat = RowMajorMatrixView::new(
                 folded_evaluations.as_slice(),
                 1 << (num_vars - folding_factor_next),
@@ -193,10 +193,8 @@ where
         let mut ood_statement = EqStatement::initialize(num_variables);
         let mut ood_answers = Vec::with_capacity(round_params.ood_samples);
         (0..round_params.ood_samples).for_each(|_| {
-            let point = MultilinearPoint::expand_from_univariate(
-                challenger.sample_algebra_element(),
-                num_variables,
-            );
+            let point =
+                Point::expand_from_univariate(challenger.sample_algebra_element(), num_variables);
             let eval = round_state.sumcheck_prover.eval(&point);
             challenger.observe_algebra_element(eval);
 
@@ -263,7 +261,7 @@ where
 
                 // Process each set of evaluations retrieved from the Merkle tree openings.
                 for (answer, var) in answers.iter().zip(stir_vars.into_iter()) {
-                    let evals = EvaluationsList::new(answer.clone());
+                    let evals = Poly::new(answer.clone());
                     // Fold the polynomial represented by the `answer` evaluations using the verifier's challenge.
                     // The evaluation method depends on whether this is a "skip round" or a "standard round".
 
@@ -272,7 +270,7 @@ where
                     // The `answer` represents a standard multilinear polynomial.
 
                     // Perform a standard multilinear evaluation at the full challenge point `r`.
-                    let eval = evals.evaluate_hypercube_base(&round_state.folding_randomness);
+                    let eval = evals.eval_base(&round_state.folding_randomness);
                     stir_statement.add_constraint(var, eval);
                 }
             }
@@ -291,9 +289,9 @@ where
                 // Process each set of evaluations retrieved from the Merkle tree openings.
                 for (answer, var) in answers.iter().zip(stir_vars.into_iter()) {
                     // Wrap the evaluations to represent the polynomial.
-                    let evals = EvaluationsList::new(answer.clone());
+                    let evals = Poly::new(answer.clone());
                     // Perform a standard multilinear evaluation at the full challenge point `r`.
-                    let eval = evals.evaluate_hypercube_ext::<F>(&round_state.folding_randomness);
+                    let eval = evals.eval_ext::<F>(&round_state.folding_randomness);
                     stir_statement.add_constraint(var, eval);
                 }
             }

@@ -5,7 +5,7 @@ use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrixView};
-use p3_multilinear_util::multilinear::MultilinearPoint;
+use p3_multilinear_util::multilinear::Point;
 use tracing::{info_span, instrument};
 
 use crate::{
@@ -94,7 +94,7 @@ where
         // TODO: consider moving ood sampling to whir::Prover::prove
         (0..self.0.commitment_ood_samples).for_each(|_| {
             // Generate OOD points from ProverState randomness
-            let point = MultilinearPoint::expand_from_univariate(
+            let point = Point::expand_from_univariate(
                 challenger.sample_algebra_element(),
                 self.num_variables,
             );
@@ -128,7 +128,7 @@ mod tests {
     use p3_challenger::DuplexChallenger;
     use p3_dft::Radix2DFTSmallBatch;
     use p3_merkle_tree::MerkleTreeMmcs;
-    use p3_multilinear_util::evals::EvaluationsList;
+    use p3_multilinear_util::evals::Poly;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
@@ -182,7 +182,7 @@ mod tests {
 
         // Generate a random polynomial with 32 coefficients.
         let mut rng = SmallRng::seed_from_u64(1);
-        let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
+        let polynomial = Poly::<BabyBear>::new(vec![rng.random(); 32]);
 
         let mut proof =
             WhirProof::<F, F, MyMmcs>::from_protocol_parameters(&whir_params, num_variables);
@@ -218,7 +218,7 @@ mod tests {
         let poly = &statement.poly;
         let statement = statement.normalize();
         for (i, (ood_point, ood_eval)) in statement.iter().enumerate() {
-            let expected_eval = poly.evaluate_hypercube_base(ood_point);
+            let expected_eval = poly.eval_base(ood_point);
             assert_eq!(
                 *ood_eval, expected_eval,
                 "OOD answer at index {i} should match expected evaluation"
@@ -259,7 +259,7 @@ mod tests {
             WhirConfig::<F, F, MyMmcs, MyChallenger>::new(num_variables, whir_params.clone());
 
         let mut rng = SmallRng::seed_from_u64(1);
-        let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 1024]);
+        let polynomial = Poly::<BabyBear>::new(vec![rng.random(); 1024]);
 
         let mut proof =
             WhirProof::<F, F, MyMmcs>::from_protocol_parameters(&whir_params, num_variables);
@@ -315,7 +315,7 @@ mod tests {
         params.commitment_ood_samples = 0;
 
         let mut rng = SmallRng::seed_from_u64(1);
-        let polynomial = EvaluationsList::<BabyBear>::new(vec![rng.random(); 32]);
+        let polynomial = Poly::<BabyBear>::new(vec![rng.random(); 32]);
 
         let mut proof =
             WhirProof::<F, F, MyMmcs>::from_protocol_parameters(&whir_params, num_variables);

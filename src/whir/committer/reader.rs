@@ -3,7 +3,7 @@ use core::{fmt::Debug, ops::Deref};
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field, PackedValue, TwoAdicField};
-use p3_multilinear_util::multilinear::MultilinearPoint;
+use p3_multilinear_util::multilinear::Point;
 
 use crate::{constraints::statement::EqStatement, parameters::WhirConfig, whir::proof::WhirProof};
 
@@ -104,7 +104,7 @@ where
         let mut ood_statement = EqStatement::initialize(num_variables);
         (0..ood_samples).for_each(|i| {
             let point = challenger.sample_algebra_element();
-            let point = MultilinearPoint::expand_from_univariate(point, num_variables);
+            let point = Point::expand_from_univariate(point, num_variables);
             let eval = ood_answers[i];
             challenger.observe_algebra_element(eval);
             ood_statement.add_evaluated_constraint(point, eval);
@@ -192,7 +192,7 @@ mod tests {
     use p3_dft::Radix2DFTSmallBatch;
     use p3_field::{Field, extension::BinomialExtensionField};
     use p3_merkle_tree::MerkleTreeMmcs;
-    use p3_multilinear_util::evals::EvaluationsList;
+    use p3_multilinear_util::evals::Poly;
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
@@ -266,7 +266,7 @@ mod tests {
         let (params, mut rng, mut proof) = make_test_params(5, 3);
 
         // Create a random degree-5 multilinear polynomial (32 coefficients).
-        let polynomial = EvaluationsList::new((0..32).map(|_| rng.random()).collect());
+        let polynomial = Poly::new((0..32).map(|_| rng.random()).collect());
 
         // Instantiate the committer using the test config.
         let committer = CommitmentWriter::new(&params);
@@ -311,7 +311,7 @@ mod tests {
         let (params, mut rng, mut proof) = make_test_params(4, 0);
 
         // Generate a polynomial with 16 random coefficients.
-        let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
+        let polynomial = Poly::new((0..16).map(|_| rng.random()).collect());
 
         // Set up the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);
@@ -354,7 +354,7 @@ mod tests {
         let (params, mut rng, mut proof) = make_test_params(10, 5);
 
         // Generate a large polynomial with 1024 random coefficients.
-        let polynomial = EvaluationsList::new((0..1024).map(|_| rng.random()).collect());
+        let polynomial = Poly::new((0..1024).map(|_| rng.random()).collect());
 
         // Initialize the committer and DFT engine.
         let committer = CommitmentWriter::new(&params);
@@ -395,7 +395,7 @@ mod tests {
         let (params, mut rng, mut proof) = make_test_params(4, 2);
 
         // Generate a multilinear polynomial with 16 coefficients.
-        let polynomial = EvaluationsList::new((0..16).map(|_| rng.random()).collect());
+        let polynomial = Poly::new((0..16).map(|_| rng.random()).collect());
 
         // Instantiate a committer and DFT backend.
         let committer = CommitmentWriter::new(&params);

@@ -14,7 +14,7 @@ mod test {
     use p3_dft::Radix2DFTSmallBatch;
     use p3_field::{Field, extension::BinomialExtensionField};
     use p3_merkle_tree::MerkleTreeMmcs;
-    use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
+    use p3_multilinear_util::{evals::Poly, multilinear::Point};
     use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
@@ -84,13 +84,13 @@ mod test {
             WhirConfig::<EF, F, MyMmcs, MyChallenger>::new(num_variables, whir_params.clone());
 
         // Define test polynomial with random evaluations
-        let polynomial = EvaluationsList::new((0..num_evaluations).map(|_| rng.random()).collect());
+        let polynomial = Poly::new((0..num_evaluations).map(|_| rng.random()).collect());
         // New initial statement
         let mut statement = params.initial_statement(polynomial, sumcheck_strategy);
 
         // And equality constraints: polynomial(point) = expected_value for each point
         for _ in 0..num_points {
-            let point = MultilinearPoint::expand_from_univariate(rng.random(), num_variables);
+            let point = Point::expand_from_univariate(rng.random(), num_variables);
             let _ = statement.evaluate(&point);
         }
         // Normalize to classic eq statement for verifier
@@ -296,14 +296,13 @@ mod test {
 
             // Create random polynomial
             let mut rng = SmallRng::seed_from_u64(1);
-            let polynomial =
-                EvaluationsList::new((0..num_evaluations).map(|_| rng.random()).collect());
+            let polynomial = Poly::new((0..num_evaluations).map(|_| rng.random()).collect());
 
             // New initial statement
             let mut statement = params.initial_statement(polynomial, sumcheck_strategy);
             // And equality constraints: polynomial(point) = expected_value for each point
             for _ in 0..num_points {
-                let point = MultilinearPoint::expand_from_univariate(rng.random(), num_variables);
+                let point = Point::expand_from_univariate(rng.random(), num_variables);
                 let _ = statement.evaluate(&point);
             }
             // Normalize to classic eq statement for verifier

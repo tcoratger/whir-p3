@@ -1,7 +1,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use p3_baby_bear::BabyBear;
 use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
-use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use p3_multilinear_util::{evals::Poly, multilinear::Point};
 use rand::{
     RngExt, SeedableRng,
     distr::{Distribution, StandardUniform},
@@ -12,7 +12,7 @@ type F = BabyBear;
 type EF = BinomialExtensionField<F, 4>;
 
 // Generate random evaluation data and a random point.
-fn setup<F, EF>(n_vars: usize) -> (EvaluationsList<F>, MultilinearPoint<EF>)
+fn setup<F, EF>(n_vars: usize) -> (Poly<F>, Point<EF>)
 where
     F: Field,
     EF: ExtensionField<F>,
@@ -20,9 +20,9 @@ where
 {
     let mut rng = SmallRng::seed_from_u64(1);
     let evals: Vec<F> = (0..1 << n_vars).map(|_| rng.random()).collect();
-    let evals = EvaluationsList::new(evals);
+    let evals = Poly::new(evals);
     let point_vec: Vec<EF> = (0..n_vars).map(|_| rng.random()).collect();
-    let point = MultilinearPoint::new(point_vec);
+    let point = Point::new(point_vec);
     (evals, point)
 }
 
@@ -37,10 +37,8 @@ fn bench_eval_multilinear_base(c: &mut Criterion) {
 
         let bench_id = BenchmarkId::new("packed-split", num_vars);
         group.bench_with_input(bench_id, &num_vars, |b, &n_vars| {
-            let routine = |(evals, point): (EvaluationsList<F>, MultilinearPoint<EF>)| {
-                let _ = std::hint::black_box(
-                    evals.evaluate_hypercube_base(std::hint::black_box(&point)),
-                );
+            let routine = |(evals, point): (Poly<F>, Point<EF>)| {
+                let _ = std::hint::black_box(evals.eval_base(std::hint::black_box(&point)));
             };
             b.iter_batched(
                 || setup::<F, EF>(n_vars),
@@ -63,10 +61,8 @@ fn bench_eval_multilinear_ext(c: &mut Criterion) {
 
         let bench_id = BenchmarkId::new("packed-split", num_vars);
         group.bench_with_input(bench_id, &num_vars, |b, &n_vars| {
-            let routine = |(evals, point): (EvaluationsList<EF>, MultilinearPoint<EF>)| {
-                let _ = std::hint::black_box(
-                    evals.evaluate_hypercube_ext::<F>(std::hint::black_box(&point)),
-                );
+            let routine = |(evals, point): (Poly<EF>, Point<EF>)| {
+                let _ = std::hint::black_box(evals.eval_ext::<F>(std::hint::black_box(&point)));
             };
             b.iter_batched(
                 || setup::<EF, EF>(n_vars),

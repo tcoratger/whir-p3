@@ -6,7 +6,7 @@ use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::{BatchOpeningRef, ExtensionMmcs, Mmcs};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::Dimensions;
-use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use p3_multilinear_util::{evals::Poly, multilinear::Point};
 use tracing::instrument;
 
 use super::{committer::reader::ParsedCommitment, utils::get_challenge_stir_queries};
@@ -56,7 +56,7 @@ where
         challenger: &mut Challenger,
         parsed_commitment: &ParsedCommitment<EF, MT::Commitment>,
         mut statement: EqStatement<EF>,
-    ) -> Result<MultilinearPoint<EF>, VerifierError>
+    ) -> Result<Point<EF>, VerifierError>
     where
         Challenger: CanObserve<MT::Commitment>,
     {
@@ -167,7 +167,7 @@ where
         round_folding_randomness.push(final_sumcheck_randomness.clone());
 
         // Compute folding randomness across all rounds.
-        let folding_randomness = MultilinearPoint::new(
+        let folding_randomness = Point::new(
             round_folding_randomness
                 .into_iter()
                 .flat_map(IntoIterator::into_iter)
@@ -180,7 +180,7 @@ where
             .eval_constraints_poly(&constraints, &point_for_eval);
 
         // Check the final sumcheck evaluation
-        let final_value = final_evaluations.evaluate_hypercube_ext::<F>(&final_sumcheck_randomness);
+        let final_value = final_evaluations.eval_ext::<F>(&final_sumcheck_randomness);
         if claimed_eval != evaluation_of_weights * final_value {
             return Err(VerifierError::SumcheckFailed {
                 round: self.final_sumcheck_rounds,
@@ -223,7 +223,7 @@ where
         challenger: &mut Challenger,
         params: &RoundConfig<F>,
         commitment: &ParsedCommitment<EF, MT::Commitment>,
-        folding_randomness: &MultilinearPoint<EF>,
+        folding_randomness: &Point<EF>,
         round_index: usize,
     ) -> Result<SelectStatement<F, EF>, VerifierError> {
         // CRITICAL: Verify the prover's proof-of-work before generating challenges.
@@ -279,9 +279,7 @@ where
         // Compute STIR Constraints
         let folds: Vec<_> = answers
             .into_iter()
-            .map(|answer| {
-                EvaluationsList::new(answer).evaluate_hypercube_ext::<F>(folding_randomness)
-            })
+            .map(|answer| Poly::new(answer).eval_ext::<F>(folding_randomness))
             .collect();
 
         let stir_constraints = stir_challenges_indexes

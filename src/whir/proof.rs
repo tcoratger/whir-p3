@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use p3_commit::Mmcs;
-use p3_multilinear_util::evals::EvaluationsList;
+use p3_multilinear_util::evals::Poly;
 use serde::{Deserialize, Serialize};
 
 use crate::parameters::ProtocolParameters;
@@ -28,7 +28,7 @@ pub struct WhirProof<F: Send + Sync + Clone, EF, MT: Mmcs<F>> {
     pub rounds: Vec<WhirRoundProof<F, EF, MT>>,
 
     /// Final polynomial evaluations
-    pub final_poly: Option<EvaluationsList<EF>>,
+    pub final_poly: Option<Poly<EF>>,
 
     /// Final round PoW witness
     pub final_pow_witness: F,

@@ -1,18 +1,18 @@
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
-use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use p3_multilinear_util::{evals::Poly, multilinear::Point};
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
 type F = KoalaBear;
 type EF4 = BinomialExtensionField<F, 4>;
 
-fn generate_test_case(num_variables: usize) -> (EvaluationsList<F>, MultilinearPoint<EF4>) {
+fn generate_test_case(num_variables: usize) -> (Poly<F>, Point<EF4>) {
     let mut rng = SmallRng::seed_from_u64(1);
     let num_coeffs = 1 << num_variables;
     let coeffs = (0..num_coeffs).map(|_| rng.random()).collect();
-    let point = MultilinearPoint::new((0..num_variables).map(|_| rng.random()).collect());
-    (EvaluationsList::new(coeffs), point)
+    let point = Point::new((0..num_variables).map(|_| rng.random()).collect());
+    (Poly::new(coeffs), point)
 }
 
 fn benchmark_evaluate(c: &mut Criterion) {
@@ -28,7 +28,7 @@ fn benchmark_evaluate(c: &mut Criterion) {
                 b.iter_batched(
                     || (poly.clone(), point.clone()),
                     |(poly, point)| {
-                        let _ = poly.evaluate_hypercube_base(&point);
+                        let _ = poly.eval_base(&point);
                     },
                     BatchSize::SmallInput,
                 );
