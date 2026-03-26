@@ -4,15 +4,18 @@ use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::{ExtensionField, Field, TwoAdicField};
-use p3_matrix::{Matrix, dense::RowMajorMatrixView};
-use p3_multilinear_util::multilinear::MultilinearPoint;
+use p3_matrix::{
+    Matrix,
+    dense::{DenseMatrix, RowMajorMatrixView},
+};
+use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use tracing::{info_span, instrument};
 
 use crate::{
-    constraints::statement::initial::InitialStatement,
+    constraints::statement::{EqStatement, initial::InitialStatement},
     fiat_shamir::errors::FiatShamirError,
     parameters::WhirConfig,
-    whir::{committer::DenseMatrix, proof::WhirProof},
+    whir::proof::{BatchWhirProof, WhirProof},
 };
 
 /// Responsible for committing polynomials using a Merkle-based scheme.
@@ -117,6 +120,133 @@ where
 
     fn deref(&self) -> &Self::Target {
         self.0
+    }
+}
+
+/// Batch commitment writer for committing two polynomials into separate Merkle trees
+/// and sampling shared OOD points.
+#[derive(Debug)]
+pub struct BatchCommitmentWriter<'a, EF, F, MT: Mmcs<F>, Challenger>(
+    &'a WhirConfig<EF, F, MT, Challenger>,
+)
+where
+    F: Field,
+    EF: ExtensionField<F>;
+
+/// Result of batch commitment: prover data and OOD statements for both polynomials.
+#[derive(Debug)]
+pub struct BatchCommitmentData<EF, F: Send + Sync + Clone, MT: Mmcs<F>> {
+    pub prover_data_a: MT::ProverData<DenseMatrix<F>>,
+    pub prover_data_b: MT::ProverData<DenseMatrix<F>>,
+    pub ood_statement_a: EqStatement<EF>,
+    pub ood_statement_b: EqStatement<EF>,
+}
+
+impl<'a, EF, F, MT, Challenger> BatchCommitmentWriter<'a, EF, F, MT, Challenger>
+where
+    F: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    MT: Mmcs<F>,
+{
+    pub const fn new(params: &'a WhirConfig<EF, F, MT, Challenger>) -> Self {
+        Self(params)
+    }
+
+    /// Commits two polynomials into separate Merkle trees and samples shared OOD points.
+    ///
+    /// Both roots are observed into the transcript before OOD sampling, ensuring
+    /// the verifier can replay the same transcript.
+    #[instrument(skip_all)]
+    pub fn commit<Dft>(
+        &self,
+        dft: &Dft,
+        proof: &mut BatchWhirProof<F, EF, MT>,
+        challenger: &mut Challenger,
+        poly_a: &EvaluationsList<F>,
+        poly_b: &EvaluationsList<F>,
+    ) -> BatchCommitmentData<EF, F, MT>
+    where
+        Dft: TwoAdicSubgroupDft<F>,
+        Challenger: CanObserve<MT::Commitment>,
+    {
+        let num_variables = poly_a.num_variables();
+        assert_eq!(num_variables, poly_b.num_variables());
+
+        let (root_a, prover_data_a) = self.commit_single(dft, poly_a, challenger);
+        let (root_b, prover_data_b) = self.commit_single(dft, poly_b, challenger);
+
+        proof.commitment_a = Some(root_a);
+        proof.commitment_b = Some(root_b);
+
+        let (ood_statement_a, ood_statement_b) =
+            self.sample_batch_ood(challenger, proof, poly_a, poly_b, num_variables);
+
+        BatchCommitmentData {
+            prover_data_a,
+            prover_data_b,
+            ood_statement_a,
+            ood_statement_b,
+        }
+    }
+
+    /// Commit a single polynomial: RS-encode, build Merkle tree, observe root.
+    fn commit_single<Dft>(
+        &self,
+        dft: &Dft,
+        poly: &EvaluationsList<F>,
+        challenger: &mut Challenger,
+    ) -> (MT::Commitment, MT::ProverData<DenseMatrix<F>>)
+    where
+        Dft: TwoAdicSubgroupDft<F>,
+        Challenger: CanObserve<MT::Commitment>,
+    {
+        let num_vars = poly.num_variables();
+        let mut mat = RowMajorMatrixView::new(
+            poly.as_slice(),
+            1 << (num_vars - self.0.folding_factor.at_round(0)),
+        )
+        .transpose();
+        mat.pad_to_height(
+            1 << (num_vars + self.0.starting_log_inv_rate - self.0.folding_factor.at_round(0)),
+            F::ZERO,
+        );
+
+        let folded_matrix = dft.dft_batch(mat).to_row_major_matrix();
+        let (root, prover_data) = self.0.mmcs.commit_matrix(folded_matrix);
+        challenger.observe(root.clone());
+        (root, prover_data)
+    }
+
+    /// Sample OOD points for both polynomials after both commitments are observed.
+    fn sample_batch_ood(
+        &self,
+        challenger: &mut Challenger,
+        proof: &mut BatchWhirProof<F, EF, MT>,
+        poly_a: &EvaluationsList<F>,
+        poly_b: &EvaluationsList<F>,
+        num_variables: usize,
+    ) -> (EqStatement<EF>, EqStatement<EF>) {
+        let mut ood_a = EqStatement::initialize(num_variables);
+        let mut ood_b = EqStatement::initialize(num_variables);
+
+        for _ in 0..self.0.commitment_ood_samples {
+            let point = MultilinearPoint::expand_from_univariate(
+                challenger.sample_algebra_element(),
+                num_variables,
+            );
+            let eval_a = poly_a.evaluate_hypercube_base(&point);
+            let eval_b = poly_b.evaluate_hypercube_base(&point);
+            challenger.observe_algebra_element(eval_a);
+            challenger.observe_algebra_element(eval_b);
+
+            proof.initial_ood_answers[0].push(eval_a);
+            proof.initial_ood_answers[1].push(eval_b);
+            ood_a.add_evaluated_constraint(point.clone(), eval_a);
+            ood_b.add_evaluated_constraint(point, eval_b);
+        }
+
+        (ood_a, ood_b)
     }
 }
 

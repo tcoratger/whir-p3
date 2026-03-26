@@ -19,7 +19,9 @@ use crate::{
     },
     parameters::{RoundConfig, WhirConfig},
     sumcheck::verify_final_sumcheck_rounds,
-    whir::proof::{QueryOpening, WhirProof},
+    whir::proof::{
+        BatchWhirProof, QueryOpening, WhirProof, fold_ood_constraints, single_constraint,
+    },
 };
 
 pub mod errors;
@@ -384,6 +386,14 @@ where
 
                     values.clone()
                 }
+                QueryOpening::Batch { .. } => {
+                    // Batch verification is not yet implemented.
+                    // The batch verifier will need separate root references for each tree.
+                    return Err(VerifierError::MerkleProofInvalid {
+                        position: index,
+                        reason: "Batch query verification not yet implemented".to_string(),
+                    });
+                }
             };
 
             results.push(values_ef);
@@ -402,5 +412,363 @@ where
 
     fn deref(&self) -> &Self::Target {
         self.0
+    }
+}
+
+impl<EF, F, MT, Challenger> Verifier<'_, EF, F, MT, Challenger>
+where
+    F: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    MT: Mmcs<F>,
+{
+    /// Verifies a batch opening proof for two polynomials.
+    ///
+    /// Mirrors `Prover::batch_prove`:
+    /// 1. Replays the selector sumcheck to recover `r_0`.
+    /// 2. Folds OOD constraints with `r_0`.
+    /// 3. Verifies the inner WHIR proof on the folded polynomial.
+    ///
+    /// Returns `(folding_randomness, r_0)` on success.
+    #[instrument(skip_all)]
+    #[allow(clippy::too_many_lines)]
+    pub fn batch_verify(
+        &self,
+        proof: &BatchWhirProof<F, EF, MT>,
+        challenger: &mut Challenger,
+        parsed_commitment_a: &ParsedCommitment<EF, MT::Commitment>,
+        parsed_commitment_b: &ParsedCommitment<EF, MT::Commitment>,
+        statement_a: &EqStatement<EF>,
+        statement_b: &EqStatement<EF>,
+    ) -> Result<(MultilinearPoint<EF>, EF), VerifierError>
+    where
+        Challenger: CanObserve<MT::Commitment>,
+    {
+        let (z_a, v_a) = single_constraint(statement_a);
+        let (z_b, v_b) = single_constraint(statement_b);
+
+        // Sample batching randomness α (same as prover)
+        let alpha: EF = challenger.sample_algebra_element();
+
+        // Selector sumcheck: claimed sum σ = v_a + α·v_b
+        let mut claimed_eval = v_a + alpha * v_b;
+
+        let selector_randomness = proof.selector_sumcheck.verify_rounds(
+            challenger,
+            &mut claimed_eval,
+            self.starting_folding_pow_bits,
+        )?;
+        debug_assert_eq!(selector_randomness.num_variables(), 1);
+        let r_0 = selector_randomness.as_slice()[0];
+
+        // Fold OOD constraints with r_0
+        let folded_ood = fold_ood_constraints(
+            &parsed_commitment_a.ood_statement,
+            &parsed_commitment_b.ood_statement,
+            r_0,
+        );
+
+        let mut constraints = Vec::new();
+        let mut round_folding_randomness = Vec::new();
+
+        let ood_constraint =
+            Constraint::new_eq_only(challenger.sample_algebra_element(), folded_ood);
+        ood_constraint.combine_evals(&mut claimed_eval);
+        constraints.push(ood_constraint);
+
+        let folding_randomness = proof.inner_proof.initial_sumcheck.verify_rounds(
+            challenger,
+            &mut claimed_eval,
+            self.starting_folding_pow_bits,
+        )?;
+        round_folding_randomness.push(folding_randomness);
+
+        // WHIR rounds
+        let mut prev_commitment: Option<ParsedCommitment<EF, MT::Commitment>> = None;
+
+        for round_index in 0..self.n_rounds() {
+            let round_params = &self.round_parameters[round_index];
+
+            let new_commitment = ParsedCommitment::<_, MT::Commitment>::parse_with_round(
+                &proof.inner_proof,
+                challenger,
+                round_params.num_variables,
+                round_params.ood_samples,
+                Some(round_index),
+            );
+
+            let stir_statement = if round_index == 0 {
+                self.verify_batch_stir_challenges(
+                    &proof.inner_proof,
+                    challenger,
+                    round_params,
+                    &parsed_commitment_a.root,
+                    &parsed_commitment_b.root,
+                    r_0,
+                    round_folding_randomness.last().unwrap(),
+                    round_index,
+                )?
+            } else {
+                self.verify_stir_challenges(
+                    &proof.inner_proof,
+                    challenger,
+                    round_params,
+                    prev_commitment.as_ref().unwrap(),
+                    round_folding_randomness.last().unwrap(),
+                    round_index,
+                )?
+            };
+
+            let constraint = Constraint::new(
+                challenger.sample_algebra_element(),
+                new_commitment.ood_statement.clone(),
+                stir_statement,
+            );
+            constraint.combine_evals(&mut claimed_eval);
+            constraints.push(constraint);
+
+            let folding_randomness = proof.inner_proof.rounds[round_index]
+                .sumcheck
+                .verify_rounds(challenger, &mut claimed_eval, round_params.folding_pow_bits)?;
+            round_folding_randomness.push(folding_randomness);
+
+            prev_commitment = Some(new_commitment);
+        }
+
+        // Final round
+        let Some(final_evaluations) = proof.inner_proof.final_poly.clone() else {
+            panic!("Expected final polynomial");
+        };
+        challenger.observe_algebra_slice(final_evaluations.as_slice());
+
+        let stir_statement = if self.n_rounds() == 0 {
+            self.verify_batch_stir_challenges(
+                &proof.inner_proof,
+                challenger,
+                &self.final_round_config(),
+                &parsed_commitment_a.root,
+                &parsed_commitment_b.root,
+                r_0,
+                round_folding_randomness.last().unwrap(),
+                self.n_rounds(),
+            )?
+        } else {
+            self.verify_stir_challenges(
+                &proof.inner_proof,
+                challenger,
+                &self.final_round_config(),
+                prev_commitment.as_ref().unwrap(),
+                round_folding_randomness.last().unwrap(),
+                self.n_rounds(),
+            )?
+        };
+
+        stir_statement
+            .verify(&final_evaluations)
+            .then_some(())
+            .ok_or_else(|| VerifierError::StirChallengeFailed {
+                challenge_id: 0,
+                details: "STIR constraint verification failed on final polynomial".to_string(),
+            })?;
+
+        let final_sumcheck_randomness = verify_final_sumcheck_rounds(
+            proof.inner_proof.final_sumcheck.as_ref(),
+            challenger,
+            &mut claimed_eval,
+            self.final_sumcheck_rounds,
+            self.final_folding_pow_bits,
+        )?;
+
+        round_folding_randomness.push(final_sumcheck_randomness.clone());
+
+        let folding_randomness = MultilinearPoint::new(
+            round_folding_randomness
+                .into_iter()
+                .flat_map(IntoIterator::into_iter)
+                .collect(),
+        );
+
+        let point_for_eval = folding_randomness.reversed();
+
+        let evaluation_of_constraint_weights = ConstraintPolyEvaluator::new(self.folding_factor)
+            .eval_constraints_poly(&constraints, &point_for_eval);
+
+        // The selector weight w'(x) = r_0·eq(x,z_a) + α·(1-r_0)·eq(x,z_b) is baked into
+        // the sumcheck prover's product polynomial but not captured as a Constraint.
+        // Evaluate it at the folding point and add to the constraint weights.
+        let selector_point = point_for_eval
+            .get_subpoint_over_range(0..self.num_variables)
+            .reversed();
+        let w_prime_eval = r_0 * z_a.eq_poly(&selector_point)
+            + alpha * (EF::ONE - r_0) * z_b.eq_poly(&selector_point);
+        let evaluation_of_weights = evaluation_of_constraint_weights + w_prime_eval;
+
+        let final_value = final_evaluations.evaluate_hypercube_ext::<F>(&final_sumcheck_randomness);
+        if claimed_eval != evaluation_of_weights * final_value {
+            return Err(VerifierError::SumcheckFailed {
+                round: self.final_sumcheck_rounds,
+                expected: (evaluation_of_weights * final_value).to_string(),
+                actual: claimed_eval.to_string(),
+            });
+        }
+
+        Ok((folding_randomness, r_0))
+    }
+
+    /// Verify STIR in-domain queries for batch opening.
+    ///
+    /// Opens and verifies Merkle proofs against two separate commitment trees
+    /// (f_a and f_b), then folds the opened values using `r_0`.
+    #[allow(clippy::too_many_arguments)]
+    fn verify_batch_stir_challenges(
+        &self,
+        proof: &WhirProof<F, EF, MT>,
+        challenger: &mut Challenger,
+        params: &RoundConfig<F>,
+        root_a: &MT::Commitment,
+        root_b: &MT::Commitment,
+        r_0: EF,
+        folding_randomness: &MultilinearPoint<EF>,
+        round_index: usize,
+    ) -> Result<SelectStatement<F, EF>, VerifierError> {
+        let pow_witness = if round_index < self.n_rounds() {
+            proof
+                .get_pow_after_commitment(round_index)
+                .ok_or(VerifierError::InvalidRoundIndex { index: round_index })?
+        } else {
+            proof.final_pow_witness
+        };
+        if params.pow_bits > 0 && !challenger.check_witness(params.pow_bits, pow_witness) {
+            return Err(VerifierError::InvalidPowWitness);
+        }
+
+        if round_index < self.n_rounds() {
+            challenger.sample();
+        }
+
+        let stir_challenges_indexes = get_challenge_stir_queries::<Challenger, F, EF>(
+            params.domain_size,
+            params.folding_factor,
+            params.num_queries,
+            challenger,
+        )?;
+
+        let dimensions = vec![Dimensions {
+            height: params.domain_size >> params.folding_factor,
+            width: 1 << params.folding_factor,
+        }];
+
+        let queries = if round_index == self.n_rounds() {
+            &proof.final_queries
+        } else {
+            &proof
+                .rounds
+                .get(round_index)
+                .ok_or_else(|| VerifierError::MerkleProofInvalid {
+                    position: 0,
+                    reason: format!("Round {round_index} not found in proof"),
+                })?
+                .queries
+        };
+
+        let answers = self.verify_batch_merkle_proof(
+            root_a,
+            root_b,
+            r_0,
+            &stir_challenges_indexes,
+            &dimensions,
+            queries,
+        )?;
+
+        let folds: Vec<_> = answers
+            .into_iter()
+            .map(|answer| {
+                EvaluationsList::new(answer).evaluate_hypercube_ext::<F>(folding_randomness)
+            })
+            .collect();
+
+        let stir_constraints = stir_challenges_indexes
+            .iter()
+            .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
+            .collect();
+
+        Ok(SelectStatement::new(
+            params.num_variables,
+            stir_constraints,
+            folds,
+        ))
+    }
+
+    /// Verify batch Merkle proofs for `QueryOpening::Batch` queries.
+    ///
+    /// For each query, verifies both trees' Merkle proofs and folds the opened
+    /// values: `g(b) = r_0·f_a(b) + (1-r_0)·f_b(b)`.
+    fn verify_batch_merkle_proof(
+        &self,
+        root_a: &MT::Commitment,
+        root_b: &MT::Commitment,
+        r_0: EF,
+        indices: &[usize],
+        dimensions: &[Dimensions],
+        queries: &[QueryOpening<F, EF, MT::Proof>],
+    ) -> Result<Vec<Vec<EF>>, VerifierError> {
+        let one_minus_r0 = EF::ONE - r_0;
+        let mut results = Vec::with_capacity(indices.len());
+
+        for (&index, query) in indices.iter().zip(queries.iter()) {
+            match query {
+                QueryOpening::Batch {
+                    values_a,
+                    proof_a,
+                    values_b,
+                    proof_b,
+                } => {
+                    self.mmcs
+                        .verify_batch(
+                            root_a,
+                            dimensions,
+                            index,
+                            BatchOpeningRef {
+                                opened_values: from_ref(values_a),
+                                opening_proof: proof_a,
+                            },
+                        )
+                        .map_err(|_| VerifierError::MerkleProofInvalid {
+                            position: index,
+                            reason: "Batch: tree A Merkle proof verification failed".to_string(),
+                        })?;
+
+                    self.mmcs
+                        .verify_batch(
+                            root_b,
+                            dimensions,
+                            index,
+                            BatchOpeningRef {
+                                opened_values: from_ref(values_b),
+                                opening_proof: proof_b,
+                            },
+                        )
+                        .map_err(|_| VerifierError::MerkleProofInvalid {
+                            position: index,
+                            reason: "Batch: tree B Merkle proof verification failed".to_string(),
+                        })?;
+
+                    let folded: Vec<EF> = values_a
+                        .iter()
+                        .zip(values_b.iter())
+                        .map(|(&a, &b)| r_0 * EF::from(a) + one_minus_r0 * EF::from(b))
+                        .collect();
+                    results.push(folded);
+                }
+                _ => {
+                    return Err(VerifierError::MerkleProofInvalid {
+                        position: index,
+                        reason: "Expected Batch query opening in batch mode".to_string(),
+                    });
+                }
+            }
+        }
+
+        Ok(results)
     }
 }

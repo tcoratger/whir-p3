@@ -1,11 +1,13 @@
 use alloc::vec::Vec;
+use core::fmt;
 
 use p3_commit::Mmcs;
-use p3_multilinear_util::evals::EvaluationsList;
+use p3_field::Field;
+use p3_multilinear_util::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use serde::{Deserialize, Serialize};
 
-use crate::parameters::ProtocolParameters;
 pub use crate::sumcheck::SumcheckData;
+use crate::{constraints::statement::EqStatement, parameters::ProtocolParameters};
 
 /// Complete WHIR proof
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -118,6 +120,88 @@ pub enum QueryOpening<F, EF, Proof> {
         /// Merkle authentication path
         proof: Proof,
     },
+    /// Batch opening: opens both polynomial trees at the same query index
+    #[serde(rename = "batch")]
+    Batch {
+        /// Merkle leaf values from first tree (f_a)
+        values_a: Vec<F>,
+        /// Merkle authentication path for first tree
+        proof_a: Proof,
+        /// Merkle leaf values from second tree (f_b)
+        values_b: Vec<F>,
+        /// Merkle authentication path for second tree
+        proof_b: Proof,
+    },
+}
+
+/// Batch opening proof for two polynomials.
+///
+/// Wraps batch-specific data (selector sumcheck, OOD answers for both polynomials)
+/// alongside the inner WHIR proof that operates on the folded polynomial.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(bound(
+    serialize = "F: Serialize, EF: Serialize, MT::Commitment: Serialize, MT::Proof: Serialize",
+    deserialize = "F: Deserialize<'de>, EF: Deserialize<'de>, MT::Commitment: Deserialize<'de>, MT::Proof: Deserialize<'de>"
+))]
+pub struct BatchWhirProof<F: Send + Sync + Clone, EF, MT: Mmcs<F>> {
+    /// Commitment to first polynomial (f_a) — Merkle root
+    pub commitment_a: Option<MT::Commitment>,
+
+    /// Commitment to second polynomial (f_b) — Merkle root
+    pub commitment_b: Option<MT::Commitment>,
+
+    /// OOD answers for both polynomials: [ood_a, ood_b]
+    pub initial_ood_answers: [Vec<EF>; 2],
+
+    /// Selector sumcheck data: stores [c0, c2] for h(X)
+    pub selector_sumcheck: SumcheckData<F, EF>,
+
+    /// Inner WHIR proof on the folded polynomial g = r_0·f_a + (1-r_0)·f_b
+    pub inner_proof: WhirProof<F, EF, MT>,
+}
+
+impl<F: Send + Sync + Clone, EF, MT: Mmcs<F>> fmt::Debug for BatchWhirProof<F, EF, MT> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BatchWhirProof").finish_non_exhaustive()
+    }
+}
+
+/// Extracts a single evaluation constraint (point, value) from an EqStatement.
+///
+/// Panics if the statement does not contain exactly one constraint.
+pub(crate) fn single_constraint<EF: Field>(
+    statement: &EqStatement<EF>,
+) -> (MultilinearPoint<EF>, EF) {
+    assert_eq!(
+        statement.len(),
+        1,
+        "Batch opening expects exactly one evaluation claim per polynomial"
+    );
+    let (point, &value) = statement.iter().next().unwrap();
+    (point.clone(), value)
+}
+
+/// Folds OOD constraints from two polynomials using the selector challenge.
+///
+/// Both polynomials must have been evaluated at the same OOD challenge points.
+/// The folded value is: `r_0 * ood_a + (1 - r_0) * ood_b`.
+pub(crate) fn fold_ood_constraints<EF: Field>(
+    ood_a: &EqStatement<EF>,
+    ood_b: &EqStatement<EF>,
+    r_0: EF,
+) -> EqStatement<EF> {
+    assert_eq!(ood_a.len(), ood_b.len());
+    let num_variables = ood_a.num_variables();
+    let mut folded = EqStatement::initialize(num_variables);
+
+    let one_minus_r0 = EF::ONE - r_0;
+    for ((point_a, &v_a), (point_b, &v_b)) in ood_a.iter().zip(ood_b.iter()) {
+        debug_assert_eq!(point_a, point_b, "OOD points must match");
+        let folded_value = r_0 * v_a + one_minus_r0 * v_b;
+        folded.add_evaluated_constraint(point_a.clone(), folded_value);
+    }
+
+    folded
 }
 
 impl<F: Default + Send + Sync + Clone, EF: Default, MT: Mmcs<F>> WhirProof<F, EF, MT> {
@@ -432,7 +516,9 @@ mod tests {
                 assert_eq!(v[1], base_val_1);
                 assert_eq!(p.len(), 1);
             }
-            QueryOpening::Extension { .. } => panic!("Expected Base variant"),
+            QueryOpening::Extension { .. } | QueryOpening::Batch { .. } => {
+                panic!("Expected Base variant")
+            }
         }
 
         // Test Extension variant
@@ -461,7 +547,9 @@ mod tests {
                 assert_eq!(v[1], ext_val_1);
                 assert_eq!(p.len(), 1);
             }
-            QueryOpening::Base { .. } => panic!("Expected Extension variant"),
+            QueryOpening::Base { .. } | QueryOpening::Batch { .. } => {
+                panic!("Expected Extension variant")
+            }
         }
     }
 
@@ -548,5 +636,33 @@ mod tests {
 
         // Try to set sumcheck data at index 0 with no rounds - should panic
         proof.set_sumcheck_data_at(SumcheckData::default(), 0);
+    }
+
+    #[test]
+    fn test_fold_ood_constraints() {
+        let num_variables = 4;
+        let r_0 = EF::from_u64(7);
+
+        let point = MultilinearPoint::new(vec![
+            EF::from_u64(1),
+            EF::from_u64(2),
+            EF::from_u64(3),
+            EF::from_u64(4),
+        ]);
+
+        let v_a = EF::from_u64(10);
+        let v_b = EF::from_u64(20);
+
+        let mut ood_a = EqStatement::initialize(num_variables);
+        ood_a.add_evaluated_constraint(point.clone(), v_a);
+        let mut ood_b = EqStatement::initialize(num_variables);
+        ood_b.add_evaluated_constraint(point, v_b);
+
+        let folded = fold_ood_constraints(&ood_a, &ood_b, r_0);
+
+        assert_eq!(folded.len(), 1);
+        let (_, &folded_val) = folded.iter().next().unwrap();
+        let expected = r_0 * v_a + (EF::ONE - r_0) * v_b;
+        assert_eq!(folded_val, expected);
     }
 }
