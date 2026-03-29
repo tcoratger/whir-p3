@@ -56,8 +56,8 @@ fn generate_poly(num_vars: usize) -> EvaluationsList<F> {
     EvaluationsList::new(evals)
 }
 
-/// Main benchmark function to test the classic sumcheck prover.
-fn bench_sumcheck_prover_classic(c: &mut Criterion) {
+/// Main benchmark function to test the SVO sumcheck prover.
+fn bench_sumcheck_prover_svo(c: &mut Criterion) {
     let mut group = c.benchmark_group("SumcheckProver");
     // Use a smaller sample size for long-running benchmarks
     group.sample_size(10);
@@ -66,9 +66,6 @@ fn bench_sumcheck_prover_classic(c: &mut Criterion) {
     for num_vars in &[16, 18, 20, 22, 24] {
         // Generate a large polynomial to use for this set of benchmarks.
         let poly = generate_poly(*num_vars);
-
-        // Benchmark for the classic, round-by-round sumcheck
-        let classic_folding_schedule = [*num_vars / 2, num_vars - (*num_vars / 2)];
 
         // Create parameters with a dummy folding factor (we'll use manual schedule)
         let params = create_test_protocol_params(FoldingFactor::Constant(2));
@@ -80,12 +77,15 @@ fn bench_sumcheck_prover_classic(c: &mut Criterion) {
         let mut challenger = setup_challenger();
         domsep.observe_domain_separator(&mut challenger);
 
-        // Create constraint using challenger directly
-        let mut initial_statement = InitialStatement::new(
-            poly.clone(),
+        // SVO first phase must match the strategy initialization parameter.
+        let svo_folding_schedule = [
             params.folding_factor.at_round(0),
-            SumcheckStrategy::Classic,
-        );
+            num_vars - params.folding_factor.at_round(0),
+        ];
+
+        // Create constraint using challenger directly
+        let mut initial_statement =
+            InitialStatement::new(poly.clone(), svo_folding_schedule[0], SumcheckStrategy::Svo);
         for _ in 0..3 {
             let _ = initial_statement.evaluate(&MultilinearPoint::expand_from_univariate(
                 challenger.sample_algebra_element(),
@@ -94,11 +94,12 @@ fn bench_sumcheck_prover_classic(c: &mut Criterion) {
         }
 
         group.bench_with_input(
-            BenchmarkId::new("Classic", *num_vars),
+            BenchmarkId::new("Svo", *num_vars),
             &(initial_statement, challenger.clone()),
             |b, (initial_statement, challenger)| {
                 b.iter(|| {
                     let mut challenger = challenger.clone();
+
                     // Initialize proof
                     let mut proof =
                         WhirProof::<F, EF, F, 8>::from_protocol_parameters(&params, *num_vars);
@@ -107,18 +108,18 @@ fn bench_sumcheck_prover_classic(c: &mut Criterion) {
                     let (mut sumcheck_prover, _) = Sumcheck::from_base_evals(
                         &mut proof.initial_sumcheck,
                         &mut challenger,
-                        classic_folding_schedule[0],
+                        svo_folding_schedule[0],
                         0,
                         initial_statement,
                     );
 
                     // Second round - fold remaining variables
-                    if classic_folding_schedule.len() > 1 && classic_folding_schedule[1] > 0 {
+                    if svo_folding_schedule.len() > 1 && svo_folding_schedule[1] > 0 {
                         let mut sumcheck_data: SumcheckData<F, EF> = SumcheckData::default();
                         sumcheck_prover.compute_sumcheck_polynomials(
                             &mut sumcheck_data,
                             &mut challenger,
-                            classic_folding_schedule[1],
+                            svo_folding_schedule[1],
                             0,
                             None,
                         );
@@ -132,5 +133,5 @@ fn bench_sumcheck_prover_classic(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_sumcheck_prover_classic);
+criterion_group!(benches, bench_sumcheck_prover_svo);
 criterion_main!(benches);

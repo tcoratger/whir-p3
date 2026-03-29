@@ -132,9 +132,8 @@ where
         // This directly writes the equality portion of W(X) to `weights`.
         statement.combine_hypercube_packed::<F, false>(&mut weights, &mut sum, alpha);
 
-        let poly_packed = Poly::new(F::Packing::pack_slice(poly.as_slice()).to_vec());
         // Compute the constant (c₀) and quadratic (c₂) coefficients of h(X).
-        let (c0, c2) = poly_packed.sumcheck_coefficients(&weights);
+        let (c0, c2) = poly.sumcheck_coefficients_packed::<EF>(&weights);
         // Reduce packed results to scalar via horizontal sum.
         let c0 = EF::ExtensionPacking::to_ext_iter([c0]).sum();
         let c2 = EF::ExtensionPacking::to_ext_iter([c2]).sum();

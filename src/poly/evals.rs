@@ -445,6 +445,61 @@ where
             });
         EvaluationsList(out)
     }
+
+    /// Computes sumcheck coefficients directly from base-field evaluations and packed weights.
+    ///
+    /// This avoids materializing a packed copy of `self` just to compute `(h(0), h(2))`.
+    #[instrument(skip_all, level = "debug")]
+    pub fn sumcheck_coefficients_packed<EF>(
+        &self,
+        weights: &EvaluationsList<EF::ExtensionPacking>,
+    ) -> (EF::ExtensionPacking, EF::ExtensionPacking)
+    where
+        EF: ExtensionField<F>,
+        EF::ExtensionPacking: Copy + Send + Sync + Algebra<F::Packing>,
+    {
+        let evals = F::Packing::pack_slice(self.as_slice());
+        let weights = weights.as_slice();
+
+        // Validate inputs: need at least 2 elements (1 variable).
+        assert!(log2_strict_usize(evals.len()) >= 1);
+        assert_eq!(evals.len(), weights.len());
+
+        // Split arrays into lo (X=0) and hi (X=1) halves.
+        let mid = evals.len() / 2;
+        let (evals_lo, evals_hi) = evals.split_at(mid);
+        let (weights_lo, weights_hi) = weights.split_at(mid);
+
+        if evals.len() >= PARALLEL_THRESHOLD {
+            evals_lo
+                .par_iter()
+                .zip(evals_hi.par_iter())
+                .zip(weights_lo.par_iter().zip(weights_hi.par_iter()))
+                .map(|((&e_lo, &e_hi), (&w_lo, &w_hi))| {
+                    let c0_term = w_lo * e_lo;
+                    let c2_term = (w_hi.double() - w_lo) * (e_hi.double() - e_lo);
+                    (c0_term, c2_term)
+                })
+                .par_fold_reduce(
+                    || (Default::default(), Default::default()),
+                    |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
+                    |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
+                )
+        } else {
+            evals_lo
+                .iter()
+                .zip(evals_hi.iter())
+                .zip(weights_lo.iter().zip(weights_hi.iter()))
+                .fold(
+                    (Default::default(), Default::default()),
+                    |(a0, a2), ((&e_lo, &e_hi), (&w_lo, &w_hi))| {
+                        let c0_term = w_lo * e_lo;
+                        let c2_term = (w_hi.double() - w_lo) * (e_hi.double() - e_lo);
+                        (a0 + c0_term, a2 + c2_term)
+                    },
+                )
+        }
+    }
 }
 
 impl<A: Copy + Send + Sync + PrimeCharacteristicRing> EvaluationsList<A> {
@@ -506,23 +561,38 @@ impl<A: Copy + Send + Sync + PrimeCharacteristicRing> EvaluationsList<A> {
         let (evals_lo, evals_hi) = evals.split_at(mid);
         let (weights_lo, weights_hi) = weights.split_at(mid);
 
-        // Parallel computation of c_0 and c_2.
-        evals_lo
-            .par_iter()
-            .zip(evals_hi.par_iter())
-            .zip(weights_lo.par_iter().zip(weights_hi.par_iter()))
-            .map(|((&e_lo, &e_hi), (&w_lo, &w_hi))| {
-                // c_0 term: product at X=0.
-                let c0_term = w_lo * e_lo;
-                // c_2 term: cross-product of differences.
-                let c2_term = (w_hi.double() - w_lo) * (e_hi.double() - e_lo);
-                (c0_term, c2_term)
-            })
-            .par_fold_reduce(
-                || (B::ZERO, B::ZERO),
-                |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-                |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-            )
+        if evals.len() >= PARALLEL_THRESHOLD {
+            // Parallel computation of c_0 and c_2.
+            evals_lo
+                .par_iter()
+                .zip(evals_hi.par_iter())
+                .zip(weights_lo.par_iter().zip(weights_hi.par_iter()))
+                .map(|((&e_lo, &e_hi), (&w_lo, &w_hi))| {
+                    // c_0 term: product at X=0.
+                    let c0_term = w_lo * e_lo;
+                    // c_2 term: cross-product of differences.
+                    let c2_term = (w_hi.double() - w_lo) * (e_hi.double() - e_lo);
+                    (c0_term, c2_term)
+                })
+                .par_fold_reduce(
+                    || (B::ZERO, B::ZERO),
+                    |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
+                    |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
+                )
+        } else {
+            evals_lo
+                .iter()
+                .zip(evals_hi.iter())
+                .zip(weights_lo.iter().zip(weights_hi.iter()))
+                .fold(
+                    (B::ZERO, B::ZERO),
+                    |(a0, a2), ((&e_lo, &e_hi), (&w_lo, &w_hi))| {
+                        let c0_term = w_lo * e_lo;
+                        let c2_term = (w_hi.double() - w_lo) * (e_hi.double() - e_lo);
+                        (a0 + c0_term, a2 + c2_term)
+                    },
+                )
+        }
     }
 }
 
@@ -2420,6 +2490,35 @@ mod tests {
         // h(2) = (2*w1 - w0) * (2*e1 - e0)
         let expected_h2 = (w1.double() - w0) * (e1.double() - e0);
         assert_eq!(h2, expected_h2);
+    }
+
+    #[test]
+    fn test_sumcheck_coefficients_packed_matches_materialized_packed() {
+        let mut rng = SmallRng::seed_from_u64(1234);
+        let num_vars = log2_strict_usize(<F as Field>::Packing::WIDTH) + 2;
+        let num_evals = 1 << num_vars;
+        let pack_width = <F as Field>::Packing::WIDTH;
+
+        let evals: Vec<F> = (0..num_evals).map(|_| rng.random()).collect();
+        let weights: Vec<EF4> = (0..num_evals).map(|_| rng.random()).collect();
+
+        let evals_list = EvaluationsList::new(evals.clone());
+        let weights_packed = EvaluationsList::new(
+            weights
+                .chunks(pack_width)
+                .map(<EF4 as ExtensionField<F>>::ExtensionPacking::from_ext_slice)
+                .collect(),
+        );
+
+        // New path: avoid materializing packed evals.
+        let (c0_new, c2_new) = evals_list.sumcheck_coefficients_packed::<EF4>(&weights_packed);
+
+        // Previous path: materialize packed evals first, then call generic kernel.
+        let evals_packed = EvaluationsList::new(<F as Field>::Packing::pack_slice(&evals).to_vec());
+        let (c0_old, c2_old) = evals_packed.sumcheck_coefficients(&weights_packed);
+
+        assert_eq!(c0_new, c0_old);
+        assert_eq!(c2_new, c2_old);
     }
 
     #[test]

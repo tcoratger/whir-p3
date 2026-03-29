@@ -39,6 +39,14 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
+    if pow_bits > 0 && sumcheck.pow_witnesses.len() != sumcheck.polynomial_evaluations.len() {
+        return Err(VerifierError::SumcheckFailed {
+            round: 0,
+            expected: format!("{} PoW witnesses", sumcheck.polynomial_evaluations.len()),
+            actual: format!("{} PoW witnesses", sumcheck.pow_witnesses.len()),
+        });
+    }
+
     let mut randomness = Vec::with_capacity(sumcheck.polynomial_evaluations.len());
 
     for (i, &[c0, c2]) in sumcheck.polynomial_evaluations.iter().enumerate() {
@@ -321,5 +329,32 @@ mod tests {
             randomness, expected_randomness,
             "Mismatch in full MultilinearPoint folding randomness"
         );
+    }
+
+    #[test]
+    fn test_verify_sumcheck_rounds_pow_witness_len_mismatch() {
+        let mut rng = SmallRng::seed_from_u64(11);
+        let perm = Perm::new_from_rng_128(&mut rng);
+        let mut challenger = MyChallenger::new(perm);
+
+        // One round polynomial but zero PoW witnesses.
+        let mut sumcheck: SumcheckData<F, EF> = SumcheckData::default();
+        sumcheck
+            .polynomial_evaluations
+            .push([EF::from_u64(3), EF::from_u64(7)]);
+
+        let mut claimed_sum = EF::from_u64(10);
+        let err = verify_sumcheck_rounds(&sumcheck, &mut challenger, &mut claimed_sum, 1)
+            .expect_err("expected witness-length mismatch");
+
+        match err {
+            VerifierError::SumcheckFailed {
+                expected, actual, ..
+            } => {
+                assert_eq!(expected, "1 PoW witnesses");
+                assert_eq!(actual, "0 PoW witnesses");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }
