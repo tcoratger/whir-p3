@@ -118,5 +118,9 @@ name = "sumcheck_svo"
 harness = false
 
 [[bench]]
+name = "sumcheck_compare"
+harness = false
+
+[[bench]]
 name = "stir_queries"
 harness = false
